@@ -224,8 +224,11 @@ local function MakeBar(unit)
     f.name:SetPoint("LEFT", 4, 0); f.name:SetJustifyH("LEFT")
     f.time = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.time:SetPoint("RIGHT", -4, 0); f.time:SetJustifyH("RIGHT")
-    f.target = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.target:SetPoint("CENTER", 0, 0); f.target:SetJustifyH("CENTER")
+    -- Under the bar rather than inside it, the same way a nameplate puts the unit's target
+    -- under its health bar. Sharing the bar with the spell name and the timer left three
+    -- things competing for one row, and a long target name ran into both.
+    f.target = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.target:SetPoint("TOP", f, "BOTTOM", 0, -2); f.target:SetJustifyH("CENTER")
     f.target:SetTextColor(1, 0.9, 0.6)
     ApplyFonts(f)
 

@@ -90,6 +90,14 @@ globals each file touches. A helper of your own in that list is the bug.
 - **No focus unit.** Detect it rather than assuming; `FocusFrame` is a usable signal.
 - **`WorldMapFrame` cannot simply be dragged.** It is a managed UI panel: the panel system
   anchors it and re-anchors it on every show. Detaching it was attempted and abandoned.
+- **Scaling `WorldMapFrame` breaks its cursor maths.** `ScrollContainer:GetCursorPosition`
+  divides by the container's own scale, which stops agreeing with the canvas once the frame is
+  scaled: the zone highlight lands on a different zone from the one under the pointer, and
+  clicks follow it. The fix is to divide by `WorldMapFrame:GetEffectiveScale()` instead.
+  Mapster carries the same correction, and notes that it deliberately does not call through to
+  the original - two addons both fixing this by hooking would apply it twice, so this is one
+  of the few places where replacing a method beats `hooksecurefunc`. The original is put back
+  at scale 1, where the two scales agree.
 
 ## Conventions other addons rely on
 

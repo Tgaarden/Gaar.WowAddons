@@ -47,9 +47,37 @@ local Map = _G.WorldMapFrame
 -- ---------------------------------------------------------------------------
 -- Position and scale
 -- ---------------------------------------------------------------------------
+-- Blizzard works the map cursor out against the scroll container's own scale, which stops
+-- agreeing with the canvas once the frame itself is scaled. The zone highlight then lands on a
+-- different zone from the one under the pointer, and clicks go with it.
+--
+-- Mapster carries the same correction and notes why it does not call through to the original:
+-- two addons both fixing this by hooking would apply the correction twice. So this replaces
+-- the method outright while a scale is in force, and puts the original back at 1, where the
+-- two scales agree and there is nothing to correct.
+local originalGetCursorPosition
+
+local function ApplyCursorFix()
+    local sc = Map and Map.ScrollContainer
+    if not sc then return end
+    if not originalGetCursorPosition then originalGetCursorPosition = sc.GetCursorPosition end
+
+    if (DB().scale or 1) == 1 then
+        sc.GetCursorPosition = originalGetCursorPosition
+        return
+    end
+
+    sc.GetCursorPosition = function()
+        local x, y = GetCursorPosition()
+        local s = Map:GetEffectiveScale()
+        return x / s, y / s
+    end
+end
+
 local function ApplyScale()
     if not Map then return end
     Map:SetScale(DB().scale or 1)
+    ApplyCursorFix()
 end
 
 local function ResetLayout()

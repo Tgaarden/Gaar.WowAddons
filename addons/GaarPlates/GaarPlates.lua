@@ -13,7 +13,7 @@
   Features:
     * Flat health bar with dark backdrop and a 1px border.
     * Colour by reaction, by class (players), by health percent, or solid; execute tint low.
-    * Name above the bar, level top-right, health text (off / percent / current).
+    * Name above the bar, level off the bar's right edge, health text (off / percent / current).
     * Cast bar with spell icon and name, its own backdrop and border.
     * Per-plate threat colouring (purple = you hold aggro, amber = high) and threat percent.
     * Your own debuffs on the plate, with stacks and a countdown.
@@ -124,7 +124,9 @@ local function BuildOverlay(plate)
     o.hi = hi
 
     o.name  = h:CreateFontString(nil, "OVERLAY"); o.name:SetPoint("BOTTOM", h, "TOP", 0, 2)
-    o.level = h:CreateFontString(nil, "OVERLAY"); o.level:SetPoint("BOTTOMRIGHT", h, "TOPRIGHT", 0, 2)
+    -- Level sits outside the bar's right edge rather than on the name row: a long mob name
+    -- runs the full width of the plate and the two ran into each other there.
+    o.level = h:CreateFontString(nil, "OVERLAY"); o.level:SetPoint("LEFT", h, "RIGHT", 3, 0)
     o.htext = h:CreateFontString(nil, "OVERLAY"); o.htext:SetPoint("CENTER", h, "CENTER", 0, 0)
     o.ttext = h:CreateFontString(nil, "OVERLAY"); o.ttext:SetPoint("RIGHT", h, "RIGHT", -2, 0)
 

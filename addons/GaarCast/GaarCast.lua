@@ -139,10 +139,17 @@ local function ApplyAnchor(f)
     local blizz = BlizzBar(unit)
     local fb = FALLBACK[unit]
 
+    -- Blizzard's own geometry is borrowed, but only when it is plausibly a cast bar. The
+    -- frame can report the size of a wide container, or a size it has not been laid out to
+    -- yet, and copying that gave a bar stretched across most of the screen.
+    local w, h = nil, nil
+    if blizz then w, h = blizz:GetWidth(), blizz:GetHeight() end
+    local sane = w and h and w >= 80 and w <= 400 and h >= 6 and h <= 40
+
     if size then
         f:SetSize(size.w, size.h)
-    elseif blizz and blizz:GetWidth() > 1 then
-        f:SetSize(blizz:GetWidth(), blizz:GetHeight())
+    elseif sane then
+        f:SetSize(w, h)
     else
         f:SetSize(fb[4], fb[5])
     end

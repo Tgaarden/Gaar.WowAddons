@@ -13,7 +13,8 @@
   Features:
     * Flat health bar with dark backdrop and a 1px border.
     * Colour by reaction, by class (players), by health percent, or solid; execute tint low.
-    * Name above the bar, level off the bar's right edge, health text (off / percent / current).
+    * Name above the bar, level off the bar's right edge, health text (off / percent / current),
+      then the unit's target, then its debuffs.
     * Cast bar with spell icon and name, its own backdrop and border.
     * Per-plate threat colouring (purple = you hold aggro, amber = high) and threat percent.
     * Your own debuffs on the plate, with stacks and a countdown.
@@ -83,7 +84,11 @@ local function SetFonts(o)
     o.level:SetFont(STANDARD_TEXT_FONT, ns - 2, "OUTLINE")
     o.htext:SetFont(STANDARD_TEXT_FONT, hs, "OUTLINE")
     o.ttext:SetFont(STANDARD_TEXT_FONT, hs, "OUTLINE")
-    o.tot:SetFont(STANDARD_TEXT_FONT, math.max(7, ns - 3), "OUTLINE")
+    local ts = math.max(7, ns - 3)
+    o.tot:SetFont(STANDARD_TEXT_FONT, ts, "OUTLINE")
+    -- The aura row hangs off this line, so it is given a fixed height. Left to size itself it
+    -- would collapse to nothing whenever the unit has no target, and the icons would jump.
+    o.tot:SetHeight(ts + 2)
     o.cast.text:SetFont(STANDARD_TEXT_FONT, math.max(8, DB().castHeight), "OUTLINE")
 end
 
@@ -146,7 +151,6 @@ local function BuildOverlay(plate)
     o.cast = c
 
     o.auraRow = CreateFrame("Frame", nil, f)
-    o.auraRow:SetPoint("TOP", h, "BOTTOM", 0, -2)
     o.auraIcons = {}
     for i = 1, AURA_N do
         local ic = CreateFrame("Frame", nil, o.auraRow)
@@ -163,7 +167,10 @@ local function BuildOverlay(plate)
         o.auraIcons[i] = ic
     end
 
-    o.tot = h:CreateFontString(nil, "OVERLAY"); o.tot:SetPoint("TOP", o.auraRow, "BOTTOM", 0, -1)
+    -- Target first, then the auras under it. The target line belongs with the bar it describes,
+    -- and the icons read better as a block at the bottom than wedged between the two.
+    o.tot = h:CreateFontString(nil, "OVERLAY"); o.tot:SetPoint("TOP", h, "BOTTOM", 0, -1)
+    o.auraRow:SetPoint("TOP", o.tot, "BOTTOM", 0, -2)
 
     ApplySize(o); SetFonts(o)
     overlays[plate] = o

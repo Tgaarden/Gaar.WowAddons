@@ -131,17 +131,26 @@ local function InventoryIDFor(bag)
 end
 
 -- The modern call hands back a table; the old one returned plain values.
-local function IsQuestItem(bag, slot)
+-- Returns: is this quest-related at all, and does it start a quest you have not picked up.
+-- The two are different things, and Blizzard's own bag draws them differently: the "!" means
+-- "right-click this to begin a quest", while an item that is merely an objective of a quest
+-- gets a border and no bang. Treating every quest-related item as a bang put exclamation
+-- marks on ordinary quest meat and made the symbol meaningless.
+local function QuestInfo(bag, slot)
+    local isQuest, questID, isActive
     if CC and CC.GetContainerItemQuestInfo then
         local q = CC.GetContainerItemQuestInfo(bag, slot)
-        if type(q) == "table" then return q.isQuestItem or q.questID ~= nil end
-        return q and true or false
+        if type(q) == "table" then
+            isQuest, questID, isActive = q.isQuestItem, q.questID, q.isActive
+        else
+            isQuest = q
+        end
+    elseif GetContainerItemQuestInfo then
+        isQuest, questID, isActive = GetContainerItemQuestInfo(bag, slot)
     end
-    if GetContainerItemQuestInfo then
-        local isQuest, questId = GetContainerItemQuestInfo(bag, slot)
-        return (isQuest or questId) and true or false
-    end
-    return false
+    local related = (isQuest or questID) and true or false
+    local starts = (questID ~= nil and not isActive) and true or false
+    return related, starts
 end
 
 -- Declared up here because the Pawn bridge and the snapshot driver below both reach for them
@@ -994,8 +1003,9 @@ local function UpdateButton(bag, slot)
         b._upArrow:Hide()
     end
 
-    local isQuest = tex and IsQuestItem(bag, slot)
-    if isQuest then
+    local isQuest, startsQuest = false, false
+    if tex then isQuest, startsQuest = QuestInfo(bag, slot) end
+    if startsQuest then
         if not b._questMark then
             local q = b:CreateTexture(nil, "OVERLAY")
             q:SetTexture("Interface\\ContainerFrame\\UI-Icon-QuestBang")

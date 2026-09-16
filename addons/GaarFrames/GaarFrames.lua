@@ -3,7 +3,8 @@
   FrameStyle (WotLK 3.3.5a) to WoW Classic Era.
 
     * Class-coloured health bars for player units; NPCs keep Blizzard's reaction colour.
-    * Bigger outlined text with a percent on every health and power bar ("cur/max  NN%").
+    * Bigger outlined text with a percent on every health and power bar ("cur/max  NN%"),
+      sized to the bar it sits in and falling back to the percent alone where that will not fit.
     * Low-health colouring (orange under 35%, red under 20%) overriding the class colour.
     * A black see-through backing panel hugging each frame's bars and name, plus a dark disc
       behind the portrait.
@@ -218,15 +219,35 @@ local function Short(n)
     return tostring(n)
 end
 
+-- One size cannot suit every bar. The pet and party bars are a fraction of the height of the
+-- player's, and the power bar is thinner again than the health bar above it, so the configured
+-- size is treated as a ceiling and each bar takes the largest that actually fits inside it.
+-- That is why the pet's mana text ends up the smallest on screen.
+local function FitSize(bar)
+    local want = DB().fontSize
+    local h = bar:GetHeight() or 0
+    if h > 0 then
+        local fit = math.floor(h) - 2   -- the OUTLINE costs a pixel on each side
+        if fit < want then want = fit end
+    end
+    return math.max(7, want)
+end
+
 local function BarText(bar)
     if not bar then return nil end
     if not bar._gaarText then
         local fs = bar:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(STANDARD_TEXT_FONT, DB().fontSize, "OUTLINE")
         fs:SetPoint("CENTER", bar, "CENTER", 0, 0)
         fs:SetTextColor(1, 1, 1)
         bar._gaarText = fs
         if bar.TextString then bar.TextString:SetAlpha(0) end   -- don't double up with Blizzard's
+    end
+    -- Heights are not final when a frame is first built, so the size is checked on every pass
+    -- rather than once. Re-applying only on a change keeps that off the 0.2s driver's back.
+    local want = FitSize(bar)
+    if bar._gaarSize ~= want then
+        bar._gaarSize = want
+        bar._gaarText:SetFont(STANDARD_TEXT_FONT, want, "OUTLINE")
     end
     return bar._gaarText
 end
@@ -244,6 +265,12 @@ local function UpdateBarText(barName, unit, powerBar)
     if not max or max <= 0 then fs:SetText(""); return end
     local pct = math.floor(cur / max * 100 + 0.5)
     fs:SetText(string.format("%s/%s  %d%%", Short(cur), Short(max), pct))
+    -- A short bar with long numbers spills over both ends and reads worse than no numbers at
+    -- all. Where the full string does not fit, the percent alone does.
+    local room = (bar:GetWidth() or 0) - 4
+    if room > 0 and fs:GetStringWidth() > room then
+        fs:SetText(string.format("%d%%", pct))
+    end
 end
 
 -- Blizzard repaints the health bar its default green on every health change. Re-applying only
@@ -302,7 +329,8 @@ local function SetFontSize(s)
     for _, f in ipairs(FRAMES) do
         for _, bn in ipairs({ f.h, f.m }) do
             local bar = _G[bn]
-            if bar and bar._gaarText then bar._gaarText:SetFont(STANDARD_TEXT_FONT, s, "OUTLINE") end
+            -- clearing the cached size is enough: the next pass refits it against the bar
+            if bar then bar._gaarSize = nil end
         end
     end
 end

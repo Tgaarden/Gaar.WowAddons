@@ -166,7 +166,6 @@ end
 -- date() is local time; GetGameTime() is the server's. Both are shown - local on the bar,
 -- server in the tooltip - because on a realm in another timezone people want each at
 -- different moments.
-local WHITE = "Interface\\Buttons\\WHITE8x8"
 local clockBar
 
 -- Which tracking API answers depends on the client version, so all three are tried in turn.
@@ -210,31 +209,46 @@ end
 local function BuildClockBar(mm)
     if clockBar then return clockBar end
 
-    local f = CreateFrame("Frame", "GaarMinimapClock", mm, "BackdropTemplate")
-    f:SetPoint("TOPLEFT", mm, "BOTTOMLEFT", 0, -3)
-    f:SetPoint("TOPRIGHT", mm, "BOTTOMRIGHT", 0, -3)
-    f:SetHeight(16)
+    local f = CreateFrame("Frame", "GaarMinimapClock", mm)
+    -- A little wider than the map and set further down: flush against the map with a hard
+    -- border it read as a second box rather than something belonging to the map.
+    f:SetPoint("TOPLEFT", mm, "BOTTOMLEFT", -4, -7)
+    f:SetPoint("TOPRIGHT", mm, "BOTTOMRIGHT", 4, -7)
+    f:SetHeight(13)
 
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.55)
-    f:SetBackdrop({ edgeFile = WHITE, edgeSize = 1 })
-    f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+    -- Two halves, each tapering to nothing at its outer end. Fading the strip out at the sides
+    -- is what stops it reading as a slab; a border round it did the opposite. The gradient is
+    -- guarded because its signature has changed between client versions - where the call does
+    -- not take, a flat fill stands in and the strip is merely square-ended.
+    local FADE = 0.5
+    local function half(outerEdge, leftAlpha, rightAlpha)
+        local tex = f:CreateTexture(nil, "BACKGROUND")
+        tex:SetPoint("TOP" .. outerEdge); tex:SetPoint("BOTTOM" .. outerEdge)
+        tex:SetPoint(outerEdge == "LEFT" and "RIGHT" or "LEFT", f, "CENTER", 0, 0)
+        tex:SetColorTexture(1, 1, 1, 1)
+        local ok = _G.CreateColor and pcall(function()
+            tex:SetGradient("HORIZONTAL",
+                _G.CreateColor(0, 0, 0, leftAlpha), _G.CreateColor(0, 0, 0, rightAlpha))
+        end)
+        if not ok then tex:SetColorTexture(0, 0, 0, FADE) end
+    end
+    half("LEFT", 0, FADE)    -- transparent at the outer edge, solid at the middle
+    half("RIGHT", FADE, 0)
 
-    -- Tracking on the left, because it is the thing you glance at to confirm; the clock on the
-    -- right, where its width does not shift the icon about as the digits change.
+    -- The clock is centred, with the tracking icon tucked against its left so the two read as
+    -- one group in the middle rather than drifting to opposite ends of the strip.
+    local t = f:CreateFontString(nil, "OVERLAY")
+    t:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+    t:SetPoint("CENTER", f, "CENTER", 0, 0)
+    t:SetTextColor(0.92, 0.92, 0.92)
+    f.time = t
+
     local track = f:CreateTexture(nil, "ARTWORK")
-    track:SetSize(12, 12)
-    track:SetPoint("LEFT", f, "LEFT", 3, 0)
+    track:SetSize(11, 11)
+    track:SetPoint("RIGHT", t, "LEFT", -4, 0)
     track:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     track:Hide()
     f.track = track
-
-    local t = f:CreateFontString(nil, "OVERLAY")
-    t:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-    t:SetPoint("RIGHT", f, "RIGHT", -4, 0)
-    t:SetTextColor(0.92, 0.92, 0.92)
-    f.time = t
 
     f:EnableMouse(true)
     f:SetScript("OnEnter", function(self)

@@ -1,0 +1,11 @@
+## Interface: 11509
+## Title: Gaar |cFF33FF99[Cooldown Count]|r
+## Notes: Cooldown count text on action buttons, items and any cooldown swipe. /gaarcc for options.
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarCC\icon.tga
+## Version: 1.0
+## SavedVariables: GaarCCDB
+
+GaarCC.lua

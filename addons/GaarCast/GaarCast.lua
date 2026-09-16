@@ -116,11 +116,18 @@ local function SetSizeBounds(f, minW, minH, maxW, maxH)
     elseif f.SetMinResize then f:SetMinResize(minW, minH); f:SetMaxResize(maxW, maxH) end
 end
 
+-- Steel for a cast nothing can interrupt, the suite's usual grey otherwise. Colour carries
+-- what the shield art used to, without adding a second frame around the icon.
+local function SetIconBorder(f, uninterruptible)
+    if not f.iconBorder then return end
+    if uninterruptible then f.iconBorder:SetBackdropBorderColor(0.85, 0.87, 0.95, 1)
+    else f.iconBorder:SetBackdropBorderColor(0.35, 0.37, 0.42, 1) end
+end
+
 local function ApplyCastSize(f)
     local h = f:GetHeight()
     local isz = math.max(6, h - 4)
     f.icon:SetSize(isz, isz)
-    if f.shield then f.shield:SetSize(isz * 1.6, isz * 1.6) end
     if f.spark then f.spark:SetHeight(h * 2) end
 end
 
@@ -184,6 +191,15 @@ local function MakeBar(unit)
     f.icon:SetPoint("RIGHT", f, "LEFT", -2, 0)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
+    -- The icon had no edge of its own, so the only thing framing it was Blizzard's shield art
+    -- on uninterruptible casts - an ornate gold plate half again the icon's size, which is not
+    -- what the rest of this suite looks like. A 1px edge instead, recoloured to carry the same
+    -- meaning.
+    f.iconBorder = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    f.iconBorder:SetPoint("TOPLEFT", f.icon, "TOPLEFT", -1, 1)
+    f.iconBorder:SetPoint("BOTTOMRIGHT", f.icon, "BOTTOMRIGHT", 1, -1)
+    f.iconBorder:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 2, -2); f.bar:SetPoint("BOTTOMRIGHT", -2, 2)
     f.bar:SetStatusBarTexture(DB().texture)
@@ -201,10 +217,6 @@ local function MakeBar(unit)
     f.spark:SetWidth(18)
     f.spark:Hide()
 
-    f.shield = f:CreateTexture(nil, "OVERLAY")
-    f.shield:SetTexture("Interface\\CastingBar\\UI-CastingBar-Small-Shield")
-    f.shield:SetPoint("CENTER", f.icon, "CENTER", 0, 0)
-    f.shield:Hide()
 
     f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.name:SetPoint("LEFT", 4, 0); f.name:SetJustifyH("LEFT")
@@ -252,7 +264,7 @@ local function StartCast(f)
     if notInt then f.bar:SetStatusBarColor(0.6, 0.6, 0.6)
     elseif channel then f.bar:SetStatusBarColor(0.2, 0.75, 0.3)
     else f.bar:SetStatusBarColor(1.0, 0.75, 0.1) end
-    if DB().shield and notInt then f.shield:Show() else f.shield:Hide() end
+    SetIconBorder(f, DB().shield and notInt)
     local tn = DB().showTarget and CastTargetName(f.unit)
     f.target:SetText(tn and ("-> " .. tn) or "")
     -- Latency safe-zone: the last <lag> ms of the cast. The fraction is worked out here but the
@@ -338,7 +350,7 @@ local function StartTestCast(f)
     f.bar:SetStatusBarTexture(DB().texture)
     f.icon:SetTexture("Interface\\Icons\\Spell_Fire_FlameBolt")
     f.name:SetText("Test: " .. (TEST_LABEL[f.unit] or f.unit)); f.bar:SetStatusBarColor(1, 0.75, 0.1)
-    f.shield:Hide()
+    SetIconBorder(f, false)
     f.target:SetText(DB().showTarget and "-> Target" or "")
     f:Show()
 end
@@ -474,7 +486,7 @@ function GaarCast_BuildOptions(container)
         { "Spark at cast edge", "spark" },
         { "Show total cast time", "showTotal" },
         { "Show cast target name", "showTarget" },
-        { "Interrupt shield icon", "shield" },
+        { "Mark uninterruptible casts", "shield" },
         { "Fade out on finish", "fade" },
     }
     for _, o in ipairs(opts) do

@@ -156,35 +156,132 @@ local function ApplySquareSize()
     if math.abs((mm:GetWidth() or 0) - want) > 0.5 then mm:SetSize(want, want) end
 end
 
--- The clock is a load-on-demand addon, so it is not there until asked for. Its own art is a
--- round plate meant for the bottom of a round minimap, which is stripped here - the text is
--- what is wanted, sitting under the square.
+-- Clock and tracking strip
+--
+-- Blizzard's own clock is a load-on-demand addon wearing a round plate meant for the bottom
+-- of a round minimap, and its 24-hour setting lives behind a CVar whose name varies. Drawing
+-- the text here instead costs the alarm and stopwatch menu, and buys a format that is simply
+-- correct, a backdrop that matches the square, and room for the tracking icon beside it.
+--
+-- date() is local time; GetGameTime() is the server's. Both are shown - local on the bar,
+-- server in the tooltip - because on a realm in another timezone people want each at
+-- different moments.
+local WHITE = "Interface\\Buttons\\WHITE8x8"
+local clockBar
+
+-- Which tracking API answers depends on the client version, so all three are tried in turn.
+-- Returning nothing is a real answer here: it means nothing is being tracked.
+local function ActiveTracking()
+    local C = _G.C_Minimap
+    if C and C.GetNumTrackingTypes and C.GetTrackingInfo then
+        for i = 1, (C.GetNumTrackingTypes() or 0) do
+            local name, texture, active = C.GetTrackingInfo(i)
+            if active then return texture, name end
+        end
+        return nil
+    end
+    if _G.GetNumTrackingTypes and _G.GetTrackingInfo then
+        for i = 1, (_G.GetNumTrackingTypes() or 0) do
+            local name, texture, active = _G.GetTrackingInfo(i)
+            if active then return texture, name end
+        end
+        return nil
+    end
+    if _G.GetTrackingTexture then return _G.GetTrackingTexture() end
+end
+
+local function RefreshTracking()
+    if not clockBar then return end
+    local texture, name = ActiveTracking()
+    clockBar.trackName = name
+    if texture then
+        clockBar.track:SetTexture(texture)
+        clockBar.track:Show()
+    else
+        clockBar.track:Hide()
+    end
+end
+
+local function RefreshClock()
+    if not clockBar then return end
+    clockBar.time:SetText(date("%H:%M"))
+end
+
+local function BuildClockBar(mm)
+    if clockBar then return clockBar end
+
+    local f = CreateFrame("Frame", "GaarMinimapClock", mm, "BackdropTemplate")
+    f:SetPoint("TOPLEFT", mm, "BOTTOMLEFT", 0, -3)
+    f:SetPoint("TOPRIGHT", mm, "BOTTOMRIGHT", 0, -3)
+    f:SetHeight(16)
+
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0, 0, 0, 0.55)
+    f:SetBackdrop({ edgeFile = WHITE, edgeSize = 1 })
+    f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+
+    -- Tracking on the left, because it is the thing you glance at to confirm; the clock on the
+    -- right, where its width does not shift the icon about as the digits change.
+    local track = f:CreateTexture(nil, "ARTWORK")
+    track:SetSize(12, 12)
+    track:SetPoint("LEFT", f, "LEFT", 3, 0)
+    track:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    track:Hide()
+    f.track = track
+
+    local t = f:CreateFontString(nil, "OVERLAY")
+    t:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+    t:SetPoint("RIGHT", f, "RIGHT", -4, 0)
+    t:SetTextColor(0.92, 0.92, 0.92)
+    f.time = t
+
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("Local " .. date("%H:%M:%S"), 1, 1, 1)
+        local h, m = GetGameTime()
+        if h then GameTooltip:AddLine(string.format("Server %02d:%02d", h, m), 0.7, 0.7, 0.7) end
+        if self.trackName then GameTooltip:AddLine("Tracking: " .. self.trackName, 0.4, 0.9, 0.4) end
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Once a second is plenty for a display that only shows minutes.
+    local since = 0
+    f:SetScript("OnUpdate", function(_, elapsed)
+        since = since + elapsed
+        if since < 1 then return end
+        since = 0
+        RefreshClock()
+    end)
+
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+    ev:SetScript("OnEvent", RefreshTracking)
+
+    clockBar = f
+    return f
+end
+
 local function ApplyClock()
     local mm = _G.Minimap
     if not mm then return end
 
-    local btn = _G.TimeManagerClockButton
-    if not btn and DB().showClock then
-        if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_TimeManager")
-        elseif _G.LoadAddOn then pcall(_G.LoadAddOn, "Blizzard_TimeManager") end
-        btn = _G.TimeManagerClockButton
-    end
-    if not btn then return end
-
-    if not DB().showClock then btn:Hide(); return end
-
-    if not btn._gaarStripped then
-        btn._gaarStripped = true
-        for _, r in ipairs({ btn:GetRegions() }) do
-            if r.GetObjectType and r:GetObjectType() == "Texture" then r:SetTexture(nil) end
-        end
+    if not DB().showClock then
+        if clockBar then clockBar:Hide() end
+        return
     end
 
-    btn:SetParent(mm)
-    btn:ClearAllPoints()
-    btn:SetPoint("TOP", mm, "BOTTOM", 0, -3)
-    btn:SetFrameStrata(mm:GetFrameStrata())
-    btn:Show()
+    -- Blizzard's clock, if some other addon or the options panel has pulled it in, would sit
+    -- on top of this one saying the same thing in a different format.
+    local blizz = _G.TimeManagerClockButton
+    if blizz then blizz:Hide() end
+
+    BuildClockBar(mm)
+    RefreshClock()
+    RefreshTracking()
+    clockBar:Show()
 end
 
 local function ApplyMinimapShape()
@@ -376,7 +473,7 @@ function GaarMap_BuildOptions(container)
         if v then DB().squareSize = 0 end
         ApplyMinimapShape()
     end)
-    check("Clock under the minimap", function() return DB().showClock end, function(v)
+    check("Clock and tracking under the minimap", function() return DB().showClock end, function(v)
         DB().showClock = v
         ApplyClock()
     end)
@@ -399,7 +496,7 @@ function GaarMap_BuildOptions(container)
 
     local mmHint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     mmHint:SetPoint("TOPLEFT", 18, y); mmHint:SetWidth(340); mmHint:SetJustifyH("LEFT")
-    mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle. Auto size measures the zone bar above the map and matches it, so the square reaches the same edges. /gaarmap mmdebug prints the frames it found and their sizes.")
+    mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle. Auto size measures the zone bar above the map and matches it, so the square reaches the same edges. /gaarmap mmdebug prints the frames it found and their sizes. The strip under the map shows the clock in 24-hour local time and the icon of whatever you are tracking; hover it for server time and the tracking's name.")
     y = y - 58
 
     container.gaarRefresh = function() for _, fn in ipairs(refreshers) do fn() end end

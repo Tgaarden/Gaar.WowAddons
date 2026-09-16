@@ -31,6 +31,9 @@ local function DB()
     if d.moveAlpha == nil then d.moveAlpha = 0.35 end   -- alpha while running
     if d.squareMinimap == nil then d.squareMinimap = true end
     if d.hideZoomButtons == nil then d.hideZoomButtons = true end
+    if d.fillWidth == nil then d.fillWidth = true end   -- square matches the zone bar's width
+    if d.squareSize == nil then d.squareSize = 0 end    -- 0 = take it from the zone bar
+    if d.showClock == nil then d.showClock = true end
     if d.locked == nil then d.locked = false end
     return d
 end
@@ -118,6 +121,72 @@ local function HideIfPresent(names)
     end
 end
 
+-- The zone bar and its close button sit above the minimap and are wider than the round map
+-- ever was, which leaves the square looking inset. These are the frames that make up that
+-- header; the widest one that exists decides how wide the square should be. Which of them
+-- exist varies by client version, hence the lookup by name rather than a fixed reference.
+local HEADER_FRAMES = { "MinimapZoneTextButton", "MinimapBorderTop", "MinimapZoneText" }
+
+local function HeaderWidth()
+    local best = 0
+    for _, n in ipairs(HEADER_FRAMES) do
+        local f = _G[n]
+        if f and f.GetWidth then
+            local w = f:GetWidth() or 0
+            if w > best then best = w end
+        end
+    end
+    return best
+end
+
+local function ApplySquareSize()
+    local mm = _G.Minimap
+    if not mm then return end
+
+    local want = DB().squareSize
+    if not want or want <= 0 then
+        if not DB().fillWidth then return end
+        want = HeaderWidth()
+        -- A header that reports something implausible is a sign the name guess was wrong.
+        -- Leaving the size alone beats resizing the minimap to nonsense.
+        if want < 80 or want > 400 then return end
+    end
+
+    if not mm._gaarBaseSize then mm._gaarBaseSize = mm:GetWidth() end
+    if math.abs((mm:GetWidth() or 0) - want) > 0.5 then mm:SetSize(want, want) end
+end
+
+-- The clock is a load-on-demand addon, so it is not there until asked for. Its own art is a
+-- round plate meant for the bottom of a round minimap, which is stripped here - the text is
+-- what is wanted, sitting under the square.
+local function ApplyClock()
+    local mm = _G.Minimap
+    if not mm then return end
+
+    local btn = _G.TimeManagerClockButton
+    if not btn and DB().showClock then
+        if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_TimeManager")
+        elseif _G.LoadAddOn then pcall(_G.LoadAddOn, "Blizzard_TimeManager") end
+        btn = _G.TimeManagerClockButton
+    end
+    if not btn then return end
+
+    if not DB().showClock then btn:Hide(); return end
+
+    if not btn._gaarStripped then
+        btn._gaarStripped = true
+        for _, r in ipairs({ btn:GetRegions() }) do
+            if r.GetObjectType and r:GetObjectType() == "Texture" then r:SetTexture(nil) end
+        end
+    end
+
+    btn:SetParent(mm)
+    btn:ClearAllPoints()
+    btn:SetPoint("TOP", mm, "BOTTOM", 0, -3)
+    btn:SetFrameStrata(mm:GetFrameStrata())
+    btn:Show()
+end
+
 local function ApplyMinimapShape()
     local mm = _G.Minimap
     if not mm then return end
@@ -160,6 +229,9 @@ local function ApplyMinimapShape()
         mm._gaarBorder = b
     end
     mm._gaarBorder:Show()
+
+    ApplySquareSize()
+    ApplyClock()
 
     squared = true
 
@@ -299,9 +371,35 @@ function GaarMap_BuildOptions(container)
     end)
     y = y - 6
 
+    check("Widen the square to the zone bar", function() return DB().fillWidth end, function(v)
+        DB().fillWidth = v
+        if v then DB().squareSize = 0 end
+        ApplyMinimapShape()
+    end)
+    check("Clock under the minimap", function() return DB().showClock end, function(v)
+        DB().showClock = v
+        ApplyClock()
+    end)
+    y = y - 10
+
+    local sizeLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    sizeLabel:SetPoint("TOPLEFT", 18, y); sizeLabel:SetText("Size:")
+    local sx = 130
+    for _, sz in ipairs({ { "Auto", 0 }, { "140", 140 }, { "160", 160 }, { "180", 180 } }) do
+        local b = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+        b:SetSize(52, 20); b:SetPoint("TOPLEFT", sx, y + 4); b:SetText(sz[1])
+        b:SetScript("OnClick", function()
+            DB().squareSize = sz[2]
+            DB().fillWidth = (sz[2] == 0)
+            ApplyMinimapShape()
+        end)
+        sx = sx + 54
+    end
+    y = y - 32
+
     local mmHint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     mmHint:SetPoint("TOPLEFT", 18, y); mmHint:SetWidth(340); mmHint:SetJustifyH("LEFT")
-    mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle.")
+    mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle. Auto size measures the zone bar above the map and matches it, so the square reaches the same edges. /gaarmap mmdebug prints the frames it found and their sizes.")
     y = y - 58
 
     container.gaarRefresh = function() for _, fn in ipairs(refreshers) do fn() end end
@@ -316,7 +414,40 @@ _G.GaarMap_Config = OpenOptions
 
 SLASH_GAARMAP1 = "/gaarmap"
 SLASH_GAARMAP2 = "/gmap"
+-- Which frames make up the minimap header differs between client versions, and guessing at
+-- the names is how this sort of thing quietly does nothing. This prints what is actually
+-- there, with sizes, so a wrong guess can be corrected from what the client reports.
+local function DumpMinimap()
+    print("|cff33ff99" .. ADDON .. "|r minimap frames")
+    for _, parent in ipairs({ "Minimap", "MinimapCluster" }) do
+        local f = _G[parent]
+        if not f then
+            print("  " .. parent .. ": |cffff6666absent|r")
+        else
+            print(string.format("  %s  %.0fx%.0f", parent, f:GetWidth() or 0, f:GetHeight() or 0))
+            for _, child in ipairs({ f:GetChildren() }) do
+                local n = child.GetName and child:GetName()
+                if n then
+                    print(string.format("    %s %s  %.0fx%.0f", child:IsShown() and "|cff40ff40+|r" or "|cff777777-|r",
+                        n, child:GetWidth() or 0, child:GetHeight() or 0))
+                end
+            end
+            for _, r in ipairs({ f:GetRegions() }) do
+                local n = r.GetName and r:GetName()
+                if n then
+                    print(string.format("    %s %s  |cff777777%s|r", r:IsShown() and "|cff40ff40+|r" or "|cff777777-|r",
+                        n, r:GetObjectType()))
+                end
+            end
+        end
+    end
+    print(string.format("  header width: %.0f   clock: %s", HeaderWidth(),
+        _G.TimeManagerClockButton and "present" or "absent"))
+end
+
 SlashCmdList["GAARMAP"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
-    if msg == "reset" then ResetLayout() else OpenOptions() end
+    if msg == "reset" then ResetLayout()
+    elseif msg == "mmdebug" then DumpMinimap()
+    else OpenOptions() end
 end

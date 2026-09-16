@@ -34,7 +34,10 @@ local function DB()
     if d.fillWidth == nil then d.fillWidth = true end   -- square matches the zone bar's width
     if d.squareSize == nil then d.squareSize = 0 end    -- 0 = take it from the zone bar
     if d.showClock == nil then d.showClock = true end
-    if d.headerGap == nil then d.headerGap = 1 end      -- pixels between the zone bar and the map
+    if d.headerGap == nil then d.headerGap = 2 end      -- pixels between the zone bar and the map
+    -- Only even gaps are offered, so an odd one saved before that would match no button and
+    -- leave the panel looking as though nothing were selected.
+    if d.headerGap % 2 ~= 0 then d.headerGap = d.headerGap + 1 end
     if d.locked == nil then d.locked = false end
     return d
 end
@@ -557,11 +560,11 @@ function GaarMap_BuildOptions(container)
     local gapLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     gapLabel:SetPoint("TOPLEFT", 18, y); gapLabel:SetText("Gap under zone bar:")
     local dx = 150
-    for _, gp in ipairs({ { "0", 0 }, { "1", 1 }, { "2", 2 }, { "4", 4 } }) do
+    for gp = 0, 10, 2 do
         local b = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
-        b:SetSize(42, 20); b:SetPoint("TOPLEFT", dx, y + 4); b:SetText(gp[1])
-        b:SetScript("OnClick", function() DB().headerGap = gp[2]; ApplyHeaderGap() end)
-        dx = dx + 44
+        b:SetSize(30, 20); b:SetPoint("TOPLEFT", dx, y + 4); b:SetText(tostring(gp))
+        b:SetScript("OnClick", function() DB().headerGap = gp; ApplyHeaderGap() end)
+        dx = dx + 32
     end
     y = y - 32
 

@@ -18,7 +18,7 @@ of the code.
 | `GaarFrames` | Class-coloured unit frames with value and percent text | `/gaarframes` |
 | `GaarSpellBook` | A searchable spell book window | `/spellbook` |
 | `GaarLooter` | Loot library: every roll, who took part, who won | `/gaarlooter` |
-| `GaarMap` | Scales the world map and fades it while you move | `/gaarmap` |
+| `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 
 ## One switch, eleven standalone addons

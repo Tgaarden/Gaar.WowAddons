@@ -75,6 +75,11 @@ globals each file touches. A helper of your own in that list is the bug.
   why other Classic threat meters divide by 100.
 - **The modern nameplate API**, `C_NamePlate` with real unit tokens per plate.
 - **The modern map frame**, `WorldMapFrame` with `ScrollContainer`, `GetCanvas`, `BorderFrame`.
+- **`Minimap:SetMaskTexture`**, so squaring the minimap is a one-line shape change. The round
+  look that remains afterwards is separate border art - `MinimapBorder`, `MinimapBorderTop`,
+  `MinimapNorthTag` and the per-icon borders - which has to be hidden by name. Hide each one
+  only `if _G[name]`, since which of them exist varies by client version, and there is no
+  supported way to put them back short of a reload.
 
 ## Things that do not
 
@@ -85,6 +90,13 @@ globals each file touches. A helper of your own in that list is the bug.
 - **No focus unit.** Detect it rather than assuming; `FocusFrame` is a usable signal.
 - **`WorldMapFrame` cannot simply be dragged.** It is a managed UI panel: the panel system
   anchors it and re-anchors it on every show. Detaching it was attempted and abandoned.
+
+## Conventions other addons rely on
+
+**`GetMinimapShape()`** is how every minimap-button addon asks what shape the minimap is,
+LibDBIcon included. Change the shape without defining it and their buttons keep tracking a
+circle that is no longer drawn. It is a plain global function returning `"ROUND"` or
+`"SQUARE"`, and it must report the shape actually in force, not the one that is configured.
 
 ## Textures
 

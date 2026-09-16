@@ -29,6 +29,8 @@ local function DB()
     if d.scale == nil then d.scale = 1 end
     if d.fade == nil then d.fade = true end
     if d.moveAlpha == nil then d.moveAlpha = 0.35 end   -- alpha while running
+    if d.squareMinimap == nil then d.squareMinimap = true end
+    if d.hideZoomButtons == nil then d.hideZoomButtons = true end
     if d.locked == nil then d.locked = false end
     return d
 end
@@ -89,6 +91,87 @@ local function BuildGrip()
     grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+
+-- ---------------------------------------------------------------------------
+-- Square minimap
+--
+-- The round shape is a mask texture, so swapping it for a plain white square is all the
+-- shape change takes. The rest is Blizzard's round border art, which has to be hidden or it
+-- keeps drawing a circle over the corners.
+--
+-- Other addons place their minimap buttons by asking GetMinimapShape(), so that function is
+-- defined here. Without it every other addon's button would keep arcing round a circle that
+-- is no longer there.
+-- ---------------------------------------------------------------------------
+local ROUND_ART = {
+    "MinimapBorder", "MinimapBorderTop", "MinimapNorthTag", "MinimapBackdrop",
+    "MiniMapMailBorder", "MiniMapTrackingBorder", "MiniMapWorldBorder",
+}
+local ZOOM_BUTTONS = { "MinimapZoomIn", "MinimapZoomOut" }
+
+local squared = false
+
+local function HideIfPresent(names)
+    for _, n in ipairs(names) do
+        local f = _G[n]
+        if f and f.Hide then f:Hide() end
+    end
+end
+
+local function ApplyMinimapShape()
+    local mm = _G.Minimap
+    if not mm then return end
+
+    if not DB().squareMinimap then
+        -- Undoing this properly needs the original art back, which a reload is the honest way
+        -- to get. Say so rather than half-restoring it.
+        if squared then
+            print("|cff5599ff" .. ADDON .. ":|r square minimap off - reload to restore the round border.")
+        end
+        return
+    end
+
+    if mm.SetMaskTexture then mm:SetMaskTexture("Interface\\Buttons\\WHITE8x8") end
+    HideIfPresent(ROUND_ART)
+    if DB().hideZoomButtons then
+        HideIfPresent(ZOOM_BUTTONS)
+        -- the zoom buttons are gone, so the wheel has to do their job
+        mm:EnableMouseWheel(true)
+        if not mm._gaarWheel then
+            mm._gaarWheel = true
+            mm:SetScript("OnMouseWheel", function(self, delta)
+                local z = self:GetZoom()
+                if delta > 0 then
+                    if z < (self:GetZoomLevels() or 5) - 1 then self:SetZoom(z + 1) end
+                elseif z > 0 then
+                    self:SetZoom(z - 1)
+                end
+            end)
+        end
+    end
+
+    if not mm._gaarBorder then
+        local b = CreateFrame("Frame", nil, mm, "BackdropTemplate")
+        b:SetPoint("TOPLEFT", -1, 1)
+        b:SetPoint("BOTTOMRIGHT", 1, -1)
+        b:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+        b:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+        b:SetFrameLevel(math.max(0, (mm:GetFrameLevel() or 1) - 1))
+        mm._gaarBorder = b
+    end
+    mm._gaarBorder:Show()
+
+    squared = true
+
+    if _G.GaarOptions_PlaceMinimapButton then _G.GaarOptions_PlaceMinimapButton() end
+end
+
+-- Asked by other addons before they place a minimap button. Returning the wrong answer is
+-- worse than returning none, so it only claims SQUARE while the square is actually applied.
+function GetMinimapShape()
+    return squared and "SQUARE" or "ROUND"
+end
+
 -- ---------------------------------------------------------------------------
 -- Fade while moving
 -- ---------------------------------------------------------------------------
@@ -132,6 +215,7 @@ ev:SetScript("OnEvent", function()
     end
     BuildGrip()
     ApplyScale()
+    ApplyMinimapShape()
     -- the map re-anchors itself every time it opens, so the scale is re-applied with it
     Map:HookScript("OnShow", ApplyScale)
 end)
@@ -199,6 +283,25 @@ function GaarMap_BuildOptions(container)
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 18, y); hint:SetWidth(340); hint:SetJustifyH("LEFT")
     hint:SetText("Resize from the grip in the bottom-right corner. It drives scale rather than width and height, so the pins and overlays scale with the map instead of being left behind. Moving the map is not offered: it is one of Blizzard's managed panels, which re-anchors it on every open, and prying it loose was not worth the risk of breaking the map itself.")
+    y = y - 58
+
+    local mmHead = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    mmHead:SetPoint("TOPLEFT", 16, y); mmHead:SetText("Minimap")
+    y = y - 28
+
+    check("Square minimap with a thin border", function() return DB().squareMinimap end, function(v)
+        DB().squareMinimap = v
+        ApplyMinimapShape()
+    end)
+    check("Hide the zoom buttons (use the mouse wheel)", function() return DB().hideZoomButtons end, function(v)
+        DB().hideZoomButtons = v
+        ApplyMinimapShape()
+    end)
+    y = y - 6
+
+    local mmHint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mmHint:SetPoint("TOPLEFT", 18, y); mmHint:SetWidth(340); mmHint:SetJustifyH("LEFT")
+    mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle.")
     y = y - 58
 
     container.gaarRefresh = function() for _, fn in ipairs(refreshers) do fn() end end

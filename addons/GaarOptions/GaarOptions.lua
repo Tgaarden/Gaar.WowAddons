@@ -301,12 +301,32 @@ local minimapButton
 local function PlaceButton()
     if not minimapButton then return end
     local angle = math.rad(DB().minimapAngle)
-    -- 80 sits just outside the minimap art on the default round minimap
-    local radius = 80
+    local cos, sin = math.cos(angle), math.sin(angle)
+    local x, y
+
+    -- GetMinimapShape is the convention every minimap-button addon reads before placing
+    -- itself, and GaarMap defines it when it squares the minimap. Honour it here too, or this
+    -- button would be the one still arcing round a circle that is no longer drawn.
+    local shape = _G.GetMinimapShape and _G.GetMinimapShape() or "ROUND"
+    if shape == "SQUARE" then
+        -- A fixed radius would bury the button inside the corners and float it off the flat
+        -- sides. Stretching the vector until its longest component reaches the edge keeps it
+        -- on the rim the whole way round.
+        local half = ((Minimap and Minimap:GetWidth()) or 140) / 2 + 8
+        local reach = math.max(math.abs(cos), math.abs(sin))
+        if reach < 0.0001 then reach = 1 end
+        x, y = half * cos / reach, half * sin / reach
+    else
+        -- 80 sits just outside the minimap art on the default round minimap
+        x, y = 80 * cos, 80 * sin
+    end
+
     minimapButton:ClearAllPoints()
-    minimapButton:SetPoint("CENTER", Minimap, "CENTER",
-        radius * math.cos(angle), radius * math.sin(angle))
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
 end
+-- GaarMap calls this once it has changed the shape, so the button moves with it rather than
+-- waiting for the next drag.
+_G.GaarOptions_PlaceMinimapButton = PlaceButton
 
 local function BuildMinimapButton()
     if minimapButton or not Minimap then return minimapButton end

@@ -34,7 +34,7 @@ local function DB()
     if d.fillWidth == nil then d.fillWidth = true end   -- square matches the zone bar's width
     if d.squareSize == nil then d.squareSize = 0 end    -- 0 = take it from the zone bar
     if d.showClock == nil then d.showClock = true end
-    if d.clusterDrop == nil then d.clusterDrop = 14 end -- pixels down from the client's own anchor
+    if d.headerGap == nil then d.headerGap = 1 end      -- pixels between the zone bar and the map
     if d.locked == nil then d.locked = false end
     return d
 end
@@ -312,20 +312,35 @@ local function ApplyClock()
     clockBar:Show()
 end
 
--- Moving the whole cluster rather than the map keeps the zone bar, the buttons and the clock
--- together. The original anchor is remembered on first use and only shifted, so whatever the
--- client or another addon set up is preserved.
-local function ApplyClusterOffset()
-    local mc = _G.MinimapCluster
-    if not mc then return end
-    if not mc._gaarBase then
-        local point, rel, relPoint, x, y = mc:GetPoint()
-        if not point then return end
-        mc._gaarBase = { point, rel or _G.UIParent, relPoint, x or 0, y or 0 }
+-- The zone bar sits directly on top of the map with no seam between them. Hanging the map off
+-- the bar's bottom edge puts a controlled gap there instead. The map alone moves: shifting the
+-- whole cluster took the bar and the buttons with it, which was not the point.
+local function ApplyHeaderGap()
+    local mm = _G.Minimap
+    if not mm then return end
+
+    local header
+    for _, n in ipairs(HEADER_FRAMES) do
+        local f = _G[n]
+        if f and f.GetHeight and (f:GetHeight() or 0) > 0 then header = f; break end
     end
-    local b = mc._gaarBase
-    mc:ClearAllPoints()
-    mc:SetPoint(b[1], b[2], b[3], b[4], b[5] - (DB().clusterDrop or 0))
+    if not header then return end
+
+    -- Some versions anchor the header to the minimap rather than the other way round, and
+    -- anchoring back would close a loop the client refuses. Keep the original point so a
+    -- refusal leaves the map where it was instead of unanchored in a corner.
+    if not mm._gaarBasePoint then
+        local point, rel, relPoint, x, y = mm:GetPoint()
+        if point then mm._gaarBasePoint = { point, rel, relPoint, x or 0, y or 0 } end
+    end
+
+    mm:ClearAllPoints()
+    local ok = pcall(mm.SetPoint, mm, "TOP", header, "BOTTOM", 0, -(DB().headerGap or 1))
+    if not ok then
+        local b = mm._gaarBasePoint
+        if b then mm:SetPoint(b[1], b[2], b[3], b[4], b[5]) end
+        print("|cff5599ff" .. ADDON .. ":|r cannot hang the map off the zone bar - it is anchored to the map.")
+    end
 end
 
 local function ApplyMinimapShape()
@@ -372,7 +387,7 @@ local function ApplyMinimapShape()
     mm._gaarBorder:Show()
 
     ApplySquareSize()
-    ApplyClusterOffset()
+    ApplyHeaderGap()
     ApplyClock()
 
     squared = true
@@ -539,14 +554,14 @@ function GaarMap_BuildOptions(container)
     end
     y = y - 32
 
-    local dropLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    dropLabel:SetPoint("TOPLEFT", 18, y); dropLabel:SetText("Nudge down:")
-    local dx = 130
-    for _, dp in ipairs({ { "0", 0 }, { "14", 14 }, { "28", 28 }, { "42", 42 } }) do
+    local gapLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    gapLabel:SetPoint("TOPLEFT", 18, y); gapLabel:SetText("Gap under zone bar:")
+    local dx = 150
+    for _, gp in ipairs({ { "0", 0 }, { "1", 1 }, { "2", 2 }, { "4", 4 } }) do
         local b = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
-        b:SetSize(52, 20); b:SetPoint("TOPLEFT", dx, y + 4); b:SetText(dp[1])
-        b:SetScript("OnClick", function() DB().clusterDrop = dp[2]; ApplyClusterOffset() end)
-        dx = dx + 54
+        b:SetSize(42, 20); b:SetPoint("TOPLEFT", dx, y + 4); b:SetText(gp[1])
+        b:SetScript("OnClick", function() DB().headerGap = gp[2]; ApplyHeaderGap() end)
+        dx = dx + 44
     end
     y = y - 32
 

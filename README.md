@@ -19,6 +19,18 @@ of the code.
 | `GaarSpellBook` | A searchable spell book window | `/spellbook` |
 | `GaarLooter` | Loot library: every roll, who took part, who won | `/gaarlooter` |
 | `GaarMap` | Scales the world map and fades it while you move | `/gaarmap` |
+| `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
+
+## One switch, eleven standalone addons
+
+`GaarUI` carries no features. Its TOC lists every module under `## Dependencies`, so ticking
+that one entry in the AddOns list brings the whole suite up, and `/gaarui` reports what
+actually loaded and at which version.
+
+Each module is still its own addon and runs alone. That is why they are separate folders
+rather than files inside one addon: you can install only `GaarBags` and it works, and a fault
+in one cannot stop the rest from loading. The cost is eleven entries in the AddOns list, which
+is what `GaarUI` and the shared `Gaar [ ]` naming are there to tidy up.
 
 ## Layout
 

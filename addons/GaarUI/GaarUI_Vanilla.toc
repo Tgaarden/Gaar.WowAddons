@@ -1,0 +1,12 @@
+## Interface: 11509
+## Title: Gaar |cFF33FF99[UI]|r
+## Notes: The whole Gaar suite in one switch. Ticking this pulls in every module; each one still works on its own without it.
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarUI\icon.tga
+## Version: 1.0
+
+## Dependencies: GaarOptions, GaarBags, GaarCast, GaarCC, GaarPlates, GaarThreat, GaarMeter, GaarFrames, GaarSpellBook, GaarLooter, GaarMap
+
+GaarUI.lua

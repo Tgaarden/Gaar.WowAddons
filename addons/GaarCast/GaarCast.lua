@@ -182,9 +182,11 @@ local function MakeBar(unit)
         local p, _, _, x, y = self:GetPoint()
         DB().pos[unit] = { point = p, x = x, y = y }
     end)
-    f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 10,
-                    insets = { left = 2, right = 2, top = 2, bottom = 2 } })
+    -- 1px, like the icon and the rest of the suite. The tooltip border this used to wear is
+    -- 10px of ornament and made a small bar look like a picture frame.
+    f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8",
+                    edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
+                    insets = { left = 1, right = 1, top = 1, bottom = 1 } })
     f:SetBackdropColor(0, 0, 0, 0.6); f:SetBackdropBorderColor(0.3, 0.3, 0.35, 1)
 
     f.icon = f:CreateTexture(nil, "ARTWORK")

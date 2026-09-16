@@ -34,6 +34,7 @@ local function DB()
     if d.fillWidth == nil then d.fillWidth = true end   -- square matches the zone bar's width
     if d.squareSize == nil then d.squareSize = 0 end    -- 0 = take it from the zone bar
     if d.showClock == nil then d.showClock = true end
+    if d.clusterDrop == nil then d.clusterDrop = 14 end -- pixels down from the client's own anchor
     if d.locked == nil then d.locked = false end
     return d
 end
@@ -168,24 +169,34 @@ end
 -- different moments.
 local clockBar
 
--- Which tracking API answers depends on the client version, so all three are tried in turn.
--- Returning nothing is a real answer here: it means nothing is being tracked.
+-- Which tracking API answers depends on the client version, so each is tried in turn.
+--
+-- The shape of the answer varies too. GetTrackingInfo returned name, texture, active as three
+-- values, and now returns one table with those as fields - the same trap C_Container's item
+-- info sprang, and it fails the same silent way: nothing is ever active, nothing is ever
+-- shown, no error. Both shapes are read here.
+local function Scan(count, get)
+    for i = 1, (count or 0) do
+        local a, b, c = get(i)
+        if type(a) == "table" then
+            if a.active then return a.texture, a.name end
+        elseif c then
+            return b, a
+        end
+    end
+end
+
 local function ActiveTracking()
     local C = _G.C_Minimap
     if C and C.GetNumTrackingTypes and C.GetTrackingInfo then
-        for i = 1, (C.GetNumTrackingTypes() or 0) do
-            local name, texture, active = C.GetTrackingInfo(i)
-            if active then return texture, name end
-        end
-        return nil
+        local tex, name = Scan(C.GetNumTrackingTypes(), C.GetTrackingInfo)
+        if tex then return tex, name end
     end
     if _G.GetNumTrackingTypes and _G.GetTrackingInfo then
-        for i = 1, (_G.GetNumTrackingTypes() or 0) do
-            local name, texture, active = _G.GetTrackingInfo(i)
-            if active then return texture, name end
-        end
-        return nil
+        local tex, name = Scan(_G.GetNumTrackingTypes(), _G.GetTrackingInfo)
+        if tex then return tex, name end
     end
+    -- Last resort: the texture alone, with no name to go with it.
     if _G.GetTrackingTexture then return _G.GetTrackingTexture() end
 end
 
@@ -268,6 +279,9 @@ local function BuildClockBar(mm)
         if since < 1 then return end
         since = 0
         RefreshClock()
+        -- Polled as well as evented. A second's delay on a tracking change is nothing, and it
+        -- means the icon does not depend on MINIMAP_UPDATE_TRACKING firing as expected.
+        RefreshTracking()
     end)
 
     local ev = CreateFrame("Frame")
@@ -296,6 +310,22 @@ local function ApplyClock()
     RefreshClock()
     RefreshTracking()
     clockBar:Show()
+end
+
+-- Moving the whole cluster rather than the map keeps the zone bar, the buttons and the clock
+-- together. The original anchor is remembered on first use and only shifted, so whatever the
+-- client or another addon set up is preserved.
+local function ApplyClusterOffset()
+    local mc = _G.MinimapCluster
+    if not mc then return end
+    if not mc._gaarBase then
+        local point, rel, relPoint, x, y = mc:GetPoint()
+        if not point then return end
+        mc._gaarBase = { point, rel or _G.UIParent, relPoint, x or 0, y or 0 }
+    end
+    local b = mc._gaarBase
+    mc:ClearAllPoints()
+    mc:SetPoint(b[1], b[2], b[3], b[4], b[5] - (DB().clusterDrop or 0))
 end
 
 local function ApplyMinimapShape()
@@ -342,6 +372,7 @@ local function ApplyMinimapShape()
     mm._gaarBorder:Show()
 
     ApplySquareSize()
+    ApplyClusterOffset()
     ApplyClock()
 
     squared = true
@@ -508,6 +539,17 @@ function GaarMap_BuildOptions(container)
     end
     y = y - 32
 
+    local dropLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    dropLabel:SetPoint("TOPLEFT", 18, y); dropLabel:SetText("Nudge down:")
+    local dx = 130
+    for _, dp in ipairs({ { "0", 0 }, { "14", 14 }, { "28", 28 }, { "42", 42 } }) do
+        local b = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+        b:SetSize(52, 20); b:SetPoint("TOPLEFT", dx, y + 4); b:SetText(dp[1])
+        b:SetScript("OnClick", function() DB().clusterDrop = dp[2]; ApplyClusterOffset() end)
+        dx = dx + 54
+    end
+    y = y - 32
+
     local mmHint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     mmHint:SetPoint("TOPLEFT", 18, y); mmHint:SetWidth(340); mmHint:SetJustifyH("LEFT")
     mmHint:SetText("Squaring the minimap swaps its round mask for a square one and hides the border art, which cannot be put back without a reload. Other addons are told about the new shape through GetMinimapShape, so their minimap buttons follow the corners rather than an invisible circle. Auto size measures the zone bar above the map and matches it, so the square reaches the same edges. /gaarmap mmdebug prints the frames it found and their sizes. The strip under the map shows the clock in 24-hour local time and the icon of whatever you are tracking; hover it for server time and the tracking's name.")
@@ -552,8 +594,25 @@ local function DumpMinimap()
             end
         end
     end
-    print(string.format("  header width: %.0f   clock: %s", HeaderWidth(),
-        _G.TimeManagerClockButton and "present" or "absent"))
+    print(string.format("  header width: %.0f", HeaderWidth()))
+
+    local C = _G.C_Minimap
+    local count = (C and C.GetNumTrackingTypes and C.GetNumTrackingTypes())
+        or (_G.GetNumTrackingTypes and _G.GetNumTrackingTypes())
+    local get = (C and C.GetTrackingInfo) or _G.GetTrackingInfo
+    print(string.format("  tracking API: %s   types: %s",
+        (C and C.GetTrackingInfo) and "C_Minimap" or (_G.GetTrackingInfo and "global" or "|cffff6666none|r"),
+        tostring(count)))
+    if get and count then
+        for i = 1, count do
+            local a, b, c = get(i)
+            if type(a) == "table" then
+                print(string.format("    %s %s |cff777777table|r", a.active and "|cff40ff40+|r" or "-", tostring(a.name)))
+            else
+                print(string.format("    %s %s |cff777777%s|r", c and "|cff40ff40+|r" or "-", tostring(a), tostring(b)))
+            end
+        end
+    end
 end
 
 SlashCmdList["GAARMAP"] = function(msg)

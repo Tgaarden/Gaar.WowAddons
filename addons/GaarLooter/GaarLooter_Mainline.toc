@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: Gaar |cFF33FF99[Looter]|r
+## Notes: Personal loot library - logs every need/greed roll with its participants and winner, plus everything else you pick up. /gaarlooter
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarLooter\icon.tga
+## Version: 0.1
+## SavedVariables: GaarLooterDB
+
+GaarLooter.lua

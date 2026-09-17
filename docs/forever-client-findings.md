@@ -78,3 +78,30 @@ A caution worth recording, because it nearly went into this document as fact: `M
 suffixes. They are not. Checking the surrounding strings shows both sitting inside
 `PremadeGroupFinderStyleMeta`, among the LFG constants. Reading a literal without reading its
 neighbours produces a confident wrong answer.
+
+# Retail (12.1.0)
+
+The same diff was run against retail, build `12.1.0.69814`, with Era as the control again.
+
+**The result is identical**: the same three spell-book calls are the only C-API removals across
+all 115 names the suite touches. Retail's interface number is **120100**, read from the TOCs of
+the addons already installed there (DBM, Auctionator, Pawn) rather than inferred.
+
+The retail install also carries 50 third-party addons, which gives the FrameXML layer the
+second artefact the binary cannot provide. Of the names absent from both binaries:
+
+- Used by installed retail addons, so they exist: `RAID_CLASS_COLORS`, `STANDARD_TEXT_FONT`,
+  `SOUNDKIT`, `UISpecialFrames`, `ChatEdit_InsertLink`, `CombatLogGetCurrentEventInfo`,
+  `NUM_CONTAINER_FRAMES`, `IsSpellKnownOrOverridesKnown`, `GetMinimapShape` (LibDBIcon reads it,
+  so the square-minimap convention holds there too).
+- Used by nobody among the 50: `UnitFrameHealthBar_Update`, `HealthBar_OnValueChanged`,
+  `CLASS_ICON_TCOORDS`, `SetItemButtonTexture`, `SpellBookFrame`. Absence among 50 addons is
+  weaker evidence than presence, so these are suspected gone rather than known gone. Every one
+  of them is already behind a type guard, so the cost of being wrong is a feature that does
+  nothing, not an error.
+
+DBM settles the aura question outright, in `DBM-Core.lua`:
+
+    local UnitAura = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex or UnitAura
+
+which is the shape `GaarFrames` and `GaarPlates` already had.

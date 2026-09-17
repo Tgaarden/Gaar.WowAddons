@@ -67,6 +67,9 @@ docs/            notes worth keeping, chiefly the Classic Era API findings
 
 ## Several game versions, one copy of the code
 
+Every addon carries `_Vanilla` and `_Mainline` TOCs: Classic Era 1.15.x at interface 11509 and
+retail 12.1.x at 120100. `GaarProbe` adds a `_Camelot` TOC and a plain fallback for Forever.
+
 Each addon carries a TOC file per game flavour rather than a folder per flavour:
 
 ```

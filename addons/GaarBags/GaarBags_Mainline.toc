@@ -1,0 +1,12 @@
+## Interface: 120100
+## Title: Gaar |cFF33FF99[Bags]|r
+## Notes: One-bag window - every bag in a single grid, with a one-shot stack-and-sort cleanup. /gaarbags
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarBags\icon.tga
+## Version: 1.0
+## OptionalDeps: Pawn
+## SavedVariables: GaarBagsDB
+
+GaarBags.lua

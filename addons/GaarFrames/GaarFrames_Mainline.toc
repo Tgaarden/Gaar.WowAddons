@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: Gaar |cFF33FF99[Frames]|r
+## Notes: X-Perl-style tweaks to the default unit frames - class-coloured bars, value+percent text, low-HP colouring, a dark backing panel, readable party bars and party buffs. /gaarframes
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarFrames\icon.tga
+## Version: 1.0
+## SavedVariables: GaarFramesDB
+
+GaarFrames.lua

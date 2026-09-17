@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: Gaar |cFF33FF99[Threat]|r
+## Notes: Real-time group threat meter for your current target, with a pull warning. /gaarthreat
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarThreat\icon.tga
+## Version: 1.0
+## SavedVariables: GaarThreatDB
+
+GaarThreat.lua

@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: Gaar |cFF33FF99[Map]|r
+## Notes: Scale and fade the world map - resize from the corner, and let it fade out while you run. /gaarmap
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## IconTexture: Interface\AddOns\GaarMap\icon.tga
+## Version: 1.0
+## SavedVariables: GaarMapDB
+
+GaarMap.lua

@@ -17,6 +17,7 @@
   as WotLK. 12 spell buttons per page, same as the WotLK spellbook layout.
 ]]
 
+local _, ns = ...
 local _G = _G
 local READY_CHECK_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NUM_SPELL_BUTTONS = 12   -- Classic Era spellbook: SpellButton1..12 per page
@@ -25,25 +26,23 @@ local NUM_SPELL_BUTTONS = 12   -- Classic Era spellbook: SpellButton1..12 per pa
 -- GetSpellName is nil), so prefer the renamed ...BookItem APIs, falling back to the old
 -- names only for safety.
 local function PickupBookSpell(slot)
-  if PickupSpellBookItem then PickupSpellBookItem(slot, "spell")
-  elseif PickupSpell then PickupSpell(slot, "spell") end
+  ns.PickupSpell(slot)
 end
 local function GetBookSpellTexture(slot)
-  if GetSpellBookItemTexture then return GetSpellBookItemTexture(slot, "spell")
-  elseif GetSpellTexture then return GetSpellTexture(slot, "spell") end
+  return ns.SpellTexture(slot)
 end
 -- Skip unlearned "FUTURESPELL" slots (e.g. the Metamorphosis rune's demon-form ability
 -- replacements) so a shared icon doesn't get matched to a slot that isn't a real,
 -- pickable spell.
 local function IsRealSpell(slot)
   local spellID
-  if GetSpellBookItemInfo then
-    local spellType, id = GetSpellBookItemInfo(slot, "spell")
+  do
+    local spellType, id = ns.SpellInfo(slot)
     if spellType and spellType ~= "SPELL" then return false end
     spellID = id
   end
-  if not spellID and GetSpellBookItemName then
-    local _, _, id = GetSpellBookItemName(slot, "spell")
+  if not spellID then
+    local _, _, id = ns.SpellName(slot)
     spellID = id
   end
   if spellID and IsSpellKnown and not IsSpellKnown(spellID) then
@@ -56,9 +55,9 @@ end
 
 local function BuildSpellTextureIndex()
   local texToSlots = {}
-  local numTabs = GetNumSpellTabs() or 0
+  local numTabs = ns.NumSpellTabs()
   for tab = 1, numTabs do
-    local _, _, offset, numSpells = GetSpellTabInfo(tab)
+    local _, offset, numSpells = ns.SpellTabInfo(tab)
     if offset and numSpells then
       for i = offset + 1, offset + numSpells do
         local tex = IsRealSpell(i) and GetBookSpellTexture(i) or nil

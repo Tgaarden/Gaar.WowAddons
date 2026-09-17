@@ -22,6 +22,7 @@
   frame/global identifiers so this addon doesn't collide with the original Deepward one.
 ]]
 
+local _, ns = ...
 local _G = _G
 -- Two-column layout, big rows. Spells flow row-major (left, right, left, right, ...): item 1 top-left,
 -- item 2 top-right, item 3 next row left, and so on. ROWS is the total visible across both columns;
@@ -38,8 +39,7 @@ local COL_X = { 16, 16 + COL_W + 16 }   -- left x of column 1 / column 2
 -- nil at runtime), so prefer the renamed ...BookItem/...SpellBookItem APIs and only fall
 -- back to the old names for safety.
 local function PickupBookSpell(slot)
-  if PickupSpellBookItem then PickupSpellBookItem(slot, "spell")
-  elseif PickupSpell then PickupSpell(slot, "spell") end
+  ns.PickupSpell(slot)
 end
 local function TooltipBookSpell(slot)
   if GameTooltip.SetSpellBookItem then GameTooltip:SetSpellBookItem(slot, "spell")
@@ -47,15 +47,10 @@ local function TooltipBookSpell(slot)
 end
 -- Returns name, rank/subtext, spellID (the id only on builds with the ...BookItem API).
 local function GetBookSpellNameRank(slot)
-  if GetSpellBookItemName then
-    return GetSpellBookItemName(slot, "spell")
-  elseif GetSpellName then
-    return GetSpellName(slot, "spell")
-  end
+  return ns.SpellName(slot)
 end
 local function GetBookSpellTexture(slot)
-  if GetSpellBookItemTexture then return GetSpellBookItemTexture(slot, "spell")
-  elseif GetSpellTexture then return GetSpellTexture(slot, "spell") end
+  return ns.SpellTexture(slot)
 end
 -- A tab's slot range also covers entries the native spellbook never draws: unlearned
 -- "FUTURESPELL" slots, such as the Season of Discovery Metamorphosis rune's demon-form
@@ -66,8 +61,8 @@ end
 -- check answered for a given slot.
 local function IsRealSpell(slot, name, spellID)
   local spellType
-  if GetSpellBookItemInfo then
-    local t, id = GetSpellBookItemInfo(slot, "spell")
+  do
+    local t, id = ns.SpellInfo(slot)
     spellType = t
     spellID = spellID or id
   end
@@ -95,8 +90,7 @@ local function Norm(s)
 end
 
 local function SpellIsPassive(slot)
-  if IsPassiveSpell then return IsPassiveSpell(slot, "spell") end
-  return false
+  return ns.IsPassive(slot)
 end
 
 -- Names of the player's stances/forms, read from the shapeshift bar (class-agnostic: warrior
@@ -114,9 +108,9 @@ end
 local function BuildSpellIndex()
   local tabs = {}
   local stances = StanceNameSet()
-  local numTabs = GetNumSpellTabs() or 0
+  local numTabs = ns.NumSpellTabs()
   for t = 1, numTabs do
-    local tabName, _, offset, numSpells = GetSpellTabInfo(t)
+    local tabName, offset, numSpells = ns.SpellTabInfo(t)
     local entries = {}
     if offset and numSpells then
       for i = offset + 1, offset + numSpells do

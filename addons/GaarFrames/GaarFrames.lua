@@ -59,6 +59,50 @@ if HAS_FOCUS then
                               u = "focus", p = "FocusFramePortrait" })
 end
 
+-- Retail keeps these frames but stopped publishing them as globals: PlayerFrameHealthBar is
+-- PlayerFrame.healthbar there, and the party frames moved under PartyFrame entirely. The names
+-- below stay this file's own keys and Frame() resolves each to whichever the client has.
+--
+-- The Era globals are verified - the suite runs on them. The retail paths are the documented
+-- replacements and are proven only by whether they resolve at runtime, which is why nothing
+-- here asserts: a name that resolves to nothing leaves that frame unstyled, exactly as before.
+local RETAIL_PATH = {
+    PlayerFrameHealthBar = "PlayerFrame.healthbar", PlayerFrameManaBar = "PlayerFrame.manabar",
+    TargetFrameHealthBar = "TargetFrame.healthbar", TargetFrameManaBar = "TargetFrame.manabar",
+    FocusFrameHealthBar  = "FocusFrame.healthbar",  FocusFrameManaBar  = "FocusFrame.manabar",
+    PetFrameHealthBar    = "PetFrame.healthbar",    PetFrameManaBar    = "PetFrame.manabar",
+}
+for i = 1, 4 do
+    local old, new = "PartyMemberFrame" .. i, "PartyFrame.MemberFrame" .. i
+    RETAIL_PATH[old] = new
+    RETAIL_PATH[old .. "HealthBar"] = new .. ".HealthBar"
+    RETAIL_PATH[old .. "ManaBar"] = new .. ".ManaBar"
+    RETAIL_PATH[old .. "Name"] = new .. ".Name"
+end
+
+-- Only hits are remembered. A miss must stay a miss that is retried, because the party frames
+-- do not exist until there is a party, and caching "absent" at load would keep them unstyled
+-- for the rest of the session.
+local resolvedFrame = {}
+
+local function Frame(name)
+    if not name or name == "" then return nil end
+    local direct = _G[name]
+    if direct then return direct end
+    local hit = resolvedFrame[name]
+    if hit then return hit end
+    local path = RETAIL_PATH[name]
+    if not path then return nil end
+    local node = _G
+    for part in string.gmatch(path, "[^.]+") do
+        if type(node) ~= "table" then return nil end
+        node = node[part]
+        if node == nil then return nil end
+    end
+    resolvedFrame[name] = node
+    return node
+end
+
 local FRAME_OF = {
     player = "PlayerFrame", target = "TargetFrame", focus = "FocusFrame", pet = "PetFrame",
     party1 = "PartyMemberFrame1", party2 = "PartyMemberFrame2",
@@ -76,7 +120,7 @@ local NAME_OF = {
 -- screen bounds so it also fits the mirrored target frame.
 -- ---------------------------------------------------------------------------
 local function StyleBackdrop(f)
-    local uf, pt, hb, mb = _G[FRAME_OF[f.u]], _G[f.p], _G[f.h], _G[f.m]
+    local uf, pt, hb, mb = Frame(FRAME_OF[f.u]), Frame(f.p), Frame(f.h), Frame(f.m)
     if not (uf and pt and hb and mb) then return end
     if not (hb:GetLeft() and mb:GetLeft() and pt:GetLeft()) then return end   -- not laid out yet
     if not f._bd then
@@ -105,7 +149,7 @@ local function StyleBackdrop(f)
     local r = math.max(hb:GetRight(), mb:GetRight())
     local t = hb:GetTop()
     local b = mb:GetBottom()
-    local nameFS = _G[NAME_OF[f.u] or ""]
+    local nameFS = Frame(NAME_OF[f.u])
     if nameFS and nameFS:IsShown() and nameFS:GetTop() then
         t = math.max(t, nameFS:GetTop())
         l = math.min(l, nameFS:GetLeft())
@@ -136,7 +180,7 @@ end
 
 local function ResetPortraits()
     for _, f in ipairs(FRAMES) do
-        local pt = _G[f.p]
+        local pt = Frame(f.p)
         if pt and pt.SetTexCoord then pt:SetTexCoord(0, 1, 0, 1) end
     end
 end
@@ -170,8 +214,8 @@ local function BuffInfo(unit, i)
 end
 
 local function StylePartyBuffs(idx)
-    local pf = _G["PartyMemberFrame" .. idx]
-    local mb = _G["PartyMemberFrame" .. idx .. "ManaBar"]
+    local pf = Frame("PartyMemberFrame" .. idx)
+    local mb = Frame("PartyMemberFrame" .. idx .. "ManaBar")
     if not (pf and mb) then return end
     pf._gaarBuffs = pf._gaarBuffs or {}
     local on = DB().partyBuffs
@@ -198,9 +242,9 @@ end
 local PARTY_HB_W, PARTY_HB_H, PARTY_MB_H = 112, 16, 11
 local function StylePartyBars(idx)
     if not DB().partyBars then return end
-    local hb = _G["PartyMemberFrame" .. idx .. "HealthBar"]
-    local mb = _G["PartyMemberFrame" .. idx .. "ManaBar"]
-    local nm = _G["PartyMemberFrame" .. idx .. "Name"]
+    local hb = Frame("PartyMemberFrame" .. idx .. "HealthBar")
+    local mb = Frame("PartyMemberFrame" .. idx .. "ManaBar")
+    local nm = Frame("PartyMemberFrame" .. idx .. "Name")
     if not hb or not mb then return end
     if nm then
         hb:ClearAllPoints()
@@ -253,7 +297,7 @@ local function BarText(bar)
 end
 
 local function UpdateBarText(barName, unit, powerBar)
-    local bar = _G[barName]
+    local bar = Frame(barName)
     if not bar then return end
     local fs = BarText(bar)
     if not fs then return end
@@ -303,7 +347,7 @@ driver:SetScript("OnUpdate", function(_, e)
     for _, f in ipairs(FRAMES) do
         UpdateBarText(f.h, f.u, false)
         UpdateBarText(f.m, f.u, true)
-        ApplyHealthColor(_G[f.h], f.u)
+        ApplyHealthColor(Frame(f.h), f.u)
         StyleBackdrop(f)
     end
     for i = 1, 4 do StylePartyBars(i); StylePartyBuffs(i) end
@@ -319,7 +363,7 @@ if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function()
     if type(UnitFrameHealthBar_Update) ~= "function" then return end
     for _, f in ipairs(FRAMES) do
-        local bar = _G[f.h]
+        local bar = Frame(f.h)
         if bar and UnitExists(f.u) then UnitFrameHealthBar_Update(bar, f.u) end
     end
 end)
@@ -328,7 +372,7 @@ local function SetFontSize(s)
     DB().fontSize = s
     for _, f in ipairs(FRAMES) do
         for _, bn in ipairs({ f.h, f.m }) do
-            local bar = _G[bn]
+            local bar = Frame(bn)
             -- clearing the cached size is enough: the next pass refits it against the bar
             if bar then bar._gaarSize = nil end
         end

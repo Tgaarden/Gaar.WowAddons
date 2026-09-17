@@ -432,6 +432,7 @@ local function Run(toChat)
     end
     print("  |cff777777" .. #r.lines .. " lines written to SavedVariables\\GaarProbe.lua|r")
     print("  |cff777777/gaarprobe dump prints it all; /gaarprobe copy opens a copyable box|r")
+    print("  |cff777777/gaarprobe errors lists this session's Lua errors by frequency|r")
 
     if toChat then
         for _, l in ipairs(r.lines) do print(l) end
@@ -491,11 +492,78 @@ local function ShowCopy(lines)
     copyFrame:Show()
 end
 
+-- ---------------------------------------------------------------------------
+-- Error collection
+--
+-- Retail does not write an Errors/ folder - that is a Classic behaviour - so a session's Lua
+-- errors live only in the on-screen frame, one page at a time. This puts them somewhere they
+-- can be read afterwards: SavedVariables, which this addon already proved gets written.
+--
+-- Errors are counted by message rather than listed, because the ones that matter here repeat
+-- hundreds of times a minute and the count is half the diagnosis. The previous handler is
+-- always called, so the client's own error display behaves exactly as before.
+-- ---------------------------------------------------------------------------
+local MAX_DISTINCT = 300
+local errorCounts, errorOrder, errorTotal = {}, {}, 0
+
+local function RecordError(msg)
+    if type(msg) ~= "string" then msg = tostring(msg) end
+    errorTotal = errorTotal + 1
+    local seen = errorCounts[msg]
+    if seen then
+        errorCounts[msg] = seen + 1
+        return
+    end
+    if #errorOrder >= MAX_DISTINCT then return end
+    errorCounts[msg] = 1
+    errorOrder[#errorOrder + 1] = msg
+end
+
+local function SaveErrors()
+    if type(GaarProbeDB) ~= "table" then GaarProbeDB = {} end
+    local out = {}
+    for _, msg in ipairs(errorOrder) do
+        out[#out + 1] = { count = errorCounts[msg], message = msg }
+    end
+    table.sort(out, function(a, b) return a.count > b.count end)
+    GaarProbeDB.errors = out
+    GaarProbeDB.errorTotal = errorTotal
+    GaarProbeDB.errorsWhen = date("%Y-%m-%d %H:%M:%S")
+end
+
+do
+    local previous = geterrorhandler and geterrorhandler()
+    if seterrorhandler then
+        seterrorhandler(function(msg)
+            -- Never let the collector itself become the error. Recording is best effort; the
+            -- client's own handler is what must always run.
+            pcall(RecordError, msg)
+            pcall(SaveErrors)
+            if previous then return previous(msg) end
+        end)
+    end
+end
+
+local function ReportErrors()
+    SaveErrors()
+    print(string.format("|cff33ff99%s|r %d errors, %d distinct", ADDON, errorTotal, #errorOrder))
+    local rows = GaarProbeDB.errors or {}
+    for i = 1, math.min(#rows, 15) do
+        local r = rows[i]
+        local m = r.message
+        if #m > 150 then m = string.sub(m, 1, 150) .. "..." end
+        print(string.format("  |cffffcc00%5d|r  %s", r.count, m))
+    end
+    if #rows > 15 then print(string.format("  |cff777777%d more in SavedVariables\\GaarProbe.lua|r", #rows - 15)) end
+end
+
 SLASH_GAARPROBE1 = "/gaarprobe"
 SLASH_GAARPROBE2 = "/gprobe"
 SlashCmdList["GAARPROBE"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
-    if msg == "dump" then
+    if msg == "errors" then
+        ReportErrors()
+    elseif msg == "dump" then
         Run(true)
     elseif msg == "copy" then
         local r = Run(false)

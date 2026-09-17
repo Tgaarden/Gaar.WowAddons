@@ -859,8 +859,10 @@ local function GetButton(bag, slot)
         -- that has to be right on every flavour.
         local templateCount = b.Count or _G[b:GetName() .. "Count"]
         if templateCount and templateCount.Hide then templateCount:Hide() end
-        local cnt = b:CreateFontString(nil, "OVERLAY")
-        cnt:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+        -- NumberFontNormal is what SetItemButtonCount used, so taking the same font object
+        -- keeps Era looking exactly as it did before this stopped going through Blizzard.
+        local cnt = b:CreateFontString(nil, "OVERLAY", _G.NumberFontNormal and "NumberFontNormal" or nil)
+        if not _G.NumberFontNormal then cnt:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE") end
         cnt:SetPoint("BOTTOMRIGHT", -2, 2)
         cnt:SetJustifyH("RIGHT")
         b._count = cnt
@@ -1473,11 +1475,15 @@ end
 --
 -- Our own cleanup is bounded - it steps on a timer, stops when it stops making progress, and
 -- refuses to start in combat - so it is the safe one to reach for while the other is unknown.
-local SECRETS = (_G.issecretvalue ~= nil)   -- the marker of a client new enough to have both
+-- Classic Era has issecretvalue as well, so that is not the question - the question is whether
+-- this is the client whose sort took us down, and the project id answers it directly.
+local function IsMainline()
+    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+end
 local warnedSort = false
 
 local function DoSort()
-    if SECRETS then
+    if IsMainline() then
         if not warnedSort then
             warnedSort = true
             DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r using its own tidy here - Blizzard's sort crashes this client from an addon button.")

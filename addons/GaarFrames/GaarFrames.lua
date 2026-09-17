@@ -43,9 +43,19 @@ local function DB()
     return d
 end
 
--- Whether this client hides unit values behind secret values, which is what decides whether
--- this addon can do its job at all. See the note below.
-local SECRETS = (_G.issecretvalue ~= nil)
+-- Classic Era carries issecretvalue too, so its presence proves nothing at all - gating on it
+-- turned this addon off on the very client it was written for. What matters is whether the
+-- client actually hands out secret unit values.
+--
+-- Two signals, because neither alone is enough. The project id settles retail outright, before
+-- a single hook is installed, which matters because installing one is itself the taint. And a
+-- secret value seen in passing settles anything else - a flavour this was never told about -
+-- at the cost of a short window before it notices.
+local function IsMainline()
+    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+end
+
+local sawSecretValue = false
 
 -- On retail this addon cannot work, and the reason is worth stating rather than leaving as a
 -- setting nobody understands.
@@ -60,8 +70,9 @@ local SECRETS = (_G.issecretvalue ~= nil)
 -- frames, not the maths. So on a client with secret values it stays off unless asked for, and
 -- the setting is there for experimenting, not because it is expected to work.
 local function Active()
-    if not SECRETS then return true end
-    return DB().allowOnRetail and true or false
+    if DB().allowOnRetail then return true end
+    if IsMainline() or sawSecretValue then return false end
+    return true
 end
 
 local HAS_FOCUS = (_G.FocusFrame ~= nil)
@@ -221,8 +232,10 @@ end
 local issecretvalue = _G.issecretvalue
 local function Secret(a, b)
     if not issecretvalue then return false end
-    if issecretvalue(a) then return true end
-    return b ~= nil and issecretvalue(b) or false
+    local hit = issecretvalue(a) or (b ~= nil and issecretvalue(b)) or false
+    -- Noticing one is also how this addon learns it should not be running here.
+    if hit then sawSecretValue = true end
+    return hit
 end
 
 local function ApplyHealthColor(bar, unit)

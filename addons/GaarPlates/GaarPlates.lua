@@ -356,7 +356,9 @@ local function UpdatePlate(o, unit)
     elseif mode == "current" then
         o.htext:SetText(AbbreviateLargeNumbers and AbbreviateLargeNumbers(cur) or tostring(cur))
     else o.htext:SetText(math.floor(pct * 100 + 0.5) .. "%") end
-    if cur <= 0 then o.ttext:SetText("") end
+    -- Guarded like every other read of cur: comparing a secret value is blocked just as
+    -- dividing one is, and this line runs for every plate on every tick.
+    if not hidden and cur <= 0 then o.ttext:SetText("") end
 
     if DB().totText and UnitExists(unit .. "target") then
         o.tot:SetText("-> " .. (UnitName(unit .. "target") or ""))

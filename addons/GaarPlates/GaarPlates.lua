@@ -328,6 +328,11 @@ local function UpdatePlate(o, unit)
     o.ttext:SetText("")
     if DB().threat and UnitCanAttack("player", unit) then
         local tanking, status, pctThreat = UnitDetailedThreatSituation("player", unit)
+        -- Threat comes back secret on retail, and a secret boolean cannot even be tested for
+        -- truth - "attempt to perform boolean test on a secret boolean value". Dropping them to
+        -- nil turns every test below into an ordinary one, and the plate simply shows no threat.
+        if Secret(tanking, status) then tanking, status = nil, nil end
+        if Secret(pctThreat) then pctThreat = nil end
         if tanking then br, bg, bb = 0.55, 0.38, 0.68; aggro = true         -- you hold aggro
         elseif status and status >= 2 then br, bg, bb = 0.8, 0.6, 0.35 end  -- high threat
         if DB().threatText and pctThreat and not Secret(pctThreat) then

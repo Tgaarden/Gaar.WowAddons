@@ -15,7 +15,7 @@ of the code.
 | `GaarPlates` | Nameplates with per-plate threat, debuffs and cast bars | `/gaarplates` |
 | `GaarThreat` | Group threat meter, pets included | `/gaarthreat` |
 | `GaarMeter` | Damage, healing and interrupt meter with a per-spell breakdown | `/gaarmeter` |
-| `GaarFrames` | Class-coloured unit frames with value and percent text | `/gaarframes` |
+| `GaarFrames` | Class-coloured unit frames with value and percent text (Era only - see the API notes) | `/gaarframes` |
 | `GaarSpellBook` | A searchable spell book window | `/spellbook` |
 | `GaarLooter` | Loot library: every roll, who took part, who won | `/gaarlooter` |
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |

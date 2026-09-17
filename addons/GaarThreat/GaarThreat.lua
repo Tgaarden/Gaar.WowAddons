@@ -190,6 +190,7 @@ Redraw = function()
                 -- A secret threat figure cannot be scaled, sorted or compared, which is the
                 -- whole of what this meter does with it, so that unit is left out entirely.
                 if Secret(threatval, threatpct) then threatval = nil end
+                if Secret(isTanking) then isTanking = nil end
                 if threatval and threatval > 0 then
                     threatval = threatval / scale
                     list[#list + 1] = { unit = u, name = UnitName(u) or "?", pct = threatpct or 0,

@@ -119,6 +119,19 @@ Check before the maths, not after: `issecretvalue(v)`, alongside `issecrettable`
 `C_Secrets`. None of them exist on Era, where nothing is secret, so the guard costs nothing
 there. A `StatusBar:SetValue` with a secret is fine; the percentage you work out from it is not.
 
+**Arithmetic is not the only blocked operation.** Comparing a secret is blocked, and so is
+testing a secret boolean for truth - `UnitDetailedThreatSituation` returns secret booleans, and
+`if tanking then` is refused with *"attempt to perform boolean test on a secret boolean value,
+while execution tainted by ..."*. Drop such values to `nil` once, at the point they are read,
+and every test after that is an ordinary one.
+
+**The taint is touching the frame, not doing the maths.** Guarding your own arithmetic does not
+make an addon safe: writing to one of Blizzard's unit frames taints it, and from then on
+*Blizzard's own code inside that frame* cannot compare the secret values either. The log shows
+it landing in `Blizzard_UnitFrame/Mainline/UnitFrame.lua:777` rather than in the addon. An addon
+that restyles the stock unit frames in place therefore breaks them on retail rather than merely
+failing to decorate them, which is why `GaarFrames` stays off where `issecretvalue` exists.
+
 ## Textures
 
 Icon paths fail silently, rendering blank rather than erroring. `INV_Misc_Broom_01` is not

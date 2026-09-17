@@ -39,7 +39,29 @@ local function DB()
     if d.backdrop == nil then d.backdrop = true end
     if d.partyBars == nil then d.partyBars = true end
     if d.partyBuffs == nil then d.partyBuffs = true end
+    if d.allowOnRetail == nil then d.allowOnRetail = false end
     return d
+end
+
+-- Whether this client hides unit values behind secret values, which is what decides whether
+-- this addon can do its job at all. See the note below.
+local SECRETS = (_G.issecretvalue ~= nil)
+
+-- On retail this addon cannot work, and the reason is worth stating rather than leaving as a
+-- setting nobody understands.
+--
+-- Everything here restyles Blizzard's own unit frames in place. Writing to one taints it, and
+-- once a unit frame is tainted, Blizzard's own code inside it can no longer compare the secret
+-- values the client hands out for unit health. The taint log shows the damage landing in
+-- Blizzard_UnitFrame/Mainline/UnitFrame.lua:777, not here - this addon breaks the stock frames
+-- rather than merely failing to decorate them.
+--
+-- Guarding this file's own arithmetic does not help: the taint is the act of touching the
+-- frames, not the maths. So on a client with secret values it stays off unless asked for, and
+-- the setting is there for experimenting, not because it is expected to work.
+local function Active()
+    if not SECRETS then return true end
+    return DB().allowOnRetail and true or false
 end
 
 local HAS_FOCUS = (_G.FocusFrame ~= nil)
@@ -361,17 +383,19 @@ end
 -- of a second - the flash. HealthBar_OnValueChanged fires on the change itself, so hooking that
 -- puts our colour back in the same frame. The other two are hooked as well, since each repaints
 -- through a different path (target swap, vehicle art, and so on).
-if type(UnitFrameHealthBar_Update) == "function" then
+-- Not installed at all where this addon is inactive: a hook that touches a Blizzard unit frame
+-- is itself the taint, so it must not be in the call chain rather than merely return early.
+if Active() and type(UnitFrameHealthBar_Update) == "function" then
     hooksecurefunc("UnitFrameHealthBar_Update", function(bar, unit)
         ApplyHealthColor(bar, unit)
     end)
 end
-if type(HealthBar_OnValueChanged) == "function" then
+if Active() and type(HealthBar_OnValueChanged) == "function" then
     hooksecurefunc("HealthBar_OnValueChanged", function(bar)
         if bar then ApplyHealthColor(bar, bar.unit) end
     end)
 end
-if type(UnitFrame_Update) == "function" then
+if Active() and type(UnitFrame_Update) == "function" then
     hooksecurefunc("UnitFrame_Update", function(frame)
         if frame and frame.healthbar then ApplyHealthColor(frame.healthbar, frame.unit) end
     end)
@@ -380,6 +404,7 @@ end
 local driver = CreateFrame("Frame")
 local acc = 0
 driver:SetScript("OnUpdate", function(_, e)
+    if not Active() then return end
     acc = acc + e
     if acc < 0.2 then return end
     acc = 0
@@ -400,6 +425,7 @@ for _, e in ipairs({ "PLAYER_TARGET_CHANGED", "GROUP_ROSTER_UPDATE", "PARTY_MEMB
 end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function()
+    if not Active() then return end
     if type(UnitFrameHealthBar_Update) ~= "function" then return end
     for _, f in ipairs(FRAMES) do
         local bar = Frame(f.h)

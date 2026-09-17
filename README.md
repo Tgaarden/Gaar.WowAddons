@@ -20,6 +20,7 @@ of the code.
 | `GaarLooter` | Loot library: every roll, who took part, who won | `/gaarlooter` |
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
+| `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 
 ## One switch, eleven standalone addons
 
@@ -31,6 +32,30 @@ Each module is still its own addon and runs alone. That is why they are separate
 rather than files inside one addon: you can install only `GaarBags` and it works, and a fault
 in one cannot stop the rest from loading. The cost is eleven entries in the AddOns list, which
 is what `GaarUI` and the shared `Gaar [ ]` naming are there to tidy up.
+
+## Porting to a client nobody has yet
+
+`GaarProbe` exists because every port so far has cost the same round of "it loads but does
+nothing", and every one was settled by asking an artefact rather than remembering. It asks
+that question up front. Drop the folder into an unknown client, log in, and it reports:
+
+- every global the suite touches, per module, with its type or `MISSING`
+- the `C_*` namespaces, listing both the names this suite uses and the retail replacements it
+  would have to move to, so the report doubles as a migration target
+- named frames against the modern field paths that replaced them (`PlayerFrameHealthBar`
+  against `PlayerFrame.healthbar`)
+- **return shapes**, which are the failures that do not announce themselves: a function that
+  still exists, is called the old way, and answers with one table instead of three values.
+  `C_Container.GetContainerItemInfo` and `C_Minimap.GetTrackingInfo` have both done exactly
+  that here, and neither raised an error.
+
+The report is written to `SavedVariables/GaarProbe.lua`, so it can be read off disk after
+logging out rather than copied out of a scrollback. `/gaarprobe copy` opens a copyable box
+if the file is not to hand.
+
+It carries a plain `GaarProbe.toc` with no flavour suffix on purpose: that is the file a
+client falls back to for any flavour it has no specific TOC for, which is the only way to
+reach a branch whose suffix is not published yet.
 
 ## Layout
 

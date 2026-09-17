@@ -1,0 +1,10 @@
+## Interface: 110200
+## Title: Gaar |cFF33FF99[Probe]|r
+## Notes: Reports what this client's addon API actually has - every global, namespace, frame and return shape the Gaar suite depends on. /gaarprobe
+## Author: Gaar
+## Category: Gaar
+## Category-enUS: Gaar
+## Version: 1.0
+## SavedVariables: GaarProbeDB
+
+GaarProbe.lua

@@ -1465,7 +1465,26 @@ local function OwnCleanup()
     cleanTicks = 0; cleanPhase = "stack"; cleanDriver:Show()
 end
 
+-- Blizzard's own sort is preferred where it is trustworthy, but not on retail. There it took
+-- the client down twice from this button, and the likely reason is this addon itself: it hides
+-- Blizzard's container frames and hooks the functions that open them, while the sort moves
+-- items through those very frames. Without a crash log there is no proving it, and a feature
+-- that can kill the client is not something to keep trying in place.
+--
+-- Our own cleanup is bounded - it steps on a timer, stops when it stops making progress, and
+-- refuses to start in combat - so it is the safe one to reach for while the other is unknown.
+local SECRETS = (_G.issecretvalue ~= nil)   -- the marker of a client new enough to have both
+local warnedSort = false
+
 local function DoSort()
+    if SECRETS then
+        if not warnedSort then
+            warnedSort = true
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r using its own tidy here - Blizzard's sort crashes this client from an addon button.")
+        end
+        OwnCleanup()
+        return
+    end
     if DB().useBlizzSort and CC and CC.SortBags then
         CC.SortBags()
     elseif DB().useBlizzSort and _G.SortBags then

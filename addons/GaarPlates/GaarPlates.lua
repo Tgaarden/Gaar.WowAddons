@@ -217,20 +217,37 @@ local function BarColor(o, unit)
     else return 0.2, 0.7, 0.25 end
 end
 
+-- Retail refuses the read outright rather than answering with something secret: "auras cannot
+-- be accessed when secret while tainted". There is no value to test, so the refusal itself is
+-- the signal - it is caught once and the feature is switched off for the session, because this
+-- runs for every plate twelve times a second and would otherwise be a hundred errors a minute.
+local aurasBlocked = false
+
+local function ReadAura(unit, i)
+    local C = _G.C_UnitAuras
+    if C and C.GetAuraDataByIndex then
+        local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
+        if not ok then
+            aurasBlocked = true
+            print("|cff5599ffGaar Plates:|r this client will not let an addon read auras on nameplates - debuff icons off.")
+            return nil
+        end
+        if not a then return nil end
+        return a.name, a.icon, a.applications, a.duration, a.expirationTime
+    end
+    if _G.UnitAura then
+        local name, icon, count, _, duration, expiration = UnitAura(unit, i, "HARMFUL|PLAYER")
+        return name, icon, count, duration, expiration
+    end
+end
+
 -- Auras: the player's own harmful auras on this unit. "PLAYER|HARMFUL" keeps the scan to ours.
 local function UpdateAuras(o, unit)
     local shown = 0
-    if DB().auras then
+    if DB().auras and not aurasBlocked then
         for i = 1, 40 do
-            local name, icon, count, _, duration, expiration
-            if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-                local a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL|PLAYER")
-                if not a then break end
-                name, icon, count, duration, expiration = a.name, a.icon, a.applications, a.duration, a.expirationTime
-            else
-                name, icon, count, _, duration, expiration = UnitAura(unit, i, "HARMFUL|PLAYER")
-                if not name then break end
-            end
+            local name, icon, count, duration, expiration = ReadAura(unit, i)
+            if not name then break end
             if shown < AURA_N then
                 shown = shown + 1
                 local ic = o.auraIcons[shown]

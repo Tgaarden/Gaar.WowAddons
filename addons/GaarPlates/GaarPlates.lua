@@ -311,12 +311,20 @@ local function UpdatePlate(o, unit)
     -- allowed. Only the percentage this file works out from them is off limits.
     local hidden = Secret(cur, mx)
     local pct = 1
-    if not hidden then
+    if hidden then
+        -- The widget takes the raw values happily; it is only this file that may not do
+        -- arithmetic on them. The previous pass handed the bar a range of 0 to 1 while feeding
+        -- it a real health figure, which pinned every plate at full - the bar looked broken
+        -- even though nothing errored. A secret cannot even be tested with "or", so the two
+        -- cases are written out rather than folded together.
+        o.health:SetMinMaxValues(0, mx)
+        o.health:SetValue(cur)
+    else
         mx = mx or 1; cur = cur or 0
         pct = (mx > 0) and (cur / mx) or 1
+        o.health:SetMinMaxValues(0, mx > 0 and mx or 1)
+        o.health:SetValue(cur)
     end
-    o.health:SetMinMaxValues(0, (not hidden and mx and mx > 0) and mx or 1)
-    o.health:SetValue(cur)
 
     local isTarget = UnitIsUnit(unit, "target")
 

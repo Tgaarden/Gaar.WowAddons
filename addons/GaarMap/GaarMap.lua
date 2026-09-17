@@ -138,17 +138,33 @@ end
 -- defined here. Without it every other addon's button would keep arcing round a circle that
 -- is no longer there.
 -- ---------------------------------------------------------------------------
+-- Retail keeps these pieces but hangs them off MinimapCluster and Minimap instead of naming
+-- them globally, so each entry is a plain global or a dotted path and Piece() takes either.
+-- Confirmed by the probe on retail 12.1: MinimapBorder is gone, MinimapCluster.BorderTop and
+-- MinimapCompassTexture are there. Nothing here asserts - a piece that does not resolve is a
+-- piece this client does not have.
 local ROUND_ART = {
     "MinimapBorder", "MinimapBorderTop", "MinimapNorthTag", "MinimapBackdrop",
     "MiniMapMailBorder", "MiniMapTrackingBorder", "MiniMapWorldBorder",
+    "MinimapCluster.BorderTop", "MinimapCompassTexture", "Minimap.BorderTop",
 }
-local ZOOM_BUTTONS = { "MinimapZoomIn", "MinimapZoomOut" }
+local ZOOM_BUTTONS = { "MinimapZoomIn", "MinimapZoomOut", "Minimap.ZoomIn", "Minimap.ZoomOut" }
+
+local function Piece(path)
+    local node = _G
+    for part in string.gmatch(path, "[^.]+") do
+        if type(node) ~= "table" then return nil end
+        node = node[part]
+        if node == nil then return nil end
+    end
+    return node
+end
 
 local squared = false
 
 local function HideIfPresent(names)
     for _, n in ipairs(names) do
-        local f = _G[n]
+        local f = Piece(n)
         if f and f.Hide then f:Hide() end
     end
 end
@@ -157,12 +173,15 @@ end
 -- ever was, which leaves the square looking inset. These are the frames that make up that
 -- header; the widest one that exists decides how wide the square should be. Which of them
 -- exist varies by client version, hence the lookup by name rather than a fixed reference.
-local HEADER_FRAMES = { "MinimapZoneTextButton", "MinimapBorderTop", "MinimapZoneText" }
+local HEADER_FRAMES = {
+    "MinimapZoneTextButton", "MinimapBorderTop", "MinimapZoneText",
+    "MinimapCluster.ZoneTextButton", "MinimapCluster.BorderTop",
+}
 
 local function HeaderWidth()
     local best = 0
     for _, n in ipairs(HEADER_FRAMES) do
-        local f = _G[n]
+        local f = Piece(n)
         if f and f.GetWidth then
             local w = f:GetWidth() or 0
             if w > best then best = w end
@@ -352,7 +371,7 @@ local function ApplyHeaderGap()
 
     local header
     for _, n in ipairs(HEADER_FRAMES) do
-        local f = _G[n]
+        local f = Piece(n)
         if f and f.GetHeight and (f:GetHeight() or 0) > 0 then header = f; break end
     end
     if not header then return end

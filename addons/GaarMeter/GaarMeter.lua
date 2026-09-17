@@ -778,7 +778,17 @@ end)
 -- ---------------------------------------------------------------------------
 -- Events
 -- ---------------------------------------------------------------------------
-local HAS_CLEU_GETTER = (type(CombatLogGetCurrentEventInfo) == "function")
+-- The combat log getter moved into C_CombatLog on retail; the probe read the old global as
+-- nil there. Ask the namespace first and fall back, rather than deciding which client this is:
+-- getting this wrong costs the whole meter, silently, since the event still fires.
+local function CombatLogInfo()
+    local C = _G.C_CombatLog
+    if C and C.GetCurrentEventInfo then return C.GetCurrentEventInfo() end
+    if CombatLogGetCurrentEventInfo then return CombatLogGetCurrentEventInfo() end
+end
+
+local HAS_CLEU_GETTER = (_G.C_CombatLog and type(_G.C_CombatLog.GetCurrentEventInfo) == "function")
+    or (type(CombatLogGetCurrentEventInfo) == "function")
 
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -786,7 +796,7 @@ frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:SetScript("OnEvent", function(_, event, ...)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        if HAS_CLEU_GETTER then Parse(CombatLogGetCurrentEventInfo()) else ParseLegacy(...) end
+        if HAS_CLEU_GETTER then Parse(CombatLogInfo()) else ParseLegacy(...) end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if not cur then cur = NewSeg("Current fight") end
     elseif event == "PLAYER_REGEN_ENABLED" then

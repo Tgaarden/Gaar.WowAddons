@@ -72,12 +72,15 @@ local RETAIL_PATH = {
     FocusFrameHealthBar  = "FocusFrame.healthbar",  FocusFrameManaBar  = "FocusFrame.manabar",
     PetFrameHealthBar    = "PetFrame.healthbar",    PetFrameManaBar    = "PetFrame.manabar",
 }
+-- The party frames moved under PartyFrame, but the probe could only confirm the member frame
+-- itself; what its bars are called under there is untested. Several spellings are offered and
+-- the first that resolves wins, which is honest about not knowing rather than picking one.
 for i = 1, 4 do
     local old, new = "PartyMemberFrame" .. i, "PartyFrame.MemberFrame" .. i
     RETAIL_PATH[old] = new
-    RETAIL_PATH[old .. "HealthBar"] = new .. ".HealthBar"
-    RETAIL_PATH[old .. "ManaBar"] = new .. ".ManaBar"
-    RETAIL_PATH[old .. "Name"] = new .. ".Name"
+    RETAIL_PATH[old .. "HealthBar"] = { new .. ".HealthBar", new .. ".healthbar", new .. ".HealthBarContainer.HealthBar" }
+    RETAIL_PATH[old .. "ManaBar"]   = { new .. ".ManaBar", new .. ".manabar", new .. ".PowerBar" }
+    RETAIL_PATH[old .. "Name"]      = { new .. ".Name", new .. ".name" }
 end
 
 -- Only hits are remembered. A miss must stay a miss that is retried, because the party frames
@@ -91,16 +94,19 @@ local function Frame(name)
     if direct then return direct end
     local hit = resolvedFrame[name]
     if hit then return hit end
-    local path = RETAIL_PATH[name]
-    if not path then return nil end
-    local node = _G
-    for part in string.gmatch(path, "[^.]+") do
-        if type(node) ~= "table" then return nil end
-        node = node[part]
-        if node == nil then return nil end
+    local paths = RETAIL_PATH[name]
+    if not paths then return nil end
+    if type(paths) == "string" then paths = { paths } end
+    for _, path in ipairs(paths) do
+        local node = _G
+        for part in string.gmatch(path, "[^.]+") do
+            if type(node) ~= "table" then node = nil; break end
+            node = node[part]
+            if node == nil then break end
+        end
+        if node then resolvedFrame[name] = node; return node end
     end
-    resolvedFrame[name] = node
-    return node
+    return nil
 end
 
 local FRAME_OF = {

@@ -827,12 +827,22 @@ local function GetButton(bag, slot)
         b:SetID(slot)
         b:SetSize(SIZE - 2, SIZE - 2)
 
+        -- Which field holds the template's icon differs by client - icon on Era, Icon on
+        -- retail, and neither where the template has changed again. Getting this wrong is not
+        -- cosmetic: the sweep below wipes every texture that is not the icon, so failing to
+        -- find it means stripping it, and every slot comes out blank.
+        local ic = b.icon or b.Icon or _G[b:GetName() .. "IconTexture"]
+        if not ic then
+            ic = b:CreateTexture(nil, "ARTWORK")
+            ic:SetAllPoints()
+        end
+        b._icon = ic
+
         -- Strip every decorative texture the template ships with. Hiding them by field name
         -- (b.IconBorder and friends) missed the blue outline entirely - this client's template
         -- creates those regions without Lua fields, so the field was simply nil. Sweeping the
         -- regions catches them whatever they are called. The icon is spared; the stack count is
         -- a FontString and the cooldown is a child frame, so neither is touched.
-        local ic = b.icon or _G[b:GetName() .. "IconTexture"]
         for _, r in ipairs({ b:GetRegions() }) do
             if r ~= ic and r.GetObjectType and r:GetObjectType() == "Texture" then
                 r:SetTexture(nil)
@@ -870,7 +880,7 @@ local function GetButton(bag, slot)
         b._edge = edge
 
         -- crop the icon's own dark border so it sits flush inside the tile
-        local ic = b.icon or _G[b:GetName() .. "IconTexture"]
+        local ic = b._icon
         if ic then
             ic:ClearAllPoints()
             ic:SetPoint("TOPLEFT", 1, -1); ic:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -1000,11 +1010,16 @@ end
 local function UpdateButton(bag, slot)
     local b = GetButton(bag, slot)
     local tex, count, locked, quality, link = ItemInfo(bag, slot)
-    SetItemButtonTexture(b, tex or "")
+    -- Set directly, for the same reason the count is: SetItemButtonTexture and
+    -- SetItemButtonDesaturated both reach for template fields whose names differ by client.
+    if b._icon then
+        b._icon:SetTexture(tex)
+        b._icon:SetDesaturated(locked and true or false)
+        b._icon:SetAlpha(tex and 1 or 0)
+    end
     if b._count then
         b._count:SetText((count and count > 1) and tostring(count) or "")
     end
-    SetItemButtonDesaturated(b, locked)
 
     -- Rarity edge, drawn ourselves. SetItemButtonQuality would light the template's IconBorder,
     -- which is the blue outline that showed up on every slot, empty ones included.
@@ -1404,13 +1419,35 @@ end
 
 local cleanDriver = CreateFrame("Frame"); cleanDriver:Hide()
 local cleanPhase, cleanTicks = nil, 0
-cleanDriver:SetScript("OnUpdate", function(self)
+-- One step per frame rebuilt the whole slot list every frame, which on a full retail bag is
+-- heavy enough to look like the client has locked up. A step every 0.05s is still far faster
+-- than the moves themselves complete.
+local cleanAcc = 0
+local cleanLast, cleanRepeats = nil, 0
+
+cleanDriver:SetScript("OnUpdate", function(self, elapsed)
     if InCombatLockdown() then self:Hide(); cleanPhase = nil; return end
+    cleanAcc = cleanAcc + (elapsed or 0)
+    if cleanAcc < 0.05 then return end
+    cleanAcc = 0
     cleanTicks = cleanTicks + 1
     if cleanTicks > 400 then self:Hide(); cleanPhase = nil; RefreshList(); return end   -- safety stop
     local order = orderSlots()
     if cleanPhase == "stack" then
-        if not stackStep(order) then cleanPhase = "sort" end
+        -- A move that is refused leaves the bags exactly as they were, so the same pair is
+        -- picked again on the next pass and the phase never ends. Watching for the same
+        -- decision twice over catches that in a few frames instead of four hundred.
+        local before = #order
+        if not stackStep(order) then cleanPhase = "sort"; cleanRepeats = 0; cleanLast = nil
+        else
+            if cleanLast == before then
+                cleanRepeats = cleanRepeats + 1
+                if cleanRepeats > 20 then cleanPhase = "sort"; cleanRepeats = 0 end
+            else
+                cleanRepeats = 0
+            end
+            cleanLast = before
+        end
         return
     end
     if not sortStep(order) then

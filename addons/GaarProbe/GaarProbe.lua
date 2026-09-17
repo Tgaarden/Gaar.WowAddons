@@ -112,6 +112,8 @@ local NAMESPACES = {
     C_Map         = { "GetBestMapForUnit", "GetMapInfo", "GetPlayerMapPosition",
                       "GetMapHighlightInfoAtPosition" },
     C_LootHistory = { "GetItem", "GetNumItems", "GetPlayerInfo", "GetSortedInfoForDrop" },
+    C_CombatLog   = { "GetCurrentEventInfo", "GetEventInfo" },
+    C_CombatLogSecure = { "GetCurrentEventInfo" },
     C_Timer       = { "After", "NewTicker", "NewTimer" },
     C_CVar        = { "GetCVar", "SetCVar", "GetCVarBool" },
     C_TooltipInfo = { "GetBagItem", "GetHyperlink", "GetInventoryItem" },
@@ -329,6 +331,14 @@ local function Build()
     add("  " .. Shape("C_SpellBook.GetSpellBookItemName(1,0)",
         csb and csb.GetSpellBookItemName, 1, 0))
     add("  " .. Shape("GetNumSpellTabs()", _G.GetNumSpellTabs))
+
+    -- The combat log getter. The old global reads nil on retail while the binary carries
+    -- C_CombatLog and GetCurrentEventInfo separately, so the namespace has to be asked
+    -- directly. Outside a combat log event it answers with nothing, which is still the useful
+    -- answer here: it tells us whether calling it is allowed at all.
+    local cl = _G.C_CombatLog
+    add("  " .. Shape("C_CombatLog.GetCurrentEventInfo()", cl and cl.GetCurrentEventInfo))
+    add("  " .. Shape("CombatLogGetCurrentEventInfo()", _G.CombatLogGetCurrentEventInfo))
 
     -- Threat and groups.
     add("  " .. Shape("UnitDetailedThreatSituation('player','target')",

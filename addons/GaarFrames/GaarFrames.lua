@@ -263,20 +263,33 @@ local function StylePartyBuffs(idx)
 end
 
 local PARTY_HB_W, PARTY_HB_H, PARTY_MB_H = 112, 16, 11
+
+-- Retail's party frames are protected and belong to Edit Mode. Moving one is refused, and
+-- anchoring a protected frame to a region - which the name text is - is refused outright.
+-- The refusal is per index and permanent, so it is remembered: this runs five times a second,
+-- and retrying something that cannot work is how one refusal becomes fifty errors.
+local partyStyleBlocked = {}
+
 local function StylePartyBars(idx)
-    if not DB().partyBars then return end
+    if not DB().partyBars or partyStyleBlocked[idx] then return end
     local hb = Frame("PartyMemberFrame" .. idx .. "HealthBar")
     local mb = Frame("PartyMemberFrame" .. idx .. "ManaBar")
     local nm = Frame("PartyMemberFrame" .. idx .. "Name")
     if not hb or not mb then return end
-    if nm then
-        hb:ClearAllPoints()
-        hb:SetPoint("TOPLEFT", nm, "BOTTOMLEFT", 0, -2)
-    end
-    hb:SetWidth(PARTY_HB_W); hb:SetHeight(PARTY_HB_H)
-    mb:ClearAllPoints()
-    mb:SetPoint("TOPLEFT", hb, "BOTTOMLEFT", 0, -2)
-    mb:SetWidth(PARTY_HB_W); mb:SetHeight(PARTY_MB_H)
+
+    local ok = pcall(function()
+        -- Only anchor to the name when it is a frame. A FontString is a region, and a
+        -- protected bar cannot be hung off one.
+        if nm and nm.GetObjectType and nm:GetObjectType() ~= "FontString" then
+            hb:ClearAllPoints()
+            hb:SetPoint("TOPLEFT", nm, "BOTTOMLEFT", 0, -2)
+        end
+        hb:SetWidth(PARTY_HB_W); hb:SetHeight(PARTY_HB_H)
+        mb:ClearAllPoints()
+        mb:SetPoint("TOPLEFT", hb, "BOTTOMLEFT", 0, -2)
+        mb:SetWidth(PARTY_HB_W); mb:SetHeight(PARTY_MB_H)
+    end)
+    if not ok then partyStyleBlocked[idx] = true end
 end
 
 local function Short(n)

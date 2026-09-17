@@ -433,8 +433,23 @@ local function AddAltLines(tt)
     tt:Show()   -- the tooltip does not grow to fit lines added after it was sized
 end
 
-GameTooltip:HookScript("OnTooltipCleared", function(tt) tt.gaarAltItem = nil end)
-GameTooltip:HookScript("OnTooltipSetItem", function(tt) pcall(AddAltLines, tt) end)
+-- OnTooltipSetItem no longer exists on retail: tooltip content moved behind
+-- TooltipDataProcessor, and hooking a script a frame does not have is refused outright rather
+-- than ignored. HasScript is the honest test for that, and the processor is the replacement.
+local function HookTooltip(script, fn)
+    if GameTooltip.HasScript and not GameTooltip:HasScript(script) then return false end
+    GameTooltip:HookScript(script, fn)
+    return true
+end
+
+HookTooltip("OnTooltipCleared", function(tt) tt.gaarAltItem = nil end)
+
+local TDP = _G.TooltipDataProcessor
+if TDP and TDP.AddTooltipPostCall and _G.Enum and _G.Enum.TooltipDataType then
+    TDP.AddTooltipPostCall(_G.Enum.TooltipDataType.Item, function(tt) pcall(AddAltLines, tt) end)
+else
+    HookTooltip("OnTooltipSetItem", function(tt) pcall(AddAltLines, tt) end)
+end
 
 -- Pull a colour toward its own luminance, so the rarity edges read muted instead of neon.
 local function Mute(r, g, b, amount)

@@ -306,6 +306,9 @@ local function UpdateCast(o, unit)
         channel = true
     end
     if not name or not startMs or not endMs then o.cast:Hide(); return end
+    -- Cast timings come back secret for these units on retail, and everything below is
+    -- arithmetic on them. No bar is better than an error twelve times a second.
+    if Secret(startMs, endMs) then o.cast:Hide(); return end
     local now = GetTime() * 1000
     local dur = endMs - startMs
     if dur <= 0 then o.cast:Hide(); return end
@@ -378,7 +381,10 @@ local function UpdatePlate(o, unit)
     else
         o.name:SetTextColor(1, 1, 1)
     end
+    -- Guarded for the same reason as the rest: comparing a secret is blocked, and the level of
+    -- a unit whose numbers the client hides comes back secret too.
     local lvl = UnitLevel(unit)
+    if Secret(lvl) then lvl = nil end
     o.level:SetText((lvl and lvl > 0) and tostring(lvl) or "??")
 
     local mode = DB().healthText

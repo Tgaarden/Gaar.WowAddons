@@ -83,6 +83,17 @@ local bars = {}
 -- Returns: name, icon, startMs, endMs, notInterruptible, isChannel.
 -- Classic Era dropped the old nameSubtext return, so texture/start/end sit one slot earlier
 -- than they did on 3.3.5a. Detect which shape came back rather than hardcoding either.
+-- Cast timings can come back secret on retail, and this file does arithmetic on them every
+-- frame to place the spark and the latency zone. A secret one cannot be compared or divided,
+-- so it is treated as no cast at all: the bar stays hidden rather than erroring twelve times a
+-- second over a unit whose numbers the client will not show.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function ReadCast(unit, channel)
     local r
     if channel then r = { UnitChannelInfo(unit) } else r = { UnitCastingInfo(unit) } end
@@ -90,9 +101,11 @@ local function ReadCast(unit, channel)
     if not name then return nil end
     if type(r[4]) == "number" and type(r[5]) == "number" then
         -- modern: name, text, texture, startMs, endMs, isTradeSkill, [castID,] notInterruptible
+        if Secret(r[4], r[5]) then return nil end
         return name, r[3], r[4], r[5], (channel and r[7] or r[8])
     end
     -- pre-Cata: name, nameSubtext, text, texture, startMs, endMs, isTradeSkill, [castID,] notInterruptible
+    if Secret(r[5], r[6]) then return nil end
     return name, r[4], r[5], r[6], (channel and r[8] or r[9])
 end
 

@@ -842,6 +842,19 @@ local function GetButton(bag, slot)
         local nt = b:GetNormalTexture()
         if nt then nt:SetTexture(nil); nt:SetAlpha(0) end
 
+        -- The stack count is drawn here rather than through SetItemButtonCount. That helper
+        -- reaches for a field on the button whose name differs between clients - on retail it
+        -- found nothing and indexed nil - and this addon already draws its own fill, tint and
+        -- rarity edge, so one more region of its own is cheaper than a template dependency
+        -- that has to be right on every flavour.
+        local templateCount = b.Count or _G[b:GetName() .. "Count"]
+        if templateCount and templateCount.Hide then templateCount:Hide() end
+        local cnt = b:CreateFontString(nil, "OVERLAY")
+        cnt:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+        cnt:SetPoint("BOTTOMRIGHT", -2, 2)
+        cnt:SetJustifyH("RIGHT")
+        b._count = cnt
+
         local fill = b:CreateTexture(nil, "BACKGROUND")
         fill:SetAllPoints()
         if fill.SetColorTexture then fill:SetColorTexture(1, 1, 1, 1) else fill:SetTexture(1, 1, 1, 1) end
@@ -988,7 +1001,9 @@ local function UpdateButton(bag, slot)
     local b = GetButton(bag, slot)
     local tex, count, locked, quality, link = ItemInfo(bag, slot)
     SetItemButtonTexture(b, tex or "")
-    SetItemButtonCount(b, count or 0)
+    if b._count then
+        b._count:SetText((count and count > 1) and tostring(count) or "")
+    end
     SetItemButtonDesaturated(b, locked)
 
     -- Rarity edge, drawn ourselves. SetItemButtonQuality would light the template's IconBorder,

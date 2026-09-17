@@ -177,6 +177,18 @@ local function BuildOverlay(plate)
     return o
 end
 
+-- Retail can answer with a "secret value" for a unit's health or power: it may be shown, and
+-- handed back to Blizzard's own widgets, but arithmetic on one is blocked and logged as taint.
+-- That is what "an attempt to perform arithmetic on a secret value" in taint.log means, and it
+-- fires on every update, so it has to be checked before the maths rather than caught after.
+-- issecretvalue does not exist on Era, where nothing is secret, so the guard costs nothing.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function BarColor(o, unit)
     local mode = DB().colorMode
     if mode == "solid" then return DB().solid[1], DB().solid[2], DB().solid[3] end
@@ -186,9 +198,14 @@ local function BarColor(o, unit)
         if c then return c.r, c.g, c.b end
     end
     if mode == "health" then
-        local mx = UnitHealthMax(unit) or 1
-        local p = (mx > 0) and (UnitHealth(unit) / mx) or 1
-        return (1 - p), p, 0
+        local cur, mx = UnitHealth(unit), UnitHealthMax(unit)
+        -- No percentage means no health gradient; fall through to the reaction colour rather
+        -- than colouring every hidden unit as though it were at full health.
+        if not Secret(cur, mx) then
+            mx = mx or 1
+            local p = (mx > 0) and ((cur or 0) / mx) or 1
+            return (1 - p), p, 0
+        end
     end
     -- reaction
     if UnitIsPlayer(unit) then
@@ -288,16 +305,23 @@ end
 local function UpdatePlate(o, unit)
     if not UnitExists(unit) then return end
 
-    local mx = UnitHealthMax(unit) or 1
-    local cur = UnitHealth(unit) or 0
-    local pct = (mx > 0) and (cur / mx) or 1
-    o.health:SetMinMaxValues(0, mx > 0 and mx or 1)
+    local mx = UnitHealthMax(unit)
+    local cur = UnitHealth(unit)
+    -- The bar itself still takes the raw values - passing them straight back to a widget is
+    -- allowed. Only the percentage this file works out from them is off limits.
+    local hidden = Secret(cur, mx)
+    local pct = 1
+    if not hidden then
+        mx = mx or 1; cur = cur or 0
+        pct = (mx > 0) and (cur / mx) or 1
+    end
+    o.health:SetMinMaxValues(0, (not hidden and mx and mx > 0) and mx or 1)
     o.health:SetValue(cur)
 
     local isTarget = UnitIsUnit(unit, "target")
 
     local br, bg, bb = BarColor(o, unit)
-    if DB().execute and pct * 100 <= DB().executePct then br, bg, bb = 0.5, 0.22, 0.22 end
+    if not hidden and DB().execute and pct * 100 <= DB().executePct then br, bg, bb = 0.5, 0.22, 0.22 end
 
     -- Per-plate threat: with a real unit token this works on every plate, not just the target.
     local aggro
@@ -306,7 +330,9 @@ local function UpdatePlate(o, unit)
         local tanking, status, pctThreat = UnitDetailedThreatSituation("player", unit)
         if tanking then br, bg, bb = 0.55, 0.38, 0.68; aggro = true         -- you hold aggro
         elseif status and status >= 2 then br, bg, bb = 0.8, 0.6, 0.35 end  -- high threat
-        if DB().threatText and pctThreat then o.ttext:SetText(string.format("%d%%", pctThreat + 0.5)) end
+        if DB().threatText and pctThreat and not Secret(pctThreat) then
+            o.ttext:SetText(string.format("%d%%", pctThreat + 0.5))
+        end
     end
 
     -- pull the colour toward its own luminance so nothing reads as harsh pure red/purple
@@ -326,7 +352,7 @@ local function UpdatePlate(o, unit)
     o.level:SetText((lvl and lvl > 0) and tostring(lvl) or "??")
 
     local mode = DB().healthText
-    if mode == "off" or cur <= 0 then o.htext:SetText("")
+    if mode == "off" or hidden or cur <= 0 then o.htext:SetText("")
     elseif mode == "current" then
         o.htext:SetText(AbbreviateLargeNumbers and AbbreviateLargeNumbers(cur) or tostring(cur))
     else o.htext:SetText(math.floor(pct * 100 + 0.5) .. "%") end

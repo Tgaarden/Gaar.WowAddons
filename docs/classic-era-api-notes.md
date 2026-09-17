@@ -106,6 +106,19 @@ LibDBIcon included. Change the shape without defining it and their buttons keep 
 circle that is no longer drawn. It is a plain global function returning `"ROUND"` or
 `"SQUARE"`, and it must report the shape actually in force, not the one that is configured.
 
+## Secret values (retail 12.x)
+
+Retail can answer with a **secret value** for a unit's health, power or threat: it may be
+displayed, and handed straight back to Blizzard's own widgets, but **arithmetic on one is
+blocked**. It surfaces as *"an attempt to perform arithmetic on a secret value was blocked
+because of taint from <addon>"* in `Logs/taint.log`, and as the ordinary "blocked from an
+action only available to the Blizzard UI" popup in game - which named the wrong addon here.
+Only the log named the right one, with the file and line.
+
+Check before the maths, not after: `issecretvalue(v)`, alongside `issecrettable` and
+`C_Secrets`. None of them exist on Era, where nothing is secret, so the guard costs nothing
+there. A `StatusBar:SetValue` with a secret is fine; the percentage you work out from it is not.
+
 ## Textures
 
 Icon paths fail silently, rendering blank rather than erroring. `INV_Misc_Broom_01` is not

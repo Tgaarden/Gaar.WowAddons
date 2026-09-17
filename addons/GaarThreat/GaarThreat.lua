@@ -154,6 +154,18 @@ local function Row(i)
     return r
 end
 
+-- Retail can answer with a "secret value" for a unit's health or power: it may be shown, and
+-- handed back to Blizzard's own widgets, but arithmetic on one is blocked and logged as taint.
+-- That is what "an attempt to perform arithmetic on a secret value" in taint.log means, and it
+-- fires on every update, so it has to be checked before the maths rather than caught after.
+-- issecretvalue does not exist on Era, where nothing is secret, so the guard costs nothing.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function VisibleRows()
     return math.max(1, math.floor((frame:GetHeight() - 24) / ROW_H))
 end
@@ -175,6 +187,9 @@ Redraw = function()
             local u = entry.unit
             if UnitExists(u) then
                 local isTanking, _, threatpct, _, threatval = UnitDetailedThreatSituation(u, mob)
+                -- A secret threat figure cannot be scaled, sorted or compared, which is the
+                -- whole of what this meter does with it, so that unit is left out entirely.
+                if Secret(threatval, threatpct) then threatval = nil end
                 if threatval and threatval > 0 then
                     threatval = threatval / scale
                     list[#list + 1] = { unit = u, name = UnitName(u) or "?", pct = threatpct or 0,

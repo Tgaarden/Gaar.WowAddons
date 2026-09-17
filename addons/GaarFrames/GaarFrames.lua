@@ -191,11 +191,28 @@ local function ResetPortraits()
     end
 end
 
+-- Retail can answer with a "secret value" for a unit's health or power: it may be shown, and
+-- handed back to Blizzard's own widgets, but arithmetic on one is blocked and logged as taint.
+-- That is what "an attempt to perform arithmetic on a secret value" in taint.log means, and it
+-- fires on every update, so it has to be checked before the maths rather than caught after.
+-- issecretvalue does not exist on Era, where nothing is secret, so the guard costs nothing.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function ApplyHealthColor(bar, unit)
     if not bar or not bar.SetStatusBarColor then return end
     if not DB().classColor or not unit or not UnitExists(unit) or not UnitIsPlayer(unit) then return end
     local hp, hpm = UnitHealth(unit), UnitHealthMax(unit)
-    local pct = (hpm and hpm > 0) and (hp / hpm) or 1
+    -- A secret health value cannot be turned into a percentage, so the low-health thresholds
+    -- simply do not apply to that unit and it keeps its class colour.
+    local pct = 1
+    if not Secret(hp, hpm) then
+        pct = (hpm and hpm > 0) and (hp / hpm) or 1
+    end
     if DB().threshold and pct <= 0.20 then bar:SetStatusBarColor(0.95, 0.12, 0.12)
     elseif DB().threshold and pct <= 0.35 then bar:SetStatusBarColor(1.0, 0.55, 0.0)
     else
@@ -312,6 +329,9 @@ local function UpdateBarText(barName, unit, powerBar)
     local cur, max
     if powerBar then cur, max = UnitPower(unit), UnitPowerMax(unit)
     else cur, max = UnitHealth(unit), UnitHealthMax(unit) end
+    -- Nothing to write when the client is hiding the numbers: they cannot be divided, and
+    -- inventing a figure would be worse than the blank.
+    if Secret(cur, max) then fs:SetText(""); return end
     if not max or max <= 0 then fs:SetText(""); return end
     local pct = math.floor(cur / max * 100 + 0.5)
     fs:SetText(string.format("%s/%s  %d%%", Short(cur), Short(max), pct))

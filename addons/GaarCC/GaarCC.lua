@@ -107,7 +107,13 @@ local function HandleCooldown(cd, start, duration)
         return
     end
     if Secret(start, duration) then
-        if cd._gaarTimer then Stop(cd._gaarTimer) end
+        -- Unreadable is not the same as finished. Blizzard's action buttons re-issue SetCooldown
+        -- constantly, and tearing the timer down on every unreadable call made the numbers vanish
+        -- a moment after they appeared. Hovering the button re-issued readable values, which is
+        -- exactly why they came back on hover and died again straight afterwards.
+        --
+        -- A cooldown that genuinely ends arrives as start = 0, which is not secret, so the
+        -- branch below still stops the timer. Leaving these calls alone strands nothing.
         return
     end
     if start and duration and start > 0 and duration > DB().minDuration then

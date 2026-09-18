@@ -51,6 +51,7 @@ local function DB()
     if d.totText     == nil then d.totText = true end
     if d.auras       == nil then d.auras = true end
     if d.friendly    == nil then d.friendly = false end         -- style friendly plates too
+    if d.tapDenied   == nil then d.tapDenied = true end          -- grey out mobs tagged by someone else
     return d
 end
 
@@ -191,6 +192,16 @@ end
 
 local function BarColor(o, unit)
     local mode = DB().colorMode
+
+    -- A mob someone else tagged is grey before anything else is considered. Whose it is matters
+    -- more than its health or its reaction: no colour scheme is worth reading on a kill that
+    -- cannot be yours. UnitIsTapDenied is present on both Era and Forever - checked against the
+    -- client binaries, not assumed.
+    if DB().tapDenied and UnitIsTapDenied then
+        local denied = UnitIsTapDenied(unit)
+        if not Secret(denied) and denied then return 0.45, 0.45, 0.48 end
+    end
+
     if mode == "solid" then return DB().solid[1], DB().solid[2], DB().solid[3] end
     if mode == "class" and UnitIsPlayer(unit) then
         local _, cls = UnitClass(unit)
@@ -555,6 +566,7 @@ function GaarPlates_BuildOptions(container)
     check("Threat percent text", function() return DB().threatText end, function(v) DB().threatText = v end)
     check("Target-of-target name", function() return DB().totText end, function(v) DB().totText = v end)
     check("My debuffs on the plate", function() return DB().auras end, function(v) DB().auras = v end)
+    check("Grey out mobs tagged by someone else", function() return DB().tapDenied end, function(v) DB().tapDenied = v end)
     check("Dim non-target plates", function() return DB().dimOthers end, function(v) DB().dimOthers = v end)
     check("Style friendly plates too", function() return DB().friendly end, function(v) DB().friendly = v end)
     y = y - 10

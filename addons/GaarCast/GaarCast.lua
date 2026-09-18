@@ -36,11 +36,25 @@ local dbBound = false
 local function BindDB()
     if dbBound then return end
     dbBound = true
-    if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
+
+    -- What the client actually handed over, recorded into the file itself. Reading it back off
+    -- disk next session answers the question without anyone having to run a command in game and
+    -- screenshot the result - and the answer survives a crash, which a screenshot does not.
+    local rawType = type(GaarCastDB)
+    local rawPos, rawSize = 0, 0
+    if rawType == "table" then
+        if type(GaarCastDB.pos) == "table" then for _ in pairs(GaarCastDB.pos) do rawPos = rawPos + 1 end end
+        if type(GaarCastDB.size) == "table" then for _ in pairs(GaarCastDB.size) do rawSize = rawSize + 1 end end
+    end
+
+    if rawType ~= "table" then GaarCastDB = {} end
     for k, v in pairs(staging) do
         if GaarCastDB[k] == nil then GaarCastDB[k] = v end
     end
     staging = {}
+
+    GaarCastDB.lastLoad = string.format("%s: client gave %s, pos=%d size=%d",
+        date("%Y-%m-%d %H:%M:%S"), rawType, rawPos, rawSize)
 end
 
 local function DB()

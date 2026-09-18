@@ -22,9 +22,35 @@
 local _G = _G
 local ADDON = "Gaar Cast"
 
-local function DB()
+-- The client hands the saved table over after this file has run - the load trace shows
+-- GaarCastDB as nil at file scope and a table by ADDON_LOADED. Creating the global here put an
+-- empty table in place before that handover, and on this client that was enough to stop the
+-- saved one ever arriving: every session began blank and wrote its blank back over the file.
+--
+-- So nothing is assigned to GaarCastDB until ADDON_LOADED. Until then DB() hands out a staging
+-- table; at ADDON_LOADED whatever the client provided wins, and staging is applied on top only
+-- where the loaded table has nothing to say.
+local staging = {}
+local dbBound = false
+
+local function BindDB()
+    if dbBound then return end
+    dbBound = true
     if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
-    local d = GaarCastDB
+    for k, v in pairs(staging) do
+        if GaarCastDB[k] == nil then GaarCastDB[k] = v end
+    end
+    staging = {}
+end
+
+local function DB()
+    local d
+    if dbBound then
+        if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
+        d = GaarCastDB
+    else
+        d = staging
+    end
     if d.show == nil then d.show = { player = true, target = true, focus = true, pet = false } end
     if d.locked == nil then d.locked = false end
     if d.showLatency == nil then d.showLatency = true end
@@ -466,7 +492,12 @@ local EVENTS = {
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function(_, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == "GaarCast" then Trace("ADDON_LOADED"); return end
+    if event == "ADDON_LOADED" and arg1 == "GaarCast" then
+        BindDB()
+        Trace("ADDON_LOADED")
+        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
+        return
+    end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
         Trace(event)
         -- Both, deliberately. The frames are built while this file runs, which is before the
@@ -527,7 +558,7 @@ _G.GaarCast_SetTesting = SetTesting
 _G.GaarCast_IsTesting = function() return testing end
 
 local function ResetPositions()
-    GaarCastDB.pos, GaarCastDB.size = {}, {}
+    DB().pos, DB().size = {}, {}
     for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
     print("|cff5599ff" .. ADDON .. ":|r bars back on Blizzard's cast bar positions.")
 end

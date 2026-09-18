@@ -366,6 +366,17 @@ local function Build()
     local csb = _G.C_SpellBook
     add("  " .. Shape("C_SpellBook.GetSpellBookItemName(1,0)",
         csb and csb.GetSpellBookItemName, 1, 0))
+    -- The skill-line half is what GaarSpellBook/Compat.lua reads, and it reads three fields out
+    -- of the table: name, itemIndexOffset and numSpellBookItems. If those are not the names
+    -- that come back, the book enumerates nothing and says nothing about why.
+    add("  " .. Shape("C_SpellBook.GetNumSpellBookSkillLines()",
+        csb and csb.GetNumSpellBookSkillLines))
+    add("  " .. Shape("C_SpellBook.GetSpellBookSkillLineInfo(1)",
+        csb and csb.GetSpellBookSkillLineInfo, 1))
+    add("  " .. Shape("C_SpellBook.IsSpellBookItemPassive(1,0)",
+        csb and csb.IsSpellBookItemPassive, 1, 0))
+    add("  " .. Shape("C_SpellBook.GetSpellBookItemInfo(1,0)",
+        csb and csb.GetSpellBookItemInfo, 1, 0))
     add("  " .. Shape("GetNumSpellTabs()", _G.GetNumSpellTabs))
 
     -- The combat log getter. The old global reads nil on retail while the binary carries

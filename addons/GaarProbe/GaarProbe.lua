@@ -112,8 +112,13 @@ local NAMESPACES = {
     C_Map         = { "GetBestMapForUnit", "GetMapInfo", "GetPlayerMapPosition",
                       "GetMapHighlightInfoAtPosition" },
     C_LootHistory = { "GetItem", "GetNumItems", "GetPlayerInfo", "GetSortedInfoForDrop" },
-    C_CombatLog   = { "GetCurrentEventInfo", "GetEventInfo" },
-    C_CombatLogSecure = { "GetCurrentEventInfo" },
+    -- The real member list, read out of the Forever binary rather than guessed. The probe
+    -- reported the namespace as empty of the two names an addon would reach for, which either
+    -- means they are hidden from addons or that the whole log is gated - IsCombatLogRestricted
+    -- being in that list is the reason to suspect the second.
+    C_CombatLog   = { "GetCurrentEventInfo", "GetCurrentEntryInfo", "GetEntryCount",
+                      "SeekToNewestEntry", "SeekToPreviousEntry", "IsCombatLogRestricted",
+                      "AddEventFilter", "ClearEntries", "SetMessageLimit" },
     C_Timer       = { "After", "NewTicker", "NewTimer" },
     C_CVar        = { "GetCVar", "SetCVar", "GetCVarBool" },
     C_TooltipInfo = { "GetBagItem", "GetHyperlink", "GetInventoryItem" },
@@ -338,6 +343,10 @@ local function Build()
     -- answer here: it tells us whether calling it is allowed at all.
     local cl = _G.C_CombatLog
     add("  " .. Shape("C_CombatLog.GetCurrentEventInfo()", cl and cl.GetCurrentEventInfo))
+    -- If this answers true, the meter is not broken here - it is switched off by the client.
+    add("  " .. Shape("C_CombatLog.IsCombatLogRestricted()", cl and cl.IsCombatLogRestricted))
+    add("  " .. Shape("C_CombatLog.GetEntryCount()", cl and cl.GetEntryCount))
+    add("  " .. Shape("C_CombatLog.GetCurrentEntryInfo()", cl and cl.GetCurrentEntryInfo))
     add("  " .. Shape("CombatLogGetCurrentEventInfo()", _G.CombatLogGetCurrentEventInfo))
 
     -- Threat and groups.

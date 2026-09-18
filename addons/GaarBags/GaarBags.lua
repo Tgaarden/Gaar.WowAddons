@@ -1632,12 +1632,22 @@ ApplyBackdropColor()
 -- otherwise the fixed setting would fight the width you are dragging out.
 local grip = CreateFrame("Button", nil, f)
 grip:SetSize(16, 16); grip:SetPoint("BOTTOMRIGHT", -2, 2)
+-- The money sits in this same corner and its hover button covers the grip. Both are children of
+-- the same frame, so which one receives a click comes down to draw order - lifting the grip
+-- above the footer settles it instead of leaving it to chance.
+grip:SetFrameLevel((f:GetFrameLevel() or 0) + 10)
 grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
 grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
 grip:SetScript("OnMouseDown", function()
     DB().columns = 0
     f.gaarResizing = true
-    f:StartSizing("BOTTOMRIGHT")
+    -- Reported rather than swallowed: a resize that silently does nothing is indistinguishable
+    -- from a grip that was never clicked, and that cost a round of guessing.
+    local ok, err = pcall(f.StartSizing, f, "BOTTOMRIGHT")
+    if not ok then
+        f.gaarResizing = nil
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Bags:|r this client refused the resize - " .. tostring(err))
+    end
 end)
 grip:SetScript("OnMouseUp", function()
     f:StopMovingOrSizing()

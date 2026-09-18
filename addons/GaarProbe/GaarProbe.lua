@@ -547,17 +547,46 @@ local function SaveErrors()
     GaarProbeDB.errorsWhen = date("%Y-%m-%d %H:%M:%S")
 end
 
-do
-    local previous = geterrorhandler and geterrorhandler()
-    if seterrorhandler then
-        seterrorhandler(function(msg)
-            -- Never let the collector itself become the error. Recording is best effort; the
-            -- client's own handler is what must always run.
-            pcall(RecordError, msg)
-            pcall(SaveErrors)
-            if previous then return previous(msg) end
-        end)
+-- Installing once at load was not enough, and that is why this collected nothing all day while
+-- error popups were plainly appearing. Blizzard's own script-error display installs its handler
+-- after addons have loaded, replacing ours outright. So the hook is re-applied whenever the
+-- current handler turns out not to be ours, wrapping whatever is there at that moment.
+local ourHandler
+
+local function InstallHandler()
+    if not seterrorhandler or not geterrorhandler then return end
+    local current = geterrorhandler()
+    -- Both are nil before anything has installed one, and treating that as "already ours"
+    -- meant never installing at all.
+    if ourHandler and current == ourHandler then return end
+    local previous = current
+    ourHandler = function(msg)
+        -- Never let the collector itself become the error. Recording is best effort; whatever
+        -- the client had installed is what must always run.
+        pcall(RecordError, msg)
+        pcall(SaveErrors)
+        if previous then return previous(msg) end
     end
+    seterrorhandler(ourHandler)
+end
+
+InstallHandler()
+
+do
+    -- Re-check after login, and then on a slow tick: an addon loading on demand can replace the
+    -- handler at any point, and a collector that quietly stops collecting is worse than none.
+    local watcher = CreateFrame("Frame")
+    watcher:RegisterEvent("PLAYER_LOGIN")
+    watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watcher:SetScript("OnEvent", function() pcall(InstallHandler) end)
+
+    local since = 0
+    watcher:SetScript("OnUpdate", function(_, elapsed)
+        since = since + elapsed
+        if since < 5 then return end
+        since = 0
+        pcall(InstallHandler)
+    end)
 end
 
 local function ReportErrors()

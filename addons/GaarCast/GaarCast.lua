@@ -61,7 +61,11 @@ local function DB()
     if d.fade == nil then d.fade = true end             -- fade-out when a cast finishes
     if d.fontSize == nil then d.fontSize = 11 end
     if d.texture == nil then d.texture = "Interface\\TargetingFrame\\UI-StatusBar" end
-    if d.pos == nil then d.pos = {} end    -- [unit] = {point, x, y} — set only once you move a bar
+    if d.pos == nil then d.pos = {} end
+    -- Follow Blizzard's own cast bar rather than a dragged position, so Edit Mode decides where
+    -- the bar lives. Off by default: on Era there is no Edit Mode, and a saved drag is the only
+    -- way to place it there.
+    if d.follow == nil then d.follow = false end    -- [unit] = {point, x, y} — set only once you move a bar
     if d.size == nil then d.size = {} end  -- [unit] = {w, h} — set only once you resize a bar
     return d
 end
@@ -231,7 +235,15 @@ local function ApplyAnchor(f)
     end
 
     f:ClearAllPoints()
-    if pos then
+    -- Following wins over a saved drag. Restyling Blizzard's bar in place would be the other way
+    -- to let Edit Mode place this, and it is the one to avoid: writing to their frame taints it,
+    -- and their own cast code then cannot read the timings this client hides - the same way
+    -- GaarFrames broke the stock unit frames. Borrowing the position touches nothing of theirs.
+    local following = DB().follow and blizz
+        and not Secret(blizz:GetWidth(), blizz:GetHeight())
+    if following then
+        f:SetPoint("CENTER", blizz, "CENTER", 0, 0)
+    elseif pos then
         f:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
     elseif blizz and not Secret(blizz:GetWidth(), blizz:GetHeight()) then
         -- Anchoring to a frame whose geometry is secret makes ours secret by another route:
@@ -256,6 +268,11 @@ local function MakeBar(unit)
         -- secret into SavedVariables as nil. Saving one leaves a table full of nils that looks
         -- like a stored position and is not, which is why the target bar would not stay put.
         -- Better to keep the last good position than to overwrite it with nothing.
+        if DB().follow then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r following Blizzard's bar - move it in Edit Mode, or turn following off with /gaarcast follow.")
+            ApplyAnchor(self)
+            return
+        end
         if Secret(x, y) or Secret(p) then
             DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Cast:|r this client will not report the "
                 .. unit .. " bar's position, so it cannot be saved.")
@@ -487,7 +504,7 @@ local EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED",
+    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED", "EDIT_MODE_LAYOUTS_UPDATED",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
@@ -495,6 +512,10 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "GaarCast" then
         BindDB()
         Trace("ADDON_LOADED")
+        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
+        return
+    end
+    if event == "EDIT_MODE_LAYOUTS_UPDATED" then
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
         return
     end
@@ -736,6 +757,14 @@ SlashCmdList["GAARCAST"] = function(msg)
                 d and string.format("%s %.0f,%.0f", tostring(d.point), d.x or 0, d.y or 0) or "|cff777777none|r",
                 live))
         end
+        return
+    end
+    if msg == "follow" then
+        DB().follow = not DB().follow
+        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
+        print("|cff5599ff" .. ADDON .. ":|r " .. (DB().follow
+            and "following Blizzard's cast bars - place them with Edit Mode."
+            or "free-standing - shift-drag the bars."))
         return
     end
     if msg == "unlock" then DB().locked = false

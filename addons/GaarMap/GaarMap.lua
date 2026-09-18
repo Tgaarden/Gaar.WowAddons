@@ -472,6 +472,26 @@ end
 local fader = CreateFrame("Frame")
 local acc, faded = 0, false
 
+-- GetUnitSpeed answers with a secret number on this client, and neither the "or 0" fallback nor
+-- the comparison against zero is allowed on one - that single line produced 77 errors, because
+-- it sits in a loop that runs ten times a second.
+--
+-- IsPlayerMoving answers the same question as a boolean and needs no arithmetic at all, so it
+-- is asked first; the speed is only consulted where that is missing. Returning nil rather than
+-- false when neither can answer matters: "not moving" would fade the map back in and hold it
+-- there, which looks deliberate and is not.
+local function PlayerIsMoving()
+    if IsPlayerMoving then
+        local m = IsPlayerMoving()
+        if not Secret(m) then return m and true or false end
+    end
+    if GetUnitSpeed then
+        local sp = GetUnitSpeed("player")
+        if not Secret(sp) and sp then return sp > 0 end
+    end
+    return nil
+end
+
 fader:SetScript("OnUpdate", function(_, elapsed)
     if not Map or not Map:IsShown() then
         if faded then faded = false end
@@ -486,7 +506,8 @@ fader:SetScript("OnUpdate", function(_, elapsed)
         return
     end
 
-    local moving = (GetUnitSpeed and GetUnitSpeed("player") or 0) > 0
+    local moving = PlayerIsMoving()
+    if moving == nil then return end          -- this client will not say; leave the map alone
     if moving and not faded then
         Map:SetAlpha(DB().moveAlpha or 0.35)
         faded = true

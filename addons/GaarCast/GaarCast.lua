@@ -159,6 +159,20 @@ end
 
 -- Place + size the bar: a position you dragged wins, otherwise sit exactly on Blizzard's bar
 -- so the bar honours wherever that one has been placed.
+-- What GaarCastDB held at each stage of loading. Two theories about the missing positions have
+-- been wrong, and the file on disk has gone from holding a real position to holding none, so
+-- the load order is being observed rather than reasoned about. /gaarcast pos prints it.
+local loadTrace = {}
+local function Trace(when)
+    local n = 0
+    if type(GaarCastDB) == "table" and type(GaarCastDB.pos) == "table" then
+        for _ in pairs(GaarCastDB.pos) do n = n + 1 end
+    end
+    loadTrace[#loadTrace + 1] = string.format("%s: GaarCastDB=%s pos entries=%d",
+        when, type(GaarCastDB), n)
+end
+Trace("file scope, before frames")
+
 local function ApplyAnchor(f)
     local unit = f.unit
     local pos, size = DB().pos[unit], DB().size[unit]
@@ -447,12 +461,14 @@ local EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
+    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function(_, event, arg1)
+    if event == "ADDON_LOADED" and arg1 == "GaarCast" then Trace("ADDON_LOADED"); return end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
+        Trace(event)
         -- Both, deliberately. The frames are built while this file runs, which is before the
         -- saved variables have been loaded, so the anchor applied then is against an empty
         -- table. Re-applying once the saved data is certainly in is what actually restores a
@@ -677,6 +693,7 @@ SlashCmdList["GAARCAST"] = function(msg)
     if msg == "pos" then
         -- What is stored against what is on screen. Guessing at this twice was enough.
         print("|cff33ff99" .. ADDON .. "|r saved position vs. where each bar actually is")
+        for _, t in ipairs(loadTrace) do print("  |cff777777" .. t .. "|r") end
         for _, u in ipairs(UNITS) do
             local d = DB().pos[u]
             local f = bars[u]

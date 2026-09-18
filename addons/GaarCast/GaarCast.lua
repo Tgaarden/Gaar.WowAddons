@@ -177,6 +177,11 @@ local function ApplyAnchor(f)
     if Secret(w, h) then w, h = nil, nil end
     local sane = w and h and w >= 80 and w <= 400 and h >= 6 and h <= 40
 
+    -- A stored entry whose fields came back nil is a secret that did not survive the write. It
+    -- is present but empty, so it has to be rejected by its contents rather than by existing.
+    if size and not (size.w and size.h) then DB().size[unit] = nil; size = nil end
+    if pos and not (pos.point and pos.x and pos.y) then DB().pos[unit] = nil; pos = nil end
+
     if size then
         f:SetSize(size.w, size.h)
     elseif sane then
@@ -187,7 +192,7 @@ local function ApplyAnchor(f)
 
     f:ClearAllPoints()
     if pos then
-        f:SetPoint(pos.point or "CENTER", UIParent, pos.point or "CENTER", pos.x or 0, pos.y or 0)
+        f:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
     elseif blizz and not Secret(blizz:GetWidth(), blizz:GetHeight()) then
         -- Anchoring to a frame whose geometry is secret makes ours secret by another route:
         -- guarding the size alone was not enough, because the position carries it too. That is
@@ -207,6 +212,15 @@ local function MakeBar(unit)
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         local p, _, _, x, y = self:GetPoint()
+        -- A bar anchored to one of Blizzard's own carries their secrecy, and the client writes a
+        -- secret into SavedVariables as nil. Saving one leaves a table full of nils that looks
+        -- like a stored position and is not, which is why the target bar would not stay put.
+        -- Better to keep the last good position than to overwrite it with nothing.
+        if Secret(x, y) or Secret(p) then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Cast:|r this client will not report the "
+                .. unit .. " bar's position, so it cannot be saved.")
+            return
+        end
         DB().pos[unit] = { point = p, x = x, y = y }
     end)
     -- 1px, like the icon and the rest of the suite. The tooltip border this used to wear is

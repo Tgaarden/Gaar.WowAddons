@@ -125,6 +125,13 @@ testing a secret boolean for truth - `UnitDetailedThreatSituation` returns secre
 while execution tainted by ..."*. Drop such values to `nil` once, at the point they are read,
 and every test after that is an ordinary one.
 
+**`issecretvalue` does not catch everything.** GaarCast guarded the cast timings where it read
+them and still failed 91 times inside `SetPoint`, with *"arithmetic on a secret number value"* -
+a secret had travelled through arithmetic as far as a widget call without the predicate ever
+flagging it. Where the values come from an API that may hide them, guarding each read is worth
+doing but is not sufficient: wrap the work in `pcall` and treat the refusal as the answer,
+latching that feature off rather than retrying it every frame.
+
 **The taint is touching the frame, not doing the maths.** Guarding your own arithmetic does not
 make an addon safe: writing to one of Blizzard's unit frames taints it, and from then on
 *Blizzard's own code inside that frame* cannot compare the secret values either. The log shows

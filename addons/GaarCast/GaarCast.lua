@@ -374,15 +374,34 @@ local function StartTestCast(f)
 end
 -- SetTesting lives further down, next to the options that switch it on and off.
 
+-- Guarding each value before using it was not enough. The failure lands inside SetPoint with
+-- "arithmetic on a secret number value", which means a secret got as far as a widget call
+-- without issecretvalue having flagged it on the way in - secrecy travels through arithmetic
+-- further than the predicate reports. Since what is secret cannot be predicted reliably here,
+-- the refusal is treated as the signal, exactly as it is for nameplate auras: catch it once
+-- for that unit, stop drawing that bar, and say so. Ninety-one errors becomes one.
+local castBlocked = {}
+
+local function SafeUpdate(u, f)
+    if castBlocked[u] then return end
+    local ok, err = pcall(OnUpdate, f)
+    if ok then return end
+    castBlocked[u] = true
+    f.startMs = nil
+    f:Hide()
+    print(string.format("|cff5599ffGaar Cast:|r this client will not let an addon time the %s cast bar - disabled. (%s)",
+        u, tostring(err)))
+end
+
 local driver = CreateFrame("Frame")
 driver:SetScript("OnUpdate", function()
     for _, u in ipairs(UNITS) do
         local f = bars[u]
         if testing then
             if not f.startMs then StartTestCast(f) end
-            OnUpdate(f)
+            SafeUpdate(u, f)
         elseif f:IsShown() or f.fadeAt then
-            OnUpdate(f)
+            SafeUpdate(u, f)
         end
     end
 end)

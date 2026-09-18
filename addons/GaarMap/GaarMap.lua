@@ -377,6 +377,10 @@ local function BuildClockBar(mm)
         -- Polled as well as evented. A second's delay on a tracking change is nothing, and it
         -- means the icon does not depend on MINIMAP_UPDATE_TRACKING firing as expected.
         RefreshTracking()
+        -- And the placement, because another addon's frame can arrive after this strip was
+        -- built. TomTom's coordinate block does: checking only at build time was checking
+        -- before the thing to avoid existed.
+        if f.Reposition then f:Reposition() end
     end)
 
     local ev = CreateFrame("Frame")

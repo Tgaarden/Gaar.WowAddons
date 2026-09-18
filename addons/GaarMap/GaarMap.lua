@@ -381,6 +381,9 @@ local function BuildClockBar(mm)
         -- built. TomTom's coordinate block does: checking only at build time was checking
         -- before the thing to avoid existed.
         if f.Reposition then f:Reposition() end
+        -- The stock clock can be pulled in at any moment by something else asking for it.
+        local blizzClock = _G.TimeManagerClockButton
+        if blizzClock and blizzClock:IsShown() and DB().showClock then blizzClock:Hide() end
     end)
 
     local ev = CreateFrame("Frame")
@@ -401,10 +404,19 @@ local function ApplyClock()
         return
     end
 
-    -- Blizzard's clock, if some other addon or the options panel has pulled it in, would sit
-    -- on top of this one saying the same thing in a different format.
+    -- Blizzard's own clock says the same thing in a different format, and hiding it once was not
+    -- enough: Blizzard_TimeManager is load-on-demand, so it arrives after this has run and shows
+    -- itself. Hooked to stay hidden while ours is on, the same way the round minimap art is.
     local blizz = _G.TimeManagerClockButton
-    if blizz then blizz:Hide() end
+    if blizz then
+        if not blizz._gaarHidden then
+            blizz._gaarHidden = true
+            blizz:HookScript("OnShow", function(self)
+                if DB().showClock then self:Hide() end
+            end)
+        end
+        blizz:Hide()
+    end
 
     BuildClockBar(mm)
     if clockBar.Reposition then clockBar:Reposition() end

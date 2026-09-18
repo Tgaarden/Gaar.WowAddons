@@ -447,12 +447,16 @@ local EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD",
+    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function(_, event, arg1)
-    if event == "PLAYER_ENTERING_WORLD" then
+    if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
+        -- Both, deliberately. The frames are built while this file runs, which is before the
+        -- saved variables have been loaded, so the anchor applied then is against an empty
+        -- table. Re-applying once the saved data is certainly in is what actually restores a
+        -- dragged position.
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
         return
     end
@@ -670,6 +674,22 @@ SLASH_GAARCAST1 = "/gaarcast"
 SLASH_GAARCAST2 = "/gcast"
 SlashCmdList["GAARCAST"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
+    if msg == "pos" then
+        -- What is stored against what is on screen. Guessing at this twice was enough.
+        print("|cff33ff99" .. ADDON .. "|r saved position vs. where each bar actually is")
+        for _, u in ipairs(UNITS) do
+            local d = DB().pos[u]
+            local f = bars[u]
+            local p, _, _, x, y = f:GetPoint()
+            local live
+            if Secret(x, y) or Secret(p) then live = "|cffff6666secret - cannot be read|r"
+            else live = string.format("%s %.0f,%.0f", tostring(p), x or 0, y or 0) end
+            print(string.format("  %-7s saved: %s   now: %s", u,
+                d and string.format("%s %.0f,%.0f", tostring(d.point), d.x or 0, d.y or 0) or "|cff777777none|r",
+                live))
+        end
+        return
+    end
     if msg == "unlock" then DB().locked = false
         for _, u in ipairs(UNITS) do if bars[u].grip then bars[u].grip:Show() end end
         print("|cff5599ff" .. ADDON .. ":|r unlocked — shift-drag the bars.")

@@ -140,3 +140,25 @@ cannot read the combat log on this client.
 Frames match retail exactly: `PlayerFrame.healthbar`, `PartyFrame.MemberFrame1`,
 `PlayerCastingBarFrame`, `MinimapCluster.ZoneTextButton`, `SettingsPanel`. `PlayerSpellsFrame`
 is absent, but it is load-on-demand, so that proves nothing either way.
+
+# The client does not load addon SavedVariables (2026-09-18)
+
+Settings never survive a reload on this build. Addons write their files correctly and are handed
+nothing back.
+
+`GaarCast` recorded what it was given at each stage of loading, into its own saved file:
+
+    ["lastLoad"] = "12:13:10 bound at PLAYER_ENTERING_WORLD
+                    [ADDON_LOADED=nil VARIABLES_LOADED=nil
+                     PLAYER_LOGIN=nil PLAYER_ENTERING_WORLD=nil]"
+
+`nil` at every stage, against a file the client had written moments earlier with a real saved
+size in it. So this is not a matter of binding too early - the table never arrives.
+
+**It is not specific to this suite.** TomTom is the control: its saved arrow position read
+`CENTER, -65.99, -19.97` at 11:56 and `CENTER, 0, 0` in the next session, having reset to its
+default. A mature third-party addon loses its settings the same way.
+
+Worth knowing for anyone porting here: no addon can persist anything on this build yet, so a
+missing setting after a reload is the client, not the port. It also means the writing half
+cannot be tested end to end - a file that looks right on disk proves only that saving works.

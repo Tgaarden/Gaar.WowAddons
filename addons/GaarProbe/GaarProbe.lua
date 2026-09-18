@@ -204,6 +204,13 @@ local function Shape(label, fn, ...)
             local shown = table.concat(keys, ",")
             if #shown > 120 then shown = string.sub(shown, 1, 120) .. "..." end
             parts[#parts + 1] = "table{" .. shown .. "}"
+        elseif type(v) == "boolean" or type(v) == "number" then
+            -- The value is the answer for these, not the type. IsCombatLogRestricted reporting
+            -- "boolean" says nothing; reporting "boolean true" settles the question outright.
+            parts[#parts + 1] = type(v) .. " " .. tostring(v)
+        elseif type(v) == "string" then
+            local short = (#v > 40) and (string.sub(v, 1, 40) .. "...") or v
+            parts[#parts + 1] = 'string "' .. short .. '"'
         else
             parts[#parts + 1] = type(v)
         end

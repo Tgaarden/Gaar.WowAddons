@@ -105,3 +105,38 @@ DBM settles the aura question outright, in `DBM-Core.lua`:
     local UnitAura = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex or UnitAura
 
 which is the shape `GaarFrames` and `GaarPlates` already had.
+
+# Confirmed from inside: the probe ran (2026-09-18)
+
+`interface 16001`, build `1.60.1.69913`. The interface number inferred from the naming
+convention was right.
+
+**`WOW_PROJECT_ID` is 1, which is `WOW_PROJECT_MAINLINE`.** Forever identifies itself as retail
+to addons. That settles the TOC question a different way than expected: `Camelot` is not needed,
+`_Mainline` is what this client should match, and any code branching on the project id treats
+Forever as retail automatically - which is what the suite now does.
+
+It is retail-shaped but further along. Everything retail had moved, Forever has moved, and then
+some:
+
+| Gone on Forever | Where it went |
+|---|---|
+| `GetItemInfo`, `GetItemInfoInstant`, `GetItemQualityColor` | `C_Item` (all five members present) |
+| `GetCoinTextureString` | nowhere found - formatted by hand where absent |
+| `GetContainerItemInfo` and the rest | `C_Container` (all eight present) |
+| `GetSpellBookItemName` and the rest | `C_SpellBook` (all eight present) |
+| `UnitAura`, `UnitBuff` | `C_UnitAuras` |
+| `InterfaceOptions_AddCategory` | `Settings` |
+
+Retail still had the item globals; Forever does not. That is the one place where targeting
+retail was not enough.
+
+**The combat log has no getter at all.** `C_CombatLog` exists as a namespace but is empty of
+both `GetCurrentEventInfo` and `GetEventInfo`, and the old global is gone too. The binary
+carries `C_CombatLog` and `GetCurrentEventInfo` as separate strings, so the function exists
+somewhere, but not under either name an addon would reach for. Until that is found, `GaarMeter`
+cannot read the combat log on this client.
+
+Frames match retail exactly: `PlayerFrame.healthbar`, `PartyFrame.MemberFrame1`,
+`PlayerCastingBarFrame`, `MinimapCluster.ZoneTextButton`, `SettingsPanel`. `PlayerSpellsFrame`
+is absent, but it is load-on-demand, so that proves nothing either way.

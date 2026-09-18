@@ -32,6 +32,12 @@
 ]]
 
 local _G = _G
+
+-- Same move as in GaarBags: the item lookups live in C_Item now, and Forever has dropped the
+-- old global names entirely. One local here keeps every call site below unchanged.
+local C_Item = _G.C_Item
+local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
+local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
 local ADDON = "Gaar Looter"
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 

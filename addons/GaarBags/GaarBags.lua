@@ -29,6 +29,31 @@
 ]]
 
 local _G = _G
+
+-- The item globals moved into C_Item, and on Forever the old names are gone outright rather
+-- than left as deprecated aliases - GetItemInfo, GetItemQualityColor and GetCoinTextureString
+-- all read nil there. Shadowing them with file-locals up here means every call site below
+-- reads the same on Era, retail and Forever, rather than each one growing a branch.
+local C_Item = _G.C_Item
+local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
+local GetItemQualityColor = (C_Item and C_Item.GetItemQualityColor) or _G.GetItemQualityColor
+
+-- No namespace has taken over the coin string on every client, so where it is absent the
+-- amount is formatted here. Plain text rather than the coin icons, which is a small loss
+-- against a blank where the money should be.
+local GetCoinTextureString = _G.GetCoinTextureString
+    or (_G.C_CurrencyInfo and _G.C_CurrencyInfo.GetCoinTextureString)
+if not GetCoinTextureString then
+    GetCoinTextureString = function(amount)
+        amount = amount or 0
+        local g = math.floor(amount / 10000)
+        local s = math.floor((amount % 10000) / 100)
+        local c = amount % 100
+        if g > 0 then return string.format("%dg %ds %dc", g, s, c) end
+        if s > 0 then return string.format("%ds %dc", s, c) end
+        return string.format("%dc", c)
+    end
+end
 local SIZE = 32          -- slot pitch; the button itself is SIZE-2, leaving a 2px gutter
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 

@@ -298,6 +298,16 @@ end
 
 local minimapButton
 
+-- Geometry read off a Blizzard frame can be secret on this client, and a secret cannot be
+-- compared, divided, or even tested with "or" - the fallback itself is a boolean test. So it
+-- has to be checked before it is touched at all.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function PlaceButton()
     if not minimapButton then return end
     local angle = math.rad(DB().minimapAngle)
@@ -312,7 +322,9 @@ local function PlaceButton()
         -- A fixed radius would bury the button inside the corners and float it off the flat
         -- sides. Stretching the vector until its longest component reaches the edge keeps it
         -- on the rim the whole way round.
-        local half = ((Minimap and Minimap:GetWidth()) or 140) / 2 + 8
+        local mw = Minimap and Minimap:GetWidth()
+        if Secret(mw) then mw = nil end   -- a secret width cannot be halved
+        local half = (mw or 140) / 2 + 8
         local reach = math.max(math.abs(cos), math.abs(sin))
         if reach < 0.0001 then reach = 1 end
         x, y = half * cos / reach, half * sin / reach

@@ -178,13 +178,23 @@ local HEADER_FRAMES = {
     "MinimapCluster.ZoneTextButton", "MinimapCluster.BorderTop",
 }
 
+-- Geometry read off a Blizzard frame can be secret on this client, and a secret cannot be
+-- compared, divided, or even tested with "or" - the fallback itself is a boolean test. So it
+-- has to be checked before it is touched at all.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local function HeaderWidth()
     local best = 0
     for _, n in ipairs(HEADER_FRAMES) do
         local f = Piece(n)
         if f and f.GetWidth then
-            local w = f:GetWidth() or 0
-            if w > best then best = w end
+            local w = f:GetWidth()
+            if not Secret(w) and w and w > best then best = w end
         end
     end
     return best
@@ -203,8 +213,10 @@ local function ApplySquareSize()
         if want < 80 or want > 400 then return end
     end
 
-    if not mm._gaarBaseSize then mm._gaarBaseSize = mm:GetWidth() end
-    if math.abs((mm:GetWidth() or 0) - want) > 0.5 then mm:SetSize(want, want) end
+    local have = mm:GetWidth()
+    if Secret(have) then return end   -- nothing to compare against, so leave the size alone
+    if not mm._gaarBaseSize then mm._gaarBaseSize = have end
+    if math.abs((have or 0) - want) > 0.5 then mm:SetSize(want, want) end
 end
 
 -- Clock and tracking strip
@@ -372,7 +384,10 @@ local function ApplyHeaderGap()
     local header
     for _, n in ipairs(HEADER_FRAMES) do
         local f = Piece(n)
-        if f and f.GetHeight and (f:GetHeight() or 0) > 0 then header = f; break end
+        if f and f.GetHeight then
+            local fh = f:GetHeight()
+            if not Secret(fh) and fh and fh > 0 then header = f; break end
+        end
     end
     if not header then return end
 
@@ -642,12 +657,16 @@ local function DumpMinimap()
         if not f then
             print("  " .. parent .. ": |cffff6666absent|r")
         else
-            print(string.format("  %s  %.0fx%.0f", parent, f:GetWidth() or 0, f:GetHeight() or 0))
+            local pw, ph = f:GetWidth(), f:GetHeight()
+            if Secret(pw, ph) then print(string.format("  %s  <secret size>", parent))
+            else print(string.format("  %s  %.0fx%.0f", parent, pw or 0, ph or 0)) end
             for _, child in ipairs({ f:GetChildren() }) do
                 local n = child.GetName and child:GetName()
                 if n then
-                    print(string.format("    %s %s  %.0fx%.0f", child:IsShown() and "|cff40ff40+|r" or "|cff777777-|r",
-                        n, child:GetWidth() or 0, child:GetHeight() or 0))
+                    local cw, ch = child:GetWidth(), child:GetHeight()
+                    local mark = child:IsShown() and "|cff40ff40+|r" or "|cff777777-|r"
+                    if Secret(cw, ch) then print(string.format("    %s %s  <secret size>", mark, n))
+                    else print(string.format("    %s %s  %.0fx%.0f", mark, n, cw or 0, ch or 0)) end
                 end
             end
             for _, r in ipairs({ f:GetRegions() }) do

@@ -139,6 +139,12 @@ end
 
 local function ApplyCastSize(f)
     local h = f:GetHeight()
+    -- If the height is secret the frame inherited it from a Blizzard bar, and nothing can be
+    -- worked out from it. Fall back to the unit's own default rather than doing the sum.
+    if Secret(h) then
+        local fb = FALLBACK[f.unit]
+        h = (fb and fb[5]) or 14
+    end
     local isz = math.max(6, h - 4)
     f.icon:SetSize(isz, isz)
     if f.spark then f.spark:SetHeight(h * 2) end
@@ -164,6 +170,11 @@ local function ApplyAnchor(f)
     -- yet, and copying that gave a bar stretched across most of the screen.
     local w, h = nil, nil
     if blizz then w, h = blizz:GetWidth(), blizz:GetHeight() end
+    -- Secret geometry is worse than useless here. It cannot be compared, so the sanity check
+    -- below would be the thing that errors; and copying it onto our own frame makes that
+    -- frame's size secret in turn, which breaks Blizzard's own Backdrop code the moment it
+    -- measures us - the error lands in their file, not ours. Treat it as no geometry at all.
+    if Secret(w, h) then w, h = nil, nil end
     local sane = w and h and w >= 80 and w <= 400 and h >= 6 and h <= 40
 
     if size then

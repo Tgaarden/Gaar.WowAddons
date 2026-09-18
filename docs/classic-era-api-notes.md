@@ -132,6 +132,16 @@ flagging it. Where the values come from an API that may hide them, guarding each
 doing but is not sufficient: wrap the work in `pcall` and treat the refusal as the answer,
 latching that feature off rather than retrying it every frame.
 
+**Secrecy is inherited through geometry.** `GaarCast` sizes itself from Blizzard's cast bar.
+On a client that hides those numbers, `blizz:GetWidth()` is secret, and `f:SetSize(w, h)` makes
+*our own frame's* size secret in turn. The next thing to measure that frame was Blizzard's
+`Backdrop.lua`, which failed on line 226 - an error in their file, caused by a size we copied
+out of another of their frames. Never copy geometry without checking it first; treat a secret
+width as no width and fall back to your own default.
+
+Note that `w or 140` is not a safe fallback: `or` performs a boolean test, which is itself
+blocked on a secret. The check has to come before anything touches the value.
+
 **The taint is touching the frame, not doing the maths.** Guarding your own arithmetic does not
 make an addon safe: writing to one of Blizzard's unit frames taints it, and from then on
 *Blizzard's own code inside that frame* cannot compare the secret values either. The log shows

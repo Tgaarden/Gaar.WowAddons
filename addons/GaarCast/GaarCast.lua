@@ -178,7 +178,11 @@ local function SaveLayout()
                 (sz and string.format("%.1f", sz.w)) or "", (sz and string.format("%.1f", sz.h)) or "")
         end
     end
-    pcall(_G.C_CVar.SetCVar, LAYOUT_CVAR, table.concat(out, ";"))
+    -- A marker when there is nothing placed yet, so the CVar is never empty: an empty one is
+    -- indistinguishable from one the client declined to keep.
+    local value = table.concat(out, ";")
+    if value == "" then value = "none@" .. date("%H:%M:%S") end
+    pcall(_G.C_CVar.SetCVar, LAYOUT_CVAR, value)
 end
 
 local function LoadLayout()
@@ -631,6 +635,13 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
         TryBind(event, event == "PLAYER_ENTERING_WORLD")
+        if event == "PLAYER_ENTERING_WORLD" then
+            -- Written on every entry, not only on a drag. Whether an addon-registered CVar
+            -- survives a restart at all is the open question - C_CVar also offers
+            -- RemoveTempCVar, which hints these may be temporary - and a CVar that is only
+            -- written when something moves cannot answer it.
+            SaveLayout()
+        end
         if event == "PLAYER_ENTERING_WORLD" and not next(DB().pos) and not next(DB().size) then
             if LoadLayout() then
                 DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r this client did not return its saved settings, so the bar layout was restored from a CVar instead.")

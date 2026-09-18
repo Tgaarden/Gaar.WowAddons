@@ -188,7 +188,10 @@ local function ApplyAnchor(f)
     f:ClearAllPoints()
     if pos then
         f:SetPoint(pos.point or "CENTER", UIParent, pos.point or "CENTER", pos.x or 0, pos.y or 0)
-    elseif blizz then
+    elseif blizz and not Secret(blizz:GetWidth(), blizz:GetHeight()) then
+        -- Anchoring to a frame whose geometry is secret makes ours secret by another route:
+        -- guarding the size alone was not enough, because the position carries it too. That is
+        -- what kept Blizzard's own Backdrop code failing after the size was already handled.
         f:SetPoint("CENTER", blizz, "CENTER", 0, 0)
     else
         f:SetPoint(fb[1], UIParent, fb[1], fb[2], fb[3])

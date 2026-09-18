@@ -1864,6 +1864,9 @@ intentDriver:SetScript("OnUpdate", function(self)
     if intent == "show" then Show()
     elseif intent == "hide" then Hide()
     elseif intent == "toggle" then Toggle() end
+    -- Sweep after ours has opened, not before: the frames Blizzard creates on demand only
+    -- exist once something has asked for them.
+    if _G.GaarBags_HideBlizzardBags then _G.GaarBags_HideBlizzardBags() end
 end)
 
 local function Request(intent)
@@ -1887,7 +1890,36 @@ HookBagEntry("OpenBackpack", "show")
 HookBagEntry("CloseAllBags", "hide")
 HookBagEntry("CloseBackpack", "hide")
 
-for i = 1, (NUM_CONTAINER_FRAMES or 13) do
-    local cf = _G["ContainerFrame" .. i]
-    if cf then cf:HookScript("OnShow", function(self) if Override() then self:Hide() end end) end
+-- Blizzard's own bag windows, hidden while this addon is standing in for them.
+--
+-- Hooking only at load missed two things. Retail and Forever added a single combined bag
+-- window, which is a different frame entirely and was never in the list; and the numbered
+-- frames are not all created up front, so the ones built later were never hooked. Both are
+-- handled by sweeping the names again whenever our own window opens, hooking whatever is new
+-- and hiding whatever is showing.
+local function BlizzardBagFrames()
+    local t = {}
+    for i = 1, (NUM_CONTAINER_FRAMES or 17) do
+        local cf = _G["ContainerFrame" .. i]
+        if cf then t[#t + 1] = cf end
+    end
+    for _, n in ipairs({ "ContainerFrameCombinedBags", "BackpackTokenFrame" }) do
+        local cf = _G[n]
+        if cf then t[#t + 1] = cf end
+    end
+    return t
 end
+
+local function HideBlizzardBags()
+    if not Override() then return end
+    for _, cf in ipairs(BlizzardBagFrames()) do
+        if not cf._gaarHidden then
+            cf._gaarHidden = true
+            cf:HookScript("OnShow", function(self) if Override() then self:Hide() end end)
+        end
+        if cf.IsShown and cf:IsShown() then cf:Hide() end
+    end
+end
+_G.GaarBags_HideBlizzardBags = HideBlizzardBags
+
+HideBlizzardBags()

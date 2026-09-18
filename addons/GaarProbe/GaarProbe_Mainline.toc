@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Probe]|r
 ## Notes: Reports what this client's addon API actually has - every global, namespace, frame and return shape the Gaar suite depends on. /gaarprobe
 ## Author: Gaar

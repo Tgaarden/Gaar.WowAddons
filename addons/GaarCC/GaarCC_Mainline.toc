@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Cooldown Count]|r
 ## Notes: Cooldown count text on action buttons, items and any cooldown swipe. /gaarcc for options.
 ## Author: Gaar

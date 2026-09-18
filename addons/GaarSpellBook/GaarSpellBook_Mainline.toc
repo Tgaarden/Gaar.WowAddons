@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Spell Book]|r
 ## Notes: Custom spell book window listing every spell you know, plus action-bar checkmarks on the native spellbook. Ported from the Deepward (WotLK 3.3.5a) addon.
 ## Author: Gaar

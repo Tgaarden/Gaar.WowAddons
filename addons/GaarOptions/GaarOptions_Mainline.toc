@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Options]|r
 ## Notes: One "Gaar" entry in the AddOns options with the settings for every Gaar addon, including the cast bar test toggle. /gaar
 ## Author: Gaar

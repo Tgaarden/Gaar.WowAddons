@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Threat]|r
 ## Notes: Real-time group threat meter for your current target, with a pull warning. /gaarthreat
 ## Author: Gaar

@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Frames]|r
 ## Notes: X-Perl-style tweaks to the default unit frames - class-coloured bars, value+percent text, low-HP colouring, a dark backing panel, readable party bars and party buffs. /gaarframes
 ## Author: Gaar

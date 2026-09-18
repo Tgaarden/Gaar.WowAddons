@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Cast]|r
 ## Notes: Replaces Blizzard's cast bars (player/target/focus/pet) with movable ones - spell icon, timer, latency safe-zone - anchored to wherever Blizzard's own bar sits. /gaarcast
 ## Author: Gaar

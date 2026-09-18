@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[UI]|r
 ## Notes: The whole Gaar suite in one switch. Ticking this pulls in every module; each one still works on its own without it.
 ## Author: Gaar

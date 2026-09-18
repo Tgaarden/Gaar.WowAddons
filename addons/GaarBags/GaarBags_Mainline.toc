@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Bags]|r
 ## Notes: One-bag window - every bag in a single grid, with a one-shot stack-and-sort cleanup. /gaarbags
 ## Author: Gaar

@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Map]|r
 ## Notes: Scale and fade the world map - resize from the corner, and let it fade out while you run. /gaarmap
 ## Author: Gaar

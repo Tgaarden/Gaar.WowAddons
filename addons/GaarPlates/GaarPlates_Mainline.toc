@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Plates]|r
 ## Notes: Cleaner nameplates - flat health bars, name/level, health text, cast bar, per-plate threat colouring and your debuffs. /gaarplates
 ## Author: Gaar

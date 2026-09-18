@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 16001
 ## Title: Gaar |cFF33FF99[Meter]|r
 ## Notes: Compact combat meter - damage, healing, damage taken, interrupts, dispels, deaths - with segments and a per-spell breakdown. /gaarmeter
 ## Author: Gaar

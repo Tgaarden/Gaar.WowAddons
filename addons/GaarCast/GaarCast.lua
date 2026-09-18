@@ -510,8 +510,12 @@ for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "GaarCast" then
+        -- Sampled before the merge as well as after. Measuring only after binding cannot tell
+        -- "the client handed us nothing" from "the client handed us something and we lost it",
+        -- and that is the whole remaining question.
+        Trace("ADDON_LOADED, raw from client")
         BindDB()
-        Trace("ADDON_LOADED")
+        Trace("ADDON_LOADED, after bind")
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
         return
     end

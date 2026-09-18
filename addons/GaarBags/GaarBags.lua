@@ -58,6 +58,7 @@ local SIZE = 32          -- slot pitch; the button itself is SIZE-2, leaving a 2
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 
 local KEYRING = _G.KEYRING_CONTAINER or -2
+
 local BANK = _G.BANK_CONTAINER or -1
 local NUM_BANK_BAGS = _G.NUM_BANKBAGSLOTS or 7
 
@@ -102,6 +103,20 @@ local function DB()
     if d.altTooltips == nil then d.altTooltips = true end
     if d.pawnArrows == nil then d.pawnArrows = true end   -- upgrade arrows, when Pawn is loaded
     return d
+end
+
+-- The keyring starts hidden. It is a handful of slots rarely looked at, and showing it by
+-- default put a row of grey between the bags and the money. Applied once under its own flag, so
+-- someone who turns it back on is not overruled at the next login.
+--
+-- It sits here rather than inside DB() because KEYRING is declared above DB and would be read
+-- as a global from in there - nil at runtime, and the check would silently do nothing.
+do
+    local d = DB()
+    if not d.keyringDefaulted then
+        d.keyringDefaulted = true
+        d.hidden[KEYRING] = true
+    end
 end
 
 -- ---------------------------------------------------------------------------

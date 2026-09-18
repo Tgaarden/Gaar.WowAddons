@@ -268,10 +268,12 @@ local function MakeBar(unit)
         -- secret into SavedVariables as nil. Saving one leaves a table full of nils that looks
         -- like a stored position and is not, which is why the target bar would not stay put.
         -- Better to keep the last good position than to overwrite it with nothing.
+        -- Dragging is an unambiguous request to put the bar somewhere, so it wins over following
+        -- rather than being refused. Answering a deliberate drag with a message and snapping the
+        -- bar back is the sort of thing that reads as broken.
         if DB().follow then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r following Blizzard's bar - move it in Edit Mode, or turn following off with /gaarcast follow.")
-            ApplyAnchor(self)
-            return
+            DB().follow = false
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r stopped following Blizzard's bars - you moved one by hand. /gaarcast follow turns it back on.")
         end
         if Secret(x, y) or Secret(p) then
             DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Cast:|r this client will not report the "
@@ -339,6 +341,11 @@ local function MakeBar(unit)
     grip:SetScript("OnMouseDown", function() if not DB().locked then f:StartSizing("BOTTOMRIGHT") end end)
     grip:SetScript("OnMouseUp", function()
         f:StopMovingOrSizing(); ApplyCastSize(f)
+        -- Same reasoning as the drag: resizing by hand means this bar is being placed by hand.
+        if DB().follow then
+            DB().follow = false
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r stopped following Blizzard's bars - you resized one by hand.")
+        end
         DB().size[unit] = { w = f:GetWidth(), h = f:GetHeight() }
     end)
     if DB().locked then grip:Hide() end

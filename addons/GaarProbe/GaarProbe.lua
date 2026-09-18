@@ -243,23 +243,47 @@ local function Build()
     add("project id " .. tostring(_G.WOW_PROJECT_ID) .. "   constants: " ..
         (next(proj) and table.concat(proj, " ") or "none"))
 
+    -- A global that is gone is not the same as a global that has moved, and the report has been
+    -- listing both as "missing" all along - which is why a module reading 25 of 37 looked alarming
+    -- when every one of those twelve was already shimmed. Every C_* table is scanned for a member
+    -- of the same name, so the answer is read off the client rather than a list kept by hand.
+    local movedTo = {}
+    for gname, gval in pairs(_G) do
+        if type(gname) == "string" and type(gval) == "table" and string.find(gname, "^C_") then
+            local ok = pcall(function()
+                for member, fn in pairs(gval) do
+                    if type(member) == "string" and type(fn) == "function" and not movedTo[member] then
+                        movedTo[member] = gname
+                    end
+                end
+            end)
+            if not ok then end   -- some namespaces refuse iteration; skip them quietly
+        end
+    end
+
     add("")
     add("== globals, per module ==")
+    add("-- \"moved\" means the name lives in a C_* namespace now, which a shim can follow.")
+    add("-- \"gone\" means no namespace offers it: that is the one worth acting on.")
     for _, name in ipairs({ "GaarBags", "GaarCC", "GaarCast", "GaarFrames", "GaarLooter",
                             "GaarMap", "GaarMeter", "GaarOptions", "GaarPlates",
                             "GaarSpellBook", "GaarThreat", "GaarUI" }) do
         local names = MODULES[name]
         if names then
-            local gone, total = {}, #names
+            local moved, gone, total = {}, {}, #names
             for _, n in ipairs(names) do
-                local kind = Kind(Resolve(n))
-                if kind == "MISSING" then gone[#gone + 1] = n end
+                if Kind(Resolve(n)) == "MISSING" then
+                    if movedTo[n] then moved[#moved + 1] = n .. "->" .. movedTo[n]
+                    else gone[#gone + 1] = n end
+                end
             end
-            r.summary[#r.summary + 1] = { name, total - #gone, total, gone }
-            add(string.format("%s: %d of %d present", name, total - #gone, total))
+            table.sort(moved); table.sort(gone)
+            r.summary[#r.summary + 1] = { name, total - #moved - #gone, total, gone, moved }
+            add(string.format("%s: %d of %d present, %d moved, %d gone",
+                name, total - #moved - #gone, total, #moved, #gone))
+            if #moved > 0 then add("  moved: " .. table.concat(moved, " ")) end
             if #gone > 0 then
-                table.sort(gone)
-                add("  missing: " .. table.concat(gone, " "))
+                add("  |cffff6666gone: " .. table.concat(gone, " ") .. "|r")
                 for _, n in ipairs(gone) do r.missing[n] = true end
             end
         end
@@ -441,10 +465,14 @@ local function Run(toChat)
 
     print("|cff33ff99" .. ADDON .. " " .. VERSION .. "|r")
     for _, row in ipairs(r.summary) do
-        local name, have, total, gone = row[1], row[2], row[3], row[4]
-        local colour = (have == total) and "|cff40ff40" or (have > total * 0.7 and "|cffffcc00" or "|cffff6666")
-        print(string.format("  %s%-14s %d/%d|r%s", colour, name, have, total,
-            (#gone > 0) and ("  |cff777777" .. table.concat(gone, " ") .. "|r") or ""))
+        local name, have, total, gone, moved = row[1], row[2], row[3], row[4], row[5] or {}
+        -- Only what is truly gone colours the line. A name that merely moved is a shim's job,
+        -- not a fault, and colouring it red sent us chasing twelve non-problems this morning.
+        local colour = (#gone == 0) and "|cff40ff40" or "|cffff6666"
+        local note = ""
+        if #gone > 0 then note = "  |cffff6666gone: " .. table.concat(gone, " ") .. "|r"
+        elseif #moved > 0 then note = string.format("  |cff777777%d moved into C_* namespaces|r", #moved) end
+        print(string.format("  %s%-14s %d/%d|r%s", colour, name, have, total, note))
     end
     print("  |cff777777" .. #r.lines .. " lines written to SavedVariables\\GaarProbe.lua|r")
     print("  |cff777777/gaarprobe dump prints it all; /gaarprobe copy opens a copyable box|r")

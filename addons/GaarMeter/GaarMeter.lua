@@ -787,6 +787,12 @@ local function CombatLogInfo()
     if CombatLogGetCurrentEventInfo then return CombatLogGetCurrentEventInfo() end
 end
 
+-- Where there is no getter at all, this meter cannot work, and an empty window looks like a
+-- bug rather than a client that has closed the door. It says so once, and again whenever the
+-- window is opened, so the reason is never further away than the thing it explains.
+--
+-- On Forever, C_CombatLog exists but carries only IsCombatLogRestricted, ClearEntries and
+-- SetMessageLimit - every reader is absent. There is nothing to shim.
 local HAS_CLEU_GETTER = (_G.C_CombatLog and type(_G.C_CombatLog.GetCurrentEventInfo) == "function")
     or (type(CombatLogGetCurrentEventInfo) == "function")
 
@@ -818,7 +824,25 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
+local warnedNoLog = false
+local function WarnIfBlind()
+    if HAS_CLEU_GETTER or type(_G.CombatLogGetCurrentEventInfo) == "function" then return false end
+    if not warnedNoLog then
+        warnedNoLog = true
+        local restricted = ""
+        local C = _G.C_CombatLog
+        if C and C.IsCombatLogRestricted then
+            local ok, r = pcall(C.IsCombatLogRestricted)
+            if ok and r then restricted = " (the client reports the combat log as restricted)" end
+        end
+        print("|cff5599ffGaar Meter:|r this client gives addons no way to read the combat log" ..
+              restricted .. " - nothing can be measured here.")
+    end
+    return true
+end
+
 local function Toggle()
+    WarnIfBlind()
     if frame:IsShown() then frame:Hide(); DB().shown = false
     else frame:Show(); DB().shown = true; Redraw() end
 end

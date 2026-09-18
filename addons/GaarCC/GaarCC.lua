@@ -36,6 +36,7 @@ local function DB()
     if type(GaarCCDB) ~= "table" then GaarCCDB = {} end
     local d = GaarCCDB
     if d.enabled     == nil then d.enabled = true end
+    if d.forceOnRetail == nil then d.forceOnRetail = false end
     if d.minDuration == nil then d.minDuration = 2 end    -- ignore GCD / very short cooldowns
     if d.minSize     == nil then d.minSize = 16 end       -- don't draw on tiny cooldown frames
     if d.scale       == nil then d.scale = 0.42 end       -- text size as a fraction of the frame size
@@ -124,12 +125,36 @@ local function HandleCooldown(cd, start, duration)
 end
 
 -- Hook the Cooldown widget itself: every cooldown swipe in the UI goes through SetCooldown,
--- whichever helper set it.
-local cdProto = CreateFrame("Cooldown", nil, UIParent)
-local cdIndex = getmetatable(cdProto).__index
-hooksecurefunc(cdIndex, "SetCooldown", function(cd, start, duration)
-    HandleCooldown(cd, start, duration)
-end)
+-- whichever helper set it. That reach is the point of this addon and also its cost - the hook
+-- sits in the call chain of every cooldown in the interface, Blizzard's secure action buttons
+-- included.
+--
+-- On a client that hides cooldown timings there is nothing to be gained from being there. The
+-- start and duration come back secret, no count can be worked out from them, and the only thing
+-- the hook contributes is addon code inside Blizzard's own cooldown path - which is where
+-- "attempt to call a nil value" was landing, deep in ActionButton.lua. Blizzard draws its own
+-- cooldown numbers on those clients anyway.
+--
+-- So the hook is not installed there. Not disabled inside, not returning early: absent, for the
+-- same reason GaarFrames stays out of the unit frames.
+local function IsMainline()
+    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+end
+
+if IsMainline() and not DB().forceOnRetail then
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("PLAYER_LOGIN")
+    ev:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        print("|cff5599ff" .. ADDON .. ":|r this client hides cooldown timings and draws its own numbers, so the count is off here.")
+    end)
+else
+    local cdProto = CreateFrame("Cooldown", nil, UIParent)
+    local cdIndex = getmetatable(cdProto).__index
+    hooksecurefunc(cdIndex, "SetCooldown", function(cd, start, duration)
+        HandleCooldown(cd, start, duration)
+    end)
+end
 -- Older helper, still hooked if this build happens to have it.
 if type(_G.CooldownFrame_SetTimer) == "function" then
     hooksecurefunc("CooldownFrame_SetTimer", function(cd, start, duration, enable)

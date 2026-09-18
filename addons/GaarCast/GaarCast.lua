@@ -137,74 +137,6 @@ local UNITS = { "player", "target", "pet" }
 if HAS_FOCUS then table.insert(UNITS, 3, "focus") end
 local bars = {}
 
--- ---------------------------------------------------------------------------
--- Layout fallback through a CVar
---
--- This build writes saved variables and hands none of them back - proven at every load stage,
--- and TomTom loses its own settings the same way, so it is the client rather than this addon.
--- CVars are a different store, and that one demonstrably survives: the graphics settings in
--- Config.wtf come back after a restart.
---
--- So the bar layout is mirrored into a registered CVar and read from there when the saved table
--- arrives empty. It is a workaround for a beta bug, deliberately small: one short string, only
--- the four numbers per bar that placement needs, and SavedVariables still wins wherever they
--- work - on Era and retail this never comes into play.
--- ---------------------------------------------------------------------------
-local LAYOUT_CVAR = "gaarCastLayout"
-local cvarReady = nil
-
-local function CVarStore()
-    if cvarReady ~= nil then return cvarReady end
-    local C = _G.C_CVar
-    cvarReady = false
-    if C and C.RegisterCVar and C.GetCVar and C.SetCVar then
-        if C.GetCVar(LAYOUT_CVAR) == nil then pcall(C.RegisterCVar, LAYOUT_CVAR, "") end
-        cvarReady = (C.GetCVar(LAYOUT_CVAR) ~= nil)
-    end
-    return cvarReady
-end
-
--- unit:point:x:y:w:h, semicolon separated. Absent numbers are written as empty fields so a bar
--- that has a position but no size round-trips unchanged.
-local function SaveLayout()
-    if not CVarStore() then return end
-    local out = {}
-    for _, u in ipairs(UNITS) do
-        local p, sz = DB().pos[u], DB().size[u]
-        if p or sz then
-            out[#out + 1] = string.format("%s:%s:%s:%s:%s:%s", u,
-                (p and p.point) or "", (p and string.format("%.1f", p.x)) or "",
-                (p and string.format("%.1f", p.y)) or "",
-                (sz and string.format("%.1f", sz.w)) or "", (sz and string.format("%.1f", sz.h)) or "")
-        end
-    end
-    -- A marker when there is nothing placed yet, so the CVar is never empty: an empty one is
-    -- indistinguishable from one the client declined to keep.
-    local value = table.concat(out, ";")
-    if value == "" then value = "none@" .. date("%H:%M:%S") end
-    pcall(_G.C_CVar.SetCVar, LAYOUT_CVAR, value)
-end
-
-local function LoadLayout()
-    if not CVarStore() then return false end
-    local raw = _G.C_CVar.GetCVar(LAYOUT_CVAR)
-    if type(raw) ~= "string" or raw == "" then return false end
-    local found = false
-    for chunk in string.gmatch(raw, "[^;]+") do
-        local u, point, x, y, w, h = string.match(chunk, "^([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):([^:]*)$")
-        if u and u ~= "" then
-            if point ~= "" and tonumber(x) and tonumber(y) then
-                DB().pos[u] = { point = point, x = tonumber(x), y = tonumber(y) }
-                found = true
-            end
-            if tonumber(w) and tonumber(h) then
-                DB().size[u] = { w = tonumber(w), h = tonumber(h) }
-                found = true
-            end
-        end
-    end
-    return found
-end
 
 -- Returns: name, icon, startMs, endMs, notInterruptible, isChannel.
 -- Classic Era dropped the old nameSubtext return, so texture/start/end sit one slot earlier
@@ -377,7 +309,6 @@ local function MakeBar(unit)
             return
         end
         DB().pos[unit] = { point = p, x = x, y = y }
-        SaveLayout()
     end)
     -- 1px, like the icon and the rest of the suite. The tooltip border this used to wear is
     -- 10px of ornament and made a small bar look like a picture frame.
@@ -444,7 +375,6 @@ local function MakeBar(unit)
             DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r stopped following Blizzard's bars - you resized one by hand.")
         end
         DB().size[unit] = { w = f:GetWidth(), h = f:GetHeight() }
-        SaveLayout()
     end)
     if DB().locked then grip:Hide() end
     f.grip = grip
@@ -635,18 +565,6 @@ ev:SetScript("OnEvent", function(_, event, arg1)
     end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
         TryBind(event, event == "PLAYER_ENTERING_WORLD")
-        if event == "PLAYER_ENTERING_WORLD" then
-            -- Written on every entry, not only on a drag. Whether an addon-registered CVar
-            -- survives a restart at all is the open question - C_CVar also offers
-            -- RemoveTempCVar, which hints these may be temporary - and a CVar that is only
-            -- written when something moves cannot answer it.
-            SaveLayout()
-        end
-        if event == "PLAYER_ENTERING_WORLD" and not next(DB().pos) and not next(DB().size) then
-            if LoadLayout() then
-                DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Cast:|r this client did not return its saved settings, so the bar layout was restored from a CVar instead.")
-            end
-        end
         Trace(event)
         -- Both, deliberately. The frames are built while this file runs, which is before the
         -- saved variables have been loaded, so the anchor applied then is against an empty

@@ -162,3 +162,13 @@ default. A mature third-party addon loses its settings the same way.
 Worth knowing for anyone porting here: no addon can persist anything on this build yet, so a
 missing setting after a reload is the client, not the port. It also means the writing half
 cannot be tested end to end - a file that looks right on disk proves only that saving works.
+
+**CVars are not a way round it.** `C_CVar.RegisterCVar` works at runtime: a registered CVar can
+be set and read back within the session, confirmed in game with
+`/dump C_CVar.GetCVar("gaarCastLayout")` returning `player:CENTER:225.8:-28.7::` right after a
+drag. It is never written to `Config.wtf`. The file came back byte-identical across the exit,
+so what `RegisterCVar` creates here is temporary - `C_CVar.RemoveTempCVar` sitting in the same
+namespace was the hint, and this is the confirmation.
+
+So there is currently no persistence available to an addon on this build at all. The workaround
+was written, tested and removed rather than left in place looking like it saved something.

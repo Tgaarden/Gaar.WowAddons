@@ -19,6 +19,16 @@
 ]]
 
 local _G = _G
+
+-- Retail hands out "secret values" - here for cooldown start and duration - which may be shown
+-- and passed back to Blizzard's widgets, but not compared, tested or computed with. A cooldown
+-- whose timings are secret simply gets no count: there is no way to work one out.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
 local ADDON = "Gaar CC"
 local format = string.format
 
@@ -89,15 +99,6 @@ local function StartTimer(cd, start, duration)
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
 end
 
--- Retail hands out "secret values" - here for cooldown start and duration - which may be shown
--- and passed back to Blizzard's widgets, but not compared, tested or computed with. A cooldown
--- whose timings are secret simply gets no count: there is no way to work one out.
-local issecretvalue = _G.issecretvalue
-local function Secret(a, b)
-    if not issecretvalue then return false end
-    if issecretvalue(a) then return true end
-    return b ~= nil and issecretvalue(b) or false
-end
 
 local function HandleCooldown(cd, start, duration)
     if not cd or cd.noCooldownCount then return end          -- respect frames that show their own count

@@ -118,8 +118,14 @@ local function BlizzBar(unit)
 end
 
 -- Fallback anchor + size, used only when this client has no Blizzard bar for that unit.
+-- Where a bar sits when nothing has been saved. On the Forever beta that is every session, since
+-- the client writes saved variables and never returns them, so these are what you actually get
+-- there - which is why the player bar's numbers below are a measured layout rather than a guess.
+--
+-- Taken from a real session: position CENTER 225.8,-28.7 and size 372x22, read out of
+-- SavedVariables. The other three have never been placed, so they keep their original estimates.
 local FALLBACK = {
-    player = { "CENTER", 0, -170, 200, 16 },
+    player = { "CENTER", 225.8, -28.7, 372, 22 },
     target = { "CENTER", 0, -200, 180, 14 },
     focus  = { "CENTER", 260, -140, 170, 14 },
     pet    = { "CENTER", -260, -140, 150, 12 },

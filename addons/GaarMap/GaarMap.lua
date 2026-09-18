@@ -279,6 +279,33 @@ local function RefreshClock()
     clockBar.time:SetText(date("%H:%M"))
 end
 
+-- Another addon's frame can land in the same place as this strip. TomTom's coordinate block
+-- does exactly that here: this build never returns saved variables, so TomTom has forgotten
+-- where it was put and falls back to its default spot under the minimap, on top of the clock.
+--
+-- Ours moves, because ours is the one that can: it drops below anything overlapping it. The
+-- test is a real overlap rather than "is TomTom loaded", so a block the user has moved
+-- elsewhere is left alone.
+local function ClockOffset(mm)
+    local drop = 3
+    local block = _G.TomTomBlock
+    if not block or not block.IsShown or not block:IsShown() then return drop end
+
+    local ok, clash = pcall(function()
+        local bl, br = block:GetLeft(), block:GetRight()
+        local bt, bb = block:GetTop(), block:GetBottom()
+        local ml, mr, mb = mm:GetLeft(), mm:GetRight(), mm:GetBottom()
+        if Secret(bl, bt) or Secret(ml, mb) then return nil end
+        if not (bl and br and bt and bb and ml and mr and mb) then return nil end
+        -- horizontally over the map, and sitting in the band just beneath it
+        if br < ml or bl > mr then return nil end
+        if bb > mb or bt < mb - 60 then return nil end
+        return mb - bb
+    end)
+    if ok and clash then return drop + clash + 2 end
+    return drop
+end
+
 local function BuildClockBar(mm)
     if clockBar then return clockBar end
 
@@ -287,6 +314,12 @@ local function BuildClockBar(mm)
     -- border it read as a second box rather than something belonging to the map.
     f:SetPoint("TOPLEFT", mm, "BOTTOMLEFT", -4, -7)
     f:SetPoint("TOPRIGHT", mm, "BOTTOMRIGHT", 4, -7)
+    f.Reposition = function(self)
+        local off = ClockOffset(mm)
+        self:ClearAllPoints()
+        self:SetPoint("TOPLEFT", mm, "BOTTOMLEFT", -4, -(4 + off))
+        self:SetPoint("TOPRIGHT", mm, "BOTTOMRIGHT", 4, -(4 + off))
+    end
     f:SetHeight(13)
 
     -- Two halves, each tapering to nothing at its outer end. Fading the strip out at the sides
@@ -354,6 +387,7 @@ local function BuildClockBar(mm)
     return f
 end
 
+
 local function ApplyClock()
     local mm = _G.Minimap
     if not mm then return end
@@ -369,6 +403,7 @@ local function ApplyClock()
     if blizz then blizz:Hide() end
 
     BuildClockBar(mm)
+    if clockBar.Reposition then clockBar:Reposition() end
     RefreshClock()
     RefreshTracking()
     clockBar:Show()

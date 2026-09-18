@@ -33,29 +33,41 @@ local ADDON = "Gaar Cast"
 local staging = {}
 local dbBound = false
 
-local function BindDB()
+-- ADDON_LOADED was too early. The recorded handover said "client gave nil" against a file that
+-- plainly held a saved size, so on this client the saved table arrives later than that event.
+--
+-- Binding is therefore attempted at each stage in turn and only takes when the client has
+-- actually provided a table. Creating the global ourselves before then is what would stop the
+-- real one arriving, so nothing is created until the last stage, by which point waiting longer
+-- would gain nothing.
+local bindLog = {}
+
+local function Provided()
+    if type(GaarCastDB) ~= "table" then return nil end
+    local pos, size = 0, 0
+    if type(GaarCastDB.pos) == "table" then for _ in pairs(GaarCastDB.pos) do pos = pos + 1 end end
+    if type(GaarCastDB.size) == "table" then for _ in pairs(GaarCastDB.size) do size = size + 1 end end
+    return pos, size
+end
+
+local function TryBind(stage, force)
     if dbBound then return end
+    local pos, size = Provided()
+    bindLog[#bindLog + 1] = string.format("%s=%s", stage,
+        pos and string.format("table pos=%d size=%d", pos, size) or "nil")
+    if not pos and not force then return end     -- nothing handed over yet; wait
+
     dbBound = true
-
-    -- What the client actually handed over, recorded into the file itself. Reading it back off
-    -- disk next session answers the question without anyone having to run a command in game and
-    -- screenshot the result - and the answer survives a crash, which a screenshot does not.
-    local rawType = type(GaarCastDB)
-    local rawPos, rawSize = 0, 0
-    if rawType == "table" then
-        if type(GaarCastDB.pos) == "table" then for _ in pairs(GaarCastDB.pos) do rawPos = rawPos + 1 end end
-        if type(GaarCastDB.size) == "table" then for _ in pairs(GaarCastDB.size) do rawSize = rawSize + 1 end end
-    end
-
-    if rawType ~= "table" then GaarCastDB = {} end
+    if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
     for k, v in pairs(staging) do
         if GaarCastDB[k] == nil then GaarCastDB[k] = v end
     end
     staging = {}
-
-    GaarCastDB.lastLoad = string.format("%s: client gave %s, pos=%d size=%d",
-        date("%Y-%m-%d %H:%M:%S"), rawType, rawPos, rawSize)
+    GaarCastDB.lastLoad = string.format("%s bound at %s [%s]",
+        date("%H:%M:%S"), stage, table.concat(bindLog, " "))
 end
+
+local function BindDB() TryBind("late", true) end
 
 local function DB()
     local d
@@ -525,7 +537,7 @@ local EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED", "EDIT_MODE_LAYOUTS_UPDATED",
+    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED", "EDIT_MODE_LAYOUTS_UPDATED", "VARIABLES_LOADED",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
@@ -535,8 +547,13 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         -- "the client handed us nothing" from "the client handed us something and we lost it",
         -- and that is the whole remaining question.
         Trace("ADDON_LOADED, raw from client")
-        BindDB()
+        TryBind("ADDON_LOADED")
         Trace("ADDON_LOADED, after bind")
+        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
+        return
+    end
+    if event == "VARIABLES_LOADED" then
+        TryBind("VARIABLES_LOADED")
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
         return
     end
@@ -545,6 +562,7 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         return
     end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
+        TryBind(event, event == "PLAYER_ENTERING_WORLD")
         Trace(event)
         -- Both, deliberately. The frames are built while this file runs, which is before the
         -- saved variables have been loaded, so the anchor applied then is against an empty

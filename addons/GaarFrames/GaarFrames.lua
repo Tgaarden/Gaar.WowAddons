@@ -340,8 +340,9 @@ end
 -- That is why the pet's mana text ends up the smallest on screen.
 local function FitSize(bar)
     local want = DB().fontSize
-    local h = bar:GetHeight() or 0
-    if h > 0 then
+    local h = bar:GetHeight()
+    if Secret(h) then h = nil end     -- Blizzard's bar; its height can be hidden
+    if h and h > 0 then
         local fit = math.floor(h) - 2   -- the OUTLINE costs a pixel on each side
         if fit < want then want = fit end
     end
@@ -385,7 +386,9 @@ local function UpdateBarText(barName, unit, powerBar)
     fs:SetText(string.format("%s/%s  %d%%", Short(cur), Short(max), pct))
     -- A short bar with long numbers spills over both ends and reads worse than no numbers at
     -- all. Where the full string does not fit, the percent alone does.
-    local room = (bar:GetWidth() or 0) - 4
+    local bw = bar:GetWidth()
+    if Secret(bw) then bw = nil end
+    local room = (bw or 0) - 4
     if room > 0 and fs:GetStringWidth() > room then
         fs:SetText(string.format("%d%%", pct))
     end

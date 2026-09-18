@@ -33,6 +33,16 @@
 
 local _G = _G
 
+-- Values read off a Blizzard frame can be hidden on this client, and a hidden one cannot be
+-- compared, multiplied, or even tested with "or" - the fallback is itself a boolean test.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
+
 -- Same move as in GaarBags: the item lookups live in C_Item now, and Forever has dropped the
 -- old global names entirely. One local here keeps every call site below unchanged.
 local C_Item = _G.C_Item
@@ -424,7 +434,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 
     if event == "PLAYER_MONEY" then
         local now = GetMoney()
-        if lastMoney then
+        if Secret(now) then now = nil end   -- no amount means no delta worth recording
+        if now and lastMoney then
             local delta = now - lastMoney
             RecordMoney(delta, moneyFromChat or (delta > 0 and "gain" or "spend"))
         end

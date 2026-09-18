@@ -19,6 +19,16 @@
 
 local _, ns = ...
 local _G = _G
+
+-- Values read off a Blizzard frame can be hidden on this client, and a hidden one cannot be
+-- compared, multiplied, or even tested with "or" - the fallback is itself a boolean test.
+local issecretvalue = _G.issecretvalue
+local function Secret(a, b)
+    if not issecretvalue then return false end
+    if issecretvalue(a) then return true end
+    return b ~= nil and issecretvalue(b) or false
+end
+
 local READY_CHECK_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local NUM_SPELL_BUTTONS = 12   -- Classic Era spellbook: SpellButton1..12 per page
 
@@ -96,9 +106,11 @@ local function GetButtonTexture(btn, name)
     if r.GetObjectType and r:GetObjectType() == "Texture" and r.GetTexture then
       local t = r:GetTexture()
       if t then
-        local w, h = r:GetWidth() or 0, r:GetHeight() or 0
-        local area = w * h
-        if area > bestArea then bestTex, bestArea = t, area end
+        local w, h = r:GetWidth(), r:GetHeight()
+        if not Secret(w, h) and w and h then
+          local area = w * h
+          if area > bestArea then bestTex, bestArea = t, area end
+        end
       end
     end
   end

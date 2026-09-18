@@ -154,3 +154,20 @@ failing to decorate them, which is why `GaarFrames` stays off where `issecretval
 Icon paths fail silently, rendering blank rather than erroring. `INV_Misc_Broom_01` is not
 present on this client. `Interface\Buttons\*` has been reliable. Where a glyph matters, draw
 it from plain coloured rectangles - it cannot go missing.
+
+## The pattern, stated once
+
+Every one of these failures has the same shape: a value that describes a unit, an item or a
+Blizzard frame comes back hidden, and code does arithmetic on it inside a loop that runs many
+times a second. Health, threat, auras, cooldowns, cast timings, level, movement speed, money,
+and the width and height of Blizzard's own frames have all turned out to be in that category.
+
+Three things follow, and they are worth applying without waiting for the error:
+
+1. **Check before you touch.** Not only arithmetic - comparison, boolean test and `or` are all
+   blocked. `w or 140` is not a safe fallback.
+2. **Prefer the API that answers in kind.** `IsPlayerMoving()` needs no arithmetic where
+   `GetUnitSpeed() > 0` does. Where the client offers a boolean, take the boolean.
+3. **Do not predict; catch.** `issecretvalue` does not flag everything, and secrecy travels
+   through arithmetic and through frame geometry. Wrap the work, treat a refusal as the answer,
+   and switch that feature off rather than retrying it every frame.

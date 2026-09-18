@@ -304,6 +304,7 @@ local function StartCast(f)
     f.lag:Hide(); f.lagFrac = nil
     if DB().showLatency and f.unit == "player" and not channel then
         local _, _, _, lagMs = GetNetStats()
+        if Secret(lagMs) then lagMs = nil end
         local dur = endMs - startMs
         if lagMs and lagMs > 0 and dur > 0 then f.lagFrac = math.min(lagMs / dur, 1) end
     end

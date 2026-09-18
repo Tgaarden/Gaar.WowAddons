@@ -77,9 +77,13 @@ end
 local function StartTimer(cd, start, duration)
     local timer = Timer(cd)
     timer.start, timer.duration, timer.acc = start, duration, 0
-    local sz = cd:GetWidth() or 0
-    timer.text:SetFont(STANDARD_TEXT_FONT, math.max(9, sz * DB().scale), "OUTLINE")
-    if sz < DB().minSize then timer.text:Hide() else timer.text:Show() end
+    -- The cooldown is Blizzard's frame, so its width can be hidden. No size to scale the text
+    -- from means the configured size stands and the text is shown: a count that is there at the
+    -- wrong size beats no count at all.
+    local sz = cd:GetWidth()
+    if Secret(sz) then sz = nil end
+    timer.text:SetFont(STANDARD_TEXT_FONT, math.max(9, (sz or 32) * DB().scale), "OUTLINE")
+    if sz and sz < DB().minSize then timer.text:Hide() else timer.text:Show() end
     timer:Show()
     -- don't stack with Blizzard's own numbers on the same swipe
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end

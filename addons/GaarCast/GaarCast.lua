@@ -69,70 +69,6 @@ end
 
 local function BindDB() TryBind("late", true) end
 
--- ---------------------------------------------------------------------------
--- Layout fallback through a CVar
---
--- This build writes saved variables and hands none of them back - proven at every load stage,
--- and TomTom loses its own settings the same way, so it is the client rather than this addon.
--- CVars are a different store, and that one demonstrably survives: the graphics settings in
--- Config.wtf come back after a restart.
---
--- So the bar layout is mirrored into a registered CVar and read from there when the saved table
--- arrives empty. It is a workaround for a beta bug, deliberately small: one short string, only
--- the four numbers per bar that placement needs, and SavedVariables still wins wherever they
--- work - on Era and retail this never comes into play.
--- ---------------------------------------------------------------------------
-local LAYOUT_CVAR = "gaarCastLayout"
-local cvarReady = nil
-
-local function CVarStore()
-    if cvarReady ~= nil then return cvarReady end
-    local C = _G.C_CVar
-    cvarReady = false
-    if C and C.RegisterCVar and C.GetCVar and C.SetCVar then
-        if C.GetCVar(LAYOUT_CVAR) == nil then pcall(C.RegisterCVar, LAYOUT_CVAR, "") end
-        cvarReady = (C.GetCVar(LAYOUT_CVAR) ~= nil)
-    end
-    return cvarReady
-end
-
--- unit:point:x:y:w:h, semicolon separated. Absent numbers are written as empty fields so a bar
--- that has a position but no size round-trips unchanged.
-local function SaveLayout()
-    if not CVarStore() then return end
-    local out = {}
-    for _, u in ipairs(UNITS) do
-        local p, sz = DB().pos[u], DB().size[u]
-        if p or sz then
-            out[#out + 1] = string.format("%s:%s:%s:%s:%s:%s", u,
-                (p and p.point) or "", (p and string.format("%.1f", p.x)) or "",
-                (p and string.format("%.1f", p.y)) or "",
-                (sz and string.format("%.1f", sz.w)) or "", (sz and string.format("%.1f", sz.h)) or "")
-        end
-    end
-    pcall(_G.C_CVar.SetCVar, LAYOUT_CVAR, table.concat(out, ";"))
-end
-
-local function LoadLayout()
-    if not CVarStore() then return false end
-    local raw = _G.C_CVar.GetCVar(LAYOUT_CVAR)
-    if type(raw) ~= "string" or raw == "" then return false end
-    local found = false
-    for chunk in string.gmatch(raw, "[^;]+") do
-        local u, point, x, y, w, h = string.match(chunk, "^([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):([^:]*)$")
-        if u and u ~= "" then
-            if point ~= "" and tonumber(x) and tonumber(y) then
-                DB().pos[u] = { point = point, x = tonumber(x), y = tonumber(y) }
-                found = true
-            end
-            if tonumber(w) and tonumber(h) then
-                DB().size[u] = { w = tonumber(w), h = tonumber(h) }
-                found = true
-            end
-        end
-    end
-    return found
-end
 
 local function DB()
     local d
@@ -200,6 +136,71 @@ end)()
 local UNITS = { "player", "target", "pet" }
 if HAS_FOCUS then table.insert(UNITS, 3, "focus") end
 local bars = {}
+
+-- ---------------------------------------------------------------------------
+-- Layout fallback through a CVar
+--
+-- This build writes saved variables and hands none of them back - proven at every load stage,
+-- and TomTom loses its own settings the same way, so it is the client rather than this addon.
+-- CVars are a different store, and that one demonstrably survives: the graphics settings in
+-- Config.wtf come back after a restart.
+--
+-- So the bar layout is mirrored into a registered CVar and read from there when the saved table
+-- arrives empty. It is a workaround for a beta bug, deliberately small: one short string, only
+-- the four numbers per bar that placement needs, and SavedVariables still wins wherever they
+-- work - on Era and retail this never comes into play.
+-- ---------------------------------------------------------------------------
+local LAYOUT_CVAR = "gaarCastLayout"
+local cvarReady = nil
+
+local function CVarStore()
+    if cvarReady ~= nil then return cvarReady end
+    local C = _G.C_CVar
+    cvarReady = false
+    if C and C.RegisterCVar and C.GetCVar and C.SetCVar then
+        if C.GetCVar(LAYOUT_CVAR) == nil then pcall(C.RegisterCVar, LAYOUT_CVAR, "") end
+        cvarReady = (C.GetCVar(LAYOUT_CVAR) ~= nil)
+    end
+    return cvarReady
+end
+
+-- unit:point:x:y:w:h, semicolon separated. Absent numbers are written as empty fields so a bar
+-- that has a position but no size round-trips unchanged.
+local function SaveLayout()
+    if not CVarStore() then return end
+    local out = {}
+    for _, u in ipairs(UNITS) do
+        local p, sz = DB().pos[u], DB().size[u]
+        if p or sz then
+            out[#out + 1] = string.format("%s:%s:%s:%s:%s:%s", u,
+                (p and p.point) or "", (p and string.format("%.1f", p.x)) or "",
+                (p and string.format("%.1f", p.y)) or "",
+                (sz and string.format("%.1f", sz.w)) or "", (sz and string.format("%.1f", sz.h)) or "")
+        end
+    end
+    pcall(_G.C_CVar.SetCVar, LAYOUT_CVAR, table.concat(out, ";"))
+end
+
+local function LoadLayout()
+    if not CVarStore() then return false end
+    local raw = _G.C_CVar.GetCVar(LAYOUT_CVAR)
+    if type(raw) ~= "string" or raw == "" then return false end
+    local found = false
+    for chunk in string.gmatch(raw, "[^;]+") do
+        local u, point, x, y, w, h = string.match(chunk, "^([^:]*):([^:]*):([^:]*):([^:]*):([^:]*):([^:]*)$")
+        if u and u ~= "" then
+            if point ~= "" and tonumber(x) and tonumber(y) then
+                DB().pos[u] = { point = point, x = tonumber(x), y = tonumber(y) }
+                found = true
+            end
+            if tonumber(w) and tonumber(h) then
+                DB().size[u] = { w = tonumber(w), h = tonumber(h) }
+                found = true
+            end
+        end
+    end
+    return found
+end
 
 -- Returns: name, icon, startMs, endMs, notInterruptible, isChannel.
 -- Classic Era dropped the old nameSubtext return, so texture/start/end sit one slot earlier

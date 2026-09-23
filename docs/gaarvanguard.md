@@ -132,22 +132,51 @@ choice** (`need`/`greed`) and `winner` set to who won. Items you pick up yoursel
 Professions are **skill lines**, and the reader has to cope with two very different clients, so it
 tries two API paths in turn (both `pcall`-guarded, scanned live at capture/export):
 
-1. **Modern / retail-shaped (Forever, retail).** `C_TradeSkillUI.GetProfessions()` returns the
-   profession skill-line **indices** directly (primary 1, primary 2, archaeology, fishing,
-   cooking, first aid). Each index is resolved with `GetProfessionInfo(index)` →
+1. **Modern / retail-shaped (Forever, retail).** `GetProfessions()` returns the profession
+   skill-line **indices** directly (primary 1, primary 2, archaeology, fishing, cooking, first
+   aid). Each index is resolved with `GetProfessionInfo(index)` →
    `name, icon, skillLevel, maxSkillLevel, …`. This path returns only professions, so nothing has
    to be filtered, and there is no enumeration problem. Indices are pushed one at a time (not via
    a table literal) so a `nil` in the middle — e.g. cooking but no primary profession — does not
    truncate the list.
-2. **Classic fallback (Era, or any client without `C_TradeSkillUI`).** `GetNumSkillLines()` +
+
+   **These are globals, not `C_TradeSkillUI` members.** The first version looked for
+   `C_TradeSkillUI.GetProfessions`, which is nil on every client (that namespace only holds
+   recipe/crafting calls), so the whole path bailed and Forever exported `"professions":[]`. The
+   Forever binary carries `GetProfessions`/`GetProfessionInfo` as plain globals
+   (`Usage: GetProfessionInfo(index)`), so the reader now uses the globals first and keeps the
+   `C_TradeSkillUI` names only as an alias for any odd client that namespaces them. See
+   `docs/forever-client-findings.md` → *Professions: read from the binary*.
+2. **Skill-line fallback (Era via globals, Forever via `C_SkillInfo`).** `GetNumSkillLines()` +
    `GetSkillLineInfo(i)`. The trap this originally hit: **a collapsed skill header hides its child
    skill lines from enumeration**, so a profession under a collapsed header reads as absent and
-   the list came back empty. The fix expands every header first (`ExpandSkillHeader(0)`), reads,
-   then re-collapses the headers that were collapsed (found by name, re-scanning per collapse
-   because each collapse renumbers the rows) so the player's Skills window is left as it was. This
-   path enumerates *every* skill line, so it filters to the real trade skills by name.
+   the list came back empty. The fix expands every header first, reads, then re-collapses the
+   headers that were collapsed (found by name, re-scanning per collapse because each collapse
+   renumbers the rows) so the player's Skills window is left as it was. This path enumerates
+   *every* skill line, so it filters to the real trade skills by name.
+
+   **On Forever these calls moved namespace and shape.** Era has the bare globals returning
+   `name, isHeader, isExpanded, rank, …`; Forever has no such globals and instead exposes
+   `C_SkillInfo.GetSkillLineInfo(i)`, which returns a single **table**
+   (`name, isHeader, isHeaderExpanded, rank, maxRank, …`), with `ExpandSkillHeader`/
+   `CollapseSkillHeader` under the same namespace. A set of `SkillLine_*` accessors normalises both
+   shapes to the Era-style tuple so the scanner reads one shape. `GetNumSkillLines` is tried under
+   `C_SkillInfo` then as a global (the binary does not settle which Forever uses).
 
 An empty scan leaves any previously captured profession list in place rather than wiping it.
+
+### Confirming the profession API in game: `/gaarvanguard probe`
+
+Because WoW cannot be run from the build environment, the wiring above is inferred from the client
+binary and needs one in-game confirmation. `/gaarvanguard probe` (also the **Probe professions**
+button under Gaar → Vanguard) dumps to chat **and** into a copyable box, for the current character:
+`WOW_PROJECT_ID`/interface/build; whether `GetProfessions`/`GetProfessionInfo` exist and what they
+return live; the `C_TradeSkillUI` alias check; each skill-line reader (global vs `C_SkillInfo`, plus
+the table's keys); a full dump of every skill line (index, name, isHeader, isExpanded, skill/max,
+and a `PROFESSION` tag) after expanding headers; the extra namespaces (`C_ProfSpecs`,
+`C_CraftingOrders`, `C_Traits`); and the resolved `ScanProfessionsModern` / `ScanProfessionsClassic`
+/ `CaptureProfessions` output. It is read-only and fully `pcall`-guarded. Paste the box back to
+finish confirming the paths.
 
 **Spec** is read the same defensive way: the retail `GetSpecialization`/`GetSpecializationInfo`
 API first, then the Vanilla talent tabs (`GetNumTalentTabs`/`GetTalentTabInfo`, the tab with the
@@ -204,6 +233,7 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 - `/gaarvanguard export` — the VGD1 chars string
 - `/gaarvanguard import` — paste the website's sync string
 - `/gaarvanguard capture` — recapture the current character now
+- `/gaarvanguard probe` — dump which profession APIs this client exposes (chat + copyable box)
 - `/gaarvanguard config` — settings under **Gaar → Vanguard**
 - `/gaarvanguard wipe` — clear the whole database
 

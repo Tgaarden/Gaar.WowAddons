@@ -401,16 +401,24 @@ local PROFESSION_NAMES = {
     ["Cooking"] = true, ["First Aid"] = true, ["Fishing"] = true,
 }
 
--- Modern path (retail and the retail-shaped Forever client): C_TradeSkillUI.GetProfessions gives
--- the profession skill-line INDICES directly (prof1, prof2, archaeology, fishing, cooking,
--- firstAid), so there is no header/enumeration problem and no filtering to do. GetProfessionInfo
--- turns each index into name, icon, skillLevel, maxSkillLevel, ...  Returns a list, or nil when
--- this API is not present on the client.
+-- Modern path (retail and the retail-shaped Forever client). The trap the first version hit:
+-- GetProfessions and GetProfessionInfo are *globals* on these clients, NOT members of
+-- C_TradeSkillUI - the Forever binary carries `Usage: GetProfessionInfo(index)` and both names as
+-- plain globals, and C_TradeSkillUI has no GetProfessions at all. The old code looked for
+-- C_TradeSkillUI.GetProfessions, found nil, and bailed before reading anything, so Forever
+-- exported `professions:[]`. We read the globals first and only fall back to a C_TradeSkillUI
+-- alias for any odd client that namespaces them.
+--
+-- GetProfessions() returns up to six profession skill-line INDICES (prof1, prof2, archaeology,
+-- fishing, cooking, firstAid), so there is no header/enumeration problem and no filtering to do.
+-- GetProfessionInfo(index) turns each into name, icon, skillLevel, maxSkillLevel, ...  Returns a
+-- list, or nil when neither reader is present on the client.
 local function ScanProfessionsModern()
     local TSU = _G.C_TradeSkillUI
-    if not TSU or type(TSU.GetProfessions) ~= "function" then return nil end
-    if type(GetProfessionInfo) ~= "function" then return nil end
-    local p1, p2, arch, fish, cook, firstaid = safe(TSU.GetProfessions)
+    local getList = _G.GetProfessions or (TSU and TSU.GetProfessions)
+    local getInfo = _G.GetProfessionInfo or (TSU and TSU.GetProfessionInfo)
+    if type(getList) ~= "function" or type(getInfo) ~= "function" then return nil end
+    local p1, p2, arch, fish, cook, firstaid = safe(getList)
     local indices = {}
     local function push(idx) if type(idx) == "number" and idx > 0 then indices[#indices + 1] = idx end end
     -- Pushed one at a time (not via a table literal) so a nil in the middle - e.g. a character
@@ -419,7 +427,7 @@ local function ScanProfessionsModern()
     local out = {}
     for _, idx in ipairs(indices) do
         -- name, icon, skillLevel, maxSkillLevel, numAbilities, spellOffset, skillLine, ...
-        local name, _, skillLevel, maxSkillLevel = safe(GetProfessionInfo, idx)
+        local name, _, skillLevel, maxSkillLevel = safe(getInfo, idx)
         if name and name ~= "" then
             out[#out + 1] = { name = name, skill = tonumber(skillLevel) or 0, max = tonumber(maxSkillLevel) or 0 }
         end
@@ -427,40 +435,119 @@ local function ScanProfessionsModern()
     return out
 end
 
--- Re-collapse one header found by name, re-scanning fresh each call so a shifting index (every
--- collapse renumbers the rows after it) never collapses the wrong row.
-local function CollapseSkillHeaderByName(name)
-    if type(CollapseSkillHeader) ~= "function" or type(GetNumSkillLines) ~= "function" then return end
-    local n = safe(GetNumSkillLines) or 0
-    for i = 1, n do
-        local hname, isHeader = safe(GetSkillLineInfo, i)
-        if isHeader and hname == name then safe(CollapseSkillHeader, i); return end
+-- ---------------------------------------------------------------------------
+-- Skill-line access, abstracted over the two shapes a client offers, because the "classic"
+-- reader itself moved namespaces on Forever:
+--   * Classic Era: the bare globals GetNumSkillLines / GetSkillLineInfo / ExpandSkillHeader /
+--     CollapseSkillHeader, where GetSkillLineInfo(i) returns MULTIPLE values
+--     (name, isHeader, isExpanded, rank, numTempPoints, modifier, maxRank, ...).
+--   * Forever (retail-shaped): those globals are gone; the same calls live under the beta-only
+--     namespace C_SkillInfo, and C_SkillInfo.GetSkillLineInfo(i) returns a single TABLE
+--     (skillLineAttributes: name, isHeader, isHeaderExpanded, rank, maxRank, ...) - a silent
+--     shape change, not just a rename. Confirmed by strings in the Forever client binary; see
+--     docs/forever-client-findings.md. The count getter GetNumSkillLines had no namespaced Usage
+--     string, so we try C_SkillInfo.GetNumSkillLines then the global.
+-- Every accessor below normalises to the Era-style tuple so the scanner reads one shape.
+-- ---------------------------------------------------------------------------
+local function SkillLine_GetNum()
+    local CSI = _G.C_SkillInfo
+    local fn = (CSI and CSI.GetNumSkillLines) or _G.GetNumSkillLines
+    if type(fn) ~= "function" then return 0 end
+    return tonumber(safe(fn)) or 0
+end
+
+-- Returns name, isHeader, isExpanded, rank, maxRank for skill line `i`, whichever shape the
+-- client uses. nil when no reader exists at all.
+local function SkillLine_GetInfo(i)
+    local CSI = _G.C_SkillInfo
+    if CSI and type(CSI.GetSkillLineInfo) == "function" then
+        local t = safe(CSI.GetSkillLineInfo, i)
+        if type(t) ~= "table" then return nil end
+        local expanded = t.isHeaderExpanded
+        if expanded == nil then expanded = t.isExpanded end
+        return t.name or t.skillLineName,
+               t.isHeader,
+               expanded,
+               tonumber(t.rank or t.skillRank) or 0,
+               tonumber(t.maxRank or t.skillMaxRank) or 0
+    end
+    if type(_G.GetSkillLineInfo) == "function" then
+        -- name, isHeader, isExpanded, rank, numTempPoints, modifier, maxRank, ...
+        local name, isHeader, isExpanded, rank, _, _, maxRank = safe(_G.GetSkillLineInfo, i)
+        return name, isHeader, isExpanded, tonumber(rank) or 0, tonumber(maxRank) or 0
+    end
+    return nil
+end
+
+local function SkillLine_HasReader()
+    local CSI = _G.C_SkillInfo
+    return (CSI and type(CSI.GetSkillLineInfo) == "function")
+        or type(_G.GetSkillLineInfo) == "function"
+end
+
+local function SkillLine_Expand(i)
+    local CSI = _G.C_SkillInfo
+    local fn = (CSI and CSI.ExpandSkillHeader) or _G.ExpandSkillHeader
+    if type(fn) == "function" then safe(fn, i) end
+end
+
+local function SkillLine_Collapse(i)
+    local CSI = _G.C_SkillInfo
+    local fn = (CSI and CSI.CollapseSkillHeader) or _G.CollapseSkillHeader
+    if type(fn) == "function" then safe(fn, i) end
+end
+
+-- Expand every header so its children enumerate. Era's global takes 0 = "all"; the C_SkillInfo
+-- per-index form may not honour 0, so after that we also walk the list and expand any header still
+-- reported collapsed, re-scanning each time (expanding renumbers the rows below it). Bounded so a
+-- client that never reports "expanded" cannot loop forever.
+local function SkillLine_ExpandAll()
+    SkillLine_Expand(0)
+    for _ = 1, 60 do
+        local n = SkillLine_GetNum()
+        local didOne = false
+        for i = 1, n do
+            local _, isHeader, isExpanded = SkillLine_GetInfo(i)
+            if isHeader and isExpanded == false then
+                SkillLine_Expand(i)
+                didOne = true
+                break
+            end
+        end
+        if not didOne then break end
     end
 end
 
--- Classic fallback (Era, and any client without C_TradeSkillUI): GetNumSkillLines +
--- GetSkillLineInfo. The trap this addon originally hit: a COLLAPSED skill header hides its child
--- skill lines from enumeration entirely, so a profession under a collapsed header reads as
--- absent - which is why the list came back empty. Expand every header first (ExpandSkillHeader(0)),
--- read, then restore the headers that were collapsed so the player's Skills window is left as it
--- was. Returns a list, or nil when the API is not present.
+-- Re-collapse one header found by name, re-scanning fresh each call so a shifting index (every
+-- collapse renumbers the rows after it) never collapses the wrong row.
+local function CollapseSkillHeaderByName(name)
+    if not SkillLine_HasReader() then return end
+    local n = SkillLine_GetNum()
+    for i = 1, n do
+        local hname, isHeader = SkillLine_GetInfo(i)
+        if isHeader and hname == name then SkillLine_Collapse(i); return end
+    end
+end
+
+-- Skill-line fallback (Era via globals, Forever via C_SkillInfo). The original trap: a COLLAPSED
+-- skill header hides its child skill lines from enumeration entirely, so a profession under a
+-- collapsed header reads as absent - which is why the list came back empty. Expand every header
+-- first, read, then restore the headers that were collapsed so the player's Skills window is left
+-- as it was. Returns a list, or nil when no skill-line reader is present.
 local function ScanProfessionsClassic()
-    if type(GetNumSkillLines) ~= "function" or type(GetSkillLineInfo) ~= "function" then return nil end
+    if not SkillLine_HasReader() then return nil end
     -- Remember which headers were collapsed, then expand all so their children enumerate.
     local collapsed = {}
-    if type(ExpandSkillHeader) == "function" then
-        local n0 = safe(GetNumSkillLines) or 0
-        for i = 1, n0 do
-            local name, isHeader, isExpanded = safe(GetSkillLineInfo, i)
-            if isHeader and isExpanded == false then collapsed[#collapsed + 1] = name end
-        end
-        safe(ExpandSkillHeader, 0) -- 0 == all headers
+    local n0 = SkillLine_GetNum()
+    for i = 1, n0 do
+        local name, isHeader, isExpanded = SkillLine_GetInfo(i)
+        if isHeader and isExpanded == false then collapsed[#collapsed + 1] = name end
     end
-    local count = safe(GetNumSkillLines) or 0
+    SkillLine_ExpandAll()
+    local count = SkillLine_GetNum()
     local out = {}
     for i = 1, count do
-        -- name, isHeader, isExpanded, rank, numTempPoints, modifier, maxRank, ...
-        local name, isHeader, _, rank, _, _, maxRank = safe(GetSkillLineInfo, i)
+        local name, isHeader, _, rank, maxRank = SkillLine_GetInfo(i)
         if name and not isHeader and PROFESSION_NAMES[name] then
             -- Canonical: `skill` (was `rank`) plus `max`.
             out[#out + 1] = { name = name, skill = tonumber(rank) or 0, max = tonumber(maxRank) or 0 }
@@ -958,6 +1045,157 @@ end
 _G.GaarVanguard_ShowImport = ShowImport
 
 -- ---------------------------------------------------------------------------
+-- Profession probe: /gaarvanguard probe
+--
+-- The one call that has to survive an API we cannot run here. It reports, for the current
+-- character, exactly which profession-related readers exist and what each returns - so if the
+-- binary strings were ambiguous the user can run it on Forever and paste the output back. It never
+-- changes game state: every call is read-only and pcall-guarded. Mirrors GaarProbe's habit of
+-- asking the client rather than trusting memory.
+-- ---------------------------------------------------------------------------
+local function TypeOf(v)
+    local t = type(v)
+    if t == "function" then return "function" end
+    if t == "table" then return "table" end
+    if v == nil then return "MISSING" end
+    return t
+end
+
+local function ProbeProfessionsLines()
+    local L = {}
+    local function add(s) L[#L + 1] = s end
+
+    add("== GaarVanguard profession probe ==")
+    add("project WOW_PROJECT_ID=" .. tostring(_G.WOW_PROJECT_ID) ..
+        "  interface=" .. tostring(select(4, safe(GetBuildInfo))) ..
+        "  build=" .. tostring((safe(GetBuildInfo)) or "?"))
+
+    -- 1. The modern global path (the fix): GetProfessions / GetProfessionInfo as globals.
+    add("")
+    add("-- modern globals --")
+    add("GetProfessions (global)      = " .. TypeOf(_G.GetProfessions))
+    add("GetProfessionInfo (global)   = " .. TypeOf(_G.GetProfessionInfo))
+    if type(_G.GetProfessions) == "function" then
+        local a, b, c, d, e, f = safe(_G.GetProfessions)
+        add("GetProfessions() returns: " .. table.concat({
+            tostring(a), tostring(b), tostring(c), tostring(d), tostring(e), tostring(f) }, ", "))
+        for _, idx in ipairs({ a, b, c, d, e, f }) do
+            if type(idx) == "number" and idx > 0 and type(_G.GetProfessionInfo) == "function" then
+                local name, _, skill, maxSkill = safe(_G.GetProfessionInfo, idx)
+                add(string.format("  GetProfessionInfo(%d) -> name=%s skill=%s max=%s",
+                    idx, tostring(name), tostring(skill), tostring(maxSkill)))
+            end
+        end
+    end
+
+    -- 2. C_TradeSkillUI alias check (the name the old code wrongly used).
+    add("")
+    add("-- C_TradeSkillUI --")
+    local TSU = _G.C_TradeSkillUI
+    add("C_TradeSkillUI               = " .. TypeOf(TSU))
+    if type(TSU) == "table" then
+        add("  .GetProfessions            = " .. TypeOf(TSU.GetProfessions) .. "  (was assumed present - it is not on Forever)")
+        add("  .GetProfessionInfo         = " .. TypeOf(TSU.GetProfessionInfo))
+        add("  .GetProfessionInfoBySkillLineID = " .. TypeOf(TSU.GetProfessionInfoBySkillLineID))
+    end
+
+    -- 3. Skill-line readers: classic globals vs the Forever C_SkillInfo namespace.
+    add("")
+    add("-- skill-line readers --")
+    add("GetNumSkillLines (global)    = " .. TypeOf(_G.GetNumSkillLines))
+    add("GetSkillLineInfo (global)    = " .. TypeOf(_G.GetSkillLineInfo))
+    add("ExpandSkillHeader (global)   = " .. TypeOf(_G.ExpandSkillHeader))
+    local CSI = _G.C_SkillInfo
+    add("C_SkillInfo                  = " .. TypeOf(CSI))
+    if type(CSI) == "table" then
+        for _, fn in ipairs({ "GetNumSkillLines", "GetSkillLineInfo", "GetSkillLineInfoByID",
+                              "ExpandSkillHeader", "CollapseSkillHeader" }) do
+            add("  C_SkillInfo." .. fn .. string.rep(" ", 22 - #fn) .. "= " .. TypeOf(CSI[fn]))
+        end
+        if type(CSI.GetSkillLineInfo) == "function" then
+            local t = safe(CSI.GetSkillLineInfo, 1)
+            if type(t) == "table" then
+                local keys = {}
+                for k in pairs(t) do keys[#keys + 1] = tostring(k) end
+                table.sort(keys)
+                add("  C_SkillInfo.GetSkillLineInfo(1) is a TABLE with keys: " .. table.concat(keys, ", "))
+            else
+                add("  C_SkillInfo.GetSkillLineInfo(1) returned: " .. TypeOf(t))
+            end
+        end
+    end
+
+    -- 4. Full dump of every skill line, via the normalised accessor, after expanding all headers.
+    add("")
+    add("-- all skill lines (via SkillLine_GetInfo, headers expanded) --")
+    if SkillLine_HasReader() then
+        local collapsed = {}
+        local n0 = SkillLine_GetNum()
+        for i = 1, n0 do
+            local name, isHeader, isExpanded = SkillLine_GetInfo(i)
+            if isHeader and isExpanded == false then collapsed[#collapsed + 1] = name end
+        end
+        SkillLine_ExpandAll()
+        local n = SkillLine_GetNum()
+        add("GetNumSkillLines -> " .. n)
+        for i = 1, n do
+            local name, isHeader, isExpanded, rank, maxRank = SkillLine_GetInfo(i)
+            add(string.format("  [%2d] %-28s header=%s expanded=%s skill=%s/%s%s",
+                i, tostring(name), tostring(isHeader), tostring(isExpanded),
+                tostring(rank), tostring(maxRank),
+                (name and not isHeader and PROFESSION_NAMES[name]) and "  <- PROFESSION" or ""))
+        end
+        for _, name in ipairs(collapsed) do CollapseSkillHeaderByName(name) end
+    else
+        add("no skill-line reader present (neither global GetSkillLineInfo nor C_SkillInfo)")
+    end
+
+    -- 5. Forever-specific profession namespaces found in the binary (informational).
+    add("")
+    add("-- other profession namespaces (from binary) --")
+    for _, ns in ipairs({ "C_ProfSpecs", "C_CraftingOrders", "C_Traits" }) do
+        add(ns .. string.rep(" ", 20 - #ns) .. " = " .. TypeOf(_G[ns]))
+    end
+
+    -- 6. What the addon would actually export for this character right now.
+    add("")
+    add("-- resolved export --")
+    local modern = ScanProfessionsModern()
+    local classic = ScanProfessionsClassic()
+    local function summarise(label, list)
+        if not list then add(label .. ": nil (path not available)"); return end
+        if #list == 0 then add(label .. ": 0 professions"); return end
+        local parts = {}
+        for _, p in ipairs(list) do parts[#parts + 1] = string.format("%s %s/%s", p.name, p.skill, p.max) end
+        add(label .. ": " .. table.concat(parts, ", "))
+    end
+    summarise("ScanProfessionsModern",  modern)
+    summarise("ScanProfessionsClassic", classic)
+    local probeChar = { professions = {} }
+    safe(CaptureProfessions, probeChar)
+    summarise("CaptureProfessions (what exports)", probeChar.professions)
+
+    return L
+end
+
+local probeFrame
+local function ShowProbe()
+    local lines = ProbeProfessionsLines()
+    -- Chat: the summary lines, so a glance is enough.
+    print("|cff5599ff" .. ADDON .. ":|r profession probe -")
+    for _, l in ipairs(lines) do print(l) end
+    -- Copyable box: the whole thing, to paste back to us.
+    if not probeFrame then
+        probeFrame = MakeBox("GaarVanguardProbe", "Profession probe — ctrl-A, ctrl-C, paste this back", false)
+    end
+    probeFrame.box:SetText(table.concat(lines, "\n"))
+    probeFrame.box:HighlightText()
+    probeFrame:Show()
+    probeFrame.box:SetFocus()
+end
+_G.GaarVanguard_ShowProbe = ShowProbe
+
+-- ---------------------------------------------------------------------------
 -- Options panel (Gaar -> Vanguard)
 -- ---------------------------------------------------------------------------
 function GaarVanguard_BuildOptions(container)
@@ -980,6 +1218,11 @@ function GaarVanguard_BuildOptions(container)
     local recapBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
     recapBtn:SetSize(160, 24); recapBtn:SetPoint("TOPLEFT", 16, y)
     recapBtn:SetText("Recapture now")
+
+    local probeBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+    probeBtn:SetSize(160, 24); probeBtn:SetPoint("TOPLEFT", 184, y)
+    probeBtn:SetText("Probe professions")
+    probeBtn:SetScript("OnClick", ShowProbe)
     y = y - 34
 
     local count = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1020,6 +1263,7 @@ local function Usage()
     print("  |cffffd100/gaarvanguard export|r — the VGD1 string to paste into the website")
     print("  |cffffd100/gaarvanguard import|r — paste the website's sync string back")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
+    print("  |cffffd100/gaarvanguard probe|r — dump which profession APIs this client exposes")
     print("  |cffffd100/gaarvanguard config|r — settings under Gaar -> Vanguard")
     print("  |cffffd100/gaarvanguard wipe|r — clear the whole database")
 end
@@ -1038,6 +1282,8 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
         print("|cff5599ff" .. ADDON .. ":|r captured " .. (c and (c.name or "?") or "?") ..
             " (" .. (c and c.equipment and #c.equipment or 0) .. " equipped, " ..
             (c and c.loot and #c.loot or 0) .. " loot rows).")
+    elseif msg == "probe" then
+        pcall(ShowProbe)
     elseif msg == "config" or msg == "options" then
         OpenOptions()
     elseif msg == "wipe" then

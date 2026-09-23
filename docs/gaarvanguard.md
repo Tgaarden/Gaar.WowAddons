@@ -45,6 +45,23 @@ equipment was empty because it was read from cached events instead of scanned li
         { "name": "Mining", "skill": 300, "max": 300 },
         { "name": "First Aid", "skill": 225, "max": 300 }
       ],
+      "talents": [
+        {
+          "tab": "Elemental", "points": 5,
+          "talents": [
+            { "name": "Convection", "rank": 3, "max": 5, "tier": 1, "col": 1 }
+          ]
+        },
+        {
+          "tab": "Enhancement", "points": 31,
+          "talents": [
+            { "name": "Ancestral Knowledge", "rank": 5, "max": 5, "tier": 1, "col": 1 },
+            { "name": "Thundering Strikes", "rank": 0, "max": 5, "tier": 1, "col": 3 },
+            { "name": "Flurry", "rank": 5, "max": 5, "tier": 3, "col": 1 }
+          ]
+        },
+        { "tab": "Restoration", "points": 0, "talents": [] }
+      ],
       "equipment": [
         { "slot": "MainHand", "itemId": 19019, "quality": 5, "name": "Thunderfury" }
       ],
@@ -67,6 +84,7 @@ Canonical field names (each char object):
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
 | `spec` | string, optional | talent tab with most points (Classic) or active spec (retail) |
+| `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
 | `professions` | array | `{ name, skill, max }` per real primary/secondary trade skill (`skill` was `rank`) |
@@ -90,6 +108,12 @@ More field notes:
   Jewelcrafting, Inscription, Cooking, First Aid, Fishing) — weapon skills, Defense, Unarmed,
   languages and riding are filtered out. Each has `name`, `skill`, `max`. See *How professions
   are read* below for the API path.
+- `talents` is the **full talent build**, not just the spec name, so the website can render the
+  whole tree. It is an **array of tabs in tab order**; each tab has `tab` (name), `points` (points
+  spent in it) and `talents`, an array of **every** talent in the tab (not only ranked ones — a
+  0-rank talent is emitted with `rank: 0` so the tree is complete), ordered by `tier` then `col`.
+  Each talent has `name`, `rank`, `max`, `tier` (row, 1-based) and `col` (column, 1-based). `spec`
+  is the tab with the most points. See *How talents are read* below.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -99,7 +123,8 @@ More field notes:
 
 On **every export** the current character is re-scanned from the live game state right before the
 string is built — level (`UnitLevel`), race/class, faction, guild + rank (`GetGuildInfo`), spec,
-professions, and **equipment** by looping equip slots 1–19 via `GetInventoryItemLink` (each id
+the full talent build, professions, and **equipment** by looping equip slots 1–19 via
+`GetInventoryItemLink` (each id
 mapped to its canonical slot name). This means the export reflects the live character **even when
 the SavedVariables DB is empty**, which is the Forever-beta case (that client does not persist
 addon SavedVariables and the equipment events may never have fired). Other characters still come
@@ -114,7 +139,7 @@ API on one client leaves a blank field instead of erroring.
 | `PLAYER_EQUIPMENT_CHANGED` | equipment |
 | `PLAYER_LEVEL_UP` | the whole record |
 | `SKILL_LINES_CHANGED` | professions |
-| `CHARACTER_POINTS_CHANGED` | spec |
+| `CHARACTER_POINTS_CHANGED` | spec + full talent build |
 | `PLAYER_GUILD_UPDATE` | guild + rank |
 
 ### How loot is captured
@@ -165,10 +190,34 @@ tries two API paths in turn (both `pcall`-guarded, scanned live at capture/expor
 
 An empty scan leaves any previously captured profession list in place rather than wiping it.
 
-### Confirming the profession API in game: `/gaarvanguard probe`
+### How talents are read
+
+The **full talent build** (not just the spec name) is captured live at capture/export, `pcall`-guarded,
+trying the readers in order and using whichever the client exposes:
+
+1. **Classic talent API (Era, and the Vanilla-content Forever client — the expected path).**
+   `GetNumTalentTabs()` + `GetTalentTabInfo(tab)` → `name, icon, pointsSpent`; then, per tab,
+   `GetNumTalents(tab)` + `GetTalentInfo(tab, i)` → `name, icon, tier, column, rank, maxRank, …`
+   (the classic signature). **Every** talent is kept — including rank-0 ones, so the tree is
+   complete — and `rank`/`max` are always emitted. Tabs are ordered by tab index; talents within a
+   tab by `tier` then `col`. The resulting shape is
+   `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
+   the tab with the most points spent.
+2. **Fallbacks (retail namespaces), if the classic globals are missing.** `C_Traits` /
+   `C_ClassTalents` / `C_SpecializationInfo` / `GetSpecialization` are detected. A Vanilla-style
+   tier/column tree cannot be reconstructed from the retail trait graph, so on such a client only the
+   **spec name** is resolved and `talents` is left empty; the talent probe (below) reports which
+   namespace exists so this can be extended once we have live data from that client.
+
+An empty scan leaves any previously captured build in place rather than wiping it.
+
+Because WoW cannot be run from the build environment, the classic `GetTalentInfo` signature above is
+the documented Vanilla/Classic one and **needs one in-game confirmation** via the talent probe.
+
+### Confirming the profession + talent API in game: `/gaarvanguard probe`
 
 Because WoW cannot be run from the build environment, the wiring above is inferred from the client
-binary and needs one in-game confirmation. `/gaarvanguard probe` (also the **Probe professions**
+binary and needs one in-game confirmation. `/gaarvanguard probe` (also the **Probe prof + talents**
 button under Gaar → Vanguard) dumps to chat **and** into a copyable box, for the current character:
 `WOW_PROJECT_ID`/interface/build; whether `GetProfessions`/`GetProfessionInfo` exist and what they
 return live; the `C_TradeSkillUI` alias check; each skill-line reader (global vs `C_SkillInfo`, plus
@@ -177,6 +226,13 @@ and a `PROFESSION` tag) after expanding headers; the extra namespaces (`C_ProfSp
 `C_CraftingOrders`, `C_Traits`); and the resolved `ScanProfessionsModern` / `ScanProfessionsClassic`
 / `CaptureProfessions` output. It is read-only and fully `pcall`-guarded. Paste the box back to
 finish confirming the paths.
+
+The same command also dumps a **talent probe**: which classic talent globals exist
+(`GetNumTalentTabs` / `GetTalentTabInfo` / `GetNumTalents` / `GetTalentInfo`), each tab's name /
+points / talent count with the live `GetTalentInfo(tab, 1)` return so the signature is confirmed,
+the retail namespaces (`GetSpecialization`, `C_Traits`, `C_ClassTalents`, `C_SpecializationInfo`),
+which namespace was used, and the resolved `spec` + full `talents` build. **If talents do not
+resolve on Forever, paste this back and the readers can be adjusted from the real return shapes.**
 
 **Spec** is read the same defensive way: the retail `GetSpecialization`/`GetSpecializationInfo`
 API first, then the Vanilla talent tabs (`GetNumTalentTabs`/`GetTalentTabInfo`, the tab with the
@@ -213,6 +269,7 @@ GaarVanguardDB = {
   chars = {
     ["Name-Realm"] = {
       name, realm, race, cls, classFile, lvl, faction, spec, guild, guildRank,
+      talents     = { { tab, points, talents = { { name, rank, max, tier, col }, ... } }, ... },
       professions = { { name, skill, max }, ... },
       equipment   = { { slot, itemId, quality, name }, ... },  -- slot is the slot NAME string
       loot        = { { item, itemId, quality, kind, winner, when }, ... },  -- last 100
@@ -233,7 +290,7 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 - `/gaarvanguard export` — the VGD1 chars string
 - `/gaarvanguard import` — paste the website's sync string
 - `/gaarvanguard capture` — recapture the current character now
-- `/gaarvanguard probe` — dump which profession APIs this client exposes (chat + copyable box)
+- `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
 - `/gaarvanguard config` — settings under **Gaar → Vanguard**
 - `/gaarvanguard wipe` — clear the whole database
 

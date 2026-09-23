@@ -5,9 +5,10 @@
   What it does
     * Records every character you log in on into an account-wide database keyed by
       "Name-Realm": name, realm, race, cls, lvl, faction, spec (from talent tabs / the
-      retail specialization API), guild + rank, professions (the real primary + secondary trade
-      skills with skill and max) and equipment (inventory slots 1-19, stored by canonical slot
-      NAME). The
+      retail specialization API), the FULL talent build (every tab, its points spent and every
+      talent's rank/max/tier/column - so the website can draw the whole tree), guild + rank,
+      professions (the real primary + secondary trade skills with skill and max) and equipment
+      (inventory slots 1-19, stored by canonical slot NAME). The
       entry is refreshed whenever the thing it holds can change - login, an equipment swap, a
       level up, a skill/talent change, a guild change - and, crucially, re-scanned live at
       export so the string is correct even when the DB never persisted (the Forever beta).
@@ -389,6 +390,84 @@ local function CaptureSpec(c)
     end
 end
 
+-- The FULL talent build, so the website can draw the whole tree, not just the spec name.
+-- Captured live at capture/export exactly like professions/equipment (the Forever beta does not
+-- persist SavedVariables, so a cached build cannot be trusted). Tried in order, all pcall-guarded,
+-- using whichever API the client actually exposes:
+--
+--   1. Classic talent API (Era, and the Vanilla-content Forever client - by far the likely path).
+--      GetNumTalentTabs() + GetTalentTabInfo(tab) -> name, icon, pointsSpent; then
+--      GetNumTalents(tab) + GetTalentInfo(tab, i) -> name, icon, tier, column, rank, maxRank, ...
+--      (the classic signature). ALL talents are kept, including rank-0 ones, so the tree is
+--      complete; ranks are always included so a 0-rank talent shows as 0. Tabs are ordered by tab
+--      index; talents within a tab by tier then column.
+--   2. Fallbacks, if the classic globals are missing: the retail namespaces. We cannot reconstruct
+--      a Vanilla-style tier/column tree from C_Traits/C_ClassTalents, so there we only resolve the
+--      spec name (C_SpecializationInfo / GetSpecialization) and leave the build empty; the talent
+--      probe reports which namespace exists so we can extend this if Forever ever needs it.
+--
+-- Shape written to c.talents (mirrored in the export and docs/gaarvanguard.md):
+--   talents = { { tab = <tabName>, points = <pointsSpent>,
+--                 talents = { { name, rank, max, tier, col }, ... } }, ... }
+-- An empty scan leaves any previously captured build in place rather than wiping it.
+local function ScanTalentsClassic()
+    if type(GetNumTalentTabs) ~= "function" or type(GetTalentTabInfo) ~= "function" then return nil end
+    if type(GetNumTalents) ~= "function" or type(GetTalentInfo) ~= "function" then return nil end
+    local numTabs = tonumber(safe(GetNumTalentTabs)) or 0
+    if numTabs < 1 then return nil end
+    local build = {}
+    for tab = 1, numTabs do
+        -- Classic: name, iconTexture, pointsSpent, background, ...
+        local tabName, _, pointsSpent = safe(GetTalentTabInfo, tab)
+        local talents = {}
+        local numTalents = tonumber(safe(GetNumTalents, tab)) or 0
+        for i = 1, numTalents do
+            -- Classic: name, iconTexture, tier, column, rank, maxRank, isExceptional, meetsPrereq
+            local name, _, tier, column, rank, maxRank = safe(GetTalentInfo, tab, i)
+            if name and name ~= "" then
+                talents[#talents + 1] = {
+                    name = name,
+                    rank = tonumber(rank) or 0,
+                    max = tonumber(maxRank) or 0,
+                    tier = tonumber(tier) or 0,
+                    col = tonumber(column) or 0,
+                }
+            end
+        end
+        -- Order by tier, then column, so the array walks the tree top-to-bottom, left-to-right.
+        table.sort(talents, function(a, b)
+            if a.tier ~= b.tier then return a.tier < b.tier end
+            return a.col < b.col
+        end)
+        build[#build + 1] = {
+            tab = tabName or ("Tab " .. tab),
+            points = tonumber(pointsSpent) or 0,
+            talents = talents,
+        }
+    end
+    return build
+end
+
+local function CaptureTalents(c)
+    local build = ScanTalentsClassic()
+    if build and #build > 0 then
+        c.talents = build
+        -- Backstop the spec from the build if CaptureSpec did not already resolve one: the tab
+        -- with the most points spent. Never invent a spec when nothing is spent.
+        if not c.spec or c.spec == "" then
+            local best, bestPts = nil, 0
+            for _, t in ipairs(build) do
+                if (t.points or 0) > bestPts then best, bestPts = t.tab, t.points end
+            end
+            if best and bestPts > 0 then c.spec = best end
+        end
+    else
+        -- No classic talent API. Leave any previously captured build untouched; the probe reports
+        -- which retail namespace (if any) exists so this can be extended when we have live data.
+        c.talents = c.talents or {}
+    end
+end
+
 -- The real primary + secondary professions, by English name. Only the classic skill-line
 -- fallback below needs this filter: that reader enumerates *every* skill line - weapon skills,
 -- Defense, Unarmed, languages, riding - so we keep only the trade skills. The C_TradeSkillUI
@@ -546,11 +625,25 @@ local function ScanProfessionsClassic()
     SkillLine_ExpandAll()
     local count = SkillLine_GetNum()
     local out = {}
+    -- De-duplicate by name: on Forever the C_SkillInfo list reports several professions TWICE
+    -- (the live probe saw Skinning / Tailoring / Cooking listed twice), so without this the export
+    -- would carry duplicate rows. Keep one row per profession, preferring the higher skill/max if
+    -- the two copies ever disagree.
+    local seen = {}
     for i = 1, count do
         local name, isHeader, _, rank, maxRank = SkillLine_GetInfo(i)
         if name and not isHeader and PROFESSION_NAMES[name] then
             -- Canonical: `skill` (was `rank`) plus `max`.
-            out[#out + 1] = { name = name, skill = tonumber(rank) or 0, max = tonumber(maxRank) or 0 }
+            local skill, max = tonumber(rank) or 0, tonumber(maxRank) or 0
+            local prev = seen[name]
+            if prev then
+                if skill > prev.skill then prev.skill = skill end
+                if max > prev.max then prev.max = max end
+            else
+                local row = { name = name, skill = skill, max = max }
+                seen[name] = row
+                out[#out + 1] = row
+            end
         end
     end
     -- Best-effort restore of the player's collapsed headers.
@@ -610,6 +703,7 @@ local function CaptureInto(c)
     safe(CaptureIdentity, c)
     safe(CaptureGuild, c)
     safe(CaptureSpec, c)
+    safe(CaptureTalents, c)
     safe(CaptureProfessions, c)
     safe(CaptureEquipment, c)
 end
@@ -801,7 +895,11 @@ ev:SetScript("OnEvent", function(_, event, a1)
         return
     end
     if event == "CHARACTER_POINTS_CHANGED" then
-        pcall(function() CaptureSpec(CurrentChar()) end)
+        pcall(function()
+            local c = CurrentChar()
+            CaptureSpec(c)
+            CaptureTalents(c)
+        end)
         return
     end
     if event == "PLAYER_GUILD_UPDATE" then
@@ -870,9 +968,35 @@ local function CanonicalChar(c)
         faction = c.faction,             -- harmless extra; website derives faction from race too
         classFile = c.classFile,         -- kept alongside `cls`
         professions = {},
+        talents = {},                    -- the full talent build (tabs -> talents); see docs
         equipment = {},
         loot = {},
     }
+    -- Full talent build, re-projected so the website always sees the canonical shape even for a
+    -- record captured by an older version (which had no `talents`).
+    if type(c.talents) == "table" then
+        for _, tabRec in ipairs(c.talents) do
+            if type(tabRec) == "table" then
+                local tabOut = {
+                    tab = tabRec.tab,
+                    points = tonumber(tabRec.points) or 0,
+                    talents = {},
+                }
+                if type(tabRec.talents) == "table" then
+                    for _, t in ipairs(tabRec.talents) do
+                        tabOut.talents[#tabOut.talents + 1] = {
+                            name = t.name,
+                            rank = tonumber(t.rank) or 0,
+                            max = tonumber(t.max) or 0,
+                            tier = tonumber(t.tier) or 0,
+                            col = tonumber(t.col) or 0,
+                        }
+                    end
+                end
+                out.talents[#out.talents + 1] = tabOut
+            end
+        end
+    end
     if type(c.professions) == "table" then
         for _, p in ipairs(c.professions) do
             out.professions[#out.professions + 1] = {
@@ -1178,15 +1302,94 @@ local function ProbeProfessionsLines()
     return L
 end
 
+-- Talent probe. Same idea as the profession probe: report, for the current character, exactly
+-- which talent readers exist and what they return live, so if talents do not resolve on Forever we
+-- have the data to adjust. Read-only and fully pcall-guarded; changes no game state.
+local function ProbeTalentsLines()
+    local L = {}
+    local function add(s) L[#L + 1] = s end
+
+    add("== GaarVanguard talent probe ==")
+
+    -- 1. Classic talent API (the expected path on Vanilla-content Forever).
+    add("")
+    add("-- classic talent globals --")
+    add("GetNumTalentTabs   = " .. TypeOf(_G.GetNumTalentTabs))
+    add("GetTalentTabInfo   = " .. TypeOf(_G.GetTalentTabInfo))
+    add("GetNumTalents      = " .. TypeOf(_G.GetNumTalents))
+    add("GetTalentInfo      = " .. TypeOf(_G.GetTalentInfo))
+
+    local classicOK = type(_G.GetNumTalentTabs) == "function"
+        and type(_G.GetTalentTabInfo) == "function"
+    if classicOK then
+        local numTabs = tonumber(safe(_G.GetNumTalentTabs)) or 0
+        add("GetNumTalentTabs() -> " .. numTabs)
+        for tab = 1, numTabs do
+            local name, _, pts = safe(_G.GetTalentTabInfo, tab)
+            local numT = (type(_G.GetNumTalents) == "function") and (tonumber(safe(_G.GetNumTalents, tab)) or 0) or "?"
+            add(string.format("  tab %d: name=%s points=%s numTalents=%s",
+                tab, tostring(name), tostring(pts), tostring(numT)))
+            -- Show the first talent of each tab so the GetTalentInfo shape is visible live.
+            if type(_G.GetTalentInfo) == "function" and type(numT) == "number" and numT > 0 then
+                local tname, _, tier, column, rank, maxRank = safe(_G.GetTalentInfo, tab, 1)
+                add(string.format("    GetTalentInfo(%d,1) -> name=%s tier=%s col=%s rank=%s max=%s",
+                    tab, tostring(tname), tostring(tier), tostring(column), tostring(rank), tostring(maxRank)))
+            end
+        end
+    else
+        add("classic talent API not present on this client")
+    end
+
+    -- 2. Retail / newer namespaces (fallbacks we detect but cannot yet map to a Vanilla tree).
+    add("")
+    add("-- retail talent/spec namespaces --")
+    add("GetSpecialization       = " .. TypeOf(_G.GetSpecialization))
+    add("GetSpecializationInfo   = " .. TypeOf(_G.GetSpecializationInfo))
+    for _, ns in ipairs({ "C_Traits", "C_ClassTalents", "C_SpecializationInfo" }) do
+        add(ns .. string.rep(" ", 22 - #ns) .. "= " .. TypeOf(_G[ns]))
+    end
+
+    -- 3. What the addon would actually export for this character right now.
+    add("")
+    add("-- resolved talent export --")
+    local probeChar = {}
+    safe(CaptureSpec, probeChar)
+    safe(CaptureTalents, probeChar)
+    add("namespace used: " .. (classicOK and "classic (GetTalentInfo)" or "none (classic missing)"))
+    add("spec: " .. tostring(probeChar.spec))
+    local build = probeChar.talents
+    if type(build) ~= "table" or #build == 0 then
+        add("talents: (empty - build not resolved on this client)")
+    else
+        for _, t in ipairs(build) do
+            add(string.format("  %s: %d point(s), %d talent(s)",
+                tostring(t.tab), tonumber(t.points) or 0, (type(t.talents) == "table") and #t.talents or 0))
+            if type(t.talents) == "table" then
+                for _, tal in ipairs(t.talents) do
+                    add(string.format("    [t%s c%s] %-28s %s/%s",
+                        tostring(tal.tier), tostring(tal.col), tostring(tal.name),
+                        tostring(tal.rank), tostring(tal.max)))
+                end
+            end
+        end
+    end
+
+    return L
+end
+
 local probeFrame
 local function ShowProbe()
     local lines = ProbeProfessionsLines()
+    -- Append the talent probe so one command dumps both, non-spammy.
+    local tlines = ProbeTalentsLines()
+    lines[#lines + 1] = ""
+    for _, l in ipairs(tlines) do lines[#lines + 1] = l end
     -- Chat: the summary lines, so a glance is enough.
-    print("|cff5599ff" .. ADDON .. ":|r profession probe -")
+    print("|cff5599ff" .. ADDON .. ":|r profession + talent probe -")
     for _, l in ipairs(lines) do print(l) end
     -- Copyable box: the whole thing, to paste back to us.
     if not probeFrame then
-        probeFrame = MakeBox("GaarVanguardProbe", "Profession probe — ctrl-A, ctrl-C, paste this back", false)
+        probeFrame = MakeBox("GaarVanguardProbe", "Profession + talent probe — ctrl-A, ctrl-C, paste this back", false)
     end
     probeFrame.box:SetText(table.concat(lines, "\n"))
     probeFrame.box:HighlightText()
@@ -1221,7 +1424,7 @@ function GaarVanguard_BuildOptions(container)
 
     local probeBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
     probeBtn:SetSize(160, 24); probeBtn:SetPoint("TOPLEFT", 184, y)
-    probeBtn:SetText("Probe professions")
+    probeBtn:SetText("Probe prof + talents")
     probeBtn:SetScript("OnClick", ShowProbe)
     y = y - 34
 
@@ -1263,7 +1466,7 @@ local function Usage()
     print("  |cffffd100/gaarvanguard export|r — the VGD1 string to paste into the website")
     print("  |cffffd100/gaarvanguard import|r — paste the website's sync string back")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
-    print("  |cffffd100/gaarvanguard probe|r — dump which profession APIs this client exposes")
+    print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
     print("  |cffffd100/gaarvanguard config|r — settings under Gaar -> Vanguard")
     print("  |cffffd100/gaarvanguard wipe|r — clear the whole database")
 end

@@ -141,6 +141,63 @@ Frames match retail exactly: `PlayerFrame.healthbar`, `PartyFrame.MemberFrame1`,
 `PlayerCastingBarFrame`, `MinimapCluster.ZoneTextButton`, `SettingsPanel`. `PlayerSpellsFrame`
 is absent, but it is load-on-demand, so that proves nothing either way.
 
+# Professions: read from the binary (2026-09-23)
+
+`GaarVanguard` exported `"professions":[]` on Forever even after a full client restart, while
+equipment captured fine. The `strings`-and-diff method settled why, and the two removals it found
+are both silent - a name that resolves to nil, and a name that answers with a table where it used
+to answer with values.
+
+Method as before: `strings -n 3` on each binary, `sort -u`, diff Forever against Era, and read the
+`Usage:` lines because a `Usage:` string names the exact namespace and signature the client
+registers a call under.
+
+**The profession readers are globals, not `C_TradeSkillUI` members.** Both binaries carry
+`GetProfessions` and `GetProfessionInfo` as plain globals, and Forever carries
+`Usage: GetProfessionInfo(index)` - the global signature - while `C_TradeSkillUI` has **no**
+`GetProfessions` at all (its `Usage:` lines are all recipe/reagent/crafting calls). So
+`C_TradeSkillUI.GetProfessions`, which the addon's "modern" path looked for, is nil on every
+client, and the path bailed before reading anything. That single wrong namespace is why Forever
+exported nothing. The fix reads the globals `GetProfessions()` + `GetProfessionInfo(index)` first,
+with the `C_TradeSkillUI` names kept only as an alias for any odd client that namespaces them.
+
+**The classic skill-line reader moved to a new namespace and changed shape.** Era exposes the bare
+globals with multi-value returns - `Usage: GetSkillLineInfo(index)`, `Usage: ExpandSkillHeader(index)`.
+Forever has neither global `Usage:` line; instead a **beta-only namespace `C_SkillInfo`** (absent
+from Era entirely) carries them:
+
+    Usage: C_SkillInfo.ExpandSkillHeader(index)
+    Usage: C_SkillInfo.CollapseSkillHeader(index)
+    Usage: C_SkillInfo.AbandonSkill(skillLineID)
+    Usage: C_SkillInfo.SetSelectedSkill(index)
+    Usage: local skillLineAttributes = C_SkillInfo.GetSkillLineInfo(index)
+    Usage: local skillLineAttributes = C_SkillInfo.GetSkillLineInfoByID(ID)
+
+`C_SkillInfo.GetSkillLineInfo(index)` returns a single **table** (`skillLineAttributes`), not the
+`name, isHeader, isExpanded, rank, ...` tuple the global returned - the failure that does not
+announce itself. The table's field names, read out of the binary near the struct, are `name`,
+`isHeader`, `isHeaderExpanded` (note: not `isExpanded`), `isHeaderWithRep`, `rank`, `maxRank`,
+`requiredSkillRank`, `skillModifier`, `skillLineIndex`, `description`. The count getter
+`GetNumSkillLines` has **no** namespaced `Usage:` line in either binary, so whether it stays global
+or lives under `C_SkillInfo` on Forever is the one thing the strings do not settle; the code tries
+`C_SkillInfo.GetNumSkillLines` then the global, and `/gaarvanguard probe` reports which answered.
+
+**Profession namespaces Forever adds over Era** (all standard modern retail, none Forever-bespoke):
+`C_SkillInfo`, `C_ProfSpecs` (the profession specialization trees - this is what the guide's
+"reworked tradeskills / Azeroth Commerce Authority" flavour maps to; it is spec/perk data, not
+skill level), `C_CraftingOrders`, `C_LegendaryCrafting`. The `Commerce*` strings in the binary
+(`CommerceObj`, `GetCommerceSystemStatus`, ...) are byte-identical to Era's and belong to the
+real-money **shop**, not to professions - there is no custom profession API to chase.
+
+**What this cannot answer, and the probe must.** Whether `GetProfessions()` returns live indices on
+this Vanilla-content client, and whether `GetNumSkillLines` is global or namespaced, are runtime
+facts. `/gaarvanguard probe` dumps, for the current character: `WOW_PROJECT_ID`/interface/build;
+`GetProfessions`/`GetProfessionInfo` presence and their live returns; the `C_TradeSkillUI` alias
+check; every skill-line reader (global vs `C_SkillInfo`, including the table's keys); a full dump of
+all skill lines (index, name, isHeader, isExpanded, skill/max, PROFESSION tag) after expanding
+headers; the extra namespaces; and the resolved `ScanProfessionsModern` / `ScanProfessionsClassic`
+/ `CaptureProfessions` results. Run it on Forever and paste the box back to confirm the wiring.
+
 # The client does not load addon SavedVariables (2026-09-18)
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed

@@ -69,7 +69,7 @@ Canonical field names (each char object):
 | `spec` | string, optional | talent tab with most points (Classic) or active spec (retail) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
-| `professions` | array | `{ name, skill, max }` per non-header skill line (`skill` was `rank`) |
+| `professions` | array | `{ name, skill, max }` per real primary/secondary trade skill (`skill` was `rank`) |
 | `equipment` | array | `{ slot, name, itemId, quality }` — **`slot` is the slot NAME string** |
 | `loot` | array | `{ item, itemId, quality, kind, winner, when }` (see below) |
 
@@ -85,8 +85,11 @@ More field notes:
 - `chars` is an **array**; each element is one character, keyed internally by `"Name-Realm"`.
 - `classFile` (locale-independent token, `SHAMAN`) and `faction` are emitted as harmless extras
   alongside the canonical fields; the website may ignore them.
-- `professions` is **every non-header skill line**, not only trade skills — the website can
-  filter. Each has `name`, `skill`, `max`.
+- `professions` is the **real primary + secondary trade skills only** (Alchemy, Blacksmithing,
+  Enchanting, Engineering, Herbalism, Leatherworking, Mining, Skinning, Tailoring,
+  Jewelcrafting, Inscription, Cooking, First Aid, Fishing) — weapon skills, Defense, Unarmed,
+  languages and riding are filtered out. Each has `name`, `skill`, `max`. See *How professions
+  are read* below for the API path.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -123,6 +126,33 @@ GaarLooter uses. On a completed roll one row is stored with `kind` set to the **
 choice** (`need`/`greed`) and `winner` set to who won. Items you pick up yourself are stored as
 `kind = "pickup"`, `winner` = you. The list is capped at the last 100 rows per character
 (`GaarVanguardDB.maxLoot`).
+
+### How professions are read
+
+Professions are **skill lines**, and the reader has to cope with two very different clients, so it
+tries two API paths in turn (both `pcall`-guarded, scanned live at capture/export):
+
+1. **Modern / retail-shaped (Forever, retail).** `C_TradeSkillUI.GetProfessions()` returns the
+   profession skill-line **indices** directly (primary 1, primary 2, archaeology, fishing,
+   cooking, first aid). Each index is resolved with `GetProfessionInfo(index)` →
+   `name, icon, skillLevel, maxSkillLevel, …`. This path returns only professions, so nothing has
+   to be filtered, and there is no enumeration problem. Indices are pushed one at a time (not via
+   a table literal) so a `nil` in the middle — e.g. cooking but no primary profession — does not
+   truncate the list.
+2. **Classic fallback (Era, or any client without `C_TradeSkillUI`).** `GetNumSkillLines()` +
+   `GetSkillLineInfo(i)`. The trap this originally hit: **a collapsed skill header hides its child
+   skill lines from enumeration**, so a profession under a collapsed header reads as absent and
+   the list came back empty. The fix expands every header first (`ExpandSkillHeader(0)`), reads,
+   then re-collapses the headers that were collapsed (found by name, re-scanning per collapse
+   because each collapse renumbers the rows) so the player's Skills window is left as it was. This
+   path enumerates *every* skill line, so it filters to the real trade skills by name.
+
+An empty scan leaves any previously captured profession list in place rather than wiping it.
+
+**Spec** is read the same defensive way: the retail `GetSpecialization`/`GetSpecializationInfo`
+API first, then the Vanilla talent tabs (`GetNumTalentTabs`/`GetTalentTabInfo`, the tab with the
+most points spent). A character with no points spent legitimately reports no spec — none is
+invented.
 
 ## `k = "sync"` — website → addon (the Import box, stubbed)
 

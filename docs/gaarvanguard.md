@@ -83,7 +83,7 @@ Canonical field names (each char object):
 | `race` | string | e.g. `"Gnome"`; the website derives faction from race |
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
-| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, `C_SpecializationInfo` trees on Forever; empty when nothing is spent |
+| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, best-effort trait graph (`C_ClassTalents`/`C_Traits`) on Forever; empty when nothing is spent or when Forever's per-tree points can't yet be located |
 | `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
@@ -113,9 +113,10 @@ More field notes:
   spent in it) and `talents`, an array of **every** talent in the tab (not only ranked ones — a
   0-rank talent is emitted with `rank: 0` so the tree is complete), ordered by `tier` then `col`.
   Each talent has `name`, `rank`, `max`, `tier` (row, 1-based) and `col` (column, 1-based). `spec`
-  is the tab/tree with the most points. On the Forever client the per-talent detail is unavailable,
-  so each tab carries its `tab` name and `points` with an empty `talents: []` (a compact per-tree
-  summary); on Era the full tree is emitted. See *How talents are read* below.
+  is the tab/tree with the most points. On the Forever client the per-talent detail is unavailable
+  (and per-tree points are still being located), so `talents` is a compact per-tree summary at best,
+  each tab carrying its `tab` name and `points` with an empty `talents: []`, or empty; on Era the full
+  tree is emitted. See *How talents are read* below.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -205,31 +206,29 @@ trying the readers in order and using whichever the client exposes:
    tab by `tier` then `col`. The resulting shape is
    `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
    the tab with the most points spent.
-2. **Forever / retail `C_SpecializationInfo` (the working path on Forever).** The classic tab
-   globals above are **gone on the Forever client** — `GetNumTalentTabs` and `GetNumTalents(tabIndex)`
-   are present in the Era binary and absent from the Forever binary, which is exactly why the old tab
-   loop read nothing and `spec`/`talents` exported empty. Forever surfaces the same Vanilla trees
-   through the retail namespace instead: `C_SpecializationInfo.GetNumSpecializationsForClassID(classID)`
-   for the tree count and `C_SpecializationInfo.GetSpecializationInfo(query)` →
-   `specId, name, description, icon, role, primaryStat, pointsSpent, background, …` per tree. So *the
-   tab with the most points* becomes *the specialization with the most `pointsSpent`*, and its `name`
-   (e.g. `"Fire"`) is the spec. A **compact per-tree summary** is emitted in the same shape —
-   `talents = [ { tab = <treeName>, points = <pointsSpent>, talents = [] } ]` — with an empty
-   per-talent list, because Forever no longer exposes the per-talent Vanilla tree (`GetNumTalents(tab)`
-   / `GetTalentInfo(tab, i)` are gone). `GetSpecializationInfo` returns a value tuple per the binary’s
-   `Usage:` line, but the accessor also handles a table return (the same silent shape change the
-   professions’ `C_SkillInfo` had). See *Forever’s talent API* in `docs/forever-client-findings.md`.
-3. **Active-spec last resort.** If neither points path resolves anything, the active
-   `C_SpecializationInfo.GetSpecialization()` / `GetSpecialization()` index is read, but its name is
-   only used when that spec has `pointsSpent > 0` — so a character with nothing spent is never given
-   an invented spec.
+2. **Forever best-effort via the trait graph (`C_ClassTalents` + `C_Traits`).** The classic tab
+   globals above are **gone on the Forever client**. The binary made `C_SpecializationInfo` look like
+   the replacement, but the live probe showed it is **class-level** there — `GetSpecializationInfo(1)`
+   returns the *class* (`"Mage"`) with `pointsSpent` always `0` — so it does **not** carry the Vanilla
+   per-tree points, and the wiring no longer uses it. The Vanilla trees also show up as `C_SkillInfo`
+   skill lines (Arcane/Fire/Frost under "Class Skills"), but all read `rank` 1/1, so the skill-line
+   rank is not the point count either. The remaining plausible home is the retail trait graph, which
+   this path reads: `C_ClassTalents.GetActiveConfigID()` → `C_Traits.GetConfigInfo(configID).treeIDs`
+   → per tree, sum `C_Traits.GetNodeInfo(configID, nodeID)`’s `ranksPurchased`/`activeRank` over
+   `C_Traits.GetTreeNodes(treeID)`; the tree with the most ranks is the spec. It emits the same shape
+   with an empty per-talent list — `talents = [ { tab = <treeName>, points, talents: [] } ]` — but
+   **only when every tree resolves a real name**; a numeric tree id is never emitted as a spec.
+3. **Otherwise, empty.** If no path locates named per-tree points, `spec` and `talents` are left
+   empty. This is the **current expected state on Forever**: whether the trait graph actually carries
+   the Vanilla per-tree points (and their tree names) is unconfirmed, so the addon reports nothing
+   rather than something wrong until a `/gaarvanguard probe` paste pins the exact per-point field.
 
 An empty scan leaves any previously captured build in place rather than wiping it. A character with
-no points spent anywhere legitimately reports **no** spec.
+no points spent anywhere legitimately reports **no** spec — none is ever invented.
 
-Because WoW cannot be run from the build environment, the paths above are inferred from the client
-binaries (`strings` diff, Forever vs Era) plus a stubbed-API luajit check of the selection logic, and
-**need one in-game confirmation** via the talent probe.
+Because WoW cannot be run from the build environment, the readers are derived from the client binaries
+(`strings` diff, Forever vs Era) and the in-game probe, plus a stubbed-API luajit check of the
+selection logic. See *Talents / spec* in `docs/forever-client-findings.md` for the live findings.
 
 ### Confirming the profession + talent API in game: `/gaarvanguard probe`
 
@@ -244,22 +243,36 @@ and a `PROFESSION` tag) after expanding headers; the extra namespaces (`C_ProfSp
 / `CaptureProfessions` output. It is read-only and fully `pcall`-guarded. Paste the box back to
 finish confirming the paths.
 
-The same command also dumps a **talent probe**: which classic talent globals exist
-(`GetNumTalentTabs` / `GetTalentTabInfo` / `GetNumTalents` / `GetTalentInfo`) and, when present, each
-tab's name / points / talent count with the live `GetTalentInfo(tab, 1)` return; then the Forever/retail
-spec namespace — `GetSpecialization` / `GetSpecializationInfo` / `GetNumSpecializations` globals,
-`C_SpecializationInfo` and each of its members, the live `Spec_GetNum()` count, the active
-`GetSpecialization()` index, `GetSpecializationInfo(i)` (name / points / specId) for every tree, and
-whether `GetSpecializationInfo(1)` came back as a **tuple or a table** — then the path actually used
-(`classic tabs` vs `Forever/retail C_SpecializationInfo points`) and the resolved `spec` + `talents`
-summary. **If spec/talents do not resolve on Forever, paste this back and the readers can be adjusted
-from the real return shapes.**
+The same command also dumps a **talent probe**, extended after the live findings above to locate where
+the Vanilla per-tree points live:
 
-**Spec** is read as *the talent tree with the most points spent*: on Forever via
-`C_SpecializationInfo.GetSpecializationInfo`’s `pointsSpent` per tree, on Era via the classic
-`GetNumTalentTabs`/`GetTalentTabInfo` tabs, with the active `GetSpecialization` index as a last resort
-(and only when it corroborates points). A character with no points spent legitimately reports no
-spec — none is invented.
+- **Classic talent globals** (`GetNumTalentTabs` / `GetTalentTabInfo` / `GetNumTalents` /
+  `GetTalentInfo`) and, when present, each tab's name / points / talent count with the live
+  `GetTalentInfo(tab, 1)` return.
+- **The spec namespace** — `GetSpecialization` / `GetSpecializationInfo` / `GetNumSpecializations`
+  globals, `C_SpecializationInfo` and its members, `Spec_GetNum()`, the active `GetSpecialization()`
+  index, `GetSpecializationInfo(i)` (name / points / specId) for every entry, and whether return 1 is
+  a **tuple or a table**. (On Forever this is class-level: one entry, name = the class, 0 points.)
+- **`C_ClassTalents`** — every member, `GetActiveConfigID()`, `GetConfigIDsBySpecID()`,
+  `GetHasStarterBuild` / `GetStarterBuildActive`, and `GetTraitTreeForSpec(activeSpec)`.
+- **`C_Traits`** — every member and, from the active config id: `GetConfigInfo` (all fields), each
+  tree's `GetTreeInfo`, `GetTreeNodes` count, **every node with `ranksPurchased`/`activeRank` > 0**
+  (with a best-effort resolved talent name via `GetEntryInfo` → `GetDefinitionInfo`), and the per-tree
+  rank total.
+- **Raw `C_SkillInfo` skill-line tables** — the full field dump (`KV`) of every non-header skill line,
+  so any field that distinguishes the spent tree (Fire) from the others (Arcane/Frost) is visible.
+- The **path used** (`classic tabs` / `Forever trait graph` / `none`) and the resolved `spec` +
+  `talents`.
+
+It is read-only and fully `pcall`-guarded (any skill headers it expands are restored). **If spec still
+does not resolve on Forever, paste the talent section back** — the `C_Traits` node ranks and the raw
+`C_SkillInfo` fields will pin the exact per-point field, and the reader can then be finalised.
+
+**Spec** is read as *the talent tree with the most points spent*: on Era via the classic
+`GetNumTalentTabs`/`GetTalentTabInfo` tabs, on Forever (best-effort) via the `C_ClassTalents` /
+`C_Traits` trait graph, and only when the winning tree has a real name. A character with no points
+spent — or a Forever client whose per-tree points cannot yet be located — legitimately reports no
+spec; none is invented.
 
 ## `k = "sync"` — website → addon (the Import box + the in-game view)
 

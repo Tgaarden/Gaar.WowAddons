@@ -260,6 +260,46 @@ and the resolved path + `spec` + `talents` summary. Run it on Forever and paste 
 confirm the wiring. The selection logic itself (tuple/table normalisation, max-points pick, no-spec
 when nothing is spent) was verified out of game with a stubbed-API luajit harness.
 
+# Talents / spec: what the live probe showed (2026-09-23)
+
+The extended `/gaarvanguard probe` was run in game on Forever - a level-10 Mage with exactly **one
+point in Fire**. It corrected the binary-only guess above: the strings said *where the spec API
+moved*, but only the live returns say *what it means on Vanilla content*, and the answer is that the
+binary's obvious candidate is the wrong one.
+
+- **Classic talent globals: all missing**, as the binary predicted.
+- **The global `GetSpecialization` / `GetSpecializationInfo` are missing; `GetNumSpecializations`
+  (global) is a function.** The spec surface is reached through `C_SpecializationInfo` only.
+- **`C_SpecializationInfo` is class-level on Forever, not per-tree.** `C_SpecializationInfo.GetSpecialization()`
+  returns `1`; `C_SpecializationInfo.GetSpecializationInfo(1)` returns a **tuple** (first value a
+  number) whose `name` is **`"Mage"`** and whose `pointsSpent` is **`0`** - specId `1482`.
+  `GetNumSpecializationsForClassID` and `GetActiveSpecGroup` are functions. So there is exactly one
+  "specialization" and it is the *class*, with no point count. The previous fix's "the specialization
+  with the most `pointsSpent`" therefore never resolves anything on Forever, and the spec/talent
+  wiring **no longer relies on `C_SpecializationInfo`** (it is kept in the probe only, for the record).
+- **The Vanilla talent trees appear as `C_SkillInfo` skill lines** under the "Class Skills" header -
+  `[2] Arcane 1/1`, `[3] Fire 1/1`, `[4] Frost 1/1` - **but all three read `rank` 1/1** even though
+  only Fire has a point. So the skill-line `rank` is *not* the talent-point count; some other field
+  (or another namespace) must carry it.
+- **`C_ClassTalents` and `C_Traits` both exist as tables** but had not been dumped, so the per-point
+  location is still open.
+
+**Where this leaves the wiring.** Spec is read as *the tree with the most points spent*: classic
+tabs on Era, and on Forever the retail trait graph (`C_ClassTalents.GetActiveConfigID` ->
+`C_Traits.GetConfigInfo` -> `GetTreeNodes` -> `GetNodeInfo` node ranks summed per tree), and only when
+the winning tree resolves a real name - never a numeric tree id, never invented. Until a probe paste
+confirms that the trait graph actually carries the Vanilla per-tree points (and their tree names),
+**a Forever spec stays empty by design** rather than wrong. The selection logic (per-tree sum, name
+gating, no-invent) is verified out of game with a stubbed-API luajit harness.
+
+**What the next probe must pin.** `/gaarvanguard probe` now also dumps: every `C_ClassTalents` and
+`C_Traits` member; the active config id and, from it, `GetConfigInfo`, each tree's `GetTreeInfo`,
+`GetTreeNodes` count, and every node with `ranksPurchased`/`activeRank` > 0 (with a best-effort
+resolved talent name) plus the per-tree rank total; and the **full raw `C_SkillInfo.GetSkillLineInfo`
+table for every non-header skill line** (all fields: `rank`, `maxRank`, and whatever else - a
+`skillModifier`, `stepCost`, `parentSkillLineID`, ...), because the field that distinguishes Fire
+from Arcane/Frost is what pins the read.
+
 # The client does not load addon SavedVariables (2026-09-18)
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed

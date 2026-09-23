@@ -364,33 +364,22 @@ local function CaptureGuild(c)
 end
 
 -- ---------------------------------------------------------------------------
--- Spec/talent access, abstracted over the two shapes Forever and Era expose - the same kind of
--- silent namespace-and-shape move the professions had. Confirmed by strings in the client
--- binaries (see docs/forever-client-findings.md):
+-- C_SpecializationInfo access. The binary made this look like Forever's replacement for the removed
+-- classic tab talent API (see docs/forever-client-findings.md), but the in-game probe (2026-09-23)
+-- showed it is CLASS-LEVEL on Forever: GetSpecializationInfo(1) -> name = the class ("Mage"),
+-- pointsSpent always 0. So it does NOT carry the Vanilla per-tree points and is NOT used for the
+-- spec/talent wiring any more - the wiring reads the trait graph (ScanTalentsTraits) instead. These
+-- helpers survive only to feed the talent probe, which still dumps C_SpecializationInfo for the
+-- record and to catch any client where it behaves differently.
 --
---   * Classic Era keeps the Vanilla point-tree globals: GetNumTalentTabs, GetTalentTabInfo,
---     GetNumTalents(tabIndex), GetTalentInfo(tabIndex, talentIndex). "Spec" = the tab with the
---     most points spent.
---   * Forever (retail-shaped, interface 16001) has REMOVED those tab globals - GetNumTalentTabs
---     and GetNumTalents(tabIndex) are absent from the Forever binary while present on Era, which
---     is exactly why the old tab loop read nothing and spec/talents exported empty. Forever
---     surfaces the same Vanilla trees through the retail C_SpecializationInfo namespace instead:
---         C_SpecializationInfo.GetNumSpecializationsForClassID(classID) -> count
---         C_SpecializationInfo.GetSpecializationInfo(query)
---             -> specId, name, description, icon, role, primaryStat, pointsSpent, background, ...
---         C_SpecializationInfo.GetSpecialization([isInspect, isPet, specGroupIndex]) -> index
---     So on Forever "the tab with the most points" becomes "the specialization with the most
---     pointsSpent", and its name (e.g. "Fire") is the spec.
---
--- GetSpecializationInfo answers with a value tuple per the binary's Usage line, but - exactly
--- like C_SkillInfo.GetSkillLineInfo returning a table - a client could hand back a table, so the
--- accessor normalises both. A character with no points spent anywhere reports no spec; we never
--- invent one.
+-- GetSpecializationInfo answers with a value tuple per the binary's Usage line, but - exactly like
+-- C_SkillInfo.GetSkillLineInfo returning a table - a client could hand back a table, so the accessor
+-- normalises both.
 -- ---------------------------------------------------------------------------
 local C_SpecInfo = _G.C_SpecializationInfo
 
--- Number of specializations (Vanilla trees) for the current character. Namespaced getter first,
--- then the bare global, then derived from the class id.
+-- Number of specializations for the current character (class-level on Forever). Namespaced getter
+-- first, then the bare global, then derived from the class id.
 local function Spec_GetNum()
     local fn = (C_SpecInfo and C_SpecInfo.GetNumSpecializations) or _G.GetNumSpecializations
     if type(fn) == "function" then
@@ -425,18 +414,6 @@ local function Spec_GetInfo(query)
     return b, tonumber(g) or 0, tonumber(a) or nil
 end
 
--- Forever/retail: the specialization (Vanilla tree) with the most points spent -> name, points.
-local function BestSpecByPoints()
-    local num = Spec_GetNum()
-    local best, bestPts = nil, 0
-    for i = 1, num do
-        local name, pts = Spec_GetInfo(i)
-        pts = tonumber(pts) or 0
-        if name and name ~= "" and pts > bestPts then best, bestPts = name, pts end
-    end
-    return best, bestPts
-end
-
 -- Classic Era: the Vanilla talent tab with the most points spent -> name, points.
 local function BestTabByPoints()
     if type(_G.GetNumTalentTabs) ~= "function" or type(_G.GetTalentTabInfo) ~= "function" then
@@ -453,27 +430,79 @@ local function BestTabByPoints()
     return best, bestPts
 end
 
--- Spec name = the talent tree the character has invested the most points in. Tried in turn, all
--- pcall-guarded via the helpers above, so a client with one shape but not the other still reports
--- a spec: (1) Forever/retail specs-by-points (C_SpecializationInfo), (2) classic Era tabs-by-points,
--- (3) the active retail specialization, but only when it corroborates points spent - so a character
--- with nothing spent never gets an invented spec.
-local function CaptureSpec(c)
-    local name, pts = BestSpecByPoints()
-    if name and pts > 0 then c.spec = name; return end
+-- Best-effort talent read via the retail trait system (C_ClassTalents + C_Traits) - the namespaces
+-- the live Forever probe (2026-09-23) showed present. The live probe also settled that
+-- C_SpecializationInfo is NOT the place for Vanilla-tree points on Forever: it is class-level there
+-- (GetSpecializationInfo(1) -> name = the class "Mage", pointsSpent always 0), so the earlier
+-- "specialization with the most pointsSpent" approach can never resolve a spec and is dropped for
+-- the spec/talent wiring (kept only in the probe for the record). The actual trees show up as
+-- C_SkillInfo skill lines (Arcane/Fire/Frost under "Class Skills") but all read rank 1/1, so the
+-- skill-line rank is not the point count either. That leaves the trait graph as the place the
+-- per-point data most plausibly lives; this reader sums node ranks per tree there.
+--
+-- Returns a per-tree build { { tab, points, talents = {}, named } }, or nil if the trait config
+-- cannot be read or nothing is spent. `named` is true only when a real tree name was resolved - we
+-- never emit a numeric tree id as if it were a spec name, and never invent a spec. The API shapes
+-- (C_ClassTalents.GetActiveConfigID / C_Traits.GetConfigInfo/GetTreeNodes/GetNodeInfo/GetTreeInfo)
+-- are read from the client binary; whether they carry the Vanilla per-tree points is exactly what
+-- the extended probe below is gathering, so this stays conservative until a probe paste confirms it.
+local function ScanTalentsTraits()
+    local CCT, CT = _G.C_ClassTalents, _G.C_Traits
+    if type(CCT) ~= "table" or type(CT) ~= "table" then return nil end
+    if type(CCT.GetActiveConfigID) ~= "function" or type(CT.GetConfigInfo) ~= "function" then return nil end
+    local configID = safe(CCT.GetActiveConfigID)
+    if type(configID) ~= "number" then return nil end
+    local cfg = safe(CT.GetConfigInfo, configID)
+    if type(cfg) ~= "table" or type(cfg.treeIDs) ~= "table" then return nil end
+    local build, any = {}, false
+    for _, treeID in ipairs(cfg.treeIDs) do
+        local points = 0
+        if type(CT.GetTreeNodes) == "function" and type(CT.GetNodeInfo) == "function" then
+            local nodes = safe(CT.GetTreeNodes, treeID)
+            if type(nodes) == "table" then
+                for _, nodeID in ipairs(nodes) do
+                    local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                    if type(ni) == "table" then
+                        points = points + (tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0)
+                    end
+                end
+            end
+        end
+        local tname
+        if type(CT.GetTreeInfo) == "function" then
+            local ti = safe(CT.GetTreeInfo, configID, treeID)
+            if type(ti) == "table" then tname = ti.name end
+        end
+        if points > 0 then any = true end
+        build[#build + 1] = {
+            tab = (tname and tname ~= "") and tname or ("Tree " .. tostring(treeID)),
+            points = points, talents = {}, named = (tname ~= nil and tname ~= ""),
+        }
+    end
+    if not any then return nil end
+    return build
+end
 
+-- Spec name = the talent tree with the most points spent. Tried in turn, all pcall-guarded:
+--   1. Classic Era tabs (GetNumTalentTabs/GetTalentTabInfo) - the tab with the most points.
+--   2. Forever trait graph (ScanTalentsTraits) - the tree with the most node ranks, but only when
+--      that winning tree has a REAL name, so a numeric tree id is never emitted as a spec.
+-- A character with nothing spent, or a Forever client whose per-tree points cannot yet be located,
+-- legitimately reports no spec - we never invent one. (This is expected to stay empty on Forever
+-- until the extended probe pins the exact per-tree points field.)
+local function CaptureSpec(c)
     local tname, tpts = BestTabByPoints()
     if tname and tpts > 0 then c.spec = tname; return end
 
-    local getSpec = (C_SpecInfo and C_SpecInfo.GetSpecialization) or _G.GetSpecialization
-    if type(getSpec) == "function" then
-        local idx = safe(getSpec)
-        if type(idx) == "number" and idx > 0 then
-            local sname, spts = Spec_GetInfo(idx)
-            if sname and sname ~= "" and (tonumber(spts) or 0) > 0 then c.spec = sname; return end
+    local build = ScanTalentsTraits()
+    if build then
+        local best, bestPts, bestNamed = nil, 0, false
+        for _, t in ipairs(build) do
+            if (t.points or 0) > bestPts then best, bestPts, bestNamed = t.tab, t.points, t.named end
         end
+        if best and bestPts > 0 and bestNamed then c.spec = best; return end
     end
-    -- Nothing spent anywhere -> leave c.spec as it was (empty). Never invent a spec.
+    -- Nothing conclusive -> leave c.spec as it was (empty). Never invent a spec.
 end
 
 -- The FULL talent build, so the website can draw the whole tree, not just the spec name.
@@ -481,16 +510,16 @@ end
 -- persist SavedVariables, so a cached build cannot be trusted). Tried in order, all pcall-guarded,
 -- using whichever API the client actually exposes:
 --
---   1. Classic talent API (Era, and the Vanilla-content Forever client - by far the likely path).
---      GetNumTalentTabs() + GetTalentTabInfo(tab) -> name, icon, pointsSpent; then
---      GetNumTalents(tab) + GetTalentInfo(tab, i) -> name, icon, tier, column, rank, maxRank, ...
---      (the classic signature). ALL talents are kept, including rank-0 ones, so the tree is
---      complete; ranks are always included so a 0-rank talent shows as 0. Tabs are ordered by tab
---      index; talents within a tab by tier then column.
---   2. Fallbacks, if the classic globals are missing: the retail namespaces. We cannot reconstruct
---      a Vanilla-style tier/column tree from C_Traits/C_ClassTalents, so there we only resolve the
---      spec name (C_SpecializationInfo / GetSpecialization) and leave the build empty; the talent
---      probe reports which namespace exists so we can extend this if Forever ever needs it.
+--   1. Classic talent API (Era). GetNumTalentTabs() + GetTalentTabInfo(tab) -> name, icon,
+--      pointsSpent; then GetNumTalents(tab) + GetTalentInfo(tab, i) -> name, icon, tier, column,
+--      rank, maxRank, ... (the classic signature). ALL talents are kept, including rank-0 ones, so
+--      the tree is complete; ranks are always included so a 0-rank talent shows as 0. Tabs are
+--      ordered by tab index; talents within a tab by tier then column.
+--   2. Forever best-effort (ScanTalentsTraits): a per-tree points summary from the trait graph, in
+--      the same shape with an empty per-talent list, exported only when the trees carry real names.
+--      The classic tab globals are gone on Forever and C_SpecializationInfo is class-level there, so
+--      the per-talent Vanilla tree cannot be reconstructed; the extended talent probe gathers the
+--      raw C_ClassTalents/C_Traits/C_SkillInfo data so the exact per-point field can be pinned.
 --
 -- Shape written to c.talents (mirrored in the export and docs/gaarvanguard.md):
 --   talents = { { tab = <tabName>, points = <pointsSpent>,
@@ -534,32 +563,18 @@ local function ScanTalentsClassic()
     return build
 end
 
--- Forever/retail fallback: no per-talent Vanilla tree is exposed (the classic GetNumTalents(tab) /
--- GetTalentInfo(tab, i) globals are gone on Forever), but C_SpecializationInfo.GetSpecializationInfo
--- reports pointsSpent per tree - a compact per-tree summary the website can still draw (e.g.
--- Fire/Frost/Arcane -> 0/1/0). Emits the same shape as the classic scan with an empty per-talent
--- list. Returns nil when nothing is spent, so a fresh character keeps an empty build.
-local function ScanTalentsSpec()
-    local num = Spec_GetNum()
-    if num < 1 then return nil end
-    local build, any = {}, false
-    for i = 1, num do
-        local name, pts = Spec_GetInfo(i)
-        if name and name ~= "" then
-            local p = tonumber(pts) or 0
-            if p > 0 then any = true end
-            build[#build + 1] = { tab = name, points = p, talents = {} }
-        end
-    end
-    if not any then return nil end
-    return build
-end
-
 local function CaptureTalents(c)
-    -- Classic per-talent tree first (Era), then the Forever/retail per-tree points summary.
+    -- Classic per-talent tree first (Era), then the Forever best-effort trait-graph per-tree points.
     local build = ScanTalentsClassic()
     if not build or #build == 0 then
-        build = ScanTalentsSpec()
+        local traits = ScanTalentsTraits()
+        -- Only export the trait build when every tree carries a real name; a build of "Tree 12345"
+        -- rows would only mislead the website, so otherwise talents stay empty this round.
+        if traits then
+            local allNamed = true
+            for _, t in ipairs(traits) do if not t.named then allNamed = false; break end end
+            if allNamed then build = traits end
+        end
     end
     if build and #build > 0 then
         c.talents = build
@@ -1726,8 +1741,11 @@ local function ProbeTalentsLines()
         add("classic talent API not present on this client")
     end
 
-    -- 2. Forever/retail spec namespace (the working path on Forever: the classic tab globals above
-    --    are gone, and C_SpecializationInfo carries the Vanilla trees with a pointsSpent per tree).
+    -- 2. Forever/retail spec namespace. NOTE (live probe 2026-09-23): C_SpecializationInfo turned
+    --    out to be CLASS-LEVEL on Forever - GetSpecializationInfo(1) -> name = the class ("Mage"),
+    --    pointsSpent always 0 - so it does NOT carry the Vanilla per-tree points. Kept here for the
+    --    record; the per-point data is chased in sections 4-6 (C_ClassTalents / C_Traits / raw
+    --    C_SkillInfo) instead.
     add("")
     add("-- retail talent/spec namespaces --")
     add("GetSpecialization (global)      = " .. TypeOf(_G.GetSpecialization))
@@ -1768,16 +1786,166 @@ local function ProbeTalentsLines()
             add("  GetSpecializationInfo(1) first return is: " .. TypeOf(r1) .. " (value tuple)")
         end
     end
+    add("GetNumSpecializations() (global) -> " ..
+        (type(_G.GetNumSpecializations) == "function" and tostring(safe(_G.GetNumSpecializations)) or "n/a"))
+    if type(C_SpecInfo) == "table" and type(C_SpecInfo.GetActiveSpecGroup) == "function" then
+        add("C_SpecializationInfo.GetActiveSpecGroup() -> " .. tostring(safe(C_SpecInfo.GetActiveSpecGroup)))
+    end
 
-    -- 3. What the addon would actually export for this character right now.
+    -- A sorted "field=value" line for a returned table, so a live struct's real fields are visible.
+    local function KV(t)
+        if type(t) ~= "table" then return TypeOf(t) end
+        local keys = {}
+        for k in pairs(t) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        local parts = {}
+        for _, k in ipairs(keys) do
+            local v = t[k]
+            if type(v) == "table" then
+                parts[#parts + 1] = tostring(k) .. "={#" .. tostring(#v) .. "}"
+            else
+                parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+            end
+        end
+        return table.concat(parts, " ")
+    end
+    -- Sorted member=type listing of a namespace table.
+    local function Members(ns)
+        if type(ns) ~= "table" then return end
+        local keys = {}
+        for k, v in pairs(ns) do if type(v) == "function" then keys[#keys + 1] = tostring(k) end end
+        table.sort(keys)
+        for _, k in ipairs(keys) do add("  ." .. k) end
+    end
+
+    -- 4. C_ClassTalents: locate the active trait config the Vanilla points may live under.
+    add("")
+    add("-- C_ClassTalents --")
+    local CCT = _G.C_ClassTalents
+    add("C_ClassTalents = " .. TypeOf(CCT))
+    local configID
+    if type(CCT) == "table" then
+        add("members:")
+        Members(CCT)
+        if type(CCT.GetActiveConfigID) == "function" then
+            configID = safe(CCT.GetActiveConfigID)
+            add("GetActiveConfigID() -> " .. tostring(configID))
+        end
+        if type(CCT.GetConfigIDsBySpecID) == "function" then
+            local a, b, c2 = safe(CCT.GetConfigIDsBySpecID)
+            add("GetConfigIDsBySpecID() -> " .. table.concat({ tostring(a), tostring(b), tostring(c2) }, ", "))
+        end
+        for _, fn in ipairs({ "GetHasStarterBuild", "GetStarterBuildActive" }) do
+            if type(CCT[fn]) == "function" then add(fn .. "() -> " .. tostring(safe(CCT[fn]))) end
+        end
+        if type(CCT.GetTraitTreeForSpec) == "function" and type(getActive) == "function" then
+            local specIdx = safe(getActive)
+            if specIdx then add("GetTraitTreeForSpec(" .. tostring(specIdx) .. ") -> " ..
+                tostring(safe(CCT.GetTraitTreeForSpec, specIdx))) end
+        end
+    end
+
+    -- 5. C_Traits: walk the active config's trees and nodes to see if talent points live here.
+    add("")
+    add("-- C_Traits --")
+    local CT = _G.C_Traits
+    add("C_Traits = " .. TypeOf(CT))
+    if type(CT) == "table" then
+        add("members:")
+        Members(CT)
+        -- Fall back to the config id chased above, or a couple of standard lookups.
+        if not configID and type(CT.GetConfigIDByTreeID) == "function" then
+            -- nothing to seed a treeID with yet; leave configID nil.
+        end
+        if type(configID) == "number" and type(CT.GetConfigInfo) == "function" then
+            local cfg = safe(CT.GetConfigInfo, configID)
+            add("GetConfigInfo(" .. configID .. ") -> " .. KV(cfg))
+            local treeIDs = (type(cfg) == "table") and cfg.treeIDs or nil
+            if type(treeIDs) == "table" then
+                for _, treeID in ipairs(treeIDs) do
+                    local ti = (type(CT.GetTreeInfo) == "function") and safe(CT.GetTreeInfo, configID, treeID) or nil
+                    add(string.format("  tree %s: GetTreeInfo -> %s", tostring(treeID), KV(ti)))
+                    local nodes = (type(CT.GetTreeNodes) == "function") and safe(CT.GetTreeNodes, treeID) or nil
+                    local nodeCount = (type(nodes) == "table") and #nodes or 0
+                    add(string.format("    GetTreeNodes -> %d node(s)", nodeCount))
+                    -- Sum ranks across the tree, and show every node that actually has ranks, with a
+                    -- resolved talent name where possible - that is where a spent point would show.
+                    local summed, shown = 0, 0
+                    if type(nodes) == "table" and type(CT.GetNodeInfo) == "function" then
+                        for _, nodeID in ipairs(nodes) do
+                            local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                            if type(ni) == "table" then
+                                local r = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0
+                                summed = summed + r
+                                if r > 0 and shown < 20 then
+                                    shown = shown + 1
+                                    -- Resolve a name via the first entry -> definition, best-effort.
+                                    local nm
+                                    local entryIDs = ni.entryIDs
+                                    if type(entryIDs) == "table" and entryIDs[1]
+                                        and type(CT.GetEntryInfo) == "function" then
+                                        local ei = safe(CT.GetEntryInfo, configID, entryIDs[1])
+                                        if type(ei) == "table" and ei.definitionID
+                                            and type(CT.GetDefinitionInfo) == "function" then
+                                            local di = safe(CT.GetDefinitionInfo, ei.definitionID)
+                                            if type(di) == "table" then nm = di.overrideName or di.overriddenName end
+                                        end
+                                    end
+                                    add(string.format("    node %s: ranks=%d activeRank=%s name=%s",
+                                        tostring(nodeID), r, tostring(ni.activeRank), tostring(nm)))
+                                end
+                            end
+                        end
+                    end
+                    add(string.format("    tree %s total ranks purchased = %d", tostring(treeID), summed))
+                end
+            end
+        else
+            add("(no active configID resolved - cannot walk trees/nodes)")
+        end
+    end
+
+    -- 6. Raw C_SkillInfo skill-line tables. The live probe showed the Vanilla trees show up here as
+    --    child skill lines (Arcane/Fire/Frost under "Class Skills") all reading rank 1/1; dumping the
+    --    FULL table for every non-header row exposes any field (tempPoints, modifier, stepCost,
+    --    skillID, parentSkillLineID, ...) that distinguishes the spent tree from the others.
+    add("")
+    add("-- raw C_SkillInfo skill-line tables (non-header rows, full fields) --")
+    local CSI = _G.C_SkillInfo
+    if type(CSI) == "table" and type(CSI.GetSkillLineInfo) == "function" then
+        -- Remember which headers were collapsed so the player's Skills window is left as it was.
+        local collapsed = {}
+        local n0 = SkillLine_GetNum()
+        for i = 1, n0 do
+            local name, isHeader, isExpanded = SkillLine_GetInfo(i)
+            if isHeader and isExpanded == false then collapsed[#collapsed + 1] = name end
+        end
+        SkillLine_ExpandAll()
+        local n = SkillLine_GetNum()
+        local dumped = 0
+        for i = 1, n do
+            local t = safe(CSI.GetSkillLineInfo, i)
+            if type(t) == "table" and not t.isHeader and dumped < 30 then
+                dumped = dumped + 1
+                add(string.format("  [%2d] %s", i, KV(t)))
+            end
+        end
+        if dumped == 0 then add("  (no non-header skill lines dumped)") end
+        for _, name in ipairs(collapsed) do CollapseSkillHeaderByName(name) end
+    else
+        add("  C_SkillInfo.GetSkillLineInfo not present")
+    end
+
+    -- 7. What the addon would actually export for this character right now.
     add("")
     add("-- resolved talent export --")
     local probeChar = {}
     safe(CaptureSpec, probeChar)
     safe(CaptureTalents, probeChar)
+    local traitsProbe = ScanTalentsTraits()
     local pathUsed = classicOK and "classic (GetTalentInfo tabs)"
-        or (numSpecs > 0 and "Forever/retail (C_SpecializationInfo points)")
-        or "none (no talent/spec reader)"
+        or (traitsProbe and "Forever trait graph (C_ClassTalents/C_Traits)")
+        or "none (per-tree points not located yet - see sections 4-6)"
     add("path used: " .. pathUsed)
     add("spec: " .. tostring(probeChar.spec))
     local build = probeChar.talents

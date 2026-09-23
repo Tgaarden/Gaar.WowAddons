@@ -5,8 +5,9 @@
   What it does
     * Records every character you log in on into an account-wide database keyed by
       "Name-Realm": name, realm, race, cls, lvl, faction, spec (from talent tabs / the
-      retail specialization API), guild + rank, professions (all non-header skill lines with
-      skill and max) and equipment (inventory slots 1-19, stored by canonical slot NAME). The
+      retail specialization API), guild + rank, professions (the real primary + secondary trade
+      skills with skill and max) and equipment (inventory slots 1-19, stored by canonical slot
+      NAME). The
       entry is refreshed whenever the thing it holds can change - login, an equipment swap, a
       level up, a skill/talent change, a guild change - and, crucially, re-scanned live at
       export so the string is correct even when the DB never persisted (the Forever beta).
@@ -357,16 +358,24 @@ local function CaptureGuild(c)
     end
 end
 
--- Spec: retail exposes it through GetSpecialization/GetSpecializationInfo; Classic derives it
--- from the talent tab with the most points spent. Both paths are optional.
+-- Spec: retail exposes it through GetSpecialization/GetSpecializationInfo; the Vanilla talent
+-- system (Classic Era, and the Vanilla-content Forever client) derives it from the talent tab
+-- with the most points spent. Both paths are optional and tried in turn, so a client that has
+-- one but not the other still reports a spec. A character with no points spent legitimately has
+-- no spec - we never invent one.
 local function CaptureSpec(c)
+    -- Retail specialization API. On the Vanilla-content Forever client this usually answers with
+    -- nothing (no retail specs), so we fall through to the talent-tab reader below.
     if type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
         local idx = safe(GetSpecialization)
         if type(idx) == "number" and idx > 0 then
             local _, specName = safe(GetSpecializationInfo, idx)
-            if specName then c.spec = specName; return end
+            if specName and specName ~= "" then c.spec = specName; return end
         end
     end
+    -- Vanilla talent tabs: the tab with the most points spent is the character's "spec".
+    -- GetTalentTabInfo is the classic reader (name, icon, pointsSpent, ...); present on Era and,
+    -- because Forever runs Vanilla talent trees, on Forever too.
     if type(GetNumTalentTabs) == "function" and type(GetTalentTabInfo) == "function" then
         local tabs = safe(GetNumTalentTabs) or 0
         local best, bestPts = nil, -1
@@ -380,21 +389,104 @@ local function CaptureSpec(c)
     end
 end
 
--- Professions: every non-header skill line with its rank and max. Kept simple and locale-proof
--- by not trying to name which lines are "real" professions - the website can filter.
-local function CaptureProfessions(c)
-    if type(GetNumSkillLines) ~= "function" or type(GetSkillLineInfo) ~= "function" then return end
+-- The real primary + secondary professions, by English name. Only the classic skill-line
+-- fallback below needs this filter: that reader enumerates *every* skill line - weapon skills,
+-- Defense, Unarmed, languages, riding - so we keep only the trade skills. The C_TradeSkillUI
+-- path returns profession indices directly and needs no filtering. Jewelcrafting/Inscription are
+-- listed too so the same reader is correct on later content, harmless on Vanilla.
+local PROFESSION_NAMES = {
+    ["Alchemy"] = true, ["Blacksmithing"] = true, ["Enchanting"] = true, ["Engineering"] = true,
+    ["Herbalism"] = true, ["Leatherworking"] = true, ["Mining"] = true, ["Skinning"] = true,
+    ["Tailoring"] = true, ["Jewelcrafting"] = true, ["Inscription"] = true,
+    ["Cooking"] = true, ["First Aid"] = true, ["Fishing"] = true,
+}
+
+-- Modern path (retail and the retail-shaped Forever client): C_TradeSkillUI.GetProfessions gives
+-- the profession skill-line INDICES directly (prof1, prof2, archaeology, fishing, cooking,
+-- firstAid), so there is no header/enumeration problem and no filtering to do. GetProfessionInfo
+-- turns each index into name, icon, skillLevel, maxSkillLevel, ...  Returns a list, or nil when
+-- this API is not present on the client.
+local function ScanProfessionsModern()
+    local TSU = _G.C_TradeSkillUI
+    if not TSU or type(TSU.GetProfessions) ~= "function" then return nil end
+    if type(GetProfessionInfo) ~= "function" then return nil end
+    local p1, p2, arch, fish, cook, firstaid = safe(TSU.GetProfessions)
+    local indices = {}
+    local function push(idx) if type(idx) == "number" and idx > 0 then indices[#indices + 1] = idx end end
+    -- Pushed one at a time (not via a table literal) so a nil in the middle - e.g. a character
+    -- with cooking but no primary profession - does not truncate the list.
+    push(p1); push(p2); push(arch); push(fish); push(cook); push(firstaid)
+    local out = {}
+    for _, idx in ipairs(indices) do
+        -- name, icon, skillLevel, maxSkillLevel, numAbilities, spellOffset, skillLine, ...
+        local name, _, skillLevel, maxSkillLevel = safe(GetProfessionInfo, idx)
+        if name and name ~= "" then
+            out[#out + 1] = { name = name, skill = tonumber(skillLevel) or 0, max = tonumber(maxSkillLevel) or 0 }
+        end
+    end
+    return out
+end
+
+-- Re-collapse one header found by name, re-scanning fresh each call so a shifting index (every
+-- collapse renumbers the rows after it) never collapses the wrong row.
+local function CollapseSkillHeaderByName(name)
+    if type(CollapseSkillHeader) ~= "function" or type(GetNumSkillLines) ~= "function" then return end
+    local n = safe(GetNumSkillLines) or 0
+    for i = 1, n do
+        local hname, isHeader = safe(GetSkillLineInfo, i)
+        if isHeader and hname == name then safe(CollapseSkillHeader, i); return end
+    end
+end
+
+-- Classic fallback (Era, and any client without C_TradeSkillUI): GetNumSkillLines +
+-- GetSkillLineInfo. The trap this addon originally hit: a COLLAPSED skill header hides its child
+-- skill lines from enumeration entirely, so a profession under a collapsed header reads as
+-- absent - which is why the list came back empty. Expand every header first (ExpandSkillHeader(0)),
+-- read, then restore the headers that were collapsed so the player's Skills window is left as it
+-- was. Returns a list, or nil when the API is not present.
+local function ScanProfessionsClassic()
+    if type(GetNumSkillLines) ~= "function" or type(GetSkillLineInfo) ~= "function" then return nil end
+    -- Remember which headers were collapsed, then expand all so their children enumerate.
+    local collapsed = {}
+    if type(ExpandSkillHeader) == "function" then
+        local n0 = safe(GetNumSkillLines) or 0
+        for i = 1, n0 do
+            local name, isHeader, isExpanded = safe(GetSkillLineInfo, i)
+            if isHeader and isExpanded == false then collapsed[#collapsed + 1] = name end
+        end
+        safe(ExpandSkillHeader, 0) -- 0 == all headers
+    end
     local count = safe(GetNumSkillLines) or 0
     local out = {}
     for i = 1, count do
         -- name, isHeader, isExpanded, rank, numTempPoints, modifier, maxRank, ...
         local name, isHeader, _, rank, _, _, maxRank = safe(GetSkillLineInfo, i)
-        if name and not isHeader then
+        if name and not isHeader and PROFESSION_NAMES[name] then
             -- Canonical: `skill` (was `rank`) plus `max`.
             out[#out + 1] = { name = name, skill = tonumber(rank) or 0, max = tonumber(maxRank) or 0 }
         end
     end
-    if #out > 0 then c.professions = out else c.professions = c.professions or {} end
+    -- Best-effort restore of the player's collapsed headers.
+    for _, name in ipairs(collapsed) do CollapseSkillHeaderByName(name) end
+    return out
+end
+
+-- Professions: the primary + secondary trade skills as { name, skill, max }. Scanned LIVE at
+-- capture/export like equipment, so it is correct even when the DB never persisted (Forever).
+-- Prefer the modern C_TradeSkillUI reader (works on retail, Forever and Era), fall back to the
+-- classic skill-line reader (with header expansion) where C_TradeSkillUI is absent. An empty
+-- result leaves any previously captured list in place rather than wiping it.
+local function CaptureProfessions(c)
+    local out = ScanProfessionsModern()
+    if not out or #out == 0 then
+        local classic = ScanProfessionsClassic()
+        if classic and #classic > 0 then out = classic end
+    end
+    if out and #out > 0 then
+        c.professions = out
+    else
+        c.professions = c.professions or {}
+    end
 end
 
 -- Equipment: inventory slots 1-19, scanned live via GetInventoryItemLink. `slot` is stored as

@@ -4,10 +4,14 @@
 
   What it does
     * Records every character you log in on into an account-wide database keyed by
-      "Name-Realm": name, realm, race, class, level, faction, spec (from talent tabs / the
-      retail specialization API), professions (all non-header skill lines with rank and max)
-      and equipment (inventory slots 1-19). The entry is refreshed whenever the thing it holds
-      can change - login, an equipment swap, a level up, a skill or talent change.
+      "Name-Realm": name, realm, race, cls, lvl, faction, spec (from talent tabs / the
+      retail specialization API), guild + rank, professions (all non-header skill lines with
+      skill and max) and equipment (inventory slots 1-19, stored by canonical slot NAME). The
+      entry is refreshed whenever the thing it holds can change - login, an equipment swap, a
+      level up, a skill/talent change, a guild change - and, crucially, re-scanned live at
+      export so the string is correct even when the DB never persisted (the Forever beta).
+      Field names match the Vanguard website's VGD1 `chars` contract exactly (see
+      docs/gaarvanguard.md).
     * Records loot the way GaarLooter does, but per character: every completed need/greed roll
       (item, who won, which choice won) and everything you pick up yourself. Capped at the last
       100 rows per character so the export stays small. This is captured independently - the
@@ -40,6 +44,15 @@ local _G = _G
 local ADDON = "Gaar Vanguard"
 local PREFIX = "VGD1:"
 local FLAT = "Interface\\Buttons\\WHITE8x8"
+
+-- Inventory slot id -> canonical slot NAME string. The website's VGD1 `chars` schema keys
+-- equipment by this name, never the numeric INVSLOT id.
+local SLOT_NAMES = {
+    [1] = "Head", [2] = "Neck", [3] = "Shoulder", [4] = "Shirt", [5] = "Chest",
+    [6] = "Waist", [7] = "Legs", [8] = "Feet", [9] = "Wrist", [10] = "Hands",
+    [11] = "Finger1", [12] = "Finger2", [13] = "Trinket1", [14] = "Trinket2",
+    [15] = "Back", [16] = "MainHand", [17] = "OffHand", [18] = "Ranged", [19] = "Tabard",
+}
 
 -- The item lookups live in C_Item on newer clients and as globals on Era; one local each keeps
 -- the call sites below unchanged, the same move GaarLooter and GaarBags make.
@@ -308,8 +321,8 @@ end
 -- blank field rather than an error.
 -- ---------------------------------------------------------------------------
 local function safe(fn, ...)
-    local ok, a, b, c, d, e, f = pcall(fn, ...)
-    if ok then return a, b, c, d, e, f end
+    local ok, a, b, c, d, e, f, g = pcall(fn, ...)
+    if ok then return a, b, c, d, e, f, g end
     return nil
 end
 
@@ -319,13 +332,29 @@ local function CaptureIdentity(c)
     c.realm = REALM or c.realm
     local raceName = safe(UnitRace, "player")
     c.race = raceName or c.race
+    -- Canonical field names the website expects: `cls` (localized class) and `lvl` (number).
+    -- `classFile` (the locale-independent token) is kept alongside `cls` as a harmless extra.
     local className, classFile = safe(UnitClass, "player")
-    c.class = className or c.class
+    c.cls = className or c.cls
     c.classFile = classFile or c.classFile
     local lvl = safe(UnitLevel, "player")
-    if type(lvl) == "number" and lvl > 0 then c.level = lvl end
+    if type(lvl) == "number" and lvl > 0 then c.lvl = lvl end
     local faction = safe(UnitFactionGroup, "player")
     if faction and faction ~= "Neutral" then c.faction = faction end
+end
+
+-- Guild + rank name from GetGuildInfo("player"): guildName, guildRankName, guildRankIndex.
+-- Cleared when not in a guild so a stale name never lingers on the record.
+local function CaptureGuild(c)
+    if type(GetGuildInfo) ~= "function" then return end
+    local guildName, rankName = safe(GetGuildInfo, "player")
+    if guildName and guildName ~= "" then
+        c.guild = guildName
+        c.guildRank = (rankName ~= "" and rankName) or nil
+    else
+        c.guild = nil
+        c.guildRank = nil
+    end
 end
 
 -- Spec: retail exposes it through GetSpecialization/GetSpecializationInfo; Classic derives it
@@ -361,14 +390,17 @@ local function CaptureProfessions(c)
         -- name, isHeader, isExpanded, rank, numTempPoints, modifier, maxRank, ...
         local name, isHeader, _, rank, _, _, maxRank = safe(GetSkillLineInfo, i)
         if name and not isHeader then
-            out[#out + 1] = { name = name, rank = tonumber(rank) or 0, max = tonumber(maxRank) or 0 }
+            -- Canonical: `skill` (was `rank`) plus `max`.
+            out[#out + 1] = { name = name, skill = tonumber(rank) or 0, max = tonumber(maxRank) or 0 }
         end
     end
     if #out > 0 then c.professions = out else c.professions = c.professions or {} end
 end
 
--- Equipment: inventory slots 1-19. Quality comes from GetItemInfo, which is asynchronous and
--- may be nil for an item not yet cached - stored when present, skipped when not.
+-- Equipment: inventory slots 1-19, scanned live via GetInventoryItemLink. `slot` is stored as
+-- the canonical slot NAME string (SLOT_NAMES), never the numeric id. Quality comes from
+-- GetItemInfo, which is asynchronous and may be nil for an item not yet cached - stored when
+-- present, skipped when not.
 local function CaptureEquipment(c)
     if type(GetInventoryItemLink) ~= "function" then return end
     local out = {}
@@ -380,7 +412,7 @@ local function CaptureEquipment(c)
             local name, _, quality
             if GetItemInfo then name, _, quality = safe(GetItemInfo, link) end
             out[#out + 1] = {
-                slot = slot,
+                slot = SLOT_NAMES[slot] or tostring(slot),
                 itemId = tonumber(itemId) or nil,
                 quality = tonumber(quality) or nil,
                 name = name or link,
@@ -390,13 +422,21 @@ local function CaptureEquipment(c)
     c.equipment = out
 end
 
-local function CaptureAll()
-    local c = CurrentChar()
+-- A full live scan of one character record from the current game state. Called both on the
+-- capture events and, crucially, at export time - so the export reflects the LIVE current
+-- character even when the DB is empty (the Forever beta does not persist SavedVariables, and
+-- equipment events may never have fired / persisted).
+local function CaptureInto(c)
     if not c then return end
     safe(CaptureIdentity, c)
+    safe(CaptureGuild, c)
     safe(CaptureSpec, c)
     safe(CaptureProfessions, c)
     safe(CaptureEquipment, c)
+end
+
+local function CaptureAll()
+    CaptureInto(CurrentChar())
 end
 
 -- ---------------------------------------------------------------------------
@@ -558,6 +598,7 @@ local EVENTS = {
     "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD",
     "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LEVEL_UP",
     "SKILL_LINES_CHANGED", "CHARACTER_POINTS_CHANGED",
+    "PLAYER_GUILD_UPDATE",
     "START_LOOT_ROLL", "CANCEL_LOOT_ROLL",
     "CHAT_MSG_LOOT", "CHAT_MSG_SYSTEM",
 }
@@ -582,6 +623,10 @@ ev:SetScript("OnEvent", function(_, event, a1)
     end
     if event == "CHARACTER_POINTS_CHANGED" then
         pcall(function() CaptureSpec(CurrentChar()) end)
+        return
+    end
+    if event == "PLAYER_GUILD_UPDATE" then
+        pcall(function() CaptureGuild(CurrentChar()) end)
         return
     end
     if event == "START_LOOT_ROLL" then
@@ -630,9 +675,60 @@ end)
 -- ---------------------------------------------------------------------------
 -- The export string
 -- ---------------------------------------------------------------------------
+-- Project a stored record onto the exact `chars` object the website expects. Only canonical
+-- field names are emitted; older records written by a previous version (numeric slot, `class`,
+-- `level`, profession `rank`) are migrated on the way out so a mixed DB still exports cleanly.
+local function CanonicalChar(c)
+    local out = {
+        name = c.name,
+        realm = c.realm,
+        race = c.race,
+        cls = c.cls or c.class,          -- canonical class (localized)
+        lvl = c.lvl or c.level,          -- canonical level (number)
+        spec = c.spec,
+        guild = c.guild,
+        guildRank = c.guildRank,
+        faction = c.faction,             -- harmless extra; website derives faction from race too
+        classFile = c.classFile,         -- kept alongside `cls`
+        professions = {},
+        equipment = {},
+        loot = {},
+    }
+    if type(c.professions) == "table" then
+        for _, p in ipairs(c.professions) do
+            out.professions[#out.professions + 1] = {
+                name = p.name,
+                skill = tonumber(p.skill or p.rank) or 0,
+                max = tonumber(p.max) or 0,
+            }
+        end
+    end
+    if type(c.equipment) == "table" then
+        for _, e in ipairs(c.equipment) do
+            local slot = e.slot
+            if type(slot) == "number" then slot = SLOT_NAMES[slot] or tostring(slot) end
+            out.equipment[#out.equipment + 1] = {
+                slot = slot,
+                name = e.name,
+                itemId = e.itemId,
+                quality = e.quality,
+            }
+        end
+    end
+    if type(c.loot) == "table" then
+        for _, l in ipairs(c.loot) do out.loot[#out.loot + 1] = l end
+    end
+    return out
+end
+
 local function BuildExportString()
+    -- Fresh full scan of the CURRENT character right now, before building the string. The beta
+    -- does not persist SavedVariables and equipment events may not have fired, so we never trust
+    -- cached data for the live character - we re-read level/class/guild/spec/professions and
+    -- loop the equip slots live here.
+    safe(CaptureAll)
     local chars = {}
-    for _, c in pairs(DB().chars) do chars[#chars + 1] = c end
+    for _, c in pairs(DB().chars) do chars[#chars + 1] = CanonicalChar(c) end
     local payload = { k = "chars", chars = chars }
     return PREFIX .. Base64Encode(JsonEncode(payload))
 end

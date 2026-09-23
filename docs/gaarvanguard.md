@@ -239,26 +239,68 @@ API first, then the Vanilla talent tabs (`GetNumTalentTabs`/`GetTalentTabInfo`, 
 most points spent). A character with no points spent legitimately reports no spec — none is
 invented.
 
-## `k = "sync"` — website → addon (the Import box, stubbed)
+## `k = "sync"` — website → addon (the Import box + the in-game view)
 
-Produced by the website, pasted into `/gaarvanguard import`. Expected shape (the website owns
-this):
+Produced by the website, pasted into `/gaarvanguard import`. **The canonical shape is the
+website's `encodeSync()` in `Vanguard/src/lib/protocol.ts`** — the addon reads exactly those
+short field names. Sync is account-level and asymmetric: it carries the player's Vanguards,
+their goals, a members/readiness summary and the player's own character→Vanguard/goal mapping.
+It deliberately does **not** carry gear/stats back (the addon already has those).
 
 ```json
 {
   "k": "sync",
-  "vanguards": [ { "id": 1, "name": "Weekend Warband" } ],
-  "goals":     [ { "title": "Clear Molten Core" } ],
-  "instances": [ { "name": "Molten Core" } ],
-  "mapping":   { "Thrall-Nostalrius": 1 }
+  "vanguards": [ { "name": "Weekend Warband", "tag": "WKND", "faction": "Horde", "type": "PvE" } ],
+  "goals":     [ { "vg": "WKND", "t": "Clear Molten Core", "i": "MC", "s": "Ready" } ],
+  "members":   [ { "vg": "WKND", "name": "Thrall", "ready": 3, "total": 3 } ],
+  "mapping":   [ { "char": "Thrall", "vanguard": "Weekend Warband", "goals": ["Clear Molten Core"] } ]
 }
 ```
 
-For this first draft the Import box only proves the round trip: it strips `VGD1:`,
-base64-decodes, JSON-decodes, stores the result under `GaarVanguardDB.sync`, and prints a short
-summary (kind, and the counts + titles/names of any `vanguards`, `goals`, `instances`, plus the
-mapping size). A malformed string reports the parse error and stores nothing. The full in-game
-view of vanguards/goals/instances comes later.
+Field reference (what the addon reads):
+
+| Path | Meaning |
+|---|---|
+| `vanguards[].name` / `.tag` | Vanguard name and short tag |
+| `vanguards[].faction` / `.type` | `Alliance`/`Horde`, `PvE`/`PvP` |
+| `goals[].vg` | tag of the Vanguard the goal belongs to |
+| `goals[].t` | goal title |
+| `goals[].i` | linked instance code (optional; absent when the goal has no instance) |
+| `goals[].s` | status: `Waiting`, `Ready` or `Done` |
+| `members[].name` | member character name (readiness summary) |
+| `members[].ready` / `.total` | how many tracked instances the member is Ready on, out of the total |
+| `mapping[].char` | one of the player's own characters |
+| `mapping[].vanguard` | that character's Vanguard name (optional) |
+| `mapping[].goals` | titles of the goals that apply to that character |
+
+The decoder is deliberately tolerant: the longhand `goals[].title` / `.status` / `.instanceCode`
+are accepted as fallbacks, non-table entries and missing arrays are skipped, and every reader is
+`pcall`-guarded so a reshaped or partial document renders what is present rather than erroring.
+
+**The Import box** strips `VGD1:`, base64-decodes, JSON-decodes, stores the result under
+`GaarVanguardDB.sync`, prints a short summary, and then opens/refreshes the in-game view (below)
+so the pasted data is visible at once. A malformed string reports the parse error and stores
+nothing.
+
+### The in-game view (Phase 2)
+
+`/gaarvanguard` (or **Gaar → Vanguard → Open Vanguard view**) opens a movable, closable,
+scrollable window (`BackdropTemplate`, registered in `UISpecialFrames`, drag by the title bar,
+close button, mouse-wheel scroll) that renders `GaarVanguardDB.sync` read-only:
+
+- **Your Vanguards** — name, `[tag]`, and `faction · type`.
+- **Goals** — title, coloured status (Waiting/Ready/Done), the linked instance code when present,
+  the owning Vanguard tag, and **Your characters:** the player's characters the goal applies to
+  (from `mapping`).
+- **Instances / readiness** — the distinct instances the goals track, then each member's
+  `ready/total`, highlighting a member who is **GO** (fully ready). The sync carries no
+  per-instance GO flag, only the per-member summary, so GO is shown per member.
+- **My characters** — for each mapped character, its Vanguard and the goals that apply.
+- **Empty state** — when there is no `sync` yet, the window explains: Export from the website's
+  Addon sync page and paste the code into the Import box.
+
+The view is display-only (Phase 2 writes nothing) and toolbar buttons open the Export/Import
+boxes without leaving it.
 
 ## SavedVariables shape
 
@@ -277,7 +319,7 @@ GaarVanguardDB = {
     ...
   },
   maxLoot = 100,
-  sync = <last decoded website sync document, or absent>,
+  sync = <last decoded website sync document (k="sync"), or absent>,  -- rendered by the in-game view
 }
 ```
 
@@ -286,9 +328,10 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 
 ## Slash commands
 
-- `/gaarvanguard` or `/gaarvg` — prints usage and opens the export box
+- `/gaarvanguard` or `/gaarvg` — open the in-game Vanguard view (the synced goals/instances)
+- `/gaarvanguard view` — same as above, explicitly
 - `/gaarvanguard export` — the VGD1 chars string
-- `/gaarvanguard import` — paste the website's sync string
+- `/gaarvanguard import` — paste the website's sync string (opens the view on success)
 - `/gaarvanguard capture` — recapture the current character now
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
 - `/gaarvanguard config` — settings under **Gaar → Vanguard**

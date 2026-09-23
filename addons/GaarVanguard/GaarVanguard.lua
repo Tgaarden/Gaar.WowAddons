@@ -28,18 +28,22 @@
     loot> ] }. Select all (ctrl-A), copy (ctrl-C) and paste it into the website's
     "Import everything". The website is the counterpart to this addon.
 
-  The import (stub)
-    The website hands back its own VGD1:<base64 JSON> with { k = "sync", ... } - vanguards,
-    goals, instances and a mapping. For this first draft the Import box only proves the round
-    trip: it base64-decodes and JSON-decodes the string, stores the result under
-    GaarVanguardDB.sync and prints a short readable summary (goal titles, instance names). The
-    full in-game UI comes later.
+  The import + view (Phase 2)
+    The website hands back its own VGD1:<base64 JSON> with { k = "sync", ... } - the player's
+    Vanguards, their goals, a members/readiness summary and the player's character->goal
+    mapping. The Import box base64-decodes and JSON-decodes the string, stores the result under
+    GaarVanguardDB.sync, prints a short summary, and opens the read-only Vanguard view. That
+    view (/gaarvanguard, or the "Open Vanguard view" button) renders the stored sync in a
+    movable, closable, scrollable window: your Vanguards, each goal's title/status/instance and
+    which of your characters it applies to, an instance/readiness summary, and the per-character
+    mapping. It writes nothing and shows an empty-state prompt until a sync has been imported.
 
   Everything that reads the game API is wrapped in pcall so a call that is missing or shaped
   differently on one client degrades to "not captured" instead of erroring. The base64 and JSON
   codecs are self-contained here - no external libraries.
 
-  /gaarvanguard prints usage and opens the export. Settings under Gaar -> Vanguard.
+  /gaarvanguard opens the Vanguard view (subcommands: export, import, capture, probe, config,
+  wipe). Settings under Gaar -> Vanguard.
 ]]
 
 local _G = _G
@@ -1099,6 +1103,278 @@ end
 _G.GaarVanguard_ShowExport = ShowExport
 
 -- ---------------------------------------------------------------------------
+-- Phase 2: the in-game sync view (read-only). Renders GaarVanguardDB.sync - the
+-- website -> addon document the Import box decoded - as a proper movable,
+-- closable, scrollable window so a player sees, in game, what their Vanguard is
+-- aiming for: their Vanguard(s), the goals + status + linked instance, an
+-- instance / readiness summary, and which of their characters each goal applies
+-- to. Everything is guarded so a missing or reshaped field renders blank rather
+-- than erroring; nothing here writes game or addon state.
+--
+-- The sync shape is the website's encodeSync() (Vanguard/src/lib/protocol.ts,
+-- mirrored in docs/gaarvanguard.md). Field names are the short ones the site
+-- emits, not the longhand of the first-draft stub:
+--   { k = "sync",
+--     vanguards = { { name, tag, faction, type }, ... },
+--     goals     = { { vg, t, i, s }, ... },   -- vg=Vanguard tag, t=title, i=instance code, s=Waiting/Ready/Done
+--     members   = { { vg, name, ready, total }, ... },   -- per-member readiness summary
+--     mapping   = { { char, vanguard, goals = { title, ... } }, ... } }  -- the player's own chars
+-- Older/looser producers may use { title, status, instanceCode } - those are
+-- accepted as fallbacks so a hand-made string still renders.
+-- ---------------------------------------------------------------------------
+local STATUS_COLORS = {
+    Waiting = { 1.00, 0.82, 0.00 },
+    Ready   = { 0.30, 1.00, 0.40 },
+    Done    = { 0.55, 0.70, 1.00 },
+}
+local MUTE = { 0.62, 0.62, 0.66 }
+local HEADCOL = { 0.55, 0.85, 1.00 }
+local WHITECOL = { 1.00, 1.00, 1.00 }
+local GOCOL = { 0.30, 1.00, 0.40 }
+
+local function StatusColor(s)
+    return STATUS_COLORS[tostring(s)] or MUTE
+end
+
+-- table.concat but tolerant: every element is stringified first, so a stray
+-- non-string in a decoded list can never raise.
+local function JoinTostring(list, sep)
+    local out = {}
+    if type(list) == "table" then
+        for _, v in ipairs(list) do out[#out + 1] = tostring(v) end
+    end
+    return table.concat(out, sep)
+end
+
+local viewFrame
+local viewPool = {}
+
+-- Acquire (or reuse) the next pooled fontstring on the scroll child, set its
+-- text / colour / font, place it at the running y offset, and advance y past it.
+-- `big` picks the section-head font; otherwise a small body font. Wrapping is on,
+-- so long text grows the line height and the layout stays correct.
+local function ViewLine(content, state, text, color, indent, big)
+    state.i = state.i + 1
+    local fs = viewPool[state.i]
+    if not fs then
+        fs = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        viewPool[state.i] = fs
+    end
+    fs:SetFontObject(big and "GameFontNormal" or "GameFontHighlightSmall")
+    fs:ClearAllPoints()
+    fs:SetPoint("TOPLEFT", indent or 8, state.y)
+    fs:SetWidth(math.max(40, (state.width or 480) - (indent or 8) - 8))
+    fs:SetJustifyH("LEFT")
+    fs:SetText(text or "")
+    local c = color or MUTE
+    fs:SetTextColor(c[1], c[2], c[3])
+    fs:Show()
+    local h = fs:GetStringHeight()
+    if not h or h < 1 then h = 12 end
+    state.y = state.y - h - (big and 8 or 4)
+end
+
+-- Rebuild the whole view from GaarVanguardDB.sync. Cheap enough (a handful of
+-- Vanguards/goals) to redo wholesale on every show / resize.
+local function RenderView()
+    if not viewFrame then return end
+    local content = viewFrame.content
+    local w = viewFrame.scroll and viewFrame.scroll:GetWidth() or 0
+    if not w or w < 50 then w = 500 end
+    local state = { i = 0, y = -8, width = w }
+    content:SetWidth(w)
+
+    local sync = DB().sync
+
+    -- Empty state: no usable sync yet.
+    if type(sync) ~= "table" or sync.k ~= "sync" then
+        ViewLine(content, state, "No Vanguard data yet.", HEADCOL, 8, true)
+        ViewLine(content, state,
+            "Open the Vanguard website's Addon sync page, click Export, and copy the VGD1 code. " ..
+            "Then open GaarVanguard's Import box (/gaarvanguard import), paste it, and click Import. " ..
+            "This view fills in the moment you do.", MUTE, 8, false)
+        for j = state.i + 1, #viewPool do if viewPool[j] then viewPool[j]:Hide() end end
+        content:SetHeight(math.max(1, -state.y + 8))
+        return
+    end
+
+    local vanguards = type(sync.vanguards) == "table" and sync.vanguards or {}
+    local goals     = type(sync.goals) == "table" and sync.goals or {}
+    local members   = type(sync.members) == "table" and sync.members or {}
+    local mapping   = type(sync.mapping) == "table" and sync.mapping or {}
+
+    -- 1. Your Vanguards.
+    ViewLine(content, state, "Your Vanguards", HEADCOL, 8, true)
+    if #vanguards == 0 then
+        ViewLine(content, state, "None in this sync.", MUTE, 16, false)
+    else
+        for _, v in ipairs(vanguards) do
+            if type(v) == "table" then
+                local tag = (v.tag and v.tag ~= "") and (" [" .. tostring(v.tag) .. "]") or ""
+                ViewLine(content, state, tostring(v.name or "?") .. tag, WHITECOL, 16, false)
+                local bits = {}
+                if v.faction and v.faction ~= "" then bits[#bits + 1] = tostring(v.faction) end
+                if v.type and v.type ~= "" then bits[#bits + 1] = tostring(v.type) end
+                if #bits > 0 then ViewLine(content, state, JoinTostring(bits, " \194\183 "), MUTE, 26, false) end
+            end
+        end
+    end
+    state.y = state.y - 6
+
+    -- 2. Goals: title, status (coloured), linked instance, owning Vanguard, and
+    -- which of my characters the goal applies to (from the mapping).
+    ViewLine(content, state, "Goals", HEADCOL, 8, true)
+    if #goals == 0 then
+        ViewLine(content, state, "None in this sync.", MUTE, 16, false)
+    else
+        for _, g in ipairs(goals) do
+            if type(g) == "table" then
+                local title = tostring(g.t or g.title or "?")
+                ViewLine(content, state, title, WHITECOL, 16, false)
+                ViewLine(content, state, "Status: " .. tostring(g.s or g.status or "?"), StatusColor(g.s or g.status), 26, false)
+                local inst = g.i or g.instanceCode
+                if inst and inst ~= "" then
+                    ViewLine(content, state, "Instance: " .. tostring(inst), MUTE, 26, false)
+                end
+                if g.vg and g.vg ~= "" then
+                    ViewLine(content, state, "Vanguard: " .. tostring(g.vg), MUTE, 26, false)
+                end
+                local who = {}
+                for _, m in ipairs(mapping) do
+                    if type(m) == "table" and type(m.goals) == "table" then
+                        for _, gt in ipairs(m.goals) do
+                            if tostring(gt) == title then who[#who + 1] = tostring(m.char or "?"); break end
+                        end
+                    end
+                end
+                if #who > 0 then
+                    ViewLine(content, state, "Your characters: " .. JoinTostring(who, ", "), { 0.70, 0.88, 0.70 }, 26, false)
+                end
+            end
+        end
+    end
+    state.y = state.y - 6
+
+    -- 3. Instances / readiness. The sync carries no per-instance GO flag, only a
+    -- per-member ready/total summary, so we list the instances the goals track and
+    -- then each member's readiness, highlighting a member who is GO (fully ready).
+    ViewLine(content, state, "Instances / readiness", HEADCOL, 8, true)
+    local seen, insts = {}, {}
+    for _, g in ipairs(goals) do
+        if type(g) == "table" then
+            local inst = g.i or g.instanceCode
+            if inst and inst ~= "" and not seen[inst] then seen[inst] = true; insts[#insts + 1] = tostring(inst) end
+        end
+    end
+    if #insts > 0 then
+        ViewLine(content, state, "Tracked instances: " .. JoinTostring(insts, ", "), MUTE, 16, false)
+    end
+    if #members == 0 then
+        ViewLine(content, state, "No readiness summary in this sync.", MUTE, 16, false)
+    else
+        for _, m in ipairs(members) do
+            if type(m) == "table" then
+                local ready = tonumber(m.ready) or 0
+                local total = tonumber(m.total) or 0
+                local go = total > 0 and ready >= total
+                ViewLine(content, state,
+                    string.format("%s \226\128\148 %d/%d ready%s", tostring(m.name or "?"), ready, total, go and "   GO" or ""),
+                    go and GOCOL or { 0.85, 0.85, 0.85 }, 16, false)
+            end
+        end
+    end
+    state.y = state.y - 6
+
+    -- 4. Mapping: each of my characters, its Vanguard and the goals that apply.
+    ViewLine(content, state, "My characters", HEADCOL, 8, true)
+    if #mapping == 0 then
+        ViewLine(content, state, "No character mapping in this sync.", MUTE, 16, false)
+    else
+        for _, m in ipairs(mapping) do
+            if type(m) == "table" then
+                ViewLine(content, state, tostring(m.char or "?"), WHITECOL, 16, false)
+                ViewLine(content, state, "Vanguard: " .. tostring(m.vanguard or "\226\128\148"), MUTE, 26, false)
+                local gl = (type(m.goals) == "table" and #m.goals > 0) and JoinTostring(m.goals, ", ") or "\226\128\148"
+                ViewLine(content, state, "Goals: " .. gl, MUTE, 26, false)
+            end
+        end
+    end
+
+    for j = state.i + 1, #viewPool do if viewPool[j] then viewPool[j]:Hide() end end
+    content:SetHeight(math.max(1, -state.y + 8))
+end
+
+local function BuildView()
+    if viewFrame then return viewFrame end
+    local f = CreateFrame("Frame", "GaarVanguardView", UIParent, "BackdropTemplate")
+    f:SetSize(560, 460); f:SetPoint("CENTER")
+    f:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+    f:SetBackdropColor(0.05, 0.06, 0.08, 0.96)
+    f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+    f:SetFrameStrata("DIALOG")
+    f:SetMovable(true); f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    table.insert(UISpecialFrames, "GaarVanguardView")
+
+    local titleBar = f:CreateTexture(nil, "BACKGROUND")
+    titleBar:SetPoint("TOPLEFT", 1, -1); titleBar:SetPoint("TOPRIGHT", -1, -1); titleBar:SetHeight(26)
+    if titleBar.SetColorTexture then titleBar:SetColorTexture(1, 1, 1, 1) else titleBar:SetTexture(1, 1, 1, 1) end
+    titleBar:SetVertexColor(0.11, 0.12, 0.15, 1)
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", 12, -8); title:SetText("Gaar Vanguard")
+
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetSize(26, 26); closeBtn:SetPoint("TOPRIGHT", -4, -4)
+
+    -- Toolbar: quick access to the two copy/paste boxes without leaving the view.
+    local importBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    importBtn:SetSize(70, 20); importBtn:SetPoint("TOPRIGHT", -34, -33); importBtn:SetText("Import")
+    importBtn:SetScript("OnClick", function() if _G.GaarVanguard_ShowImport then _G.GaarVanguard_ShowImport() end end)
+
+    local exportBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    exportBtn:SetSize(70, 20); exportBtn:SetPoint("TOPRIGHT", importBtn, "TOPLEFT", -6, 0); exportBtn:SetText("Export")
+    exportBtn:SetScript("OnClick", function() if _G.GaarVanguard_ShowExport then _G.GaarVanguard_ShowExport() end end)
+
+    local scroll = CreateFrame("ScrollFrame", "GaarVanguardViewScroll", f, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 12, -60); scroll:SetPoint("BOTTOMRIGHT", -32, 12)
+    f.scroll = scroll
+
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(500, 10)
+    scroll:SetScrollChild(content)
+    f.content = content
+
+    -- Mouse wheel scrolling, clamped to the scrollable range.
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local range = self:GetVerticalScrollRange() or 0
+        local v = (self:GetVerticalScroll() or 0) - delta * 30
+        if v < 0 then v = 0 elseif v > range then v = range end
+        self:SetVerticalScroll(v)
+    end)
+    -- Re-flow once the frame has its real width (first layout / any resize).
+    scroll:SetScript("OnSizeChanged", function()
+        if viewFrame and viewFrame:IsShown() then RenderView() end
+    end)
+
+    viewFrame = f
+    return f
+end
+
+local function ShowView()
+    BuildView()
+    RenderView()
+    viewFrame:Show()
+    if viewFrame.scroll and viewFrame.scroll.SetVerticalScroll then viewFrame.scroll:SetVerticalScroll(0) end
+    RenderView()
+end
+_G.GaarVanguard_ShowView = ShowView
+
+-- ---------------------------------------------------------------------------
 -- Import box (stub): parse a VGD1 sync string, store it, summarise it.
 -- ---------------------------------------------------------------------------
 local function ParseSync(str)
@@ -1159,6 +1435,9 @@ local function ShowImport()
             importFrame.status:SetText("|cff40ff40Stored under GaarVanguardDB.sync|r\n" .. summary)
             print("|cff5599ff" .. ADDON .. ":|r imported sync string.")
             for line in string.gmatch(summary, "[^\n]+") do print("  " .. line) end
+            -- Phase 2: open/refresh the read-only view so the pasted data is
+            -- visible immediately.
+            if _G.GaarVanguard_ShowView then pcall(_G.GaarVanguard_ShowView) end
         end)
     end
     importFrame.box:SetText("")
@@ -1404,8 +1683,14 @@ _G.GaarVanguard_ShowProbe = ShowProbe
 function GaarVanguard_BuildOptions(container)
     local y = -8
     local head = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    head:SetPoint("TOPLEFT", 16, y); head:SetText("Vanguard — character & loot export")
+    head:SetPoint("TOPLEFT", 16, y); head:SetText("Vanguard — character & loot export, and the in-game sync view")
     y = y - 30
+
+    local viewBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+    viewBtn:SetSize(160, 24); viewBtn:SetPoint("TOPLEFT", 16, y)
+    viewBtn:SetText("Open Vanguard view")
+    viewBtn:SetScript("OnClick", ShowView)
+    y = y - 34
 
     local exportBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
     exportBtn:SetSize(160, 24); exportBtn:SetPoint("TOPLEFT", 16, y)
@@ -1444,7 +1729,7 @@ function GaarVanguard_BuildOptions(container)
 
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 18, y); hint:SetWidth(360); hint:SetJustifyH("LEFT")
-    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. Export drops the whole account into a VGD1 string to paste into the Vanguard website; import parses the website's sync string back. This is a first draft: the import box proves the round trip and stores the result, the full in-game view comes later.")
+    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. Export drops the whole account into a VGD1 string to paste into the Vanguard website; Import parses the website's sync string back. The Vanguard view (also /gaarvanguard) shows that synced data in game: your Vanguards, their goals and status, the instance/readiness summary, and which of your characters each goal applies to.")
     y = y - 90
 
     container.gaarRefresh = refreshCount
@@ -1462,7 +1747,7 @@ _G.GaarVanguard_Config = OpenOptions
 -- ---------------------------------------------------------------------------
 local function Usage()
     print("|cff5599ff" .. ADDON .. "|r — commands:")
-    print("  |cffffd100/gaarvanguard|r or |cffffd100/gaarvg|r — this help, and opens the export box")
+    print("  |cffffd100/gaarvanguard|r or |cffffd100/gaarvg|r — open the in-game Vanguard view (synced goals/instances)")
     print("  |cffffd100/gaarvanguard export|r — the VGD1 string to paste into the website")
     print("  |cffffd100/gaarvanguard import|r — paste the website's sync string back")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
@@ -1475,7 +1760,9 @@ SLASH_GAARVANGUARD1 = "/gaarvanguard"
 SLASH_GAARVANGUARD2 = "/gaarvg"
 SlashCmdList["GAARVANGUARD"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
-    if msg == "export" then
+    if msg == "view" then
+        ShowView()
+    elseif msg == "export" then
         ShowExport()
     elseif msg == "import" then
         ShowImport()
@@ -1494,6 +1781,6 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
         print("|cff5599ff" .. ADDON .. ":|r database cleared.")
     else
         Usage()
-        ShowExport()
+        ShowView()
     end
 end

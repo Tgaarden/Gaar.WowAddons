@@ -198,6 +198,68 @@ all skill lines (index, name, isHeader, isExpanded, skill/max, PROFESSION tag) a
 headers; the extra namespaces; and the resolved `ScanProfessionsModern` / `ScanProfessionsClassic`
 / `CaptureProfessions` results. Run it on Forever and paste the box back to confirm the wiring.
 
+# Talents / spec: read from the binary (2026-09-23)
+
+`GaarVanguard` exported an empty `spec` (and empty `talents`) on Forever - a character with even one
+point spent came back with nothing. Same class of fault as the professions: the readers the addon
+reached for are the *classic* ones, and Forever has moved them. Method as before: `strings -n 3` on
+each binary, `sort -u`, diff Forever (beta) against Era, and read the `Usage:` lines because a
+`Usage:` string names the exact namespace and signature the client registers a call under.
+
+**Forever has removed the classic Vanilla tab talent API.** The tab-based point-tree globals that
+Era carries are simply absent from the Forever binary:
+
+| Present on Era, gone on Forever | Note |
+|---|---|
+| `GetNumTalentTabs` | bare global; era has it, beta does not |
+| `GetNumTalents` (`Usage: GetNumTalents(tabIndex[, isInspect[, isPet]])`) | the tab-count-of-talents reader |
+| `GetNumTalentGroups`, `GetActiveTalentGroup`, `UnitCharacterPoints` | classic dual-spec / unspent-points readers |
+| `GetTalentGroupRole`, `SetPrimaryTalentTree`, `AddPreviewTalentPoints(tabIndex, …)`, `GetTalentPrereqs(tabIndex, …)` | the rest of the classic tab machinery |
+
+`GetTalentInfo` and `GetTalentLink` still *exist* on Forever, but only in their retail/ID shapes -
+`Usage: GetTalentInfo(tier, column, specGroupIndex …)`, `Usage: GetTalentLink(talentID)`,
+`Usage: LearnTalent(talentID)` - never the classic `(tabIndex, talentIndex)` forms Era also lists.
+So the addon's tab loop (`for i = 1, GetNumTalentTabs()`) never ran on Forever: `GetNumTalentTabs` is
+nil, the loop body is skipped, and `spec`/`talents` stay empty. That single missing global is the
+whole bug, the exact analogue of the profession code looking under the wrong namespace.
+`GetTalentTabInfo` is absent from *both* binaries (it lives in FrameXML, like `RAID_CLASS_COLORS`),
+so it cannot be cleared or condemned from the strings - but with `GetNumTalentTabs` gone the point is
+moot on Forever.
+
+**Where the Vanilla trees went: the retail `C_SpecializationInfo` namespace.** Present in both
+binaries, but on Forever it is the *only* spec reader left, and its `Usage:` lines give the shapes:
+
+    Usage: local specCount = C_SpecializationInfo.GetNumSpecializationsForClassID(classID)
+    Usage: local specId, name, description, icon, role, primaryStat, pointsSpent, background,
+           previewPointsSpent, isUnlocked = C_SpecializationInfo.GetSpecializationInfo(query)
+    Usage: local specializationIndex = C_SpecializationInfo.GetSpecialization([isInspect, isPet, specGroupIndex])
+
+The key field is **`pointsSpent`** (the 7th return value): on this Vanilla-content client the class's
+three talent trees are exposed as its "specializations", and each carries the points invested in it.
+So the classic rule *"the talent tab with the most points spent is the spec"* becomes *"the
+specialization with the most `pointsSpent` is the spec"*, and that spec's `name` (e.g. `Fire`) is
+what the export needs. `GetSpecializationInfo` answers with a value tuple per the `Usage:` line, but
+the accessor also handles a table return - the same silent shape change `C_SkillInfo.GetSkillLineInfo`
+had. Era carries `SetSpecialization(specIndex)` as a bare global; on Forever even that has moved to
+`C_SpecializationInfo.SetSpecialization`, confirming the whole spec surface is namespaced there now.
+
+**Forever adds the retail per-tier talent system too** (`GetMaxTalentTier` is beta-only;
+`GetTalentInfo(tier, column, specGroupIndex)`, `C_ClassTalents`, `C_Traits` are all present), but that
+is the Dragonflight node/tier graph, not the Vanilla point tree, and it cannot reconstruct a
+Vanilla-style per-talent build. So the addon captures the **spec name** (required) and a **compact
+per-tree points summary** (`{ tab = treeName, points = pointsSpent, talents = {} }`) from
+`C_SpecializationInfo`, and keeps the full per-talent tree only on the classic (Era) path.
+
+**What this cannot answer, and the probe must.** Whether `GetSpecializationInfo(index)` accepts a
+plain 1..N index on this Vanilla-content client (the `Usage:` says `query`, not `index`), whether it
+reports live `pointsSpent` for the Vanilla trees, and whether it returns a tuple or a table, are all
+runtime facts. `/gaarvanguard probe` now dumps, for the current character: the classic tab globals'
+presence; the `C_SpecializationInfo` members; `Spec_GetNum()`; the active `GetSpecialization()` index;
+`GetSpecializationInfo(i)` name/points/specId for every tree; the tuple-vs-table shape of return 1;
+and the resolved path + `spec` + `talents` summary. Run it on Forever and paste the box back to
+confirm the wiring. The selection logic itself (tuple/table normalisation, max-points pick, no-spec
+when nothing is spent) was verified out of game with a stubbed-API luajit harness.
+
 # The client does not load addon SavedVariables (2026-09-18)
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed

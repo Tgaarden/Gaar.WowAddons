@@ -300,6 +300,50 @@ table for every non-header skill line** (all fields: `rank`, `maxRank`, and what
 `skillModifier`, `stepCost`, `parentSkillLineID`, ...), because the field that distinguishes Fire
 from Arcane/Frost is what pins the read.
 
+# Talents / spec: the trait graph resolved (2026-09-23)
+
+The second in-game probe (Mage lvl 10, one point in Fire) located the point and the model:
+
+- `C_ClassTalents.GetActiveConfigID()` = `5921282`. `C_Traits.GetConfigInfo(5921282)` -> name `"Mage"`,
+  **`treeIDs = {1112}`** (one trait tree for the whole class), type `4`. `GetTraitTreeForSpec(1)` is
+  `nil` - the spec route is a dead end, as expected now that C_SpecializationInfo is class-level.
+- Tree `1112` has **54 nodes**, of which **exactly one is purchased**: node `105795`, `ranks = 1`,
+  `activeRank = 1`. Per-tree total ranks purchased = 1. So the trait graph *is* where the spent point
+  lives - the profession-style fix applies one more level in.
+- The Arcane/Fire/Frost `C_SkillInfo` skill lines all read `rank 1 / tempPoints 0` - no signal.
+  `C_SpecializationInfo` is class-level (`Mage`, 0 points). **The only carrier of "Fire" is that
+  purchased trait node.**
+
+So the model is: **one class trait tree whose Vanilla trees (Arcane/Fire/Frost) are its subtrees**, and
+a spent talent is a purchased node tagged with a `subTreeID`. The spec is therefore the **subtree with
+the most purchased ranks**, and the subtree's name is the spec. The resolution chain the addon now
+runs (all `pcall`-guarded):
+
+    configID = C_ClassTalents.GetActiveConfigID()
+    for each treeID in C_Traits.GetConfigInfo(configID).treeIDs:
+      for each nodeID in C_Traits.GetTreeNodes(treeID):
+        ni = C_Traits.GetNodeInfo(configID, nodeID)
+        if (ni.ranksPurchased or ni.activeRank) > 0:
+          group by ni.subTreeID; sum ranks
+          name  = C_Traits.GetSubTreeInfo(configID, ni.subTreeID).name        -- e.g. "Fire"
+          talent = C_Traits.GetEntryInfo(configID, entryID).definitionID
+                 -> C_Traits.GetDefinitionInfo(definitionID)
+                 -> .overrideName, or its .spellID/.overriddenSpellID resolved via
+                    C_Spell.GetSpellName / C_Spell.GetSpellInfo (fallback global GetSpellInfo)
+    spec = name of the subtree with the most ranks; if a purchased node has no subTreeID, fall back to
+           the dominant purchased talent's own (spell) name; otherwise leave spec empty.
+
+`talents` carries a compact summary per subtree - total ranks purchased and the resolved talent names -
+exported only when the trees resolve real names, never a numeric id, and a spec is never invented. The
+selection and name-resolution logic is verified out of game with a stubbed-API luajit harness (subtree
+name, no-subtree spell-name fallback, dominant-subtree pick, nothing-purchased -> empty).
+
+**What the next probe must confirm.** Whether node `105795` actually carries a `subTreeID` and whether
+`GetSubTreeInfo` returns `"Fire"` for it - or, failing that, whether its entry/definition resolves to a
+Fire spell name. `/gaarvanguard probe` now dumps, for every purchased node: the complete `GetNodeInfo`
+table, `GetSubTreeInfo(configID, subTreeID).name`, and each entry -> definition -> `spellID` -> spell
+name, plus the tree's own `subTreeIDs`. That output locks whether `spec` reads `"Fire"`.
+
 # The client does not load addon SavedVariables (2026-09-18)
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed

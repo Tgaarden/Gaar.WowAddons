@@ -83,7 +83,7 @@ Canonical field names (each char object):
 | `race` | string | e.g. `"Gnome"`; the website derives faction from race |
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
-| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, best-effort trait graph (`C_ClassTalents`/`C_Traits`) on Forever; empty when nothing is spent or when Forever's per-tree points can't yet be located |
+| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the trait-graph subtree (`C_ClassTalents`/`C_Traits`, e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
 | `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
@@ -206,22 +206,24 @@ trying the readers in order and using whichever the client exposes:
    tab by `tier` then `col`. The resulting shape is
    `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
    the tab with the most points spent.
-2. **Forever best-effort via the trait graph (`C_ClassTalents` + `C_Traits`).** The classic tab
-   globals above are **gone on the Forever client**. The binary made `C_SpecializationInfo` look like
-   the replacement, but the live probe showed it is **class-level** there — `GetSpecializationInfo(1)`
-   returns the *class* (`"Mage"`) with `pointsSpent` always `0` — so it does **not** carry the Vanilla
-   per-tree points, and the wiring no longer uses it. The Vanilla trees also show up as `C_SkillInfo`
-   skill lines (Arcane/Fire/Frost under "Class Skills"), but all read `rank` 1/1, so the skill-line
-   rank is not the point count either. The remaining plausible home is the retail trait graph, which
-   this path reads: `C_ClassTalents.GetActiveConfigID()` → `C_Traits.GetConfigInfo(configID).treeIDs`
-   → per tree, sum `C_Traits.GetNodeInfo(configID, nodeID)`’s `ranksPurchased`/`activeRank` over
-   `C_Traits.GetTreeNodes(treeID)`; the tree with the most ranks is the spec. It emits the same shape
-   with an empty per-talent list — `talents = [ { tab = <treeName>, points, talents: [] } ]` — but
-   **only when every tree resolves a real name**; a numeric tree id is never emitted as a spec.
-3. **Otherwise, empty.** If no path locates named per-tree points, `spec` and `talents` are left
-   empty. This is the **current expected state on Forever**: whether the trait graph actually carries
-   the Vanilla per-tree points (and their tree names) is unconfirmed, so the addon reports nothing
-   rather than something wrong until a `/gaarvanguard probe` paste pins the exact per-point field.
+2. **Forever via the trait-graph subtrees (`C_ClassTalents` + `C_Traits`).** The classic tab globals
+   are **gone on Forever**, and the live probe ruled out `C_SpecializationInfo` (class-level: name =
+   the class, 0 points) and the `C_SkillInfo` Arcane/Fire/Frost lines (all rank 1/1). The point lives
+   in the modern trait graph: there is **one class trait tree** (Mage → treeID 1112) whose Vanilla
+   trees (Arcane/Fire/Frost) are its **subtrees**, and a spent talent is a purchased node tagged with a
+   `subTreeID`. The reader walks `C_ClassTalents.GetActiveConfigID()` →
+   `C_Traits.GetConfigInfo(configID).treeIDs` → `C_Traits.GetTreeNodes(treeID)` →
+   `C_Traits.GetNodeInfo(configID, nodeID)`, groups the purchased nodes (`ranksPurchased`/`activeRank`
+   > 0) by `subTreeID`, and resolves each subtree's name via `C_Traits.GetSubTreeInfo`. The **spec is
+   the subtree with the most ranks** (e.g. `"Fire"`); if a purchased node has no `subTreeID`, it falls
+   back to the dominant purchased talent's own name, resolved through
+   `GetEntryInfo` → `GetDefinitionInfo` → `overrideName`/spell name (`C_Spell.GetSpellName` /
+   `C_Spell.GetSpellInfo`, fallback global `GetSpellInfo`). `talents` is a compact per-subtree summary —
+   `talents = [ { tab = <subtreeName>, points, talents: [ { name, rank, … } ] } ]` — exported **only
+   when every subtree resolves a real name**; a numeric id is never emitted.
+3. **Otherwise, empty.** If no path resolves a named subtree or talent, `spec` and `talents` are left
+   empty — never invented. On Forever this holds until the probe confirms node `105795` carries a
+   `subTreeID` that `GetSubTreeInfo` names (or an entry that resolves to a Fire spell).
 
 An empty scan leaves any previously captured build in place rather than wiping it. A character with
 no points spent anywhere legitimately reports **no** spec — none is ever invented.
@@ -256,9 +258,12 @@ the Vanilla per-tree points live:
 - **`C_ClassTalents`** — every member, `GetActiveConfigID()`, `GetConfigIDsBySpecID()`,
   `GetHasStarterBuild` / `GetStarterBuildActive`, and `GetTraitTreeForSpec(activeSpec)`.
 - **`C_Traits`** — every member and, from the active config id: `GetConfigInfo` (all fields), each
-  tree's `GetTreeInfo`, `GetTreeNodes` count, **every node with `ranksPurchased`/`activeRank` > 0**
-  (with a best-effort resolved talent name via `GetEntryInfo` → `GetDefinitionInfo`), and the per-tree
-  rank total.
+  tree's `GetTreeInfo` and its `subTreeIDs` (`GetSubTreeInfo` for each), and, for **every purchased
+  node** (`ranksPurchased`/`activeRank` > 0): the **complete `GetNodeInfo` table**, its
+  `GetSubTreeInfo(subTreeID).name`, each `entryID` → `definitionID` → `GetDefinitionInfo`
+  (`overrideName`, `spellID`) with the resolved spell name, and the final `ResolveNodeTalentName`; plus
+  the per-tree rank total. Then the raw `ScanTalentsTraits` result (grouping, points, `named` flag,
+  resolved talent names) before the export gate.
 - **Raw `C_SkillInfo` skill-line tables** — the full field dump (`KV`) of every non-header skill line,
   so any field that distinguishes the spent tree (Fire) from the others (Arcane/Frost) is visible.
 - The **path used** (`classic tabs` / `Forever trait graph` / `none`) and the resolved `spec` +
@@ -269,10 +274,11 @@ does not resolve on Forever, paste the talent section back** — the `C_Traits` 
 `C_SkillInfo` fields will pin the exact per-point field, and the reader can then be finalised.
 
 **Spec** is read as *the talent tree with the most points spent*: on Era via the classic
-`GetNumTalentTabs`/`GetTalentTabInfo` tabs, on Forever (best-effort) via the `C_ClassTalents` /
-`C_Traits` trait graph, and only when the winning tree has a real name. A character with no points
-spent — or a Forever client whose per-tree points cannot yet be located — legitimately reports no
-spec; none is invented.
+`GetNumTalentTabs`/`GetTalentTabInfo` tabs, on Forever via the `C_ClassTalents` / `C_Traits` trait
+graph — the **subtree** (Arcane/Fire/Frost) with the most purchased node ranks, resolved to a name via
+`GetSubTreeInfo`, with the dominant purchased talent's spell name as a fallback — and only when a real
+name resolves. A character with no points spent, or one whose purchased node resolves to no name,
+legitimately reports no spec; none is invented.
 
 ## `k = "sync"` — website → addon (the Import box + the in-game view)
 

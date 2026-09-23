@@ -430,66 +430,137 @@ local function BestTabByPoints()
     return best, bestPts
 end
 
--- Best-effort talent read via the retail trait system (C_ClassTalents + C_Traits) - the namespaces
--- the live Forever probe (2026-09-23) showed present. The live probe also settled that
--- C_SpecializationInfo is NOT the place for Vanilla-tree points on Forever: it is class-level there
--- (GetSpecializationInfo(1) -> name = the class "Mage", pointsSpent always 0), so the earlier
--- "specialization with the most pointsSpent" approach can never resolve a spec and is dropped for
--- the spec/talent wiring (kept only in the probe for the record). The actual trees show up as
--- C_SkillInfo skill lines (Arcane/Fire/Frost under "Class Skills") but all read rank 1/1, so the
--- skill-line rank is not the point count either. That leaves the trait graph as the place the
--- per-point data most plausibly lives; this reader sums node ranks per tree there.
+-- Resolve a spell id to its name via the modern C_Spell API (present on Forever), falling back to
+-- the classic global. C_Spell.GetSpellName returns the name directly; C_Spell.GetSpellInfo returns a
+-- table with .name; the bare global returns the name as its first value.
+local function ResolveSpellName(spellID)
+    if type(spellID) ~= "number" or spellID <= 0 then return nil end
+    local CS = _G.C_Spell
+    if type(CS) == "table" then
+        if type(CS.GetSpellName) == "function" then
+            local n = safe(CS.GetSpellName, spellID)
+            if type(n) == "string" and n ~= "" then return n end
+        end
+        if type(CS.GetSpellInfo) == "function" then
+            local info = safe(CS.GetSpellInfo, spellID)
+            if type(info) == "table" and type(info.name) == "string" and info.name ~= "" then
+                return info.name
+            end
+        end
+    end
+    if type(_G.GetSpellInfo) == "function" then
+        local n = safe(_G.GetSpellInfo, spellID)
+        if type(n) == "string" and n ~= "" then return n end
+    end
+    return nil
+end
+
+-- Resolve a purchased trait node to a talent name: its committed entry -> definition -> overrideName,
+-- or the definition's spell name. Prefers the entries that actually carry ranks.
+local function ResolveNodeTalentName(CT, configID, ni)
+    if type(ni) ~= "table" or type(CT.GetEntryInfo) ~= "function" then return nil end
+    local entryIDs = ni.entryIDsWithCommittedRanks
+    if type(entryIDs) ~= "table" or not entryIDs[1] then entryIDs = ni.entryIDs end
+    if type(entryIDs) ~= "table" then return nil end
+    for _, entryID in ipairs(entryIDs) do
+        local ei = safe(CT.GetEntryInfo, configID, entryID)
+        if type(ei) == "table" and ei.definitionID and type(CT.GetDefinitionInfo) == "function" then
+            local di = safe(CT.GetDefinitionInfo, ei.definitionID)
+            if type(di) == "table" then
+                if type(di.overrideName) == "string" and di.overrideName ~= "" then return di.overrideName end
+                local nm = ResolveSpellName(di.spellID or di.overriddenSpellID)
+                if nm then return nm end
+            end
+        end
+    end
+    return nil
+end
+
+-- Best-effort talent read via the retail trait system (C_ClassTalents + C_Traits). The live Forever
+-- probe (2026-09-23) settled the model: there is ONE class trait tree (Mage -> treeID 1112) whose
+-- Vanilla trees (Arcane/Fire/Frost) are its SUBTREES, and a spent talent is a purchased node carrying
+-- a subTreeID. C_SpecializationInfo is class-level (name = class, 0 points) and the C_SkillInfo
+-- Arcane/Fire/Frost lines all read rank 1/1, so neither carries the point; the purchased trait node
+-- does. So the spec is the subtree with the most purchased ranks, resolved to a real name via
+-- C_Traits.GetSubTreeInfo; if a purchased node has no subTreeID we fall back to the dominant purchased
+-- talent's own (spell) name. Nodes are grouped by subtree, ranks summed, names resolved.
 --
--- Returns a per-tree build { { tab, points, talents = {}, named } }, or nil if the trait config
--- cannot be read or nothing is spent. `named` is true only when a real tree name was resolved - we
--- never emit a numeric tree id as if it were a spec name, and never invent a spec. The API shapes
--- (C_ClassTalents.GetActiveConfigID / C_Traits.GetConfigInfo/GetTreeNodes/GetNodeInfo/GetTreeInfo)
--- are read from the client binary; whether they carry the Vanilla per-tree points is exactly what
--- the extended probe below is gathering, so this stays conservative until a probe paste confirms it.
+-- Returns a build { { tab, points, talents = { {name,rank,max,tier,col} }, named } }, or nil when
+-- the trait config cannot be read or nothing is purchased. `named` is true only when a real name was
+-- resolved - a numeric id is never emitted as a spec, and a spec is never invented.
 local function ScanTalentsTraits()
     local CCT, CT = _G.C_ClassTalents, _G.C_Traits
     if type(CCT) ~= "table" or type(CT) ~= "table" then return nil end
     if type(CCT.GetActiveConfigID) ~= "function" or type(CT.GetConfigInfo) ~= "function" then return nil end
+    if type(CT.GetTreeNodes) ~= "function" or type(CT.GetNodeInfo) ~= "function" then return nil end
     local configID = safe(CCT.GetActiveConfigID)
     if type(configID) ~= "number" then return nil end
     local cfg = safe(CT.GetConfigInfo, configID)
     if type(cfg) ~= "table" or type(cfg.treeIDs) ~= "table" then return nil end
-    local build, any = {}, false
+
+    -- Group purchased ranks by subtree. Key 0 collects nodes that carry no subTreeID.
+    local groups, order = {}, {}
+    local function group(key)
+        local g = groups[key]
+        if not g then g = { key = key, points = 0, talents = {} }; groups[key] = g; order[#order + 1] = key end
+        return g
+    end
+    local anyPurchased = false
     for _, treeID in ipairs(cfg.treeIDs) do
-        local points = 0
-        if type(CT.GetTreeNodes) == "function" and type(CT.GetNodeInfo) == "function" then
-            local nodes = safe(CT.GetTreeNodes, treeID)
-            if type(nodes) == "table" then
-                for _, nodeID in ipairs(nodes) do
-                    local ni = safe(CT.GetNodeInfo, configID, nodeID)
-                    if type(ni) == "table" then
-                        points = points + (tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0)
+        local nodes = safe(CT.GetTreeNodes, treeID)
+        if type(nodes) == "table" then
+            for _, nodeID in ipairs(nodes) do
+                local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                if type(ni) == "table" then
+                    local r = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0
+                    if r > 0 then
+                        anyPurchased = true
+                        local subID = tonumber(ni.subTreeID) or 0
+                        local g = group(subID)
+                        g.points = g.points + r
+                        local nm = ResolveNodeTalentName(CT, configID, ni)
+                        if nm then
+                            g.talents[#g.talents + 1] = { name = nm, rank = r, max = r, tier = 0, col = 0 }
+                        end
                     end
                 end
             end
         end
-        local tname
-        if type(CT.GetTreeInfo) == "function" then
-            local ti = safe(CT.GetTreeInfo, configID, treeID)
-            if type(ti) == "table" then tname = ti.name end
+    end
+    if not anyPurchased then return nil end
+
+    local build = {}
+    for _, key in ipairs(order) do
+        local g = groups[key]
+        local name
+        if key > 0 and type(CT.GetSubTreeInfo) == "function" then
+            local si = safe(CT.GetSubTreeInfo, configID, key)
+            if type(si) == "table" and type(si.name) == "string" and si.name ~= "" then name = si.name end
         end
-        if points > 0 then any = true end
+        -- No subtree name: fall back to the dominant purchased talent's own name in this group.
+        if not name then
+            local bestRank = 0
+            for _, t in ipairs(g.talents) do
+                if (t.rank or 0) > bestRank then bestRank, name = t.rank, t.name end
+            end
+        end
         build[#build + 1] = {
-            tab = (tname and tname ~= "") and tname or ("Tree " .. tostring(treeID)),
-            points = points, talents = {}, named = (tname ~= nil and tname ~= ""),
+            tab = name or ("Subtree " .. tostring(key)),
+            points = g.points, talents = g.talents, named = (name ~= nil and name ~= ""),
         }
     end
-    if not any then return nil end
+    if #build == 0 then return nil end
     return build
 end
 
 -- Spec name = the talent tree with the most points spent. Tried in turn, all pcall-guarded:
 --   1. Classic Era tabs (GetNumTalentTabs/GetTalentTabInfo) - the tab with the most points.
---   2. Forever trait graph (ScanTalentsTraits) - the tree with the most node ranks, but only when
---      that winning tree has a REAL name, so a numeric tree id is never emitted as a spec.
--- A character with nothing spent, or a Forever client whose per-tree points cannot yet be located,
--- legitimately reports no spec - we never invent one. (This is expected to stay empty on Forever
--- until the extended probe pins the exact per-tree points field.)
+--   2. Forever trait graph (ScanTalentsTraits) - the subtree (Fire/Frost/Arcane) with the most
+--      purchased ranks, resolved to a real name via C_Traits.GetSubTreeInfo, or the dominant
+--      purchased talent's own name when a node carries no subtree. Only a REAL resolved name is
+--      used, never a numeric id.
+-- A character with nothing spent, or one whose purchased node cannot be resolved to any name,
+-- legitimately reports no spec - we never invent one.
 local function CaptureSpec(c)
     local tname, tpts = BestTabByPoints()
     if tname and tpts > 0 then c.spec = tname; return end
@@ -1865,11 +1936,19 @@ local function ProbeTalentsLines()
                 for _, treeID in ipairs(treeIDs) do
                     local ti = (type(CT.GetTreeInfo) == "function") and safe(CT.GetTreeInfo, configID, treeID) or nil
                     add(string.format("  tree %s: GetTreeInfo -> %s", tostring(treeID), KV(ti)))
+                    -- The tree's subtrees (the Vanilla Arcane/Fire/Frost trees live here). Dump each.
+                    if type(ti) == "table" and type(ti.subTreeIDs) == "table" and type(CT.GetSubTreeInfo) == "function" then
+                        for _, subID in ipairs(ti.subTreeIDs) do
+                            add(string.format("    subtree %s: GetSubTreeInfo -> %s",
+                                tostring(subID), KV(safe(CT.GetSubTreeInfo, configID, subID))))
+                        end
+                    end
                     local nodes = (type(CT.GetTreeNodes) == "function") and safe(CT.GetTreeNodes, treeID) or nil
                     local nodeCount = (type(nodes) == "table") and #nodes or 0
                     add(string.format("    GetTreeNodes -> %d node(s)", nodeCount))
-                    -- Sum ranks across the tree, and show every node that actually has ranks, with a
-                    -- resolved talent name where possible - that is where a spent point would show.
+                    -- Fully resolve every PURCHASED node (ranks>0): the complete node table, its
+                    -- subtree name, and each entry -> definition -> spell name. This is where the
+                    -- spent point lives, so this is what pins "Fire".
                     local summed, shown = 0, 0
                     if type(nodes) == "table" and type(CT.GetNodeInfo) == "function" then
                         for _, nodeID in ipairs(nodes) do
@@ -1879,20 +1958,36 @@ local function ProbeTalentsLines()
                                 summed = summed + r
                                 if r > 0 and shown < 20 then
                                     shown = shown + 1
-                                    -- Resolve a name via the first entry -> definition, best-effort.
-                                    local nm
-                                    local entryIDs = ni.entryIDs
-                                    if type(entryIDs) == "table" and entryIDs[1]
-                                        and type(CT.GetEntryInfo) == "function" then
-                                        local ei = safe(CT.GetEntryInfo, configID, entryIDs[1])
-                                        if type(ei) == "table" and ei.definitionID
-                                            and type(CT.GetDefinitionInfo) == "function" then
-                                            local di = safe(CT.GetDefinitionInfo, ei.definitionID)
-                                            if type(di) == "table" then nm = di.overrideName or di.overriddenName end
+                                    add(string.format("    PURCHASED node %s (ranks=%d activeRank=%s):",
+                                        tostring(nodeID), r, tostring(ni.activeRank)))
+                                    add("      GetNodeInfo -> " .. KV(ni))
+                                    -- Subtree of this node (should be the Vanilla tree name).
+                                    local subID = tonumber(ni.subTreeID)
+                                    if subID and subID > 0 and type(CT.GetSubTreeInfo) == "function" then
+                                        local si = safe(CT.GetSubTreeInfo, configID, subID)
+                                        add(string.format("      subTreeID=%s GetSubTreeInfo.name=%s | %s",
+                                            tostring(subID),
+                                            tostring(type(si) == "table" and si.name or nil), KV(si)))
+                                    else
+                                        add("      subTreeID = " .. tostring(ni.subTreeID) .. " (no subtree on node)")
+                                    end
+                                    -- Every entry -> definition -> spell name.
+                                    local entryIDs = ni.entryIDsWithCommittedRanks
+                                    if type(entryIDs) ~= "table" or not entryIDs[1] then entryIDs = ni.entryIDs end
+                                    if type(entryIDs) == "table" and type(CT.GetEntryInfo) == "function" then
+                                        for _, entryID in ipairs(entryIDs) do
+                                            local ei = safe(CT.GetEntryInfo, configID, entryID)
+                                            local defID = type(ei) == "table" and ei.definitionID or nil
+                                            local di = (defID and type(CT.GetDefinitionInfo) == "function")
+                                                and safe(CT.GetDefinitionInfo, defID) or nil
+                                            local spellID = type(di) == "table" and (di.spellID or di.overriddenSpellID) or nil
+                                            add(string.format("      entry %s: defID=%s overrideName=%s spellID=%s spell=%s",
+                                                tostring(entryID), tostring(defID),
+                                                tostring(type(di) == "table" and di.overrideName or nil),
+                                                tostring(spellID), tostring(ResolveSpellName(spellID))))
                                         end
                                     end
-                                    add(string.format("    node %s: ranks=%d activeRank=%s name=%s",
-                                        tostring(nodeID), r, tostring(ni.activeRank), tostring(nm)))
+                                    add("      -> ResolveNodeTalentName = " .. tostring(ResolveNodeTalentName(CT, configID, ni)))
                                 end
                             end
                         end
@@ -1947,6 +2042,19 @@ local function ProbeTalentsLines()
         or (traitsProbe and "Forever trait graph (C_ClassTalents/C_Traits)")
         or "none (per-tree points not located yet - see sections 4-6)"
     add("path used: " .. pathUsed)
+    -- Raw ScanTalentsTraits result (before CaptureTalents' all-named export gate), so the grouping and
+    -- name resolution are visible even when the export build is withheld.
+    if type(traitsProbe) == "table" then
+        add("ScanTalentsTraits ->")
+        for _, t in ipairs(traitsProbe) do
+            local names = {}
+            for _, tal in ipairs(t.talents or {}) do names[#names + 1] = tostring(tal.name) end
+            add(string.format("  tab=%s points=%s named=%s talents=[%s]",
+                tostring(t.tab), tostring(t.points), tostring(t.named), table.concat(names, ", ")))
+        end
+    else
+        add("ScanTalentsTraits -> nil")
+    end
     add("spec: " .. tostring(probeChar.spec))
     local build = probeChar.talents
     if type(build) ~= "table" or #build == 0 then

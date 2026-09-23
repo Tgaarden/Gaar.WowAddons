@@ -363,35 +363,117 @@ local function CaptureGuild(c)
     end
 end
 
--- Spec: retail exposes it through GetSpecialization/GetSpecializationInfo; the Vanilla talent
--- system (Classic Era, and the Vanilla-content Forever client) derives it from the talent tab
--- with the most points spent. Both paths are optional and tried in turn, so a client that has
--- one but not the other still reports a spec. A character with no points spent legitimately has
--- no spec - we never invent one.
+-- ---------------------------------------------------------------------------
+-- Spec/talent access, abstracted over the two shapes Forever and Era expose - the same kind of
+-- silent namespace-and-shape move the professions had. Confirmed by strings in the client
+-- binaries (see docs/forever-client-findings.md):
+--
+--   * Classic Era keeps the Vanilla point-tree globals: GetNumTalentTabs, GetTalentTabInfo,
+--     GetNumTalents(tabIndex), GetTalentInfo(tabIndex, talentIndex). "Spec" = the tab with the
+--     most points spent.
+--   * Forever (retail-shaped, interface 16001) has REMOVED those tab globals - GetNumTalentTabs
+--     and GetNumTalents(tabIndex) are absent from the Forever binary while present on Era, which
+--     is exactly why the old tab loop read nothing and spec/talents exported empty. Forever
+--     surfaces the same Vanilla trees through the retail C_SpecializationInfo namespace instead:
+--         C_SpecializationInfo.GetNumSpecializationsForClassID(classID) -> count
+--         C_SpecializationInfo.GetSpecializationInfo(query)
+--             -> specId, name, description, icon, role, primaryStat, pointsSpent, background, ...
+--         C_SpecializationInfo.GetSpecialization([isInspect, isPet, specGroupIndex]) -> index
+--     So on Forever "the tab with the most points" becomes "the specialization with the most
+--     pointsSpent", and its name (e.g. "Fire") is the spec.
+--
+-- GetSpecializationInfo answers with a value tuple per the binary's Usage line, but - exactly
+-- like C_SkillInfo.GetSkillLineInfo returning a table - a client could hand back a table, so the
+-- accessor normalises both. A character with no points spent anywhere reports no spec; we never
+-- invent one.
+-- ---------------------------------------------------------------------------
+local C_SpecInfo = _G.C_SpecializationInfo
+
+-- Number of specializations (Vanilla trees) for the current character. Namespaced getter first,
+-- then the bare global, then derived from the class id.
+local function Spec_GetNum()
+    local fn = (C_SpecInfo and C_SpecInfo.GetNumSpecializations) or _G.GetNumSpecializations
+    if type(fn) == "function" then
+        local n = tonumber(safe(fn))
+        if n and n > 0 then return n end
+    end
+    local byClass = (C_SpecInfo and C_SpecInfo.GetNumSpecializationsForClassID)
+        or _G.GetNumSpecializationsForClassID
+    if type(byClass) == "function" then
+        local _, _, classID = safe(UnitClass, "player")
+        if classID then
+            local n = tonumber(safe(byClass, classID))
+            if n and n > 0 then return n end
+        end
+    end
+    return 0
+end
+
+-- Returns name, pointsSpent, specId for specialization `query` (an index 1..N). Normalises the
+-- tuple form (specId, name, ..., pointsSpent is the 7th value) and a defensive table form.
+-- Namespaced getter first, bare global as the alias.
+local function Spec_GetInfo(query)
+    local fn = (C_SpecInfo and C_SpecInfo.GetSpecializationInfo) or _G.GetSpecializationInfo
+    if type(fn) ~= "function" then return nil end
+    local a, b, _, _, _, _, g = safe(fn, query)
+    if type(a) == "table" then
+        return a.name or a.specName,
+               tonumber(a.pointsSpent) or 0,
+               tonumber(a.id or a.specId) or nil
+    end
+    -- tuple: specId(1), name(2), description(3), icon(4), role(5), primaryStat(6), pointsSpent(7)
+    return b, tonumber(g) or 0, tonumber(a) or nil
+end
+
+-- Forever/retail: the specialization (Vanilla tree) with the most points spent -> name, points.
+local function BestSpecByPoints()
+    local num = Spec_GetNum()
+    local best, bestPts = nil, 0
+    for i = 1, num do
+        local name, pts = Spec_GetInfo(i)
+        pts = tonumber(pts) or 0
+        if name and name ~= "" and pts > bestPts then best, bestPts = name, pts end
+    end
+    return best, bestPts
+end
+
+-- Classic Era: the Vanilla talent tab with the most points spent -> name, points.
+local function BestTabByPoints()
+    if type(_G.GetNumTalentTabs) ~= "function" or type(_G.GetTalentTabInfo) ~= "function" then
+        return nil, 0
+    end
+    local tabs = tonumber(safe(_G.GetNumTalentTabs)) or 0
+    local best, bestPts = nil, 0
+    for i = 1, tabs do
+        -- Classic: name, iconTexture, pointsSpent, ...
+        local name, _, pts = safe(_G.GetTalentTabInfo, i)
+        pts = tonumber(pts) or 0
+        if name and pts > bestPts then best, bestPts = name, pts end
+    end
+    return best, bestPts
+end
+
+-- Spec name = the talent tree the character has invested the most points in. Tried in turn, all
+-- pcall-guarded via the helpers above, so a client with one shape but not the other still reports
+-- a spec: (1) Forever/retail specs-by-points (C_SpecializationInfo), (2) classic Era tabs-by-points,
+-- (3) the active retail specialization, but only when it corroborates points spent - so a character
+-- with nothing spent never gets an invented spec.
 local function CaptureSpec(c)
-    -- Retail specialization API. On the Vanilla-content Forever client this usually answers with
-    -- nothing (no retail specs), so we fall through to the talent-tab reader below.
-    if type(GetSpecialization) == "function" and type(GetSpecializationInfo) == "function" then
-        local idx = safe(GetSpecialization)
+    local name, pts = BestSpecByPoints()
+    if name and pts > 0 then c.spec = name; return end
+
+    local tname, tpts = BestTabByPoints()
+    if tname and tpts > 0 then c.spec = tname; return end
+
+    local getSpec = (C_SpecInfo and C_SpecInfo.GetSpecialization) or _G.GetSpecialization
+    if type(getSpec) == "function" then
+        local idx = safe(getSpec)
         if type(idx) == "number" and idx > 0 then
-            local _, specName = safe(GetSpecializationInfo, idx)
-            if specName and specName ~= "" then c.spec = specName; return end
+            local sname, spts = Spec_GetInfo(idx)
+            if sname and sname ~= "" and (tonumber(spts) or 0) > 0 then c.spec = sname; return end
         end
     end
-    -- Vanilla talent tabs: the tab with the most points spent is the character's "spec".
-    -- GetTalentTabInfo is the classic reader (name, icon, pointsSpent, ...); present on Era and,
-    -- because Forever runs Vanilla talent trees, on Forever too.
-    if type(GetNumTalentTabs) == "function" and type(GetTalentTabInfo) == "function" then
-        local tabs = safe(GetNumTalentTabs) or 0
-        local best, bestPts = nil, -1
-        for i = 1, tabs do
-            -- Classic: name, iconTexture, pointsSpent, ...
-            local name, _, pts = safe(GetTalentTabInfo, i)
-            pts = tonumber(pts) or 0
-            if name and pts > bestPts then best, bestPts = name, pts end
-        end
-        if best and bestPts > 0 then c.spec = best end
-    end
+    -- Nothing spent anywhere -> leave c.spec as it was (empty). Never invent a spec.
 end
 
 -- The FULL talent build, so the website can draw the whole tree, not just the spec name.
@@ -452,11 +534,36 @@ local function ScanTalentsClassic()
     return build
 end
 
+-- Forever/retail fallback: no per-talent Vanilla tree is exposed (the classic GetNumTalents(tab) /
+-- GetTalentInfo(tab, i) globals are gone on Forever), but C_SpecializationInfo.GetSpecializationInfo
+-- reports pointsSpent per tree - a compact per-tree summary the website can still draw (e.g.
+-- Fire/Frost/Arcane -> 0/1/0). Emits the same shape as the classic scan with an empty per-talent
+-- list. Returns nil when nothing is spent, so a fresh character keeps an empty build.
+local function ScanTalentsSpec()
+    local num = Spec_GetNum()
+    if num < 1 then return nil end
+    local build, any = {}, false
+    for i = 1, num do
+        local name, pts = Spec_GetInfo(i)
+        if name and name ~= "" then
+            local p = tonumber(pts) or 0
+            if p > 0 then any = true end
+            build[#build + 1] = { tab = name, points = p, talents = {} }
+        end
+    end
+    if not any then return nil end
+    return build
+end
+
 local function CaptureTalents(c)
+    -- Classic per-talent tree first (Era), then the Forever/retail per-tree points summary.
     local build = ScanTalentsClassic()
+    if not build or #build == 0 then
+        build = ScanTalentsSpec()
+    end
     if build and #build > 0 then
         c.talents = build
-        -- Backstop the spec from the build if CaptureSpec did not already resolve one: the tab
+        -- Backstop the spec from the build if CaptureSpec did not already resolve one: the tab/tree
         -- with the most points spent. Never invent a spec when nothing is spent.
         if not c.spec or c.spec == "" then
             local best, bestPts = nil, 0
@@ -466,8 +573,8 @@ local function CaptureTalents(c)
             if best and bestPts > 0 then c.spec = best end
         end
     else
-        -- No classic talent API. Leave any previously captured build untouched; the probe reports
-        -- which retail namespace (if any) exists so this can be extended when we have live data.
+        -- Neither shape produced a build. Leave any previously captured build untouched; the probe
+        -- reports which namespace exists so this can be extended when we have live data.
         c.talents = c.talents or {}
     end
 end
@@ -1619,13 +1726,47 @@ local function ProbeTalentsLines()
         add("classic talent API not present on this client")
     end
 
-    -- 2. Retail / newer namespaces (fallbacks we detect but cannot yet map to a Vanilla tree).
+    -- 2. Forever/retail spec namespace (the working path on Forever: the classic tab globals above
+    --    are gone, and C_SpecializationInfo carries the Vanilla trees with a pointsSpent per tree).
     add("")
     add("-- retail talent/spec namespaces --")
-    add("GetSpecialization       = " .. TypeOf(_G.GetSpecialization))
-    add("GetSpecializationInfo   = " .. TypeOf(_G.GetSpecializationInfo))
+    add("GetSpecialization (global)      = " .. TypeOf(_G.GetSpecialization))
+    add("GetSpecializationInfo (global)  = " .. TypeOf(_G.GetSpecializationInfo))
+    add("GetNumSpecializations (global)  = " .. TypeOf(_G.GetNumSpecializations))
     for _, ns in ipairs({ "C_Traits", "C_ClassTalents", "C_SpecializationInfo" }) do
-        add(ns .. string.rep(" ", 22 - #ns) .. "= " .. TypeOf(_G[ns]))
+        add(ns .. string.rep(" ", 30 - #ns) .. "= " .. TypeOf(_G[ns]))
+    end
+    if type(C_SpecInfo) == "table" then
+        for _, fn in ipairs({ "GetSpecialization", "GetSpecializationInfo", "GetNumSpecializations",
+                              "GetNumSpecializationsForClassID", "GetActiveSpecGroup" }) do
+            add("  C_SpecializationInfo." .. fn .. string.rep(" ", 32 - #fn) .. "= " .. TypeOf(C_SpecInfo[fn]))
+        end
+    end
+    -- Live: how many specs/trees, active index, and pointsSpent per tree (the read the spec name
+    -- and the compact talent summary both come from on Forever).
+    local numSpecs = Spec_GetNum()
+    add("Spec_GetNum() -> " .. tostring(numSpecs))
+    local getActive = (C_SpecInfo and C_SpecInfo.GetSpecialization) or _G.GetSpecialization
+    if type(getActive) == "function" then
+        add("active GetSpecialization() -> " .. tostring(safe(getActive)))
+    end
+    for i = 1, numSpecs do
+        local sname, spts, sid = Spec_GetInfo(i)
+        add(string.format("  GetSpecializationInfo(%d) -> name=%s points=%s specId=%s",
+            i, tostring(sname), tostring(spts), tostring(sid)))
+    end
+    -- Show the raw return of GetSpecializationInfo(1) so a table-vs-tuple shape is visible live.
+    local rawFn = (C_SpecInfo and C_SpecInfo.GetSpecializationInfo) or _G.GetSpecializationInfo
+    if type(rawFn) == "function" then
+        local r1 = safe(rawFn, 1)
+        if type(r1) == "table" then
+            local keys = {}
+            for k in pairs(r1) do keys[#keys + 1] = tostring(k) end
+            table.sort(keys)
+            add("  GetSpecializationInfo(1) is a TABLE with keys: " .. table.concat(keys, ", "))
+        else
+            add("  GetSpecializationInfo(1) first return is: " .. TypeOf(r1) .. " (value tuple)")
+        end
     end
 
     -- 3. What the addon would actually export for this character right now.
@@ -1634,7 +1775,10 @@ local function ProbeTalentsLines()
     local probeChar = {}
     safe(CaptureSpec, probeChar)
     safe(CaptureTalents, probeChar)
-    add("namespace used: " .. (classicOK and "classic (GetTalentInfo)" or "none (classic missing)"))
+    local pathUsed = classicOK and "classic (GetTalentInfo tabs)"
+        or (numSpecs > 0 and "Forever/retail (C_SpecializationInfo points)")
+        or "none (no talent/spec reader)"
+    add("path used: " .. pathUsed)
     add("spec: " .. tostring(probeChar.spec))
     local build = probeChar.talents
     if type(build) ~= "table" or #build == 0 then

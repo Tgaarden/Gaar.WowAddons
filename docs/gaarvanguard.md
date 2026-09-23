@@ -83,7 +83,7 @@ Canonical field names (each char object):
 | `race` | string | e.g. `"Gnome"`; the website derives faction from race |
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
-| `spec` | string, optional | talent tab with most points (Classic) or active spec (retail) |
+| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, `C_SpecializationInfo` trees on Forever; empty when nothing is spent |
 | `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
@@ -113,7 +113,9 @@ More field notes:
   spent in it) and `talents`, an array of **every** talent in the tab (not only ranked ones — a
   0-rank talent is emitted with `rank: 0` so the tree is complete), ordered by `tier` then `col`.
   Each talent has `name`, `rank`, `max`, `tier` (row, 1-based) and `col` (column, 1-based). `spec`
-  is the tab with the most points. See *How talents are read* below.
+  is the tab/tree with the most points. On the Forever client the per-talent detail is unavailable,
+  so each tab carries its `tab` name and `points` with an empty `talents: []` (a compact per-tree
+  summary); on Era the full tree is emitted. See *How talents are read* below.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -195,7 +197,7 @@ An empty scan leaves any previously captured profession list in place rather tha
 The **full talent build** (not just the spec name) is captured live at capture/export, `pcall`-guarded,
 trying the readers in order and using whichever the client exposes:
 
-1. **Classic talent API (Era, and the Vanilla-content Forever client — the expected path).**
+1. **Classic talent API (Era only).**
    `GetNumTalentTabs()` + `GetTalentTabInfo(tab)` → `name, icon, pointsSpent`; then, per tab,
    `GetNumTalents(tab)` + `GetTalentInfo(tab, i)` → `name, icon, tier, column, rank, maxRank, …`
    (the classic signature). **Every** talent is kept — including rank-0 ones, so the tree is
@@ -203,16 +205,31 @@ trying the readers in order and using whichever the client exposes:
    tab by `tier` then `col`. The resulting shape is
    `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
    the tab with the most points spent.
-2. **Fallbacks (retail namespaces), if the classic globals are missing.** `C_Traits` /
-   `C_ClassTalents` / `C_SpecializationInfo` / `GetSpecialization` are detected. A Vanilla-style
-   tier/column tree cannot be reconstructed from the retail trait graph, so on such a client only the
-   **spec name** is resolved and `talents` is left empty; the talent probe (below) reports which
-   namespace exists so this can be extended once we have live data from that client.
+2. **Forever / retail `C_SpecializationInfo` (the working path on Forever).** The classic tab
+   globals above are **gone on the Forever client** — `GetNumTalentTabs` and `GetNumTalents(tabIndex)`
+   are present in the Era binary and absent from the Forever binary, which is exactly why the old tab
+   loop read nothing and `spec`/`talents` exported empty. Forever surfaces the same Vanilla trees
+   through the retail namespace instead: `C_SpecializationInfo.GetNumSpecializationsForClassID(classID)`
+   for the tree count and `C_SpecializationInfo.GetSpecializationInfo(query)` →
+   `specId, name, description, icon, role, primaryStat, pointsSpent, background, …` per tree. So *the
+   tab with the most points* becomes *the specialization with the most `pointsSpent`*, and its `name`
+   (e.g. `"Fire"`) is the spec. A **compact per-tree summary** is emitted in the same shape —
+   `talents = [ { tab = <treeName>, points = <pointsSpent>, talents = [] } ]` — with an empty
+   per-talent list, because Forever no longer exposes the per-talent Vanilla tree (`GetNumTalents(tab)`
+   / `GetTalentInfo(tab, i)` are gone). `GetSpecializationInfo` returns a value tuple per the binary’s
+   `Usage:` line, but the accessor also handles a table return (the same silent shape change the
+   professions’ `C_SkillInfo` had). See *Forever’s talent API* in `docs/forever-client-findings.md`.
+3. **Active-spec last resort.** If neither points path resolves anything, the active
+   `C_SpecializationInfo.GetSpecialization()` / `GetSpecialization()` index is read, but its name is
+   only used when that spec has `pointsSpent > 0` — so a character with nothing spent is never given
+   an invented spec.
 
-An empty scan leaves any previously captured build in place rather than wiping it.
+An empty scan leaves any previously captured build in place rather than wiping it. A character with
+no points spent anywhere legitimately reports **no** spec.
 
-Because WoW cannot be run from the build environment, the classic `GetTalentInfo` signature above is
-the documented Vanilla/Classic one and **needs one in-game confirmation** via the talent probe.
+Because WoW cannot be run from the build environment, the paths above are inferred from the client
+binaries (`strings` diff, Forever vs Era) plus a stubbed-API luajit check of the selection logic, and
+**need one in-game confirmation** via the talent probe.
 
 ### Confirming the profession + talent API in game: `/gaarvanguard probe`
 
@@ -228,16 +245,21 @@ and a `PROFESSION` tag) after expanding headers; the extra namespaces (`C_ProfSp
 finish confirming the paths.
 
 The same command also dumps a **talent probe**: which classic talent globals exist
-(`GetNumTalentTabs` / `GetTalentTabInfo` / `GetNumTalents` / `GetTalentInfo`), each tab's name /
-points / talent count with the live `GetTalentInfo(tab, 1)` return so the signature is confirmed,
-the retail namespaces (`GetSpecialization`, `C_Traits`, `C_ClassTalents`, `C_SpecializationInfo`),
-which namespace was used, and the resolved `spec` + full `talents` build. **If talents do not
-resolve on Forever, paste this back and the readers can be adjusted from the real return shapes.**
+(`GetNumTalentTabs` / `GetTalentTabInfo` / `GetNumTalents` / `GetTalentInfo`) and, when present, each
+tab's name / points / talent count with the live `GetTalentInfo(tab, 1)` return; then the Forever/retail
+spec namespace — `GetSpecialization` / `GetSpecializationInfo` / `GetNumSpecializations` globals,
+`C_SpecializationInfo` and each of its members, the live `Spec_GetNum()` count, the active
+`GetSpecialization()` index, `GetSpecializationInfo(i)` (name / points / specId) for every tree, and
+whether `GetSpecializationInfo(1)` came back as a **tuple or a table** — then the path actually used
+(`classic tabs` vs `Forever/retail C_SpecializationInfo points`) and the resolved `spec` + `talents`
+summary. **If spec/talents do not resolve on Forever, paste this back and the readers can be adjusted
+from the real return shapes.**
 
-**Spec** is read the same defensive way: the retail `GetSpecialization`/`GetSpecializationInfo`
-API first, then the Vanilla talent tabs (`GetNumTalentTabs`/`GetTalentTabInfo`, the tab with the
-most points spent). A character with no points spent legitimately reports no spec — none is
-invented.
+**Spec** is read as *the talent tree with the most points spent*: on Forever via
+`C_SpecializationInfo.GetSpecializationInfo`’s `pointsSpent` per tree, on Era via the classic
+`GetNumTalentTabs`/`GetTalentTabInfo` tabs, with the active `GetSpecialization` index as a last resort
+(and only when it corroborates points). A character with no points spent legitimately reports no
+spec — none is invented.
 
 ## `k = "sync"` — website → addon (the Import box + the in-game view)
 

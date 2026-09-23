@@ -27,6 +27,7 @@ local MODULES = {
     { key = "bags",      title = "Bags",           builder = "GaarBags_BuildOptions",      folder = "GaarBags" },
     { key = "frames",    title = "Frames",         builder = "GaarFrames_BuildOptions",    folder = "GaarFrames" },
     { key = "loot",      title = "Looter",         builder = "GaarLooter_BuildOptions",    folder = "GaarLooter" },
+    { key = "vanguard",  title = "Vanguard",       builder = "GaarVanguard_BuildOptions",  folder = "GaarVanguard" },
     { key = "map",       title = "Map",            builder = "GaarMap_BuildOptions",       folder = "GaarMap" },
     { key = "spellbook", title = "Spell Book",     builder = "GaarSpellBook_BuildOptions", folder = "GaarSpellBook" },
 }

@@ -476,18 +476,75 @@ local function ResolveNodeTalentName(CT, configID, ni)
     return nil
 end
 
--- Best-effort talent read via the retail trait system (C_ClassTalents + C_Traits). The live Forever
--- probe (2026-09-23) settled the model: there is ONE class trait tree (Mage -> treeID 1112) whose
--- Vanilla trees (Arcane/Fire/Frost) are its SUBTREES, and a spent talent is a purchased node carrying
--- a subTreeID. C_SpecializationInfo is class-level (name = class, 0 points) and the C_SkillInfo
--- Arcane/Fire/Frost lines all read rank 1/1, so neither carries the point; the purchased trait node
--- does. So the spec is the subtree with the most purchased ranks, resolved to a real name via
--- C_Traits.GetSubTreeInfo; if a purchased node has no subTreeID we fall back to the dominant purchased
--- talent's own (spell) name. Nodes are grouped by subtree, ranks summed, names resolved.
+-- Classic Vanilla talent-tab names, in ascending posX order (left -> right = classic tab order).
+-- Forever (probe 2026-09-24) exposes NO C_Traits subtrees at all - `GetTraitTreeForSpec` is nil, and
+-- neither the config, the tree, nor any node carries a subTreeID. Instead the three Vanilla trees are
+-- three horizontal posX BANDS of the one class trait tree (Mage treeID 1112: low band = Arcane, mid =
+-- Fire, high = Frost), confirmed because the single purchased node (105795, posX 6220 = MID) resolves
+-- to spellID 11069 "Improved Fireball", a Fire talent. So a purchased node's posX band -> its tab.
+local CLASS_TREE_NAMES = {
+    WARRIOR = { "Arms", "Fury", "Protection" },
+    PALADIN = { "Holy", "Protection", "Retribution" },
+    HUNTER  = { "Beast Mastery", "Marksmanship", "Survival" },
+    ROGUE   = { "Assassination", "Combat", "Subtlety" },
+    PRIEST  = { "Discipline", "Holy", "Shadow" },
+    SHAMAN  = { "Elemental", "Enhancement", "Restoration" },
+    MAGE    = { "Arcane", "Fire", "Frost" },
+    WARLOCK = { "Affliction", "Demonology", "Destruction" },
+    DRUID   = { "Balance", "Feral Combat", "Restoration" },
+}
+
+-- Cluster numbers into k contiguous bands by splitting the sorted unique values at their (k-1) largest
+-- gaps. Returns a list of { min, max } ranges in ascending order, or nil if there are fewer than k
+-- unique values or the split does not yield exactly k bands.
+local function ClusterBands(values, k)
+    local uniq, seen = {}, {}
+    for _, v in ipairs(values) do
+        v = tonumber(v)
+        if v and not seen[v] then seen[v] = true; uniq[#uniq + 1] = v end
+    end
+    if #uniq < k then return nil end
+    table.sort(uniq)
+    local gaps = {}
+    for i = 2, #uniq do gaps[#gaps + 1] = { gap = uniq[i] - uniq[i - 1], at = i } end
+    table.sort(gaps, function(a, b)
+        if a.gap ~= b.gap then return a.gap > b.gap end
+        return a.at < b.at
+    end)
+    local splits = {}
+    for i = 1, k - 1 do splits[gaps[i].at] = true end
+    local bands, cur = {}, { min = uniq[1], max = uniq[1] }
+    for i = 2, #uniq do
+        if splits[i] then bands[#bands + 1] = cur; cur = { min = uniq[i], max = uniq[i] }
+        else cur.max = uniq[i] end
+    end
+    bands[#bands + 1] = cur
+    if #bands ~= k then return nil end
+    return bands
+end
+
+-- The 1-based index of the band whose [min,max] contains x, or nil.
+local function BandOf(bands, x)
+    x = tonumber(x)
+    if not x then return nil end
+    for i, b in ipairs(bands) do
+        if x >= b.min and x <= b.max then return i end
+    end
+    return nil
+end
+
+-- Best-effort talent read via the retail trait system (C_ClassTalents + C_Traits). The Forever probes
+-- settled the model (see docs/forever-client-findings.md): there is ONE class trait tree (Mage ->
+-- treeID 1112), C_SpecializationInfo is class-level, the C_SkillInfo Arcane/Fire/Frost lines all read
+-- rank 1/1, and Forever exposes NO subtrees - so the spent point lives only on a purchased trait node,
+-- and the Vanilla tree is that node's posX BAND. Primary route: cluster every node's posX into 3 bands,
+-- assign each purchased node to a band, and map the band (left->right) to the classic tab name via
+-- CLASS_TREE_NAMES[class]. Spec = the band with the most purchased ranks. Fallback (unchanged from the
+-- subtree work, so nothing regresses): group by subTreeID / dominant purchased talent name.
 --
--- Returns a build { { tab, points, talents = { {name,rank,max,tier,col} }, named } }, or nil when
--- the trait config cannot be read or nothing is purchased. `named` is true only when a real name was
--- resolved - a numeric id is never emitted as a spec, and a spec is never invented.
+-- Returns a build { { tab, points, talents = { {name,rank,max,tier,col} }, named } }, or nil when the
+-- trait config cannot be read or nothing is purchased. `named` is true only when a real name resolved
+-- - a numeric id is never emitted as a spec, and a spec is never invented.
 local function ScanTalentsTraits()
     local CCT, CT = _G.C_ClassTalents, _G.C_Traits
     if type(CCT) ~= "table" or type(CT) ~= "table" then return nil end
@@ -498,30 +555,25 @@ local function ScanTalentsTraits()
     local cfg = safe(CT.GetConfigInfo, configID)
     if type(cfg) ~= "table" or type(cfg.treeIDs) ~= "table" then return nil end
 
-    -- Group purchased ranks by subtree. Key 0 collects nodes that carry no subTreeID.
-    local groups, order = {}, {}
-    local function group(key)
-        local g = groups[key]
-        if not g then g = { key = key, points = 0, talents = {} }; groups[key] = g; order[#order + 1] = key end
-        return g
-    end
-    local anyPurchased = false
+    -- One pass: collect every node's posX (for banding) and every purchased node (posX, ranks, subID,
+    -- resolved talent name).
+    local allPosX, purchased, anyPurchased = {}, {}, false
     for _, treeID in ipairs(cfg.treeIDs) do
         local nodes = safe(CT.GetTreeNodes, treeID)
         if type(nodes) == "table" then
             for _, nodeID in ipairs(nodes) do
                 local ni = safe(CT.GetNodeInfo, configID, nodeID)
                 if type(ni) == "table" then
+                    local px = tonumber(ni.posX)
+                    if px then allPosX[#allPosX + 1] = px end
                     local r = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0
                     if r > 0 then
                         anyPurchased = true
-                        local subID = tonumber(ni.subTreeID) or 0
-                        local g = group(subID)
-                        g.points = g.points + r
-                        local nm = ResolveNodeTalentName(CT, configID, ni)
-                        if nm then
-                            g.talents[#g.talents + 1] = { name = nm, rank = r, max = r, tier = 0, col = 0 }
-                        end
+                        purchased[#purchased + 1] = {
+                            posX = px, ranks = r,
+                            subID = tonumber(ni.subTreeID) or 0,
+                            name = ResolveNodeTalentName(CT, configID, ni),
+                        }
                     end
                 end
             end
@@ -529,6 +581,50 @@ local function ScanTalentsTraits()
     end
     if not anyPurchased then return nil end
 
+    -- Primary route: posX bands -> classic tab names.
+    local _, classToken = safe(UnitClass, "player")
+    local treeNames = (type(classToken) == "string") and CLASS_TREE_NAMES[string.upper(classToken)] or nil
+    local bands = ClusterBands(allPosX, 3)
+    if treeNames and bands and #bands == 3 then
+        local bandPoints = { 0, 0, 0 }
+        local bandTalents = { {}, {}, {} }
+        local ok = true
+        for _, p in ipairs(purchased) do
+            local bi = BandOf(bands, p.posX)
+            if not bi then ok = false; break end
+            bandPoints[bi] = bandPoints[bi] + p.ranks
+            if p.name then
+                local bt = bandTalents[bi]
+                bt[#bt + 1] = { name = p.name, rank = p.ranks, max = p.ranks, tier = 0, col = 0 }
+            end
+        end
+        if ok then
+            local build = {}
+            for bi = 1, 3 do
+                if bandPoints[bi] > 0 and treeNames[bi] then
+                    build[#build + 1] = {
+                        tab = treeNames[bi], points = bandPoints[bi],
+                        talents = bandTalents[bi], named = true,
+                    }
+                end
+            end
+            if #build > 0 then return build end
+        end
+    end
+
+    -- Fallback (subtree / dominant-talent-name): group purchased ranks by subTreeID (key 0 = no
+    -- subtree), resolve a subtree name, else the dominant purchased talent's own name.
+    local groups, order = {}, {}
+    local function group(key)
+        local g = groups[key]
+        if not g then g = { key = key, points = 0, talents = {} }; groups[key] = g; order[#order + 1] = key end
+        return g
+    end
+    for _, p in ipairs(purchased) do
+        local g = group(p.subID)
+        g.points = g.points + p.ranks
+        if p.name then g.talents[#g.talents + 1] = { name = p.name, rank = p.ranks, max = p.ranks, tier = 0, col = 0 } end
+    end
     local build = {}
     for _, key in ipairs(order) do
         local g = groups[key]
@@ -537,7 +633,6 @@ local function ScanTalentsTraits()
             local si = safe(CT.GetSubTreeInfo, configID, key)
             if type(si) == "table" and type(si.name) == "string" and si.name ~= "" then name = si.name end
         end
-        -- No subtree name: fall back to the dominant purchased talent's own name in this group.
         if not name then
             local bestRank = 0
             for _, t in ipairs(g.talents) do
@@ -555,10 +650,9 @@ end
 
 -- Spec name = the talent tree with the most points spent. Tried in turn, all pcall-guarded:
 --   1. Classic Era tabs (GetNumTalentTabs/GetTalentTabInfo) - the tab with the most points.
---   2. Forever trait graph (ScanTalentsTraits) - the subtree (Fire/Frost/Arcane) with the most
---      purchased ranks, resolved to a real name via C_Traits.GetSubTreeInfo, or the dominant
---      purchased talent's own name when a node carries no subtree. Only a REAL resolved name is
---      used, never a numeric id.
+--   2. Forever trait graph (ScanTalentsTraits) - the posX band (left->right = Vanilla tab order,
+--      mapped to CLASS_TREE_NAMES) with the most purchased ranks; the subtree / dominant-talent-name
+--      route is kept as a fallback. Only a REAL resolved name is used, never a numeric id.
 -- A character with nothing spent, or one whose purchased node cannot be resolved to any name,
 -- legitimately reports no spec - we never invent one.
 local function CaptureSpec(c)
@@ -2186,6 +2280,68 @@ local function ProbeTalentsLines()
         for _, name in ipairs(collapsed) do CollapseSkillHeaderByName(name) end
     else
         add("  C_SkillInfo.GetSkillLineInfo not present")
+    end
+
+    -- 6b. posX band mapping - the deterministic route (no subtrees on Forever). Recompute the bands
+    --     and the per-purchased-node assignment exactly as ScanTalentsTraits does, and print them so
+    --     the next in-game run confirms the tab without guesswork.
+    add("")
+    add("-- posX band mapping --")
+    do
+        local _, classToken = safe(UnitClass, "player")
+        add("classToken: " .. tostring(classToken))
+        local treeNames = (type(classToken) == "string") and CLASS_TREE_NAMES[string.upper(classToken)] or nil
+        add("CLASS_TREE_NAMES: " .. (treeNames and table.concat(treeNames, " / ") or "(class not in table)"))
+        if type(configID) == "number" and type(CT) == "table" and type(CT.GetConfigInfo) == "function" then
+            local cfg = safe(CT.GetConfigInfo, configID)
+            local treeIDs = (type(cfg) == "table") and cfg.treeIDs or nil
+            local allPosX, purchased = {}, {}
+            if type(treeIDs) == "table" and type(CT.GetTreeNodes) == "function" and type(CT.GetNodeInfo) == "function" then
+                for _, treeID in ipairs(treeIDs) do
+                    local nodes = safe(CT.GetTreeNodes, treeID)
+                    if type(nodes) == "table" then
+                        for _, nodeID in ipairs(nodes) do
+                            local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                            if type(ni) == "table" then
+                                local px = tonumber(ni.posX)
+                                if px then allPosX[#allPosX + 1] = px end
+                                local r = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0
+                                if r > 0 then
+                                    purchased[#purchased + 1] = {
+                                        nodeID = nodeID, posX = px, ranks = r,
+                                        name = ResolveNodeTalentName(CT, configID, ni),
+                                    }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            local bands = ClusterBands(allPosX, 3)
+            if bands then
+                for i, b in ipairs(bands) do
+                    add(string.format("  band %d: posX %s..%s%s", i, tostring(b.min), tostring(b.max),
+                        treeNames and treeNames[i] and ("  = " .. treeNames[i]) or ""))
+                end
+            else
+                add("  clustering did NOT yield 3 bands (" .. #allPosX .. " posX values) -> fallback path")
+            end
+            local bandPoints = { 0, 0, 0 }
+            for _, p in ipairs(purchased) do
+                local bi = bands and BandOf(bands, p.posX) or nil
+                if bi then bandPoints[bi] = bandPoints[bi] + p.ranks end
+                add(string.format("  purchased node %s: posX=%s ranks=%d band=%s name=%s",
+                    tostring(p.nodeID), tostring(p.posX), p.ranks,
+                    tostring(bi), tostring(p.name)))
+            end
+            add(string.format("  per-band ranks: [1]=%d [2]=%d [3]=%d", bandPoints[1], bandPoints[2], bandPoints[3]))
+            local domBand, domPts = nil, 0
+            for i = 1, 3 do if bandPoints[i] > domPts then domBand, domPts = i, bandPoints[i] end end
+            add("  dominant band: " .. tostring(domBand) ..
+                " -> tab " .. tostring(treeNames and domBand and treeNames[domBand] or nil))
+        else
+            add("  (no active configID / C_Traits - cannot band)")
+        end
     end
 
     -- 7. What the addon would actually export for this character right now.

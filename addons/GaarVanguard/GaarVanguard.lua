@@ -716,13 +716,17 @@ end
 --
 -- Returns, in ascending-band order, one object per tree:
 --   { tab = <CLASS_TREE_NAMES[band]>, points = <sum ranksPurchased in tree>,
---     talents = { { name, rank, max, tier, col, icon?, spellId? }, ... } }
+--     talents = { { name, rank, max, tier, col, icon?, spellId? }, ... },
+--     edges   = { { ft, fc, tt, tc }, ... } }
 -- where:
 --   rank = ranksPurchased (0 if not purchased), max = maxRanks,
 --   tier = 0-based row from sorted-unique posY across the WHOLE tree (top = 0),
 --   col  = 0-based column from sorted-unique posX WITHIN the band (left = 0),
 --   icon = lowercase icon basename (omitted when the client returns a numeric fileDataID),
 --   spellId = the talent's spellID (omitted when unresolved).
+--   edges = the prerequisite connector arrows the website draws, one per resolved visibleEdges
+--     target, in grid coords: ft/fc = from (tier,col), tt/tc = to (tier,col). Deduplicated;
+--     unresolvable endpoints skipped; empty {} when the client exposes no edges.
 -- Returns nil (so the caller falls back to ScanTalentsTraits) when the trait config cannot be read,
 -- the class is not in CLASS_TREE_NAMES, or the posX values do not cluster into exactly 3 bands.
 local function ScanTalentsCalculator()
@@ -755,11 +759,16 @@ local function ScanTalentsCalculator()
                         allPosY[#allPosY + 1] = py
                         local name, spellID = ResolveNodeEntry(CT, configID, ni)
                         nodes[#nodes + 1] = {
+                            id = nodeID,
                             posX = px, posY = py,
                             rank = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0,
                             max = tonumber(ni.maxRanks) or 0,
                             name = name, spellID = spellID,
                             icon = ResolveSpellIcon(spellID),
+                            -- Prerequisite connector arrows. C_Traits exposes them on the node as an
+                            -- array of TraitVisibleEdge {visualStyle, targetNode=<nodeID>}. Kept raw so
+                            -- the edge pass below can resolve each target to grid (tier,col).
+                            visibleEdges = (type(ni.visibleEdges) == "table") and ni.visibleEdges or nil,
                         }
                     end
                 end
@@ -795,8 +804,19 @@ local function ScanTalentsCalculator()
         colOf[bi] = IndexMap(xs)
     end
 
+    -- Every node's grid coordinates (tier, col) and owning band, keyed by nodeID, so a visibleEdges
+    -- target can be resolved to the SAME (tier,col) the talents array uses. col is band-relative.
+    local posByID = {}
+    for _, n in ipairs(nodes) do
+        local bi = BandOf(bands, n.posX)
+        if bi then
+            posByID[n.id] = { tier = tierOf[n.posY] or 0, col = colOf[bi][n.posX] or 0, band = bi }
+        end
+    end
+
     local trees = {}
-    for bi = 1, 3 do trees[bi] = { tab = treeNames[bi], points = 0, talents = {} } end
+    for bi = 1, 3 do trees[bi] = { tab = treeNames[bi], points = 0, talents = {}, edges = {} } end
+    local edgeSeen = { {}, {}, {} }   -- per-tree "ft,fc,tt,tc" set for dedup
     for _, n in ipairs(nodes) do
         local bi = BandOf(bands, n.posX)
         if not bi then return nil end   -- every collected posX is inside some band, but guard anyway
@@ -811,13 +831,46 @@ local function ScanTalentsCalculator()
         if n.spellID then t.spellId = n.spellID end
         if n.icon then t.icon = n.icon end
         tree.talents[#tree.talents + 1] = t
+
+        -- Prerequisite edges: from this node to each visibleEdges target, expressed in grid
+        -- coordinates. The edge is filed on the SOURCE node's tree; endpoints that cannot be
+        -- resolved (target missing from the graph) are skipped; identical edges are deduplicated.
+        if type(n.visibleEdges) == "table" then
+            local from = posByID[n.id]
+            if from then
+                for _, e in ipairs(n.visibleEdges) do
+                    local targetID
+                    if type(e) == "table" then
+                        targetID = e.targetNode or e.targetNodeID or e.targetNodeInfo
+                    elseif type(e) == "number" then
+                        targetID = e
+                    end
+                    local to = targetID and posByID[targetID] or nil
+                    if to then
+                        local key = from.tier .. "," .. from.col .. "," .. to.tier .. "," .. to.col
+                        if not edgeSeen[bi][key] then
+                            edgeSeen[bi][key] = true
+                            tree.edges[#tree.edges + 1] =
+                                { ft = from.tier, fc = from.col, tt = to.tier, tc = to.col }
+                        end
+                    end
+                end
+            end
+        end
     end
 
-    -- Walk each tree top-to-bottom, left-to-right so the array is grid-ordered.
+    -- Walk each tree top-to-bottom, left-to-right so the array is grid-ordered; edges get a stable
+    -- (ft,fc,tt,tc) order so the export is deterministic.
     for _, tree in ipairs(trees) do
         table.sort(tree.talents, function(a, b)
             if a.tier ~= b.tier then return a.tier < b.tier end
             return a.col < b.col
+        end)
+        table.sort(tree.edges, function(a, b)
+            if a.ft ~= b.ft then return a.ft < b.ft end
+            if a.fc ~= b.fc then return a.fc < b.fc end
+            if a.tt ~= b.tt then return a.tt < b.tt end
+            return a.tc < b.tc
         end)
     end
     return trees
@@ -1455,6 +1508,7 @@ local function CanonicalChar(c)
                     tab = tabRec.tab,
                     points = tonumber(tabRec.points) or 0,
                     talents = {},
+                    edges = {},               -- prerequisite connector arrows in grid coords
                 }
                 if type(tabRec.talents) == "table" then
                     for _, t in ipairs(tabRec.talents) do
@@ -1464,6 +1518,18 @@ local function CanonicalChar(c)
                             max = tonumber(t.max) or 0,
                             tier = tonumber(t.tier) or 0,
                             col = tonumber(t.col) or 0,
+                        }
+                    end
+                end
+                -- Edges are additive: carried through only when present, projected to the canonical
+                -- {ft,fc,tt,tc} shape so an older record without edges still exports cleanly.
+                if type(tabRec.edges) == "table" then
+                    for _, e in ipairs(tabRec.edges) do
+                        tabOut.edges[#tabOut.edges + 1] = {
+                            ft = tonumber(e.ft) or 0,
+                            fc = tonumber(e.fc) or 0,
+                            tt = tonumber(e.tt) or 0,
+                            tc = tonumber(e.tc) or 0,
                         }
                     end
                 end
@@ -2579,10 +2645,50 @@ local function ProbeTalentsLines()
                     if t.icon then withIcon = withIcon + 1 end
                     if t.spellId then withSpell = withSpell + 1 end
                 end
-                add(string.format("  tree=%-14s nodes=%d rows=%d cols=%d points=%d  (icon=%d spellId=%d)",
+                local edges = tree.edges or {}
+                add(string.format("  tree=%-14s nodes=%d rows=%d cols=%d points=%d  (icon=%d spellId=%d edges=%d)",
                     tostring(tree.tab), #(tree.talents or {}), rows, cols,
-                    tonumber(tree.points) or 0, withIcon, withSpell))
+                    tonumber(tree.points) or 0, withIcon, withSpell, #edges))
+                for i = 1, math.min(5, #edges) do
+                    local e = edges[i]
+                    add(string.format("      edge %d/%d: %s,%s -> %s,%s",
+                        i, #edges, tostring(e.ft), tostring(e.fc), tostring(e.tt), tostring(e.tc)))
+                end
             end
+        end
+
+        -- One-time raw shape of a node's visibleEdges entry, so the exact field names (targetNode vs
+        -- other) are confirmed in-game. Walks the graph until it finds the first node with a non-empty
+        -- visibleEdges array, then dumps the keys of its first entry via KV.
+        add("  -- visibleEdges raw shape --")
+        if type(configID) == "number" and type(CT) == "table"
+            and type(CT.GetConfigInfo) == "function" and type(CT.GetTreeNodes) == "function"
+            and type(CT.GetNodeInfo) == "function" then
+            local cfg = safe(CT.GetConfigInfo, configID)
+            local treeIDs = (type(cfg) == "table") and cfg.treeIDs or nil
+            local shown = false
+            if type(treeIDs) == "table" then
+                for _, treeID in ipairs(treeIDs) do
+                    if shown then break end
+                    local nodeIDs = safe(CT.GetTreeNodes, treeID)
+                    if type(nodeIDs) == "table" then
+                        for _, nodeID in ipairs(nodeIDs) do
+                            local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                            if type(ni) == "table" and type(ni.visibleEdges) == "table"
+                                and #ni.visibleEdges > 0 then
+                                add(string.format("  node %s visibleEdges: {#%d}",
+                                    tostring(nodeID), #ni.visibleEdges))
+                                add("    entry[1] keys: " .. KV(ni.visibleEdges[1]))
+                                shown = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            if not shown then add("  (no node with a non-empty visibleEdges array found)") end
+        else
+            add("  (no active configID / C_Traits - cannot sample visibleEdges)")
         end
 
         -- Icon-route probe. Gather the first purchased node + up to 3 sample nodes straight from the

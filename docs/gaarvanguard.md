@@ -60,9 +60,12 @@ equipment was empty because it was read from cached events instead of scanned li
               "icon": "spell_fire_flamebolt", "spellId": 11069 },
             { "name": "Ignite", "rank": 0, "max": 5, "tier": 1, "col": 1,
               "icon": "spell_fire_incinerate", "spellId": 11119 }
+          ],
+          "edges": [
+            { "ft": 0, "fc": 0, "tt": 1, "tc": 1 }
           ]
         },
-        { "tab": "Frost", "points": 0, "talents": [] }
+        { "tab": "Frost", "points": 0, "talents": [], "edges": [] }
       ],
       "equipment": [
         { "slot": "MainHand", "itemId": 19019, "quality": 5, "name": "Thunderfury" }
@@ -86,7 +89,7 @@ Canonical field names (each char object):
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
 | `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the `C_Traits` posX band mapped to the classic tab name (e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
-| `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col, icon?, spellId? } ] }` (see below) |
+| `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col, icon?, spellId? } ], edges: [ { ft, fc, tt, tc } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
 | `professions` | array | `{ name, skill, max }` per real primary/secondary trade skill (`skill` was `rank`) |
@@ -127,6 +130,14 @@ More field notes:
     `GetTalentInfo` (1-based) and `icon`/`spellId` are not emitted.
   - `spec` is the tree with the most points. If neither route resolves (an edge case), the
     purchased-only fallback (`ScanTalentsTraits`) is used. See *How talents are read* below.
+- `talents[].edges` are the **prerequisite connector arrows** the calculator draws between talents,
+  so the website can render the lines without needing node IDs. Each edge is expressed purely in the
+  same grid coordinates as `talents`: `ft`/`fc` = the source node's `(tier, col)`, `tt`/`tc` = the
+  target node's `(tier, col)`. They come from `C_Traits.GetNodeInfo(configID, nodeID).visibleEdges`
+  (each entry's `targetNode`) on the **Forever** calculator route, resolved through the same
+  tier/col mapping as the talents; identical edges are deduplicated and unresolvable endpoints are
+  skipped. `edges` is **additive** — it is `[]` when the client exposes no edges (or on the Era /
+  purchased-only routes, which do not emit edges), so an older record without it still renders.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,

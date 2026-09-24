@@ -47,20 +47,22 @@ equipment was empty because it was read from cached events instead of scanned li
       ],
       "talents": [
         {
-          "tab": "Elemental", "points": 5,
+          "tab": "Arcane", "points": 0,
           "talents": [
-            { "name": "Convection", "rank": 3, "max": 5, "tier": 1, "col": 1 }
+            { "name": "Arcane Subtlety", "rank": 0, "max": 2, "tier": 0, "col": 0,
+              "icon": "spell_holy_dispelmagic", "spellId": 11210 }
           ]
         },
         {
-          "tab": "Enhancement", "points": 31,
+          "tab": "Fire", "points": 5,
           "talents": [
-            { "name": "Ancestral Knowledge", "rank": 5, "max": 5, "tier": 1, "col": 1 },
-            { "name": "Thundering Strikes", "rank": 0, "max": 5, "tier": 1, "col": 3 },
-            { "name": "Flurry", "rank": 5, "max": 5, "tier": 3, "col": 1 }
+            { "name": "Improved Fireball", "rank": 5, "max": 5, "tier": 0, "col": 0,
+              "icon": "spell_fire_flamebolt", "spellId": 11069 },
+            { "name": "Ignite", "rank": 0, "max": 5, "tier": 1, "col": 1,
+              "icon": "spell_fire_incinerate", "spellId": 11119 }
           ]
         },
-        { "tab": "Restoration", "points": 0, "talents": [] }
+        { "tab": "Frost", "points": 0, "talents": [] }
       ],
       "equipment": [
         { "slot": "MainHand", "itemId": 19019, "quality": 5, "name": "Thunderfury" }
@@ -84,7 +86,7 @@ Canonical field names (each char object):
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
 | `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the `C_Traits` posX band mapped to the classic tab name (e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
-| `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
+| `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col, icon?, spellId? } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
 | `professions` | array | `{ name, skill, max }` per real primary/secondary trade skill (`skill` was `rank`) |
@@ -109,14 +111,22 @@ More field notes:
   languages and riding are filtered out. Each has `name`, `skill`, `max`. See *How professions
   are read* below for the API path.
 - `talents` is the **full talent build**, not just the spec name, so the website can render the
-  whole tree. It is an **array of tabs in tab order**; each tab has `tab` (name), `points` (points
-  spent in it) and `talents`, an array of **every** talent in the tab (not only ranked ones — a
-  0-rank talent is emitted with `rank: 0` so the tree is complete), ordered by `tier` then `col`.
-  Each talent has `name`, `rank`, `max`, `tier` (row, 1-based) and `col` (column, 1-based). `spec`
-  is the tab/tree with the most points. On the Forever client the full tier/column layout is
-  unavailable, so `talents` is a per-tab summary — each tab carrying its `tab` name, `points`, and the
-  resolved names of the purchased talents in it (as `talents` entries) — mapped from the `C_Traits`
-  posX bands; on Era the full tree is emitted. See *How talents are read* below.
+  whole calculator grid. It is an **array of trees/tabs** (3 for a normal class, in ascending-posX
+  band order); each has `tab` (name), `points` (ranks spent in it) and `talents`, an array of
+  **every** node in the tree (not only ranked ones — an unpurchased node is emitted with `rank: 0`
+  so the grid is complete), ordered by `tier` then `col`. Each talent has `name`, `rank`, `max`,
+  `tier`, `col`, and optionally `icon` and `spellId`:
+  - On the **Forever** client (the calculator route, `ScanTalentsCalculator`): `tier` is the
+    **0-based** row from the sorted-unique `posY` across the whole tree (top = 0), `col` is the
+    **0-based** column from the sorted-unique `posX` within that tree's band (left = 0). `spellId`
+    is the node's spell (omitted when unresolved). `icon` is a lowercase Wowhead icon basename
+    (e.g. `"spell_fire_flamebolt"`) when `GetSpellTexture` returns a path string; it is **omitted**
+    when the client returns a numeric fileDataID, and the website should then fall back to a generic
+    icon + a Wowhead tooltip keyed on `spellId`.
+  - On **Era** (the classic route, `ScanTalentsClassic`): `tier`/`col` come straight from
+    `GetTalentInfo` (1-based) and `icon`/`spellId` are not emitted.
+  - `spec` is the tree with the most points. If neither route resolves (an edge case), the
+    purchased-only fallback (`ScanTalentsTraits`) is used. See *How talents are read* below.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -206,26 +216,31 @@ trying the readers in order and using whichever the client exposes:
    tab by `tier` then `col`. The resulting shape is
    `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
    the tab with the most points spent.
-2. **Forever via `C_Traits` posX bands (`C_ClassTalents` + `C_Traits`).** The classic tab globals are
-   **gone on Forever**, and the probes ruled out `C_SpecializationInfo` (class-level: name = the class,
-   0 points), the `C_SkillInfo` Arcane/Fire/Frost lines (all rank 1/1), **and C_Traits subtrees** (none
-   exist on this client — no `subTreeID` on the config, tree, or any node). What is deterministic is
-   node **`posX`**: the one class trait tree (Mage → treeID 1112, 54 nodes) lays its three Vanilla trees
-   out as three horizontal `posX` bands (low ≈ 1020–2820 = Arcane, mid ≈ 5020–6820 = Fire, high ≈
-   9080–10880 = Frost), confirmed because the purchased node 105795 (posX 6220, mid band) resolves to
-   spellID 11069 "Improved Fireball", a Fire talent. The reader walks
+2. **Forever full calculator grid (`ScanTalentsCalculator`, `C_ClassTalents` + `C_Traits`).** The
+   classic tab globals are **gone on Forever**, and the probes ruled out `C_SpecializationInfo`
+   (class-level: name = the class, 0 points), the `C_SkillInfo` Arcane/Fire/Frost lines (all rank 1/1),
+   **and C_Traits subtrees** (none exist on this client — no `subTreeID` on the config, tree, or any
+   node). What is deterministic is node **`posX`**: the one class trait tree (Mage → treeID 1112, 54
+   nodes) lays its three Vanilla trees out as three horizontal `posX` bands (low ≈ 1020–2820 = Arcane,
+   mid ≈ 5020–6820 = Fire, high ≈ 9080–10880 = Frost), confirmed because the purchased node 105795
+   (posX 6220, mid band) resolves to spellID 11069 "Improved Fireball", a Fire talent. The reader walks
    `C_ClassTalents.GetActiveConfigID()` → `C_Traits.GetConfigInfo(configID).treeIDs` →
-   `C_Traits.GetTreeNodes(treeID)` → `C_Traits.GetNodeInfo(configID, nodeID)`, clusters every node's
-   `posX` into 3 bands (split at the two largest gaps, sorted ascending), assigns each purchased node
-   (`ranksPurchased`/`activeRank` > 0) to a band, and maps the band left→right to a classic tab name via
-   a static `CLASS_TREE_NAMES[classToken]` table. The **spec is the band with the most purchased ranks**
-   (e.g. `"Fire"`); talent names come from the entry → definition → spell chain (`C_Spell.GetSpellName`
-   / `C_Spell.GetSpellInfo`, fallback global `GetSpellInfo`). `talents` is one tab per band with points —
-   `talents = [ { tab = <tabName>, points, talents: [ { name, rank, … } ] } ]`.
-3. **Fallback, then empty.** If the clustering does not yield exactly 3 bands, the class is not in the
-   table, or a purchased node's `posX` falls outside every band, the reader falls back to the earlier
-   subtree / dominant-purchased-talent-name behaviour. If nothing resolves a real name, `spec` and
-   `talents` are left empty — never invented.
+   `C_Traits.GetTreeNodes(treeID)` → `C_Traits.GetNodeInfo(configID, nodeID)` over **every** node
+   (purchased or not), clusters every node's `posX` into 3 bands (split at the two largest gaps), and
+   maps each band left→right to a classic tab name via a static `CLASS_TREE_NAMES[classToken]` table.
+   For each node it emits `name`, `rank` (= `ranksPurchased`, 0 if unpurchased), `max` (= `maxRanks`),
+   `tier` (0-based row from the sorted-unique `posY` across the whole tree), `col` (0-based column from
+   the sorted-unique `posX` within the band), and — when they resolve — `spellId` and `icon`. Names,
+   spellIDs and icons come from the entry → definition chain (`GetEntryInfo` → `GetDefinitionInfo` →
+   `spellID`; name via `C_Spell.GetSpellName`/`GetSpellInfo`; icon via `GetSpellTexture`). Each tree's
+   `points` is the sum of `ranksPurchased` in it; `spec` is the band with the most purchased ranks
+   (e.g. `"Fire"`). This is the route the website renders the calculator from.
+3. **Forever purchased-only summary (`ScanTalentsTraits`, fallback).** If the calculator route returns
+   nil (clustering does not yield exactly 3 bands, or the class is not in `CLASS_TREE_NAMES`), the
+   reader falls back to the earlier purchased-only band summary — one tab per band carrying only the
+   purchased talents' resolved names — and, failing that, the subtree / dominant-purchased-talent-name
+   grouping. Exported only when every tree carries a real name.
+4. **Empty.** If nothing resolves a real name, `spec` and `talents` are left empty — never invented.
 
 An empty scan leaves any previously captured build in place rather than wiping it. A character with
 no points spent anywhere legitimately reports **no** spec — none is ever invented.

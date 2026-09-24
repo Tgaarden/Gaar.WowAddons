@@ -455,6 +455,37 @@ local function ResolveSpellName(spellID)
     return nil
 end
 
+-- A spell texture's Wowhead-style icon basename, or nil. On a Vanilla-content client GetSpellTexture
+-- returns a path STRING ("Interface\\Icons\\Spell_Fire_FlameBolt"); we take the lowercased basename
+-- after the last slash/backslash and strip any extension ("spell_fire_flamebolt"). A NUMBER return
+-- (fileDataID on a modern-asset client) has no reliable name, so we return nil and the website falls
+-- back to a generic icon + Wowhead tooltip. We never invent an icon name.
+local function IconBasenameFromTexture(tex)
+    if type(tex) ~= "string" or tex == "" then return nil end
+    local base = tex:match("[^\\/]+$") or tex
+    base = base:gsub("%.%w+$", "")   -- drop a file extension if the path carries one
+    if base == "" then return nil end
+    return base:lower()
+end
+
+-- Resolve a spellID to its icon basename via GetSpellTexture (classic global first, then the modern
+-- C_Spell namespace). Returns the lowercased basename, or nil when the client hands back a numeric
+-- fileDataID or nothing.
+local function ResolveSpellIcon(spellID)
+    if type(spellID) ~= "number" or spellID <= 0 then return nil end
+    local tex
+    if type(_G.GetSpellTexture) == "function" then
+        tex = safe(_G.GetSpellTexture, spellID)
+    end
+    if tex == nil then
+        local CS = _G.C_Spell
+        if type(CS) == "table" and type(CS.GetSpellTexture) == "function" then
+            tex = safe(CS.GetSpellTexture, spellID)
+        end
+    end
+    return IconBasenameFromTexture(tex)
+end
+
 -- Resolve a purchased trait node to a talent name: its committed entry -> definition -> overrideName,
 -- or the definition's spell name. Prefers the entries that actually carry ranks.
 local function ResolveNodeTalentName(CT, configID, ni)
@@ -474,6 +505,35 @@ local function ResolveNodeTalentName(CT, configID, ni)
         end
     end
     return nil
+end
+
+-- Like ResolveNodeTalentName, but also returns the node's spellID so the full-tree export can carry
+-- an icon + Wowhead link for EVERY node (purchased or not). Committed entries first, else all entries.
+-- Returns (name, spellID); either may be nil when the definition does not resolve. Used only by the
+-- calculator export; ResolveNodeTalentName is left untouched so the confirmed spec/probe paths cannot
+-- regress.
+local function ResolveNodeEntry(CT, configID, ni)
+    if type(ni) ~= "table" or type(CT.GetEntryInfo) ~= "function" then return nil, nil end
+    local entryIDs = ni.entryIDsWithCommittedRanks
+    if type(entryIDs) ~= "table" or not entryIDs[1] then entryIDs = ni.entryIDs end
+    if type(entryIDs) ~= "table" then return nil, nil end
+    for _, entryID in ipairs(entryIDs) do
+        local ei = safe(CT.GetEntryInfo, configID, entryID)
+        if type(ei) == "table" and ei.definitionID and type(CT.GetDefinitionInfo) == "function" then
+            local di = safe(CT.GetDefinitionInfo, ei.definitionID)
+            if type(di) == "table" then
+                local spellID = tonumber(di.spellID) or tonumber(di.overriddenSpellID)
+                local name
+                if type(di.overrideName) == "string" and di.overrideName ~= "" then
+                    name = di.overrideName
+                else
+                    name = ResolveSpellName(di.spellID or di.overriddenSpellID)
+                end
+                if name or spellID then return name, spellID end
+            end
+        end
+    end
+    return nil, nil
 end
 
 -- Classic Vanilla talent-tab names, in ascending posX order (left -> right = classic tab order).
@@ -648,6 +708,121 @@ local function ScanTalentsTraits()
     return build
 end
 
+-- FULL talent-calculator export for Forever. Where ScanTalentsTraits emits only PURCHASED nodes (enough
+-- to name the spec), this walks EVERY node of the class trait tree so the website can draw the whole
+-- calculator grid (3 trees, all talents, purchased ones highlighted). The model is identical to
+-- ScanTalentsTraits' primary route (one class tree split into 3 horizontal posX bands = the Vanilla
+-- trees, left->right = CLASS_TREE_NAMES order), so the same config/tree/band logic is reused.
+--
+-- Returns, in ascending-band order, one object per tree:
+--   { tab = <CLASS_TREE_NAMES[band]>, points = <sum ranksPurchased in tree>,
+--     talents = { { name, rank, max, tier, col, icon?, spellId? }, ... } }
+-- where:
+--   rank = ranksPurchased (0 if not purchased), max = maxRanks,
+--   tier = 0-based row from sorted-unique posY across the WHOLE tree (top = 0),
+--   col  = 0-based column from sorted-unique posX WITHIN the band (left = 0),
+--   icon = lowercase icon basename (omitted when the client returns a numeric fileDataID),
+--   spellId = the talent's spellID (omitted when unresolved).
+-- Returns nil (so the caller falls back to ScanTalentsTraits) when the trait config cannot be read,
+-- the class is not in CLASS_TREE_NAMES, or the posX values do not cluster into exactly 3 bands.
+local function ScanTalentsCalculator()
+    local CCT, CT = _G.C_ClassTalents, _G.C_Traits
+    if type(CCT) ~= "table" or type(CT) ~= "table" then return nil end
+    if type(CCT.GetActiveConfigID) ~= "function" or type(CT.GetConfigInfo) ~= "function" then return nil end
+    if type(CT.GetTreeNodes) ~= "function" or type(CT.GetNodeInfo) ~= "function" then return nil end
+
+    -- Only classes with a known 3-tree layout use this route.
+    local _, classToken = safe(UnitClass, "player")
+    local treeNames = (type(classToken) == "string") and CLASS_TREE_NAMES[string.upper(classToken)] or nil
+    if not treeNames then return nil end
+
+    local configID = safe(CCT.GetActiveConfigID)
+    if type(configID) ~= "number" then return nil end
+    local cfg = safe(CT.GetConfigInfo, configID)
+    if type(cfg) ~= "table" or type(cfg.treeIDs) ~= "table" then return nil end
+
+    -- One pass: collect every node with its position, ranks, resolved name/spell/icon.
+    local allPosX, allPosY, nodes = {}, {}, {}
+    for _, treeID in ipairs(cfg.treeIDs) do
+        local ids = safe(CT.GetTreeNodes, treeID)
+        if type(ids) == "table" then
+            for _, nodeID in ipairs(ids) do
+                local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                if type(ni) == "table" then
+                    local px, py = tonumber(ni.posX), tonumber(ni.posY)
+                    if px and py then
+                        allPosX[#allPosX + 1] = px
+                        allPosY[#allPosY + 1] = py
+                        local name, spellID = ResolveNodeEntry(CT, configID, ni)
+                        nodes[#nodes + 1] = {
+                            posX = px, posY = py,
+                            rank = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0,
+                            max = tonumber(ni.maxRanks) or 0,
+                            name = name, spellID = spellID,
+                            icon = ResolveSpellIcon(spellID),
+                        }
+                    end
+                end
+            end
+        end
+    end
+    if #nodes == 0 then return nil end
+
+    -- Bands split the tree into the 3 Vanilla trees (left->right). Bail if the split is not clean.
+    local bands = ClusterBands(allPosX, 3)
+    if not bands or #bands ~= 3 then return nil end
+
+    -- tier: 0-based index of a node's posY within the sorted-unique posY of the WHOLE tree (top = 0).
+    local function IndexMap(values)
+        local uniq, seen = {}, {}
+        for _, v in ipairs(values) do
+            if not seen[v] then seen[v] = true; uniq[#uniq + 1] = v end
+        end
+        table.sort(uniq)
+        local idx = {}
+        for i, v in ipairs(uniq) do idx[v] = i - 1 end
+        return idx
+    end
+    local tierOf = IndexMap(allPosY)
+
+    -- col: 0-based index of a node's posX within the sorted-unique posX of ITS band (left = 0).
+    local colOf = {}
+    for bi = 1, 3 do
+        local xs = {}
+        for _, n in ipairs(nodes) do
+            if BandOf(bands, n.posX) == bi then xs[#xs + 1] = n.posX end
+        end
+        colOf[bi] = IndexMap(xs)
+    end
+
+    local trees = {}
+    for bi = 1, 3 do trees[bi] = { tab = treeNames[bi], points = 0, talents = {} } end
+    for _, n in ipairs(nodes) do
+        local bi = BandOf(bands, n.posX)
+        if not bi then return nil end   -- every collected posX is inside some band, but guard anyway
+        local tree = trees[bi]
+        tree.points = tree.points + n.rank
+        local t = {
+            rank = n.rank, max = n.max,
+            tier = tierOf[n.posY] or 0,
+            col = colOf[bi][n.posX] or 0,
+        }
+        if n.name then t.name = n.name end
+        if n.spellID then t.spellId = n.spellID end
+        if n.icon then t.icon = n.icon end
+        tree.talents[#tree.talents + 1] = t
+    end
+
+    -- Walk each tree top-to-bottom, left-to-right so the array is grid-ordered.
+    for _, tree in ipairs(trees) do
+        table.sort(tree.talents, function(a, b)
+            if a.tier ~= b.tier then return a.tier < b.tier end
+            return a.col < b.col
+        end)
+    end
+    return trees
+end
+
 -- Spec name = the talent tree with the most points spent. Tried in turn, all pcall-guarded:
 --   1. Classic Era tabs (GetNumTalentTabs/GetTalentTabInfo) - the tab with the most points.
 --   2. Forever trait graph (ScanTalentsTraits) - the posX band (left->right = Vanilla tab order,
@@ -688,8 +863,10 @@ end
 --
 -- Shape written to c.talents (mirrored in the export and docs/gaarvanguard.md):
 --   talents = { { tab = <tabName>, points = <pointsSpent>,
---                 talents = { { name, rank, max, tier, col }, ... } }, ... }
--- An empty scan leaves any previously captured build in place rather than wiping it.
+--                 talents = { { name, rank, max, tier, col, icon?, spellId? }, ... } }, ... }
+-- The Forever calculator route (ScanTalentsCalculator) fills icon/spellId and includes rank-0 nodes so
+-- the whole grid is present; the classic and purchased-only routes omit icon/spellId. An empty scan
+-- leaves any previously captured build in place rather than wiping it.
 local function ScanTalentsClassic()
     if type(GetNumTalentTabs) ~= "function" or type(GetTalentTabInfo) ~= "function" then return nil end
     if type(GetNumTalents) ~= "function" or type(GetTalentInfo) ~= "function" then return nil end
@@ -729,12 +906,18 @@ local function ScanTalentsClassic()
 end
 
 local function CaptureTalents(c)
-    -- Classic per-talent tree first (Era), then the Forever best-effort trait-graph per-tree points.
+    -- 1. Classic per-talent tree (Era: GetTalentInfo tabs) - the true full grid when it exists.
     local build = ScanTalentsClassic()
+    -- 2. Forever full calculator grid (3 posX-band trees, EVERY node) so the website can draw the
+    --    whole calculator, not just purchased talents. nil when bands != 3 / class unknown.
+    if not build or #build == 0 then
+        build = ScanTalentsCalculator()
+    end
+    -- 3. Forever purchased-only fallback (ScanTalentsTraits): keeps the old behaviour for edge cases
+    --    the calculator route rejects. Only exported when every tree carries a real name; a build of
+    --    "Tree 12345" rows would only mislead the website, so otherwise talents stay empty this round.
     if not build or #build == 0 then
         local traits = ScanTalentsTraits()
-        -- Only export the trait build when every tree carries a real name; a build of "Tree 12345"
-        -- rows would only mislead the website, so otherwise talents stay empty this round.
         if traits then
             local allNamed = true
             for _, t in ipairs(traits) do if not t.named then allNamed = false; break end end
@@ -1868,6 +2051,33 @@ local function ProbeProfessionsLines()
     return L
 end
 
+-- Append the icon-route probe for one spellID: the raw GetSpellTexture return AND its Lua type, from
+-- both the classic global and the C_Spell namespace, plus the derived basename. Confirms in-game
+-- whether this client returns a path STRING (basename usable) or a NUMBER fileDataID (icon omitted).
+-- `add` is the probe's line sink, passed in so this stays a plain top-level helper.
+local function AppendIconProbe(add, label, spellID)
+    add(string.format("  %s spellID=%s", tostring(label), tostring(spellID)))
+    if type(spellID) ~= "number" then
+        add("    (no spellID resolved -> icon omitted)")
+        return
+    end
+    if type(_G.GetSpellTexture) == "function" then
+        local t = safe(_G.GetSpellTexture, spellID)
+        add(string.format("    GetSpellTexture -> %s  (type=%s)  basename=%s",
+            tostring(t), type(t), tostring(IconBasenameFromTexture(t))))
+    else
+        add("    GetSpellTexture: not a function on this client")
+    end
+    local CS = _G.C_Spell
+    if type(CS) == "table" and type(CS.GetSpellTexture) == "function" then
+        local t = safe(CS.GetSpellTexture, spellID)
+        add(string.format("    C_Spell.GetSpellTexture -> %s  (type=%s)  basename=%s",
+            tostring(t), type(t), tostring(IconBasenameFromTexture(t))))
+    else
+        add("    C_Spell.GetSpellTexture: not a function on this client")
+    end
+end
+
 -- Talent probe. Same idea as the profession probe: report, for the current character, exactly
 -- which talent readers exist and what they return live, so if talents do not resolve on Forever we
 -- have the data to adjust. Read-only and fully pcall-guarded; changes no game state.
@@ -2344,6 +2554,80 @@ local function ProbeTalentsLines()
         end
     end
 
+    -- 6c. Full talent CALCULATOR grid (ScanTalentsCalculator): per-tree name, node count, rows
+    --     (tier-count across the whole tree), that tree's col-count, and points. Plus the icon-route
+    --     probe: for the first PURCHASED node and a few sample nodes, the raw GetSpellTexture return
+    --     and its Lua type, so the string-path vs numeric-fileID route is confirmed in-game.
+    add("")
+    add("-- talent calculator (full tree) --")
+    do
+        local calc = ScanTalentsCalculator()
+        if type(calc) ~= "table" then
+            add("ScanTalentsCalculator -> nil (not 3 bands / class unknown / no config) -> traits fallback")
+        else
+            local rows = 0
+            for _, tree in ipairs(calc) do
+                for _, t in ipairs(tree.talents or {}) do
+                    if (tonumber(t.tier) or 0) + 1 > rows then rows = (tonumber(t.tier) or 0) + 1 end
+                end
+            end
+            add(string.format("rows (tier-count across whole tree): %d", rows))
+            for _, tree in ipairs(calc) do
+                local cols, withIcon, withSpell = 0, 0, 0
+                for _, t in ipairs(tree.talents or {}) do
+                    if (tonumber(t.col) or 0) + 1 > cols then cols = (tonumber(t.col) or 0) + 1 end
+                    if t.icon then withIcon = withIcon + 1 end
+                    if t.spellId then withSpell = withSpell + 1 end
+                end
+                add(string.format("  tree=%-14s nodes=%d rows=%d cols=%d points=%d  (icon=%d spellId=%d)",
+                    tostring(tree.tab), #(tree.talents or {}), rows, cols,
+                    tonumber(tree.points) or 0, withIcon, withSpell))
+            end
+        end
+
+        -- Icon-route probe. Gather the first purchased node + up to 3 sample nodes straight from the
+        -- trait graph so the spellID/texture is shown even when the calculator route returned nil.
+        add("  -- icon route (GetSpellTexture) --")
+        if type(configID) == "number" and type(CT) == "table"
+            and type(CT.GetConfigInfo) == "function" and type(CT.GetTreeNodes) == "function"
+            and type(CT.GetNodeInfo) == "function" then
+            local cfg = safe(CT.GetConfigInfo, configID)
+            local treeIDs = (type(cfg) == "table") and cfg.treeIDs or nil
+            local purchasedSpell, samples, seen = nil, {}, 0
+            if type(treeIDs) == "table" then
+                for _, treeID in ipairs(treeIDs) do
+                    local nodeIDs = safe(CT.GetTreeNodes, treeID)
+                    if type(nodeIDs) == "table" then
+                        for _, nodeID in ipairs(nodeIDs) do
+                            local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                            if type(ni) == "table" then
+                                local name, spellID = ResolveNodeEntry(CT, configID, ni)
+                                local r = tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0
+                                if r > 0 and not purchasedSpell and spellID then
+                                    purchasedSpell = { spellID = spellID, name = name }
+                                end
+                                if seen < 3 and spellID then
+                                    seen = seen + 1
+                                    samples[#samples + 1] = { spellID = spellID, name = name }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if purchasedSpell then
+                AppendIconProbe(add, "[purchased " .. tostring(purchasedSpell.name) .. "]", purchasedSpell.spellID)
+            else
+                add("  (no purchased node with a resolved spellID)")
+            end
+            for i, s in ipairs(samples) do
+                AppendIconProbe(add, "[sample " .. i .. " " .. tostring(s.name) .. "]", s.spellID)
+            end
+        else
+            add("  (no active configID / C_Traits - cannot sample icons)")
+        end
+    end
+
     -- 7. What the addon would actually export for this character right now.
     add("")
     add("-- resolved talent export --")
@@ -2351,8 +2635,10 @@ local function ProbeTalentsLines()
     safe(CaptureSpec, probeChar)
     safe(CaptureTalents, probeChar)
     local traitsProbe = ScanTalentsTraits()
+    local calcProbe = ScanTalentsCalculator()
     local pathUsed = classicOK and "classic (GetTalentInfo tabs)"
-        or (traitsProbe and "Forever trait graph (C_ClassTalents/C_Traits)")
+        or (calcProbe and "Forever calculator grid (ScanTalentsCalculator - full tree)")
+        or (traitsProbe and "Forever trait graph purchased-only (ScanTalentsTraits)")
         or "none (per-tree points not located yet - see sections 4-6)"
     add("path used: " .. pathUsed)
     -- Raw ScanTalentsTraits result (before CaptureTalents' all-named export gate), so the grouping and

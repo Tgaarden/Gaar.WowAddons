@@ -83,7 +83,7 @@ Canonical field names (each char object):
 | `race` | string | e.g. `"Gnome"`; the website derives faction from race |
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
-| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the trait-graph subtree (`C_ClassTalents`/`C_Traits`, e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
+| `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the `C_Traits` posX band mapped to the classic tab name (e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
 | `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
 | `guildRank` | string, optional | guild rank name |
@@ -113,10 +113,10 @@ More field notes:
   spent in it) and `talents`, an array of **every** talent in the tab (not only ranked ones — a
   0-rank talent is emitted with `rank: 0` so the tree is complete), ordered by `tier` then `col`.
   Each talent has `name`, `rank`, `max`, `tier` (row, 1-based) and `col` (column, 1-based). `spec`
-  is the tab/tree with the most points. On the Forever client the per-talent detail is unavailable
-  (and per-tree points are still being located), so `talents` is a compact per-tree summary at best,
-  each tab carrying its `tab` name and `points` with an empty `talents: []`, or empty; on Era the full
-  tree is emitted. See *How talents are read* below.
+  is the tab/tree with the most points. On the Forever client the full tier/column layout is
+  unavailable, so `talents` is a per-tab summary — each tab carrying its `tab` name, `points`, and the
+  resolved names of the purchased talents in it (as `talents` entries) — mapped from the `C_Traits`
+  posX bands; on Era the full tree is emitted. See *How talents are read* below.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
   client had not cached at scan time; `name` falls back to the raw item link.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
@@ -206,24 +206,26 @@ trying the readers in order and using whichever the client exposes:
    tab by `tier` then `col`. The resulting shape is
    `talents = [ { tab, points, talents: [ { name, rank, max, tier, col } ] } ]` and `spec` is set to
    the tab with the most points spent.
-2. **Forever via the trait-graph subtrees (`C_ClassTalents` + `C_Traits`).** The classic tab globals
-   are **gone on Forever**, and the live probe ruled out `C_SpecializationInfo` (class-level: name =
-   the class, 0 points) and the `C_SkillInfo` Arcane/Fire/Frost lines (all rank 1/1). The point lives
-   in the modern trait graph: there is **one class trait tree** (Mage → treeID 1112) whose Vanilla
-   trees (Arcane/Fire/Frost) are its **subtrees**, and a spent talent is a purchased node tagged with a
-   `subTreeID`. The reader walks `C_ClassTalents.GetActiveConfigID()` →
-   `C_Traits.GetConfigInfo(configID).treeIDs` → `C_Traits.GetTreeNodes(treeID)` →
-   `C_Traits.GetNodeInfo(configID, nodeID)`, groups the purchased nodes (`ranksPurchased`/`activeRank`
-   > 0) by `subTreeID`, and resolves each subtree's name via `C_Traits.GetSubTreeInfo`. The **spec is
-   the subtree with the most ranks** (e.g. `"Fire"`); if a purchased node has no `subTreeID`, it falls
-   back to the dominant purchased talent's own name, resolved through
-   `GetEntryInfo` → `GetDefinitionInfo` → `overrideName`/spell name (`C_Spell.GetSpellName` /
-   `C_Spell.GetSpellInfo`, fallback global `GetSpellInfo`). `talents` is a compact per-subtree summary —
-   `talents = [ { tab = <subtreeName>, points, talents: [ { name, rank, … } ] } ]` — exported **only
-   when every subtree resolves a real name**; a numeric id is never emitted.
-3. **Otherwise, empty.** If no path resolves a named subtree or talent, `spec` and `talents` are left
-   empty — never invented. On Forever this holds until the probe confirms node `105795` carries a
-   `subTreeID` that `GetSubTreeInfo` names (or an entry that resolves to a Fire spell).
+2. **Forever via `C_Traits` posX bands (`C_ClassTalents` + `C_Traits`).** The classic tab globals are
+   **gone on Forever**, and the probes ruled out `C_SpecializationInfo` (class-level: name = the class,
+   0 points), the `C_SkillInfo` Arcane/Fire/Frost lines (all rank 1/1), **and C_Traits subtrees** (none
+   exist on this client — no `subTreeID` on the config, tree, or any node). What is deterministic is
+   node **`posX`**: the one class trait tree (Mage → treeID 1112, 54 nodes) lays its three Vanilla trees
+   out as three horizontal `posX` bands (low ≈ 1020–2820 = Arcane, mid ≈ 5020–6820 = Fire, high ≈
+   9080–10880 = Frost), confirmed because the purchased node 105795 (posX 6220, mid band) resolves to
+   spellID 11069 "Improved Fireball", a Fire talent. The reader walks
+   `C_ClassTalents.GetActiveConfigID()` → `C_Traits.GetConfigInfo(configID).treeIDs` →
+   `C_Traits.GetTreeNodes(treeID)` → `C_Traits.GetNodeInfo(configID, nodeID)`, clusters every node's
+   `posX` into 3 bands (split at the two largest gaps, sorted ascending), assigns each purchased node
+   (`ranksPurchased`/`activeRank` > 0) to a band, and maps the band left→right to a classic tab name via
+   a static `CLASS_TREE_NAMES[classToken]` table. The **spec is the band with the most purchased ranks**
+   (e.g. `"Fire"`); talent names come from the entry → definition → spell chain (`C_Spell.GetSpellName`
+   / `C_Spell.GetSpellInfo`, fallback global `GetSpellInfo`). `talents` is one tab per band with points —
+   `talents = [ { tab = <tabName>, points, talents: [ { name, rank, … } ] } ]`.
+3. **Fallback, then empty.** If the clustering does not yield exactly 3 bands, the class is not in the
+   table, or a purchased node's `posX` falls outside every band, the reader falls back to the earlier
+   subtree / dominant-purchased-talent-name behaviour. If nothing resolves a real name, `spec` and
+   `talents` are left empty — never invented.
 
 An empty scan leaves any previously captured build in place rather than wiping it. A character with
 no points spent anywhere legitimately reports **no** spec — none is ever invented.
@@ -264,19 +266,21 @@ the Vanilla per-tree points live:
   (`overrideName`, `spellID`) with the resolved spell name, and the final `ResolveNodeTalentName`; plus
   the per-tree rank total. Then the raw `ScanTalentsTraits` result (grouping, points, `named` flag,
   resolved talent names) before the export gate.
-- **Raw `C_SkillInfo` skill-line tables** — the full field dump (`KV`) of every non-header skill line,
-  so any field that distinguishes the spent tree (Fire) from the others (Arcane/Frost) is visible.
+- **Raw `C_SkillInfo` skill-line tables** — the full field dump (`KV`) of every non-header skill line.
+- **posX band mapping** — the class token, the `CLASS_TREE_NAMES` row, the three computed band ranges
+  (min/max, each labelled with its tab), each purchased node's `posX` + assigned band + resolved name,
+  the per-band summed ranks, and the dominant band → tab name. This is the line that confirms `"Fire"`.
 - The **path used** (`classic tabs` / `Forever trait graph` / `none`) and the resolved `spec` +
   `talents`.
 
 It is read-only and fully `pcall`-guarded (any skill headers it expands are restored). **If spec still
-does not resolve on Forever, paste the talent section back** — the `C_Traits` node ranks and the raw
-`C_SkillInfo` fields will pin the exact per-point field, and the reader can then be finalised.
+does not resolve on Forever, paste the talent section back** — the band mapping and node dump will pin
+the read, and the reader can then be finalised.
 
 **Spec** is read as *the talent tree with the most points spent*: on Era via the classic
 `GetNumTalentTabs`/`GetTalentTabInfo` tabs, on Forever via the `C_ClassTalents` / `C_Traits` trait
-graph — the **subtree** (Arcane/Fire/Frost) with the most purchased node ranks, resolved to a name via
-`GetSubTreeInfo`, with the dominant purchased talent's spell name as a fallback — and only when a real
+graph — the **posX band** (left→right = Arcane/Fire/Frost, mapped via `CLASS_TREE_NAMES`) with the most
+purchased node ranks, with the subtree / dominant-purchased-talent name as a fallback — and only when a real
 name resolves. A character with no points spent, or one whose purchased node resolves to no name,
 legitimately reports no spec; none is invented.
 

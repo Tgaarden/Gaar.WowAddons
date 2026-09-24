@@ -344,6 +344,44 @@ Fire spell name. `/gaarvanguard probe` now dumps, for every purchased node: the 
 table, `GetSubTreeInfo(configID, subTreeID).name`, and each entry -> definition -> `spellID` -> spell
 name, plus the tree's own `subTreeIDs`. That output locks whether `spec` reads `"Fire"`.
 
+# Talents / spec: the posX-band route (2026-09-24)
+
+The decisive probe killed the subtree route and handed a cleaner one. Forever exposes **no C_Traits
+subtrees at all**: `discovered subTreeIDs: (none)`, no `subTreeIDs` on the config, the tree, or any
+node, and `GetTraitTreeForSpec` is `nil`. So the Vanilla tree cannot be read from a `subTreeID`.
+
+But the all-nodes `posX` dump is deterministic. The Mage combat config
+(`GetConfigsByType(CamelotCombat=4)` -> configID `5921282`, `treeIDs = {1112}`) has **54 nodes whose
+`posX` cluster into exactly three bands**:
+
+| Band | posX range | nodes |
+|---|---|---|
+| low  | 1020..2820  | 105798-105815 |
+| mid  | 5020..6820  | 105781-105797 |
+| high | 9080..10880 | 105762-105780 |
+
+The one purchased node, `105795`, has `posX = 6220` -> **mid band**, and its entry resolves to spellID
+`11069` = "Improved Fireball", a **Fire** talent. So the bands map left -> right onto the classic
+talent tabs in tab order: for Mage low = Arcane, mid = Fire, high = Frost. mid = Fire matches - confirmed.
+
+**The read.** For the active combat config, collect `posX` for every node (`GetTreeNodes` +
+`GetNodeInfo`), cluster the unique values into 3 bands by splitting at the two largest gaps, and sort the
+bands by ascending `posX` -> band index 1,2,3. Assign each purchased node (`ranksPurchased > 0`) to a
+band by its `posX`, sum ranks per band, and map the dominant band to a name via a static
+`CLASS_TREE_NAMES[classToken]` table (classic Vanilla tab names, ascending-posX order, per class). Spec
+= that name; `talents` = one tab per band with purchased points, carrying the band's resolved talent
+names (via the existing entry -> definition -> spell chain). For the test Mage this yields
+`spec = "Fire"`, `talents = [ { tab = "Fire", points = 1, talents = ["Improved Fireball"] } ]`.
+
+**Fallbacks (no regression).** If the clustering does not yield exactly 3 bands, the class token is not
+in the table, or a purchased node's `posX` falls outside every band, the reader falls back to the prior
+subtree / dominant-purchased-talent-name behaviour; a spec is still never invented. The banding and the
+mapping are verified out of game with a stubbed-API luajit harness on the real posX ranges above.
+
+`/gaarvanguard probe` prints the computed band boundaries (three min/max ranges), each purchased node's
+`posX` and assigned band, the per-band summed ranks, the class token, and the final resolved spec + tab
+name, so the next in-game run confirms `"Fire"` without guesswork.
+
 # The client does not load addon SavedVariables (2026-09-18)
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed

@@ -2000,6 +2000,163 @@ local function ProbeTalentsLines()
         end
     end
 
+    -- 5b. SUBTREE enumeration at the CONFIG / TREE level (not the node level). The live probe
+    --     (2026-09-23) found the per-node subtree route is dead on Forever - GetNodeInfo returns no
+    --     subTreeID - so the Vanilla Arcane/Fire/Frost subtrees, if exposed at all, must be asked for
+    --     at the config, tree, node-position and GetConfigsByType levels. This block dumps every key
+    --     the API returns (arrays expanded to their real values, which the KV helper above collapses
+    --     to {#N}), resolves every subTreeID it can find, and prints one compact line per node so we
+    --     can see whether ANY node carries subtree tagging and whether posX bands separate the trees.
+    --     Every call is pcall-guarded; nothing is invented - only what the API returns is printed.
+    add("")
+    add("-- subtree enumeration (config/tree level) --")
+    -- Expand an array field to its actual values (KV above only prints {#N}).
+    local function ArrStr(v)
+        if type(v) ~= "table" then return tostring(v) end
+        local parts = {}
+        for i = 1, #v do parts[i] = tostring(v[i]) end
+        return "[" .. table.concat(parts, ", ") .. "]"
+    end
+    -- Dump EVERY key of a returned table, expanding array-valued fields to their contents.
+    local function FullKV(prefix, t)
+        if type(t) ~= "table" then add(prefix .. "-> " .. TypeOf(t)); return end
+        local keys = {}
+        for k in pairs(t) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        if #keys == 0 then add(prefix .. "(empty table)"); return end
+        for _, k in ipairs(keys) do
+            local val = t[k]
+            if type(val) == "table" then
+                add(string.format("%s%s = %s", prefix, tostring(k), ArrStr(val)))
+            else
+                add(string.format("%s%s = %s", prefix, tostring(k), tostring(val)))
+            end
+        end
+    end
+    -- Collect every distinct subTreeID discovered anywhere, in discovery order, to resolve once.
+    local subTreeSeen, subTreeOrder = {}, {}
+    local function noteSubTrees(v)
+        if type(v) ~= "table" then return end
+        for _, id in ipairs(v) do
+            if id ~= nil and not subTreeSeen[id] then
+                subTreeSeen[id] = true
+                subTreeOrder[#subTreeOrder + 1] = id
+            end
+        end
+    end
+    local function noteSubTree(id)
+        if type(id) == "number" and id > 0 and not subTreeSeen[id] then
+            subTreeSeen[id] = true
+            subTreeOrder[#subTreeOrder + 1] = id
+        end
+    end
+
+    if type(CT) == "table" and type(configID) == "number" then
+        local cfg = (type(CT.GetConfigInfo) == "function") and safe(CT.GetConfigInfo, configID) or nil
+        -- Task item 1: full GetConfigInfo dump, every key/value, subTreeIDs expanded.
+        add(string.format("GetConfigInfo(%s) full:", tostring(configID)))
+        FullKV("  ", cfg)
+        if type(cfg) == "table" then noteSubTrees(cfg.subTreeIDs) end
+
+        local treeIDs = (type(cfg) == "table") and cfg.treeIDs or nil
+        -- Task item 2: for each treeID, full GetTreeInfo dump, subTreeIDs expanded.
+        if type(treeIDs) == "table" and type(CT.GetTreeInfo) == "function" then
+            for _, treeID in ipairs(treeIDs) do
+                local ti = safe(CT.GetTreeInfo, configID, treeID)
+                add(string.format("GetTreeInfo(%s, %s) full:", tostring(configID), tostring(treeID)))
+                FullKV("  ", ti)
+                if type(ti) == "table" then noteSubTrees(ti.subTreeIDs) end
+            end
+        end
+
+        -- Task item 4: compact one-line-per-node dump of ALL nodes (not just purchased): nodeID,
+        -- ranksPurchased, posX, posY, subTreeID (whatever GetNodeInfo returns, even nil) and any
+        -- subTreeIDs array field on the node.
+        if type(treeIDs) == "table" and type(CT.GetTreeNodes) == "function"
+            and type(CT.GetNodeInfo) == "function" then
+            for _, treeID in ipairs(treeIDs) do
+                local nodes = safe(CT.GetTreeNodes, treeID)
+                local count = (type(nodes) == "table") and #nodes or 0
+                add(string.format("tree %s: %d node(s) - compact dump (ALL nodes):", tostring(treeID), count))
+                if type(nodes) == "table" then
+                    for _, nodeID in ipairs(nodes) do
+                        local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                        if type(ni) == "table" then
+                            add(string.format(
+                                "  node %s ranks=%s posX=%s posY=%s subTreeID=%s subTreeIDs=%s",
+                                tostring(nodeID), tostring(ni.ranksPurchased),
+                                tostring(ni.posX), tostring(ni.posY), tostring(ni.subTreeID),
+                                (type(ni.subTreeIDs) == "table") and ArrStr(ni.subTreeIDs) or tostring(ni.subTreeIDs)))
+                            noteSubTrees(ni.subTreeIDs)
+                            noteSubTree(tonumber(ni.subTreeID))
+                        else
+                            add(string.format("  node %s -> GetNodeInfo %s", tostring(nodeID), TypeOf(ni)))
+                        end
+                    end
+                end
+            end
+        end
+    else
+        add("(no C_Traits config resolved - skipping config/tree subtree enumeration)")
+    end
+
+    -- Task item 5: the subtree info may live on a config of a different TYPE, so probe
+    -- GetTraitTreeForSpec for the active spec and dump GetConfigInfo for every config
+    -- GetConfigsByType returns. Feeds any subTreeIDs found into the resolver below.
+    add("")
+    add("-- other trait configs (GetTraitTreeForSpec / GetConfigsByType) --")
+    if type(CCT) == "table" and type(CCT.GetTraitTreeForSpec) == "function" then
+        local specID = (type(getActive) == "function") and safe(getActive) or nil
+        add(string.format("GetTraitTreeForSpec(%s) -> %s", tostring(specID),
+            tostring(safe(CCT.GetTraitTreeForSpec, specID))))
+    else
+        add("C_ClassTalents.GetTraitTreeForSpec not present")
+    end
+    if type(CT) == "table" and type(CT.GetConfigsByType) == "function" then
+        local EnumT = _G.Enum
+        local types = {}
+        if type(EnumT) == "table" and type(EnumT.TraitConfigType) == "table" then
+            for name, val in pairs(EnumT.TraitConfigType) do
+                types[#types + 1] = { name = tostring(name), val = val }
+            end
+            table.sort(types, function(a, b) return (tonumber(a.val) or 0) < (tonumber(b.val) or 0) end)
+        else
+            -- No Enum table: probe a small range of type ids so nothing is assumed about names.
+            for v = 0, 5 do types[#types + 1] = { name = "type" .. v, val = v } end
+        end
+        for _, ty in ipairs(types) do
+            local list = safe(CT.GetConfigsByType, ty.val)
+            add(string.format("GetConfigsByType(%s=%s) -> %s", tostring(ty.name), tostring(ty.val),
+                (type(list) == "table") and ArrStr(list) or TypeOf(list)))
+            if type(list) == "table" and type(CT.GetConfigInfo) == "function" then
+                for _, cid in ipairs(list) do
+                    local ci = safe(CT.GetConfigInfo, cid)
+                    add(string.format("  config %s GetConfigInfo full:", tostring(cid)))
+                    FullKV("    ", ci)
+                    if type(ci) == "table" then noteSubTrees(ci.subTreeIDs) end
+                end
+            end
+        end
+    else
+        add("C_Traits.GetConfigsByType not present")
+    end
+
+    -- Task item 3: resolve every subTreeID discovered above (config + trees + nodes + other configs)
+    -- via GetSubTreeInfo, dumping the full struct (id, name, traitCurrencyID, ...).
+    add("")
+    add(string.format("discovered subTreeIDs: %s",
+        (#subTreeOrder > 0) and ArrStr(subTreeOrder) or "(none)"))
+    if #subTreeOrder > 0 and type(CT) == "table" and type(CT.GetSubTreeInfo) == "function"
+        and type(configID) == "number" then
+        for _, subID in ipairs(subTreeOrder) do
+            local si = safe(CT.GetSubTreeInfo, configID, subID)
+            add(string.format("GetSubTreeInfo(%s, %s) full:", tostring(configID), tostring(subID)))
+            FullKV("  ", si)
+        end
+    elseif #subTreeOrder > 0 then
+        add("(GetSubTreeInfo unavailable or no configID - cannot resolve the ids above)")
+    end
+
     -- 6. Raw C_SkillInfo skill-line tables. The live probe showed the Vanilla trees show up here as
     --    child skill lines (Arcane/Fire/Frost under "Class Skills") all reading rank 1/1; dumping the
     --    FULL table for every non-header row exposes any field (tempPoints, modifier, stepCost,

@@ -1,19 +1,20 @@
 # GaarVanguard
 
 Captures the account's characters and their loot in game and hands them to the **Vanguard
-website** as a copy-paste string, and accepts the website's own string back. The website is the
-counterpart to this addon: the addon is the *source of truth for what you own and looted*, the
-website is the *source of truth for vanguards, goals and instances*.
+website** as a copy-paste string. **The addon is export-only** — it does not import anything back;
+everything you do with the data (vanguards, goals, instances) happens on the website. The addon is
+the *source of truth for what you own and looted*, the website is the *source of truth for
+vanguards, goals and instances*.
 
-Both directions use the same envelope:
+The export envelope is:
 
 ```
 VGD1:<base64 of a JSON document>
 ```
 
-`VGD1` is the format tag (Vanguard, version 1). The payload is a JSON object whose `k` field
-says which of the two shapes it is. The base64 and JSON codecs are self-contained in
-`GaarVanguard.lua` — no external libraries.
+`VGD1` is the format tag (Vanguard, version 1). The payload is a JSON object whose `k` field is
+`"chars"`. The base64 and JSON encoders are self-contained in `GaarVanguard.lua` — no external
+libraries.
 
 ## `k = "chars"` — addon → website (the Export boxes)
 
@@ -175,7 +176,7 @@ client leaves a blank field instead of erroring.
 
 ### Full character name (first + last)
 
-The `name` field is the character's **identity key** for the website import, so both exports depend
+The `name` field is the character's **identity key** on the website, so both exports depend
 on it being complete. WoW Forever names are `"Firstname Lastname"`, but `UnitName("player")` has
 been seen to return only the first name (e.g. `"Mag"` instead of `"Mag Tics"`). `FullPlayerName()`
 therefore asks every name API the client exposes and keeps the **most complete** answer — the value
@@ -193,6 +194,13 @@ the candidates the one carrying a surname wins (ties broken by length), falling 
 `UnitName`'s value when none carry a surname. `/gaarvanguard probe` dumps each raw API return plus
 the value `FullPlayerName()` picked, so which API carries the full name on a given client can be
 confirmed in game.
+
+Both the **capture/store path** (`CaptureIdentity`) and both exports use `FullPlayerName()`, so a
+stored record always holds `"First Last"` and the bulk `exportall` roster emits full names — not a
+bare first name. `exportall` additionally overrides the **currently logged-in** character's stored
+name with the live `FullPlayerName()` at export time, so the active character is always correct.
+A record written by an older build that stored only a first name **self-corrects the next time that
+character logs in** (login re-runs capture with the full name).
 
 ### What else drives capture (keeps the DB fresh in-session / on Era)
 
@@ -352,13 +360,19 @@ purchased node ranks, with the subtree / dominant-purchased-talent name as a fal
 name resolves. A character with no points spent, or one whose purchased node resolves to no name,
 legitimately reports no spec; none is invented.
 
-## `k = "sync"` — website → addon (the Import box + the in-game view)
+## `k = "sync"` — legacy website sync (in-game view only)
 
-Produced by the website, pasted into `/gaarvanguard import`. **The canonical shape is the
-website's `encodeSync()` in `Vanguard/src/lib/protocol.ts`** — the addon reads exactly those
-short field names. Sync is account-level and asymmetric: it carries the player's Vanguards,
-their goals, a members/readiness summary and the player's own character→Vanguard/goal mapping.
-It deliberately does **not** carry gear/stats back (the addon already has those).
+> **Import has been removed — the addon is export-only.** Earlier versions could paste the
+> website's sync string back with `/gaarvanguard import`; that command, its paste box and its
+> decode path are gone. The in-game view below is kept and still renders a `GaarVanguardDB.sync`
+> document if one is already stored from an older version, but the addon no longer writes it. This
+> section documents that legacy shape for reference.
+
+**The canonical shape is the website's `encodeSync()` in `Vanguard/src/lib/protocol.ts`** — the
+view reads exactly those short field names. Sync is account-level and asymmetric: it carries the
+player's Vanguards, their goals, a members/readiness summary and the player's own
+character→Vanguard/goal mapping. It deliberately does **not** carry gear/stats (the addon already
+has those).
 
 ```json
 {
@@ -386,16 +400,11 @@ Field reference (what the addon reads):
 | `mapping[].vanguard` | that character's Vanguard name (optional) |
 | `mapping[].goals` | titles of the goals that apply to that character |
 
-The decoder is deliberately tolerant: the longhand `goals[].title` / `.status` / `.instanceCode`
+The view is deliberately tolerant: the longhand `goals[].title` / `.status` / `.instanceCode`
 are accepted as fallbacks, non-table entries and missing arrays are skipped, and every reader is
 `pcall`-guarded so a reshaped or partial document renders what is present rather than erroring.
 
-**The Import box** strips `VGD1:`, base64-decodes, JSON-decodes, stores the result under
-`GaarVanguardDB.sync`, prints a short summary, and then opens/refreshes the in-game view (below)
-so the pasted data is visible at once. A malformed string reports the parse error and stores
-nothing.
-
-### The in-game view (Phase 2)
+### The in-game view
 
 `/gaarvanguard` (or **Gaar → Vanguard → Open Vanguard view**) opens a movable, closable,
 scrollable window (`BackdropTemplate`, registered in `UISpecialFrames`, drag by the title bar,
@@ -409,11 +418,12 @@ close button, mouse-wheel scroll) that renders `GaarVanguardDB.sync` read-only:
   `ready/total`, highlighting a member who is **GO** (fully ready). The sync carries no
   per-instance GO flag, only the per-member summary, so GO is shown per member.
 - **My characters** — for each mapped character, its Vanguard and the goals that apply.
-- **Empty state** — when there is no `sync` yet, the window explains: Export from the website's
-  Addon sync page and paste the code into the Import box.
+- **Empty state** — with no stored `sync` (the normal case now that import is removed), the window
+  shows an export-only prompt: use Export / Sync all and paste the code into the Vanguard website,
+  where the data is viewed and managed.
 
-The view is display-only (Phase 2 writes nothing) and toolbar buttons open the Export/Import
-boxes without leaving it.
+The view is display-only (it writes nothing) and its toolbar button opens the Export box without
+leaving it.
 
 ## SavedVariables shape
 
@@ -432,7 +442,7 @@ GaarVanguardDB = {
     ...
   },
   maxLoot = 100,
-  sync = <last decoded website sync document (k="sync"), or absent>,  -- rendered by the in-game view
+  sync = <legacy website sync document (k="sync") from a pre-export-only version, or absent>,  -- rendered by the in-game view; the addon no longer writes it
 }
 ```
 
@@ -446,7 +456,6 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 - `/gaarvanguard export` — full VGD1 `chars` string for **this character** (the primary export)
 - `/gaarvanguard exportall` (alias `syncall`) — lightweight VGD1 `chars` string for **all stored
   characters**, identity fields only
-- `/gaarvanguard import` — paste the website's sync string (opens the view on success)
 - `/gaarvanguard capture` — recapture the current character now
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
 - `/gaarvanguard config` — settings under **Gaar → Vanguard**

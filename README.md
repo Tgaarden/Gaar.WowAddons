@@ -18,7 +18,7 @@ of the code.
 | `GaarFrames` | Class-coloured unit frames with value and percent text (Era only - see the API notes) | `/gaarframes` |
 | `GaarSpellBook` | A searchable spell book window | `/spellbook` |
 | `GaarLooter` | Loot library: every roll, who took part, who won | `/gaarlooter` |
-| `GaarVanguard` | Captures your characters and their loot account-wide and exports them for the Vanguard website; imports the site's sync string | `/gaarvanguard` |
+| `GaarVanguard` | Captures your characters and their loot account-wide and exports them for the Vanguard website (export-only) | `/gaarvanguard` |
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |

@@ -15,10 +15,24 @@ VGD1:<base64 of a JSON document>
 says which of the two shapes it is. The base64 and JSON codecs are self-contained in
 `GaarVanguard.lua` — no external libraries.
 
-## `k = "chars"` — addon → website (the Export box)
+## `k = "chars"` — addon → website (the Export boxes)
 
-Produced by `/gaarvanguard export`. One document holds **every character on the account** that
-has logged in with the addon installed.
+There are **two** exports, both emitting the same `k = "chars"` envelope — they differ only in
+*which* characters and *how much* per character:
+
+| Command | Characters | Per-character data | Use |
+|---|---|---|---|
+| `/gaarvanguard export` | **the current character only** (1 element) | **full** — everything below (identity, professions, equipment, loot, full talent trees), scanned live | **primary flow.** One character → a short string that survives the copy out of the in-game EditBox |
+| `/gaarvanguard exportall` | **every stored character** (N elements) | **identity only** — `name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `spec`; **no** professions/equipment/loot/talents | a lightweight skeleton to populate the account pool |
+
+The split exists because a single string dumping *all* characters *with* their heavy data grew long
+enough to be **truncated** when copied from the in-game EditBox (losing talents and tail
+characters). The per-character full export keeps each string short and reliable; the bulk export
+stays short by carrying identity fields only.
+
+Both are the same contract; the bulk export simply omits the heavy arrays. The full per-character
+JSON is shown below; a bulk element is just the identity fields (a `chars` array of objects with
+`name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `spec` and nothing else).
 
 **This is the canonical contract with the website — the field names below must match exactly.**
 The website's VGD1 `chars` importer reads these names; a mismatch is silently dropped (the live
@@ -145,15 +159,40 @@ More field notes:
 
 ### Live scan at export (do not trust the cache)
 
-On **every export** the current character is re-scanned from the live game state right before the
-string is built — level (`UnitLevel`), race/class, faction, guild + rank (`GetGuildInfo`), spec,
-the full talent build, professions, and **equipment** by looping equip slots 1–19 via
-`GetInventoryItemLink` (each id
-mapped to its canonical slot name). This means the export reflects the live character **even when
-the SavedVariables DB is empty**, which is the Forever-beta case (that client does not persist
-addon SavedVariables and the equipment events may never have fired). Other characters still come
-from the DB where it persists (Era). Every reader is wrapped in `pcall`, so a missing or reshaped
-API on one client leaves a blank field instead of erroring.
+On **both exports** the current character is re-scanned from the live game state right before the
+string is built — name (see *Full character name* below), level (`UnitLevel`), race/class, faction,
+guild + rank (`GetGuildInfo`), spec, the full talent build, professions, and **equipment** by
+looping equip slots 1–19 via `GetInventoryItemLink` (each id mapped to its canonical slot name).
+This means the export reflects the live character **even when the SavedVariables DB is empty**,
+which is the Forever-beta case (that client does not persist addon SavedVariables and the equipment
+events may never have fired).
+
+The **per-character full export** (`/gaarvanguard export`) then emits **only that current
+character** — one full element. The **bulk export** (`/gaarvanguard exportall`) emits every stored
+character but keeps only the identity fields for each (other characters still come from the DB where
+it persists, e.g. Era). Every reader is wrapped in `pcall`, so a missing or reshaped API on one
+client leaves a blank field instead of erroring.
+
+### Full character name (first + last)
+
+The `name` field is the character's **identity key** for the website import, so both exports depend
+on it being complete. WoW Forever names are `"Firstname Lastname"`, but `UnitName("player")` has
+been seen to return only the first name (e.g. `"Mag"` instead of `"Mag Tics"`). `FullPlayerName()`
+therefore asks every name API the client exposes and keeps the **most complete** answer — the value
+that actually carries a surname (a space) — never inventing one (every candidate is a verbatim API
+return):
+
+- `UnitName("player")` — name (and its 2nd return; on Forever's surname system the surname may come
+  back there instead of the realm, so a plain-word 2nd value that is not the realm is combined into
+  `"First Last"`).
+- `GetUnitName("player", true)` — `"Name"` on the player's own realm, `"Name-Realm"` cross-realm.
+- `UnitFullName("player")` — name (first return).
+
+Any `"-Realm"` suffix is stripped (the realm is captured separately via `GetRealmName`), and among
+the candidates the one carrying a surname wins (ties broken by length), falling back to
+`UnitName`'s value when none carry a surname. `/gaarvanguard probe` dumps each raw API return plus
+the value `FullPlayerName()` picked, so which API carries the full name on a given client can be
+confirmed in game.
 
 ### What else drives capture (keeps the DB fresh in-session / on Era)
 
@@ -264,7 +303,10 @@ selection logic. See *Talents / spec* in `docs/forever-client-findings.md` for t
 
 Because WoW cannot be run from the build environment, the wiring above is inferred from the client
 binary and needs one in-game confirmation. `/gaarvanguard probe` (also the **Probe prof + talents**
-button under Gaar → Vanguard) dumps to chat **and** into a copyable box, for the current character:
+button under Gaar → Vanguard) dumps to chat **and** into a copyable box, for the current character.
+It opens with a **name probe** — the raw return of `UnitName("player")` (both returns),
+`GetUnitName("player", true)`, `UnitFullName("player")` and `GetRealmName()`, plus the value
+`FullPlayerName()` picked — so the full "First Last" can be confirmed on Forever. It then dumps
 `WOW_PROJECT_ID`/interface/build; whether `GetProfessions`/`GetProfessionInfo` exist and what they
 return live; the `C_TradeSkillUI` alias check; each skill-line reader (global vs `C_SkillInfo`, plus
 the table's keys); a full dump of every skill line (index, name, isHeader, isExpanded, skill/max,
@@ -401,7 +443,9 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 
 - `/gaarvanguard` or `/gaarvg` — open the in-game Vanguard view (the synced goals/instances)
 - `/gaarvanguard view` — same as above, explicitly
-- `/gaarvanguard export` — the VGD1 chars string
+- `/gaarvanguard export` — full VGD1 `chars` string for **this character** (the primary export)
+- `/gaarvanguard exportall` (alias `syncall`) — lightweight VGD1 `chars` string for **all stored
+  characters**, identity fields only
 - `/gaarvanguard import` — paste the website's sync string (opens the view on success)
 - `/gaarvanguard capture` — recapture the current character now
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)

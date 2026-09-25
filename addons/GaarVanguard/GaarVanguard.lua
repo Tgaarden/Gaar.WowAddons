@@ -32,21 +32,18 @@
     Select all (ctrl-A), copy (ctrl-C) and paste into the website. The website is the counterpart
     to this addon.
 
-  The import + view (Phase 2)
-    The website hands back its own VGD1:<base64 JSON> with { k = "sync", ... } - the player's
-    Vanguards, their goals, a members/readiness summary and the player's character->goal
-    mapping. The Import box base64-decodes and JSON-decodes the string, stores the result under
-    GaarVanguardDB.sync, prints a short summary, and opens the read-only Vanguard view. That
-    view (/gaarvanguard, or the "Open Vanguard view" button) renders the stored sync in a
-    movable, closable, scrollable window: your Vanguards, each goal's title/status/instance and
-    which of your characters it applies to, an instance/readiness summary, and the per-character
-    mapping. It writes nothing and shows an empty-state prompt until a sync has been imported.
+  Export-only
+    This addon only EXPORTS. It never imports: everything you do with the data - your Vanguards,
+    goals, readiness and character->goal mapping - happens on the Vanguard website. The in-game
+    Vanguard view (/gaarvanguard, or the "Open Vanguard view" button) remains as a movable,
+    closable, scrollable window that renders GaarVanguardDB.sync when present, but the addon no
+    longer writes it, so it shows an export-only prompt pointing you at the website.
 
   Everything that reads the game API is wrapped in pcall so a call that is missing or shaped
   differently on one client degrades to "not captured" instead of erroring. The base64 and JSON
-  codecs are self-contained here - no external libraries.
+  encoders are self-contained here - no external libraries.
 
-  /gaarvanguard opens the Vanguard view (subcommands: export, exportall, import, capture, probe,
+  /gaarvanguard opens the Vanguard view (subcommands: export, exportall, capture, probe,
   config, wipe). Settings under Gaar -> Vanguard.
 ]]
 
@@ -78,7 +75,7 @@ local function DB()
     local d = GaarVanguardDB
     if d.chars == nil then d.chars = {} end       -- ["Name-Realm"] = character record
     if d.maxLoot == nil then d.maxLoot = 100 end  -- per-character loot rows kept
-    -- d.sync is set by the import box; left nil until then.
+    -- d.sync is legacy (was set by the removed import box); the addon no longer writes it.
     return d
 end
 
@@ -91,7 +88,7 @@ local ME, REALM, CHARKEY = nil, nil, nil
 -- client exposes and keep the most COMPLETE answer - the value that actually carries a surname (a
 -- space) - never inventing one: every candidate is a verbatim API return. The realm is captured
 -- separately (GetRealmName), so any "-Realm" suffix an API appends is stripped here. The name is the
--- character's identity key for the website import, so both exports depend on getting it right.
+-- character's identity key on the website, so both exports depend on getting it right.
 -- `/gaarvanguard probe` dumps each raw API return so we can confirm which one carries the full name.
 local function pcall1(fn, ...)   -- first return value of fn, or nil if it errors or is missing
     if type(fn) ~= "function" then return nil end
@@ -190,22 +187,6 @@ local function Base64Encode(data)
     end) .. pad
 end
 
-local function Base64Decode(data)
-    if type(data) ~= "string" then return "" end
-    data = data:gsub("[^" .. "A-Za-z0-9+/=" .. "]", "")
-    return (data:gsub("=", ""):gsub(".", function(x)
-        local f = (string.find(B64, x, 1, true) or 1) - 1
-        local r = ""
-        for i = 6, 1, -1 do r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and "1" or "0") end
-        return r
-    end):gsub("%d%d%d?%d?%d?%d?%d?%d?", function(x)
-        if #x ~= 8 then return "" end
-        local c = 0
-        for i = 1, 8 do c = c + (x:sub(i, i) == "1" and 2 ^ (8 - i) or 0) end
-        return string.char(c)
-    end))
-end
-
 -- ---------------------------------------------------------------------------
 -- JSON encode (self-contained)
 -- ---------------------------------------------------------------------------
@@ -268,129 +249,6 @@ JsonEncode = function(v)
 end
 
 -- ---------------------------------------------------------------------------
--- JSON decode (self-contained, recursive descent). Returns value, or nil + message.
--- ---------------------------------------------------------------------------
-local function JsonDecode(s)
-    if type(s) ~= "string" then return nil, "not a string" end
-    local i, n = 1, #s
-    local DecodeValue
-
-    local function Err(msg) error(msg, 0) end
-
-    local function Skip()
-        while i <= n do
-            local c = string.sub(s, i, i)
-            if c == " " or c == "\t" or c == "\n" or c == "\r" then i = i + 1 else break end
-        end
-    end
-
-    local function DecodeString()
-        i = i + 1 -- past opening quote
-        local buf = {}
-        while i <= n do
-            local c = string.sub(s, i, i)
-            if c == '"' then i = i + 1; return table.concat(buf) end
-            if c == "\\" then
-                local e = string.sub(s, i + 1, i + 1)
-                if e == "n" then buf[#buf + 1] = "\n"
-                elseif e == "t" then buf[#buf + 1] = "\t"
-                elseif e == "r" then buf[#buf + 1] = "\r"
-                elseif e == "b" then buf[#buf + 1] = "\b"
-                elseif e == "f" then buf[#buf + 1] = "\f"
-                elseif e == "/" then buf[#buf + 1] = "/"
-                elseif e == "\\" then buf[#buf + 1] = "\\"
-                elseif e == '"' then buf[#buf + 1] = '"'
-                elseif e == "u" then
-                    local code = tonumber(string.sub(s, i + 2, i + 5), 16) or 0
-                    if code < 0x80 then
-                        buf[#buf + 1] = string.char(code)
-                    elseif code < 0x800 then
-                        buf[#buf + 1] = string.char(0xC0 + math.floor(code / 0x40), 0x80 + code % 0x40)
-                    else
-                        buf[#buf + 1] = string.char(0xE0 + math.floor(code / 0x1000),
-                            0x80 + math.floor(code / 0x40) % 0x40, 0x80 + code % 0x40)
-                    end
-                    i = i + 4
-                else
-                    buf[#buf + 1] = e
-                end
-                i = i + 2
-            else
-                buf[#buf + 1] = c
-                i = i + 1
-            end
-        end
-        Err("unterminated string")
-    end
-
-    local function DecodeNumber()
-        local start = i
-        while i <= n do
-            local c = string.sub(s, i, i)
-            if string.find(c, "[%d%+%-%.eE]") then i = i + 1 else break end
-        end
-        local num = tonumber(string.sub(s, start, i - 1))
-        if not num then Err("bad number") end
-        return num
-    end
-
-    DecodeValue = function()
-        Skip()
-        local c = string.sub(s, i, i)
-        if c == '"' then
-            return DecodeString()
-        elseif c == "{" then
-            i = i + 1
-            local obj = {}
-            Skip()
-            if string.sub(s, i, i) == "}" then i = i + 1; return obj end
-            while true do
-                Skip()
-                if string.sub(s, i, i) ~= '"' then Err("expected key") end
-                local k = DecodeString()
-                Skip()
-                if string.sub(s, i, i) ~= ":" then Err("expected colon") end
-                i = i + 1
-                obj[k] = DecodeValue()
-                Skip()
-                local d = string.sub(s, i, i)
-                if d == "," then i = i + 1
-                elseif d == "}" then i = i + 1; return obj
-                else Err("expected , or }") end
-            end
-        elseif c == "[" then
-            i = i + 1
-            local arr = {}
-            Skip()
-            if string.sub(s, i, i) == "]" then i = i + 1; return arr end
-            while true do
-                arr[#arr + 1] = DecodeValue()
-                Skip()
-                local d = string.sub(s, i, i)
-                if d == "," then i = i + 1
-                elseif d == "]" then i = i + 1; return arr
-                else Err("expected , or ]") end
-            end
-        elseif c == "t" then
-            if string.sub(s, i, i + 3) == "true" then i = i + 4; return true end
-            Err("bad literal")
-        elseif c == "f" then
-            if string.sub(s, i, i + 4) == "false" then i = i + 5; return false end
-            Err("bad literal")
-        elseif c == "n" then
-            if string.sub(s, i, i + 3) == "null" then i = i + 4; return nil end
-            Err("bad literal")
-        else
-            return DecodeNumber()
-        end
-    end
-
-    local ok, res = pcall(DecodeValue)
-    if not ok then return nil, res end
-    return res
-end
-
--- ---------------------------------------------------------------------------
 -- Character capture. Every reader is guarded so a missing or reshaped API on one client is a
 -- blank field rather than an error.
 -- ---------------------------------------------------------------------------
@@ -402,7 +260,10 @@ end
 
 local function CaptureIdentity(c)
     Identify()
-    c.name = ME or c.name
+    -- Always store the FULL "First Last" name (same helper the per-character export uses), so the
+    -- stored record - and therefore the lightweight exportall/syncall roster - never holds a bare
+    -- first name.
+    c.name = FullPlayerName() or ME or c.name
     c.realm = REALM or c.realm
     local raceName = safe(UnitRace, "player")
     c.race = raceName or c.race
@@ -1676,17 +1537,23 @@ end
 -- the heavy data one character at a time. Same VGD1 "chars" contract, just minimal elements.
 local function BuildExportStringAll()
     safe(CaptureAll)   -- refresh the current character so its identity row is up to date in the pool
+    local liveName = FullPlayerName()   -- live full "First Last" for the logged-in character
     local chars = {}
-    for _, c in pairs(DB().chars) do chars[#chars + 1] = MinimalChar(c) end
+    for key, c in pairs(DB().chars) do
+        local m = MinimalChar(c)
+        -- The logged-in character always exports under its live full name, even if an older stored
+        -- record still holds a short first-name-only value.
+        if key == CHARKEY and liveName then m.name = liveName end
+        chars[#chars + 1] = m
+    end
     local payload = { k = "chars", chars = chars }
     return PREFIX .. Base64Encode(JsonEncode(payload))
 end
 
 -- ---------------------------------------------------------------------------
--- A reusable copy/paste box, modelled on GaarLooter's export frame. `editable` decides whether
--- it is a read-out (export) or a paste target (import).
+-- A reusable read-out box for copying an export string out, modelled on GaarLooter's export frame.
 -- ---------------------------------------------------------------------------
-local function MakeBox(name, title, editable)
+local function MakeBox(name, title)
     local f = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     f:SetSize(560, 380); f:SetPoint("CENTER")
     f:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
@@ -1707,7 +1574,7 @@ local function MakeBox(name, title, editable)
     close:SetScript("OnClick", function() f:Hide() end)
 
     local scroll = CreateFrame("ScrollFrame", name .. "Scroll", f, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 12, -38); scroll:SetPoint("BOTTOMRIGHT", -32, editable and 62 or 12)
+    scroll:SetPoint("TOPLEFT", 12, -38); scroll:SetPoint("BOTTOMRIGHT", -32, 12)
 
     local box = CreateFrame("EditBox", nil, scroll)
     box:SetMultiLine(true); box:SetAutoFocus(false)
@@ -1716,14 +1583,6 @@ local function MakeBox(name, title, editable)
     box:SetScript("OnEscapePressed", function() f:Hide() end)
     scroll:SetScrollChild(box)
     f.box = box
-
-    if editable then
-        local status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        status:SetPoint("BOTTOMLEFT", 14, 14); status:SetPoint("BOTTOMRIGHT", -14, 14)
-        status:SetJustifyH("LEFT"); status:SetHeight(40)
-        status:SetText("|cff777777Paste the website's sync string, then Import.|r")
-        f.status = status
-    end
 
     f:Hide()
     return f
@@ -1736,7 +1595,7 @@ local exportFrame
 local function ShowExport()
     if not exportFrame then
         exportFrame = MakeBox("GaarVanguardExport",
-            "Export this character — ctrl-A, ctrl-C, paste into the website", false)
+            "Export this character — ctrl-A, ctrl-C, paste into the website")
     end
     exportFrame.box:SetText(BuildExportStringCurrent())
     exportFrame.box:HighlightText()
@@ -1750,7 +1609,7 @@ local exportAllFrame
 local function ShowExportAll()
     if not exportAllFrame then
         exportAllFrame = MakeBox("GaarVanguardExportAll",
-            "Sync all characters (identity only) — ctrl-A, ctrl-C, paste into the website", false)
+            "Sync all characters (identity only) — ctrl-A, ctrl-C, paste into the website")
     end
     exportAllFrame.box:SetText(BuildExportStringAll())
     exportAllFrame.box:HighlightText()
@@ -1760,8 +1619,8 @@ end
 _G.GaarVanguard_ShowExportAll = ShowExportAll
 
 -- ---------------------------------------------------------------------------
--- Phase 2: the in-game sync view (read-only). Renders GaarVanguardDB.sync - the
--- website -> addon document the Import box decoded - as a proper movable,
+-- The in-game sync view (read-only). Renders GaarVanguardDB.sync (legacy data from
+-- the removed import box) when present - as a proper movable,
 -- closable, scrollable window so a player sees, in game, what their Vanguard is
 -- aiming for: their Vanguard(s), the goals + status + linked instance, an
 -- instance / readiness summary, and which of their characters each goal applies
@@ -1845,11 +1704,11 @@ local function RenderView()
 
     -- Empty state: no usable sync yet.
     if type(sync) ~= "table" or sync.k ~= "sync" then
-        ViewLine(content, state, "No Vanguard data yet.", HEADCOL, 8, true)
+        ViewLine(content, state, "Vanguard is on the website.", HEADCOL, 8, true)
         ViewLine(content, state,
-            "Open the Vanguard website's Addon sync page, click Export, and copy the VGD1 code. " ..
-            "Then open GaarVanguard's Import box (/gaarvanguard import), paste it, and click Import. " ..
-            "This view fills in the moment you do.", MUTE, 8, false)
+            "This addon is export-only. Use \"Export this char\" or \"Sync all (identity)\" " ..
+            "(/gaarvanguard export or exportall), copy the VGD1 code, and paste it into the " ..
+            "Vanguard website. View and manage your Vanguards, goals and readiness there.", MUTE, 8, false)
         for j = state.i + 1, #viewPool do if viewPool[j] then viewPool[j]:Hide() end end
         content:SetHeight(math.max(1, -state.y + 8))
         return
@@ -1987,13 +1846,9 @@ local function BuildView()
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetSize(26, 26); closeBtn:SetPoint("TOPRIGHT", -4, -4)
 
-    -- Toolbar: quick access to the two copy/paste boxes without leaving the view.
-    local importBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    importBtn:SetSize(70, 20); importBtn:SetPoint("TOPRIGHT", -34, -33); importBtn:SetText("Import")
-    importBtn:SetScript("OnClick", function() if _G.GaarVanguard_ShowImport then _G.GaarVanguard_ShowImport() end end)
-
+    -- Toolbar: quick access to the export box without leaving the view.
     local exportBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    exportBtn:SetSize(70, 20); exportBtn:SetPoint("TOPRIGHT", importBtn, "TOPLEFT", -6, 0); exportBtn:SetText("Export")
+    exportBtn:SetSize(70, 20); exportBtn:SetPoint("TOPRIGHT", -34, -33); exportBtn:SetText("Export")
     exportBtn:SetScript("OnClick", function() if _G.GaarVanguard_ShowExport then _G.GaarVanguard_ShowExport() end end)
 
     local scroll = CreateFrame("ScrollFrame", "GaarVanguardViewScroll", f, "UIPanelScrollFrameTemplate")
@@ -2030,79 +1885,6 @@ local function ShowView()
     RenderView()
 end
 _G.GaarVanguard_ShowView = ShowView
-
--- ---------------------------------------------------------------------------
--- Import box (stub): parse a VGD1 sync string, store it, summarise it.
--- ---------------------------------------------------------------------------
-local function ParseSync(str)
-    str = tostring(str or "")
-    str = string.gsub(str, "%s+", "")
-    if str == "" then return nil, "nothing pasted" end
-    if string.sub(str, 1, #PREFIX) == PREFIX then str = string.sub(str, #PREFIX + 1) end
-    local json = Base64Decode(str)
-    if not json or json == "" then return nil, "could not base64-decode" end
-    local data, derr = JsonDecode(json)
-    if not data then return nil, "could not parse JSON: " .. tostring(derr) end
-    return data
-end
-
--- A short human summary of a decoded sync document, used by the import box and chat.
-local function SummariseSync(data)
-    local lines = {}
-    if type(data) ~= "table" then return "Decoded, but not an object." end
-    lines[#lines + 1] = "Kind: " .. tostring(data.k or "?")
-    local function listNames(label, list)
-        if type(list) ~= "table" then return end
-        local names = {}
-        for _, item in ipairs(list) do
-            if type(item) == "table" then
-                names[#names + 1] = tostring(item.title or item.name or item.id or "?")
-            else
-                names[#names + 1] = tostring(item)
-            end
-        end
-        lines[#lines + 1] = string.format("%s (%d): %s", label, #names,
-            #names > 0 and table.concat(names, ", ") or "-")
-    end
-    listNames("Vanguards", data.vanguards)
-    listNames("Goals", data.goals)
-    listNames("Instances", data.instances)
-    if data.mapping ~= nil then
-        local n = 0
-        if type(data.mapping) == "table" then for _ in pairs(data.mapping) do n = n + 1 end end
-        lines[#lines + 1] = "Mapping entries: " .. n
-    end
-    return table.concat(lines, "\n")
-end
-
-local importFrame
-local function ShowImport()
-    if not importFrame then
-        importFrame = MakeBox("GaarVanguardImport", "Import — paste the website's sync string", true)
-        local btn = CreateFrame("Button", nil, importFrame, "UIPanelButtonTemplate")
-        btn:SetSize(80, 22); btn:SetPoint("BOTTOMRIGHT", -14, 12); btn:SetText("Import")
-        btn:SetScript("OnClick", function()
-            local data, err = ParseSync(importFrame.box:GetText())
-            if not data then
-                importFrame.status:SetText("|cffff6666Failed: " .. tostring(err) .. "|r")
-                return
-            end
-            DB().sync = data
-            local summary = SummariseSync(data)
-            importFrame.status:SetText("|cff40ff40Stored under GaarVanguardDB.sync|r\n" .. summary)
-            print("|cff5599ff" .. ADDON .. ":|r imported sync string.")
-            for line in string.gmatch(summary, "[^\n]+") do print("  " .. line) end
-            -- Phase 2: open/refresh the read-only view so the pasted data is
-            -- visible immediately.
-            if _G.GaarVanguard_ShowView then pcall(_G.GaarVanguard_ShowView) end
-        end)
-    end
-    importFrame.box:SetText("")
-    importFrame.status:SetText("|cff777777Paste the website's sync string, then Import.|r")
-    importFrame:Show()
-    importFrame.box:SetFocus()
-end
-_G.GaarVanguard_ShowImport = ShowImport
 
 -- ---------------------------------------------------------------------------
 -- Profession probe: /gaarvanguard probe
@@ -2979,12 +2761,6 @@ function GaarVanguard_BuildOptions(container)
     exportAllBtn:SetScript("OnClick", ShowExportAll)
     y = y - 34
 
-    local importBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
-    importBtn:SetSize(160, 24); importBtn:SetPoint("TOPLEFT", 16, y)
-    importBtn:SetText("Open import")
-    importBtn:SetScript("OnClick", ShowImport)
-    y = y - 34
-
     local recapBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
     recapBtn:SetSize(160, 24); recapBtn:SetPoint("TOPLEFT", 16, y)
     recapBtn:SetText("Recapture now")
@@ -3011,7 +2787,7 @@ function GaarVanguard_BuildOptions(container)
 
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 18, y); hint:SetWidth(360); hint:SetJustifyH("LEFT")
-    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. \"Export this char\" makes a full, reliable VGD1 string for the current character (all its data) - this is the primary export. \"Sync all (identity)\" makes a short VGD1 string listing every stored character with identity fields only, to populate the account pool. Both paste into the Vanguard website; Import parses the website's sync string back. The Vanguard view (also /gaarvanguard) shows that synced data in game: your Vanguards, their goals and status, the instance/readiness summary, and which of your characters each goal applies to.")
+    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. \"Export this char\" makes a full, reliable VGD1 string for the current character (all its data) - this is the primary export. \"Sync all (identity)\" makes a short VGD1 string listing every stored character with identity fields only, to populate the account pool. Both paste into the Vanguard website. This addon is export-only: view and manage your Vanguards, goals and readiness on the website.")
     y = y - 90
 
     container.gaarRefresh = refreshCount
@@ -3032,7 +2808,6 @@ local function Usage()
     print("  |cffffd100/gaarvanguard|r or |cffffd100/gaarvg|r — open the in-game Vanguard view (synced goals/instances)")
     print("  |cffffd100/gaarvanguard export|r — full VGD1 string for THIS character (the reliable, primary export)")
     print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
-    print("  |cffffd100/gaarvanguard import|r — paste the website's sync string back")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
     print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
     print("  |cffffd100/gaarvanguard config|r — settings under Gaar -> Vanguard")
@@ -3049,8 +2824,6 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
         ShowExport()
     elseif msg == "exportall" or msg == "syncall" then
         ShowExportAll()
-    elseif msg == "import" then
-        ShowImport()
     elseif msg == "capture" or msg == "refresh" then
         pcall(CaptureAll)
         local c = CurrentChar()

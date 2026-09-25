@@ -19,14 +19,18 @@
       100 rows per character so the export stays small. This is captured independently - the
       GaarLooter addon does not need to be installed.
 
-  The export
-    /gaarvanguard (or the Export button) opens a box holding
-
-        VGD1:<base64 of a JSON document>
-
-    where the JSON is { k = "chars", chars = [ <every account character, with its fields and
-    loot> ] }. Select all (ctrl-A), copy (ctrl-C) and paste it into the website's
-    "Import everything". The website is the counterpart to this addon.
+  The exports (two, both emit VGD1:<base64 of a JSON document> with k = "chars")
+    * /gaarvanguard export (the Export button) - the PRIMARY, reliable flow. A box holding
+          VGD1:<base64 JSON> where JSON is { k = "chars", chars = [ <ONE char: the current
+          character, fully scanned live - name, realm, race, class, faction, level, spec,
+          professions, equipment, loot and the full talent trees> ] }. One character makes a
+          short string that survives the copy out of the in-game EditBox.
+    * /gaarvanguard exportall (the "Sync all" button) - a LIGHTWEIGHT skeleton. The same
+          { k = "chars", chars = [...] } but with EVERY stored character and IDENTITY FIELDS ONLY
+          (name, realm, race, class, classFile, faction, level, spec) - no professions/equipment/
+          loot/talents - so the whole account fits in one short string that populates the pool.
+    Select all (ctrl-A), copy (ctrl-C) and paste into the website. The website is the counterpart
+    to this addon.
 
   The import + view (Phase 2)
     The website hands back its own VGD1:<base64 JSON> with { k = "sync", ... } - the player's
@@ -42,8 +46,8 @@
   differently on one client degrades to "not captured" instead of erroring. The base64 and JSON
   codecs are self-contained here - no external libraries.
 
-  /gaarvanguard opens the Vanguard view (subcommands: export, import, capture, probe, config,
-  wipe). Settings under Gaar -> Vanguard.
+  /gaarvanguard opens the Vanguard view (subcommands: export, exportall, import, capture, probe,
+  config, wipe). Settings under Gaar -> Vanguard.
 ]]
 
 local _G = _G
@@ -81,8 +85,72 @@ end
 -- Who we are this session. The database is account-wide, so every write is attributed to the
 -- character currently logged in via this key.
 local ME, REALM, CHARKEY = nil, nil, nil
+
+-- Full character name. WoW Forever names are "Firstname Lastname", but UnitName("player") has been
+-- seen to hand back only the first name ("Mag" instead of "Mag Tics"). So we ask every name API the
+-- client exposes and keep the most COMPLETE answer - the value that actually carries a surname (a
+-- space) - never inventing one: every candidate is a verbatim API return. The realm is captured
+-- separately (GetRealmName), so any "-Realm" suffix an API appends is stripped here. The name is the
+-- character's identity key for the website import, so both exports depend on getting it right.
+-- `/gaarvanguard probe` dumps each raw API return so we can confirm which one carries the full name.
+local function pcall1(fn, ...)   -- first return value of fn, or nil if it errors or is missing
+    if type(fn) ~= "function" then return nil end
+    local ok, a = pcall(fn, ...)
+    if ok then return a end
+    return nil
+end
+
+local function StripRealm(n)
+    if type(n) ~= "string" then return nil end
+    n = n:match("^%s*(.-)%s*$")   -- trim surrounding whitespace
+    n = n:gsub("%-.*$", "")       -- drop a "-Realm" suffix (names never contain a hyphen)
+    if n == "" or n == "Unknown" then return nil end
+    return n
+end
+
+local function FullPlayerName()
+    local realm = pcall1(GetRealmName) or ""
+    local list, seen = {}, {}
+    local function add(v)
+        v = StripRealm(v)
+        if v and not seen[v] then seen[v] = true; list[#list + 1] = v end
+    end
+
+    -- UnitName("player") -> name, realm (for the player the 2nd return is normally the realm or "").
+    local ok, n1, n2 = pcall(function() return UnitName("player") end)
+    if ok then
+        add(n1)
+        -- Forever's surname system may return the surname as UnitName's 2nd value instead of the
+        -- realm; combine only when that value is a plain word that is not the realm, so a normal
+        -- client (2nd return = realm or empty) is left untouched.
+        if type(n1) == "string" and type(n2) == "string" and n2 ~= "" and n2 ~= realm
+           and not n2:find("-") and not n2:find(" ") then
+            add(n1 .. " " .. n2)
+        end
+    end
+    -- GetUnitName(unit, true) -> "Name" on the player's own realm, "Name-Realm" cross-realm.
+    add(pcall1(function() return GetUnitName and GetUnitName("player", true) end))
+    -- UnitFullName("player") -> name, realm (name only).
+    add(pcall1(function() return UnitFullName and UnitFullName("player") end))
+
+    -- Pick the most complete: prefer a candidate that carries a surname (a space); among equals the
+    -- longest string wins. Falls back to the first (UnitName) candidate when none carry a surname.
+    local best
+    for _, v in ipairs(list) do
+        local vSpace = v:find(" ") ~= nil
+        if not best then
+            best = v
+        else
+            local bSpace = best:find(" ") ~= nil
+            if vSpace and not bSpace then best = v
+            elseif vSpace == bSpace and #v > #best then best = v end
+        end
+    end
+    return best
+end
+
 local function Identify()
-    ME = (UnitName and UnitName("player")) or ME
+    ME = FullPlayerName() or ME
     REALM = (GetRealmName and GetRealmName()) or REALM or "?"
     if ME then CHARKEY = ME .. "-" .. REALM end
 end
@@ -1512,13 +1580,20 @@ local function CanonicalChar(c)
                 }
                 if type(tabRec.talents) == "table" then
                     for _, t in ipairs(tabRec.talents) do
-                        tabOut.talents[#tabOut.talents + 1] = {
+                        local nodeOut = {
                             name = t.name,
                             rank = tonumber(t.rank) or 0,
                             max = tonumber(t.max) or 0,
                             tier = tonumber(t.tier) or 0,
                             col = tonumber(t.col) or 0,
                         }
+                        -- icon/spellId are additive: the Forever calculator scan resolves them, the
+                        -- Era classic route does not. Carried through only when present so the website
+                        -- gets the full node (icon + Wowhead-keyable spellId) and an older/Era record
+                        -- still exports cleanly.
+                        if t.icon ~= nil then nodeOut.icon = t.icon end
+                        if t.spellId ~= nil then nodeOut.spellId = t.spellId end
+                        tabOut.talents[#tabOut.talents + 1] = nodeOut
                     end
                 end
                 -- Edges are additive: carried through only when present, projected to the canonical
@@ -1564,14 +1639,45 @@ local function CanonicalChar(c)
     return out
 end
 
-local function BuildExportString()
-    -- Fresh full scan of the CURRENT character right now, before building the string. The beta
-    -- does not persist SavedVariables and equipment events may not have fired, so we never trust
-    -- cached data for the live character - we re-read level/class/guild/spec/professions and
-    -- loop the equip slots live here.
+-- Identity-only projection for the lightweight "sync all" export. Just the fields that identify a
+-- character in the account pool - no professions/equipment/loot/talents - so a whole account fits in
+-- one short, copy-safe string. Realm is kept because the website keys characters by Name-Realm.
+local function MinimalChar(c)
+    return {
+        name = c.name,
+        realm = c.realm,
+        race = c.race,
+        cls = c.cls or c.class,          -- canonical class (localized)
+        classFile = c.classFile,         -- locale-independent class token
+        faction = c.faction,
+        lvl = c.lvl or c.level,          -- canonical level (number)
+        spec = c.spec,
+    }
+end
+
+-- PRIMARY export: ONLY the current/logged-in character, fully scanned. This is the reliable flow -
+-- one character makes a short string that survives the copy out of the in-game EditBox, unlike the
+-- whole-account dump which truncated and lost talents/tail characters.
+--
+-- Fresh full scan right now, before building the string. The beta does not persist SavedVariables
+-- and equipment events may not have fired, so we never trust cached data for the live character - we
+-- re-read name/level/class/guild/spec/professions and loop the equip slots live here.
+local function BuildExportStringCurrent()
     safe(CaptureAll)
     local chars = {}
-    for _, c in pairs(DB().chars) do chars[#chars + 1] = CanonicalChar(c) end
+    local c = CurrentChar()
+    if c then chars[1] = CanonicalChar(c) end
+    local payload = { k = "chars", chars = chars }
+    return PREFIX .. Base64Encode(JsonEncode(payload))
+end
+
+-- LIGHTWEIGHT bulk export: every character the addon has stored across logins, IDENTITY FIELDS ONLY.
+-- A skeleton that populates the account pool on the website; the per-character full export fills in
+-- the heavy data one character at a time. Same VGD1 "chars" contract, just minimal elements.
+local function BuildExportStringAll()
+    safe(CaptureAll)   -- refresh the current character so its identity row is up to date in the pool
+    local chars = {}
+    for _, c in pairs(DB().chars) do chars[#chars + 1] = MinimalChar(c) end
     local payload = { k = "chars", chars = chars }
     return PREFIX .. Base64Encode(JsonEncode(payload))
 end
@@ -1629,14 +1735,29 @@ end
 local exportFrame
 local function ShowExport()
     if not exportFrame then
-        exportFrame = MakeBox("GaarVanguardExport", "Export — ctrl-A, ctrl-C, paste into the website", false)
+        exportFrame = MakeBox("GaarVanguardExport",
+            "Export this character — ctrl-A, ctrl-C, paste into the website", false)
     end
-    exportFrame.box:SetText(BuildExportString())
+    exportFrame.box:SetText(BuildExportStringCurrent())
     exportFrame.box:HighlightText()
     exportFrame:Show()
     exportFrame.box:SetFocus()
 end
 _G.GaarVanguard_ShowExport = ShowExport
+
+-- The lightweight "sync all" box: every stored character, identity fields only.
+local exportAllFrame
+local function ShowExportAll()
+    if not exportAllFrame then
+        exportAllFrame = MakeBox("GaarVanguardExportAll",
+            "Sync all characters (identity only) — ctrl-A, ctrl-C, paste into the website", false)
+    end
+    exportAllFrame.box:SetText(BuildExportStringAll())
+    exportAllFrame.box:HighlightText()
+    exportAllFrame:Show()
+    exportAllFrame.box:SetFocus()
+end
+_G.GaarVanguard_ShowExportAll = ShowExportAll
 
 -- ---------------------------------------------------------------------------
 -- Phase 2: the in-game sync view (read-only). Renders GaarVanguardDB.sync - the
@@ -2781,10 +2902,40 @@ local function ProbeTalentsLines()
     return L
 end
 
+-- Name probe: dump each name API's raw return so we can confirm which one carries the full
+-- "First Last" on Forever, and show what FullPlayerName() actually picked.
+local function ProbeNameLines()
+    local lines = {}
+    local function add(s) lines[#lines + 1] = s end
+    local function show(v) if v == nil then return "nil" else return "'" .. tostring(v) .. "'" end end
+    add("== GaarVanguard name probe ==")
+    local ok, n1, n2 = pcall(function() return UnitName("player") end)
+    if ok then
+        add("UnitName('player')            -> " .. show(n1) .. " , 2nd: " .. show(n2))
+    else
+        add("UnitName('player')            -> error")
+    end
+    add("GetUnitName('player', true)   -> " ..
+        show(pcall1(function() return GetUnitName and GetUnitName("player", true) end)))
+    local okf, f1, f2 = pcall(function() return UnitFullName("player") end)
+    if okf then
+        add("UnitFullName('player')        -> " .. show(f1) .. " , 2nd: " .. show(f2))
+    else
+        add("UnitFullName('player')        -> nil/error (API missing)")
+    end
+    add("GetRealmName()                -> " .. show(pcall1(GetRealmName)))
+    add("=> FullPlayerName() picked    -> " .. show(FullPlayerName()))
+    return lines
+end
+
 local probeFrame
 local function ShowProbe()
-    local lines = ProbeProfessionsLines()
-    -- Append the talent probe so one command dumps both, non-spammy.
+    -- Name probe first so the identity check is at the top of the dump.
+    local lines = ProbeNameLines()
+    local plines = ProbeProfessionsLines()
+    lines[#lines + 1] = ""
+    for _, l in ipairs(plines) do lines[#lines + 1] = l end
+    -- Append the talent probe so one command dumps all three, non-spammy.
     local tlines = ProbeTalentsLines()
     lines[#lines + 1] = ""
     for _, l in ipairs(tlines) do lines[#lines + 1] = l end
@@ -2819,11 +2970,17 @@ function GaarVanguard_BuildOptions(container)
 
     local exportBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
     exportBtn:SetSize(160, 24); exportBtn:SetPoint("TOPLEFT", 16, y)
-    exportBtn:SetText("Open export")
+    exportBtn:SetText("Export this char")
     exportBtn:SetScript("OnClick", ShowExport)
 
+    local exportAllBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
+    exportAllBtn:SetSize(160, 24); exportAllBtn:SetPoint("TOPLEFT", 184, y)
+    exportAllBtn:SetText("Sync all (identity)")
+    exportAllBtn:SetScript("OnClick", ShowExportAll)
+    y = y - 34
+
     local importBtn = CreateFrame("Button", nil, container, "UIPanelButtonTemplate")
-    importBtn:SetSize(160, 24); importBtn:SetPoint("TOPLEFT", 184, y)
+    importBtn:SetSize(160, 24); importBtn:SetPoint("TOPLEFT", 16, y)
     importBtn:SetText("Open import")
     importBtn:SetScript("OnClick", ShowImport)
     y = y - 34
@@ -2854,7 +3011,7 @@ function GaarVanguard_BuildOptions(container)
 
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 18, y); hint:SetWidth(360); hint:SetJustifyH("LEFT")
-    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. Export drops the whole account into a VGD1 string to paste into the Vanguard website; Import parses the website's sync string back. The Vanguard view (also /gaarvanguard) shows that synced data in game: your Vanguards, their goals and status, the instance/readiness summary, and which of your characters each goal applies to.")
+    hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. \"Export this char\" makes a full, reliable VGD1 string for the current character (all its data) - this is the primary export. \"Sync all (identity)\" makes a short VGD1 string listing every stored character with identity fields only, to populate the account pool. Both paste into the Vanguard website; Import parses the website's sync string back. The Vanguard view (also /gaarvanguard) shows that synced data in game: your Vanguards, their goals and status, the instance/readiness summary, and which of your characters each goal applies to.")
     y = y - 90
 
     container.gaarRefresh = refreshCount
@@ -2873,7 +3030,8 @@ _G.GaarVanguard_Config = OpenOptions
 local function Usage()
     print("|cff5599ff" .. ADDON .. "|r — commands:")
     print("  |cffffd100/gaarvanguard|r or |cffffd100/gaarvg|r — open the in-game Vanguard view (synced goals/instances)")
-    print("  |cffffd100/gaarvanguard export|r — the VGD1 string to paste into the website")
+    print("  |cffffd100/gaarvanguard export|r — full VGD1 string for THIS character (the reliable, primary export)")
+    print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
     print("  |cffffd100/gaarvanguard import|r — paste the website's sync string back")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
     print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
@@ -2889,6 +3047,8 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
         ShowView()
     elseif msg == "export" then
         ShowExport()
+    elseif msg == "exportall" or msg == "syncall" then
+        ShowExportAll()
     elseif msg == "import" then
         ShowImport()
     elseif msg == "capture" or msg == "refresh" then

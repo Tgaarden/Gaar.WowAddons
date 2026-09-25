@@ -1,0 +1,44 @@
+name: Release GaarVanguard addon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "addons/GaarVanguard/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build GaarVanguard.zip
+        run: |
+          set -euo pipefail
+          rm -rf staging
+          mkdir -p staging/GaarVanguard
+          cp -R addons/GaarVanguard/. staging/GaarVanguard/
+          (cd staging && zip -r ../GaarVanguard.zip GaarVanguard)
+          echo "--- archive contents ---"
+          unzip -l GaarVanguard.zip
+
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: addon-latest
+          make_latest: true
+          draft: false
+          prerelease: false
+          name: GaarVanguard (latest)
+          body: >
+            Rolling latest build of the GaarVanguard addon.
+            Direct download: GaarVanguard.zip. Unzip into your
+            Interface/AddOns/ folder.
+          files: GaarVanguard.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

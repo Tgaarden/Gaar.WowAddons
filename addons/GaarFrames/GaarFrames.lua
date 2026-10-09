@@ -27,6 +27,8 @@
 ]]
 
 local _G = _G
+-- The folder name the client loaded this under, which is what ADDON_LOADED reports.
+local ADDON_NAME = ... or "GaarFrames"
 
 local function DB()
     if type(GaarFramesDB) ~= "table" then GaarFramesDB = {} end
@@ -409,19 +411,41 @@ end
 -- through a different path (target swap, vehicle art, and so on).
 -- Not installed at all where this addon is inactive: a hook that touches a Blizzard unit frame
 -- is itself the taint, so it must not be in the call chain rather than merely return early.
-if Active() and type(UnitFrameHealthBar_Update) == "function" then
-    hooksecurefunc("UnitFrameHealthBar_Update", function(bar, unit)
-        ApplyHealthColor(bar, unit)
-    end)
+local hooked = false
+local function InstallHooks()
+    if hooked then return end
+    hooked = true
+    if type(UnitFrameHealthBar_Update) == "function" then
+        hooksecurefunc("UnitFrameHealthBar_Update", function(bar, unit)
+            ApplyHealthColor(bar, unit)
+        end)
+    end
+    if type(HealthBar_OnValueChanged) == "function" then
+        hooksecurefunc("HealthBar_OnValueChanged", function(bar)
+            if bar then ApplyHealthColor(bar, bar.unit) end
+        end)
+    end
+    if type(UnitFrame_Update) == "function" then
+        hooksecurefunc("UnitFrame_Update", function(frame)
+            if frame and frame.healthbar then ApplyHealthColor(frame.healthbar, frame.unit) end
+        end)
+    end
 end
-if Active() and type(HealthBar_OnValueChanged) == "function" then
-    hooksecurefunc("HealthBar_OnValueChanged", function(bar)
-        if bar then ApplyHealthColor(bar, bar.unit) end
-    end)
-end
-if Active() and type(UnitFrame_Update) == "function" then
-    hooksecurefunc("UnitFrame_Update", function(frame)
-        if frame and frame.healthbar then ApplyHealthColor(frame.healthbar, frame.unit) end
+
+-- Active() reads allowOnRetail, a saved setting, and the client only hands the saved table over
+-- after this file has run and before ADDON_LOADED. Asked at file scope it always saw the default
+-- false, so on retail and Forever a saved true turned the driver on but never these hooks. On
+-- every other client Active() is true at load whatever is saved, so the hooks go in straight away
+-- as before; on retail and Forever the decision waits for ADDON_LOADED.
+if not IsRetailOrForever() then
+    InstallHooks()
+else
+    local loader = CreateFrame("Frame")
+    loader:RegisterEvent("ADDON_LOADED")
+    loader:SetScript("OnEvent", function(self, _, arg1)
+        if arg1 ~= ADDON_NAME then return end
+        self:UnregisterEvent("ADDON_LOADED")
+        if Active() then InstallHooks() end
     end)
 end
 

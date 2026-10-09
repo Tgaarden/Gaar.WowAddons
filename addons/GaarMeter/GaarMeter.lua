@@ -30,6 +30,8 @@
 
 local _G = _G
 local ADDON = "Gaar Meter"
+-- The folder name the client loaded this under, which is what ADDON_LOADED reports.
+local ADDON_NAME = ... or "GaarMeter"
 
 local MODES = {
     { key = "damage",     label = "Damage done",  short = "DPS",   perSec = true },
@@ -368,10 +370,19 @@ end
 -- ---------------------------------------------------------------------------
 local Redraw
 local frame = CreateFrame("Frame", "GaarMeterFrame", UIParent, "BackdropTemplate")
-local db0 = DB()
-frame:SetSize(db0.width, db0.height)
-if db0.point then frame:SetPoint(db0.point, UIParent, db0.point, db0.x or 0, db0.y or 0)
-else frame:SetPoint("CENTER", 300, 0) end
+
+-- Position and size come from the saved table, which the client only hands over after this file
+-- has run and before ADDON_LOADED. Read here at file scope, DB() still holds the defaults, so the
+-- saved place and size were never used. The frame is laid out with the defaults now, so it is
+-- never without a size or anchor, and laid out again from the saved values at ADDON_LOADED.
+local function ApplyLayout()
+    local d = DB()
+    frame:SetSize(d.width, d.height)
+    frame:ClearAllPoints()
+    if d.point then frame:SetPoint(d.point, UIParent, d.point, d.x or 0, d.y or 0)
+    else frame:SetPoint("CENTER", 300, 0) end
+end
+ApplyLayout()
 frame:SetMovable(true); frame:SetResizable(true); frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 if frame.SetResizeBounds then frame:SetResizeBounds(170, 90, 560, 760)
@@ -796,12 +807,19 @@ end
 local HAS_CLEU_GETTER = (_G.C_CombatLog and type(_G.C_CombatLog.GetCurrentEventInfo) == "function")
     or (type(CombatLogGetCurrentEventInfo) == "function")
 
+frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-frame:SetScript("OnEvent", function(_, event, ...)
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+frame:SetScript("OnEvent", function(self, event, ...)
+    if event == "ADDON_LOADED" then
+        -- The saved variables are in place now: put the window where it was left.
+        if ... == ADDON_NAME then
+            self:UnregisterEvent("ADDON_LOADED")
+            ApplyLayout()
+        end
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         if HAS_CLEU_GETTER then Parse(CombatLogInfo()) else ParseLegacy(...) end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if not cur then cur = NewSeg("Current fight") end

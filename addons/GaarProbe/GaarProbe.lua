@@ -120,7 +120,14 @@ local NAMESPACES = {
     C_AddOns      = { "IsAddOnLoaded", "GetAddOnMetadata", "LoadAddOn", "EnableAddOn" },
     C_Container   = { "GetContainerNumSlots", "GetContainerItemInfo", "GetContainerItemLink",
                       "GetContainerNumFreeSlots", "GetContainerItemCooldown",
-                      "GetContainerItemQuestInfo", "ContainerIDToInventoryID", "UseContainerItem" },
+                      "GetContainerItemQuestInfo", "ContainerIDToInventoryID", "UseContainerItem",
+                      -- GaarBags' native sort and the per-bag flags it offers, read out of the
+                      -- Forever 70291 binary; the probe confirms they are callable from Lua
+                      "SortBags", "SortBank", "SortBankBags", "SortAccountBankBags",
+                      "GetSortBagsRightToLeft", "GetInsertItemsLeftToRight", "GetBagSlotFlag",
+                      "GetBackpackAutosortDisabled", "GetBackpackSellJunkDisabled" },
+    -- GaarBags' "Sell junk" uses the client's own junk sale where this namespace has it.
+    C_MerchantFrame = { "GetNumJunkItems", "IsSellAllJunkEnabled", "SellAllJunkItems" },
     C_Item        = { "GetItemInfo", "GetItemInfoInstant", "GetItemQualityColor", "IsItemDataCachedByID",
                       "RequestLoadItemDataByID" },
     C_Spell       = { "GetSpellInfo", "GetSpellTexture", "GetSpellName", "GetSpellCooldown",

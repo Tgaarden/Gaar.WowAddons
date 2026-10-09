@@ -499,7 +499,10 @@ to treat it as retail. By 70245 it reports 18, and the 70291 probe reads:
 So Forever no longer counts as retail. A plain `WOW_PROJECT_ID == WOW_PROJECT_MAINLINE` check is now
 false on Forever, and every check of that kind silently started treating it as Classic Era again:
 
-- `GaarBags`: the tidy button went back to Blizzard's `SortBags`, which has crashed this client.
+- `GaarBags`: the tidy button went back to Blizzard's `SortBags`. At the time that was kept off
+  retail-shaped clients because it had taken a client down - but see "Native bag sort and junk
+  selling" below: that was real retail 12.1, not Forever, and most likely a hang in `GaarBags`
+  itself rather than the sort.
 - `GaarCC`: the `SetCooldown` hook went back inside Blizzard's cooldown path.
 - `GaarFrames`: the addon went active and tainted the unit frames until it saw a secret value.
 
@@ -576,3 +579,45 @@ what the suite uses; the frames are the retail ones (`PlayerFrame.healthbar`,
 `SetResizeBounds` present. The return shapes worth knowing are all tables:
 `C_Container.GetContainerItemInfo`, `C_Minimap.GetTrackingInfo`, `C_UnitAuras.GetAuraDataByIndex`,
 `C_SpellBook.GetSpellBookSkillLineInfo` and `C_SpellBook.GetSpellBookItemInfo`.
+
+# Native bag sort and junk selling
+
+The "sort crashed the client" that kept `GaarBags` on its own cleanup (commit `d58fd3c`,
+2026-09-17) happened on **real retail 12.1**, not on Forever, and was most likely a hang rather than
+a crash. `GaarBags` rebuilt its whole window - bag bar, layout, every slot button, Pawn arrows - on
+every `BAG_UPDATE` and `ITEM_LOCK_CHANGED`, and a server-side sort fires hundreds of those in one
+burst. Nothing was ever traced to the sort itself.
+
+What the 70291 client offers, from the probe and the binary's registered API list:
+
+- `C_Container.SortBags` is a real Lua function; the old global `SortBags` is gone.
+  `ContainerFrameCombinedBags` exists.
+- Also registered: `C_Container.SortBank(bankType)`, `SortBankBags`, `SortAccountBankBags`,
+  `Get/SetSortBagsRightToLeft`, `Get/SetInsertItemsLeftToRight`, `Get/SetBagSlotFlag`,
+  `Get/SetBackpackAutosortDisabled`, `Get/SetBankAutosortDisabled`,
+  `Get/SetBackpackSellJunkDisabled`; `C_MerchantFrame.GetNumJunkItems`, `IsSellAllJunkEnabled`,
+  `SellAllJunkItems`; `Enum.BagSlotFlags` with `DisableAutoSort`, `ClassJunk` and
+  `ExcludeJunkSell`, as on retail. There is no `SortReagentBankBags`.
+- The Era binaries have neither a sort nor `SellAllJunkItems`.
+- Bagnon/BagBrother on Forever call `C_Container.SortBags`, `SortBank` and `SortBankBags` from a
+  plain addon button, so the sort is not protected.
+- Not confirmed in game yet: whether `C_MerchantFrame` is reachable from addons (and unprotected),
+  and the bank sort. `GaarProbe` now lists all of the above, so the next probe run answers the
+  first part.
+
+What `GaarBags` does with it:
+
+- Rebuilds are coalesced: an event only marks the window dirty, and it is rebuilt at most once a
+  frame and no more than every 0.1 s. While a native sort runs, rebuilds are held back until
+  `BAG_UPDATE_DELAYED` (or, without that event, until nothing carried is locked) or a 3 s timeout,
+  then drawn once.
+- The sort button calls `C_Container.SortBags()` when "Use the client's own bag sorting" is on,
+  out of combat; with the bank open it sorts the character bank (`SortBank(Enum.BankType.Character)`,
+  else `SortBankBags()`) once the bags have settled. The setting is **off by default on retail and
+  Forever** until it has been tried in game; the built-in cleanup remains the default, and it now
+  skips bags flagged "ignore on clean up".
+- "Sell junk" at a merchant uses `C_MerchantFrame.SellAllJunkItems()` when the client has it and
+  `IsSellAllJunkEnabled()` is true, and otherwise sells grey items with a value one at a time via
+  `UseContainerItem`, stopping at once if the merchant closes or combat starts. Era gets the second
+  path.
+

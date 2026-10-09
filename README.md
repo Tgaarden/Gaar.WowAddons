@@ -23,6 +23,22 @@ of the code.
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 
+## GaarBags: sorting and junk
+
+- **Clean up** (the three-bar button, `/gbags sort`): the built-in stack-and-pack cleanup by
+  default. Ticking "Use the client's own bag sorting" under Gaar -> Bags switches it to the
+  client's own `C_Container.SortBags` where the client has one (retail, Forever), and sorts the
+  character bank too when the bank is open. It is off by default on retail and Forever until it has
+  been tested there. The window's refresh is coalesced and held back while a sort runs - rebuilding
+  on every bag event during a sort is what most likely hung retail 12.1 before, not the sort.
+- **Sell junk** (the coin button left of clean-up, only while a merchant is open, `/gbags junk`):
+  the client's own junk sale where it has one, otherwise grey items with a sell value, one at a
+  time. Asks first by default; the merchant's buyback only holds the last 12 items.
+- **Per-bag flags**: on clients that have them, right-clicking a bag on the bag bar offers
+  "Ignore on clean up" and "Don't sell junk from this bag". These, and "sort right to left" / "new
+  items left to right" in the settings, are the client's own settings, shared with its native bag
+  window, not copies kept by GaarBags.
+
 ## One switch, eleven standalone addons
 
 `GaarUI` carries no features. Its TOC lists every module under `## Dependencies`, so ticking

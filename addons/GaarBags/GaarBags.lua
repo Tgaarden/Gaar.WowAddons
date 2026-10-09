@@ -17,8 +17,10 @@
       grid needs - slots are never hidden, the window grows instead.
     * Customisable columns, scale, background colour and alpha.
     * Opens and closes itself at the merchant, bank, mailbox, auction house and on trades.
-    * Sort uses the client's own bag sorting when present, with the original stack-and-pack
-      cleanup as the fallback.
+    * Sort can use the client's own bag sorting where it exists (opt-in on retail and Forever),
+      with the original stack-and-pack cleanup as the fallback and the default.
+    * A "Sell junk" button while a merchant is open: the client's own junk selling where it has
+      one, otherwise grey items with a sell value, one at a time.
 
   /gaarbags (or /gbags). Settings under Gaar -> Bags.
 
@@ -83,6 +85,17 @@ local function RebuildBagList()
     return t
 end
 
+-- Retail and Forever are the retail-shaped clients. Forever reported WOW_PROJECT_MAINLINE (1)
+-- on its early builds and WOW_PROJECT_CAMELOT (18) from 1.60.1.70245 on, so both ids count. The
+-- constant only exists on Forever, hence the literal fallback - on every other client it is nil
+-- and the id never equals 18. Declared up here because DB() and the saved-variable setup below
+-- both ask it.
+local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
+local function IsRetailOrForever()
+    local id = _G.WOW_PROJECT_ID
+    return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
+end
+
 local function DB()
     if type(GaarBagsDB) ~= "table" then GaarBagsDB = {} end
     local d = GaarBagsDB
@@ -97,7 +110,11 @@ local function DB()
     if d.hiddenFam == nil then d.hiddenFam = {} end  -- [bag family] = true to hide every bag of that type
     if d.autoOpen == nil then d.autoOpen = true end
     if d.showBagBar == nil then d.showBagBar = false end   -- the per-bag buttons are tucked away by default
-    if d.useBlizzSort == nil then d.useBlizzSort = true end
+    -- The client's own sort is opt-in on retail and Forever until it has been tested there with
+    -- the coalesced refresh below; Era has no native sort at all, so the value is moot there.
+    if d.useBlizzSort == nil then d.useBlizzSort = not IsRetailOrForever() end
+    if d.sellJunkButton == nil then d.sellJunkButton = true end    -- "Sell junk" at merchants
+    if d.confirmSellJunk == nil then d.confirmSellJunk = true end  -- ask before selling
     if d.footerFont == nil then d.footerFont = 11 end   -- money and free-slot text
     if d.chars == nil then d.chars = {} end          -- ["Name - Realm"] = that character's snapshot
     if d.altTooltips == nil then d.altTooltips = true end
@@ -105,17 +122,25 @@ local function DB()
     return d
 end
 
--- The keyring starts hidden. It is a handful of slots rarely looked at, and showing it by
--- default put a row of grey between the bags and the money. Applied once under its own flag, so
--- someone who turns it back on is not overruled at the next login.
---
--- It sits here rather than inside DB() because KEYRING is declared above DB and would be read
--- as a global from in there - nil at runtime, and the check would silently do nothing.
-do
+-- One-off changes to the saved settings, run from ADDON_LOADED once the saved table has been
+-- read back. At file scope GaarBagsDB is not loaded yet, so anything written there lands in a
+-- throwaway table that the saved one replaces a moment later - which is how the keyring default
+-- below never reached anyone who already had saved settings.
+local function InitSavedVariables()
     local d = DB()
+    -- The keyring starts hidden. It is a handful of slots rarely looked at, and showing it by
+    -- default put a row of grey between the bags and the money. Applied once under its own
+    -- flag, so someone who turns it back on is not overruled at the next login.
     if not d.keyringDefaulted then
         d.keyringDefaulted = true
         d.hidden[KEYRING] = true
+    end
+    -- useBlizzSort used to default to true everywhere, but retail and Forever ignored it and
+    -- always ran our own cleanup. Now that the setting is honoured there, a stored true is
+    -- almost always that old default rather than a choice, so it is turned off once.
+    if IsRetailOrForever() and not d.nativeSortOptIn then
+        d.nativeSortOptIn = true
+        d.useBlizzSort = false
     end
 end
 
@@ -168,6 +193,53 @@ end
 local function InventoryIDFor(bag)
     if CC and CC.ContainerIDToInventoryID then return CC.ContainerIDToInventoryID(bag) end
     if ContainerIDToInventoryID then return ContainerIDToInventoryID(bag) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Per-bag client flags: "ignore this bag on clean up" and "don't sell junk from this bag".
+--
+-- These are the same settings the client's own bag windows offer, stored by the client rather
+-- than in GaarBagsDB, so flipping one here shows up there and the native sort and junk sale obey
+-- it. The backpack and the bank have their own getters and setters; the other bags go through
+-- Enum.BagSlotFlags. Every piece is feature-checked: Era has none of it, and then the bag simply
+-- has no flag. kind is "sort" or "junk".
+-- ---------------------------------------------------------------------------
+local BAG_FLAG_NAME = { sort = "DisableAutoSort", junk = "ExcludeJunkSell" }
+
+local function BagFlagAPI(bag, kind)
+    if not CC then return nil end
+    if bag == 0 then
+        if kind == "sort" then return CC.GetBackpackAutosortDisabled, CC.SetBackpackAutosortDisabled end
+        return CC.GetBackpackSellJunkDisabled, CC.SetBackpackSellJunkDisabled
+    end
+    if bag == BANK then
+        if kind == "sort" then return CC.GetBankAutosortDisabled, CC.SetBankAutosortDisabled end
+        return nil
+    end
+    if bag == KEYRING or bag < 0 then return nil end
+    if kind == "junk" and bag > 4 then return nil end   -- nothing is sold from the bank
+    local flags = _G.Enum and _G.Enum.BagSlotFlags
+    local flag = flags and flags[BAG_FLAG_NAME[kind]]
+    local get, set = CC.GetBagSlotFlag, CC.SetBagSlotFlag
+    if not (flag and get and set) then return nil end
+    return function() return get(bag, flag) end, function(v) return set(bag, flag, v) end
+end
+
+local function BagFlagSupported(bag, kind)
+    local get, set = BagFlagAPI(bag, kind)
+    return (get and set) and true or false
+end
+
+local function BagFlagGet(bag, kind)
+    local get = BagFlagAPI(bag, kind)
+    if not get then return false end
+    local ok, v = pcall(get)
+    return (ok and v) and true or false
+end
+
+local function BagFlagSet(bag, kind, value)
+    local _, set = BagFlagAPI(bag, kind)
+    if set then pcall(set, value and true or false) end
 end
 
 -- The modern call hands back a table; the old one returned plain values.
@@ -581,9 +653,11 @@ local function HeaderButton(parent, size)
     b.icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
     b:SetScript("OnEnter", function(self)
         self:SetBackdropBorderColor(0.9, 0.75, 0.3, 1)
-        if self.tip then
+        -- .tooltip fills the tooltip itself, for buttons with more than one line to say;
+        -- .tip is the one-line short form most buttons use.
+        if self.tooltip or self.tip then
             GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-            GameTooltip:AddLine(self.tip())
+            if self.tooltip then self.tooltip(GameTooltip) else GameTooltip:AddLine(self.tip()) end
             GameTooltip:Show()
         end
     end)
@@ -633,6 +707,17 @@ for i = 1, 3 do
     sortBtn.bars[i] = bar
 end
 
+-- "Sell junk", left of the clean-up button. Only shown while a merchant is open, and greyed out
+-- when there is nothing to sell; the junk section further down drives it. A plain gold coin from
+-- the money frame art, which every client ships.
+local junkBtn = HeaderButton(f, 20)
+junkBtn:SetPoint("TOPRIGHT", sortBtn, "TOPLEFT", -4, 0)
+junkBtn.icon:SetTexture("Interface\\MoneyFrame\\UI-GoldIcon")
+junkBtn.icon:SetTexCoord(0, 1, 0, 1)
+junkBtn.icon:ClearAllPoints()
+junkBtn.icon:SetPoint("TOPLEFT", 3, -3); junkBtn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+junkBtn:Hide()
+
 -- Slim flat search field, spanning the width just under the grid and above the money row.
 local searchBox = CreateFrame("EditBox", "GaarBagsSearch", f, "BackdropTemplate")
 searchBox:SetAutoFocus(false)
@@ -648,9 +733,14 @@ searchBox:SetTextColor(0.9, 0.9, 0.9)
 
 -- drag bar covers the title row, clear of the buttons and the search field
 local dragBar = CreateFrame("Frame", nil, f)
-dragBar:SetPoint("TOPLEFT", barBtn, "TOPRIGHT", 2, 0)
-dragBar:SetPoint("TOPRIGHT", sortBtn, "TOPLEFT", -4, 0)
 dragBar:SetHeight(22)
+-- Re-anchored whenever the junk button comes or goes, so the drag area never sits on top of it.
+local function AnchorDragBar()
+    dragBar:ClearAllPoints()
+    dragBar:SetPoint("TOPLEFT", barBtn, "TOPRIGHT", 2, 0)
+    dragBar:SetPoint("TOPRIGHT", junkBtn:IsShown() and junkBtn or sortBtn, "TOPLEFT", -4, 0)
+end
+AnchorDragBar()
 dragBar:EnableMouse(true); dragBar:RegisterForDrag("LeftButton")
 dragBar:SetScript("OnDragStart", function() f:StartMoving() end)
 dragBar:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
@@ -732,6 +822,8 @@ local function Hidden(bag)
 end
 
 local RefreshList
+local RebuildNow          -- the immediate rebuild RefreshList coalesces into
+local UpdateJunkButton    -- defined with the junk selling, called from every rebuild
 
 -- ---------------------------------------------------------------------------
 -- Bag bar
@@ -761,6 +853,81 @@ local function PutBagHere(bag)
     if inv and PutItemInBag then PutItemInBag(inv) end
 end
 
+-- Right-click menu on a bag-bar button, for clients that have the per-bag client flags. Built
+-- here rather than through EasyMenu or MenuUtil, neither of which every client has. A child of
+-- the bag window, so it goes away with it.
+local ShowBagMenu, BagMenuHasFlags
+do
+    local bagMenu
+    local function BagMenuFrame()
+        if bagMenu then return bagMenu end
+        bagMenu = CreateFrame("Frame", "GaarBagsBagMenu", f, "BackdropTemplate")
+        bagMenu:SetFrameStrata("DIALOG")
+        bagMenu:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+        bagMenu:SetBackdropColor(0.07, 0.08, 0.10, 0.97)
+        bagMenu:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+        bagMenu:EnableMouse(true)
+        bagMenu.rows = {}
+        bagMenu:Hide()
+        table.insert(UISpecialFrames, "GaarBagsBagMenu")
+        return bagMenu
+    end
+
+    BagMenuHasFlags = function(bag)
+        return BagFlagSupported(bag, "sort") or BagFlagSupported(bag, "junk")
+    end
+
+    ShowBagMenu = function(anchor, bag)
+        local m = BagMenuFrame()
+        local items = {
+            { title = BagLabel(bag) },
+            { text = "Hide in this window", checked = DB().hidden[bag] and true or false,
+              func = function() DB().hidden[bag] = (not DB().hidden[bag]) or nil end },
+        }
+        if BagFlagSupported(bag, "sort") then
+            items[#items + 1] = { text = "Ignore on clean up", checked = BagFlagGet(bag, "sort"),
+                func = function() BagFlagSet(bag, "sort", not BagFlagGet(bag, "sort")) end }
+        end
+        if BagFlagSupported(bag, "junk") then
+            items[#items + 1] = { text = "Don't sell junk from this bag", checked = BagFlagGet(bag, "junk"),
+                func = function() BagFlagSet(bag, "junk", not BagFlagGet(bag, "junk")) end }
+        end
+        local w, y = 140, -6
+        for i, it in ipairs(items) do
+            local r = m.rows[i]
+            if not r then
+                r = CreateFrame("Button", nil, m)
+                r:SetHeight(18)
+                r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                r.text:SetPoint("LEFT", 8, 0); r.text:SetJustifyH("LEFT")
+                r:SetHighlightTexture(FLAT, "ADD")
+                local hl = r:GetHighlightTexture()
+                if hl then hl:SetVertexColor(1, 1, 1, 0.10) end
+                m.rows[i] = r
+            end
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", 4, y); r:SetPoint("TOPRIGHT", -4, y)
+            if it.title then
+                r.text:SetText("|cffffd100" .. it.title .. "|r")
+                r:EnableMouse(false); r:SetScript("OnClick", nil)
+            else
+                r.text:SetText((it.checked and "|cff33ff99[x]|r " or "|cff777777[  ]|r ") .. it.text)
+                r:EnableMouse(true)
+                r:SetScript("OnClick", function() m:Hide(); it.func(); RefreshList() end)
+            end
+            w = math.max(w, (r.text:GetStringWidth() or 0) + 24)
+            r:Show()
+            y = y - 18
+        end
+        for i = #items + 1, #m.rows do m.rows[i]:Hide() end
+        m:SetSize(w, -y + 6)
+        m:ClearAllPoints()
+        m:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+        m:Show()
+    end
+end
+
 local function MakeBagButton(bag)
     local b = CreateFrame("Button", "GaarBagsBar" .. (bag < 0 and ("m" .. -bag) or bag), f)
     b:SetSize(26, 26)
@@ -778,7 +945,17 @@ local function MakeBagButton(bag)
         local free, total = FreeSlots(self.bag), NumSlots(self.bag)
         GameTooltip:AddLine(BagLabel(self.bag))
         GameTooltip:AddLine(string.format("%d/%d free", free or 0, total or 0), 1, 1, 1)
-        GameTooltip:AddLine("Click keeps the highlight, right-click hides this bag.", 0.6, 0.6, 0.6)
+        if BagMenuHasFlags(self.bag) then
+            GameTooltip:AddLine("Click keeps the highlight, right-click for this bag's options.", 0.6, 0.6, 0.6)
+            if BagFlagGet(self.bag, "sort") then
+                GameTooltip:AddLine("Ignored on clean up.", 0.9, 0.75, 0.3)
+            end
+            if BagFlagGet(self.bag, "junk") then
+                GameTooltip:AddLine("Junk is not sold from this bag.", 0.9, 0.75, 0.3)
+            end
+        else
+            GameTooltip:AddLine("Click keeps the highlight, right-click hides this bag.", 0.6, 0.6, 0.6)
+        end
         if self.bag > 0 and self.bag <= 4 then
             GameTooltip:AddLine("Drop a bag here to swap it in.", 0.6, 0.6, 0.6)
         end
@@ -799,6 +976,13 @@ local function MakeBagButton(bag)
             PutBagHere(self.bag); RefreshList(); return
         end
         if button == "RightButton" then
+            -- With the client's per-bag flags there is more than one thing to say about a bag,
+            -- so right-click opens a menu; without them it stays the one-click hide it was.
+            if BagMenuHasFlags(self.bag) then
+                GameTooltip:Hide()
+                ShowBagMenu(self, self.bag)
+                return
+            end
             DB().hidden[self.bag] = (not DB().hidden[self.bag]) or nil
         else
             lockedBag = (lockedBag == self.bag) and nil or self.bag
@@ -1196,7 +1380,9 @@ local function FitHeight()
     f:SetHeight(ChromeTop() + rows * SIZE + BOTTOM_CHROME)
 end
 
-RefreshList = function()
+-- The full rebuild: bag list, bag bar, every slot, layout and footer. Expensive on a full set of
+-- bags, so nothing calls it per event - see RefreshList below.
+RebuildNow = function()
     if not f:IsShown() then return end
     RebuildBagList()      -- the keyring and the bank bags come and go
     RefreshFamilies()
@@ -1217,6 +1403,108 @@ RefreshList = function()
     end
     slotsText:SetText(string.format("|cffaaaaaa%d/%d free|r", free, total))
     moneyText:SetText(GetCoinTextureString(GetMoney()))
+    if UpdateJunkButton then UpdateJunkButton() end
+end
+
+-- ---------------------------------------------------------------------------
+-- Coalesced refresh, and the native sort's quiet period
+--
+-- RefreshList used to be the rebuild itself, run on every BAG_UPDATE and ITEM_LOCK_CHANGED. A
+-- loot fires a handful of those; the client's own sort moves every item in the bags server-side
+-- and fires hundreds of them in a burst, and rebuilding the whole window for each one is the most
+-- likely reason the sort button appeared to take the retail 12.1 client down - a long hang
+-- rather than a real crash. So RefreshList now only marks the window dirty, and one driver
+-- rebuilds it at most once per frame and no more than every REFRESH_INTERVAL seconds.
+--
+-- While a native sort is running the rebuild is held back entirely, until the client says the
+-- bags have settled (BAG_UPDATE_DELAYED, or every carried item unlocked on a client without that
+-- event) or SORT_TIMEOUT passes. Then the window is rebuilt once, and a bank sort queued behind
+-- the bag sort is started.
+-- ---------------------------------------------------------------------------
+-- The main chunk is close to Lua's 200-local limit, so the sort state lives in one table and
+-- the helpers below are scoped to a block.
+local Sorting = { active = false, sawUpdate = false, deadline = 0, pendingBank = false }
+
+do
+    local REFRESH_INTERVAL = 0.1
+    local SORT_TIMEOUT = 3
+    local refreshDirty = false
+    local lastRebuild = -math.huge
+
+    local function Now() return (GetTime and GetTime()) or 0 end
+
+    local refreshDriver = CreateFrame("Frame")
+    refreshDriver:Hide()
+
+    function Sorting.PlaySound()
+        local kit = _G.SOUNDKIT
+        if kit and kit.UI_BAG_SORTING_01 and PlaySound then pcall(PlaySound, kit.UI_BAG_SORTING_01) end
+    end
+
+    function Sorting.Begin()
+        Sorting.active, Sorting.sawUpdate = true, false
+        Sorting.deadline = Now() + SORT_TIMEOUT
+        refreshDriver:Show()
+    end
+
+    -- The bank sort has its own call, and on newer clients it takes which bank to sort.
+    -- Character bank only: the warband bank is shared across the account and not something a
+    -- bag button should rearrange behind your back.
+    local function SortBankNow()
+        if not CC or InCombatLockdown() or not bankOpen then return false end
+        local bankType = _G.Enum and _G.Enum.BankType and _G.Enum.BankType.Character
+        if CC.SortBank and bankType ~= nil then
+            CC.SortBank(bankType)
+        elseif CC.SortBankBags then
+            CC.SortBankBags()
+        else
+            return false
+        end
+        return true
+    end
+
+    function Sorting.End()
+        Sorting.active = false
+        refreshDirty = true
+        refreshDriver:Show()
+        if Sorting.pendingBank then
+            Sorting.pendingBank = false
+            if SortBankNow() then Sorting.Begin() end
+        end
+    end
+
+    -- On a client without BAG_UPDATE_DELAYED the bag sort counts as finished once nothing in
+    -- the carried bags is locked any more.
+    function Sorting.CarriedLocked()
+        for _, bag in ipairs(carried) do
+            for slot = 1, NumSlots(bag) do
+                local tex, _, locked = ItemInfo(bag, slot)
+                if tex and locked then return true end
+            end
+        end
+        return false
+    end
+
+    refreshDriver:SetScript("OnUpdate", function(self)
+        local now = Now()
+        if Sorting.active then
+            if now < Sorting.deadline then return end
+            -- The client never said it was done; carry on regardless. A queued bank sort starts
+            -- its own quiet period here, but the bags are rebuilt once below before it takes hold.
+            Sorting.End()
+        end
+        if not refreshDirty then self:Hide(); return end
+        if now - lastRebuild < REFRESH_INTERVAL then return end
+        refreshDirty = false
+        lastRebuild = now
+        self:Hide()
+        RebuildNow()
+    end)
+
+    RefreshList = function()
+        refreshDirty = true
+        refreshDriver:Show()
+    end
 end
 _G.GaarBags_Refresh = RefreshList
 
@@ -1363,7 +1651,6 @@ for i = 1, 4 do
     altBtn.tiles[i] = tile
 end
 altBtn:SetScript("OnClick", ToggleAlt)
-dragBar:SetPoint("TOPRIGHT", sortBtn, "TOPLEFT", -4, 0)
 
 searchBox:SetScript("OnTextChanged", function(self)
     search = self:GetText() or ""
@@ -1389,11 +1676,15 @@ local function itemAt(bag, slot)
              locked = locked, max = maxStack or 1, name = (string.match(link, "%[(.-)%]") or "") }
 end
 
+-- Bags the client has marked "ignore on clean up" are left exactly as they are, the same as the
+-- client's own sort treats them. On a client without the flag nothing is skipped.
 local function orderSlots()
     local t = {}
     for _, bag in ipairs(BAGS) do
-        local n = NumSlots(bag)
-        for slot = 1, n do t[#t + 1] = { bag = bag, slot = slot } end
+        if not BagFlagGet(bag, "sort") then
+            local n = NumSlots(bag)
+            for slot = 1, n do t[#t + 1] = { bag = bag, slot = slot } end
+        end
     end
     return t
 end
@@ -1507,45 +1798,252 @@ local function OwnCleanup()
     cleanTicks = 0; cleanPhase = "stack"; cleanDriver:Show()
 end
 
--- Blizzard's own sort is preferred where it is trustworthy, but not on retail. There it took
--- the client down twice from this button, and the likely reason is this addon itself: it hides
--- Blizzard's container frames and hooks the functions that open them, while the sort moves
--- items through those very frames. Without a crash log there is no proving it, and a feature
--- that can kill the client is not something to keep trying in place.
+-- The client's own sort, where it has one and the setting asks for it.
 --
--- Our own cleanup is bounded - it steps on a timer, stops when it stops making progress, and
--- refuses to start in combat - so it is the safe one to reach for while the other is unknown.
--- Classic Era has issecretvalue as well, so that is not the question - the question is whether
--- this is the client whose sort took us down, and the project id answers it directly.
+-- This was switched off on retail and Forever after the button took the retail 12.1 client down
+-- twice. That was not Forever, and the likelier cause was this addon rather than the sort: every
+-- BAG_UPDATE and ITEM_LOCK_CHANGED rebuilt the whole window, and a server-side sort fires
+-- hundreds of them in a burst - a hang that looks like a crash. Rebuilds are coalesced now and
+-- held back for the length of the sort (see RefreshList), so the native sort is offered again,
+-- opt-in on retail and Forever until it has been tried there.
 --
--- "Retail" here covers Forever too. Forever reported WOW_PROJECT_MAINLINE (1) when this guard
--- was written, so it kept Forever on our own cleanup as well; by build 1.60.1.70245 it reports
--- WOW_PROJECT_CAMELOT (18) instead, and without naming it the guard would quietly let Blizzard's
--- sort back in there. The constant only exists on Forever, hence the literal fallback - on
--- every other client it is nil and the id never equals 18.
-local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
-local function IsRetailOrForever()
-    local id = _G.WOW_PROJECT_ID
-    return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
+-- C_Container.SortBags is called from a plain addon button by other bag addons on Forever; it is
+-- not protected, but it is refused in combat, so that is checked first. With the bank open, the
+-- bank is sorted once the bag sort has settled - the server will not run both at once.
+local function NativeSortAvailable()
+    return (CC and CC.SortBags) or _G.SortBags
 end
-local warnedSort = false
+
+local hintedSort = false
 
 local function DoSort()
-    if IsRetailOrForever() then
-        if not warnedSort then
-            warnedSort = true
-            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r using its own tidy here - Blizzard's sort crashes this client from an addon button.")
+    if DB().useBlizzSort and NativeSortAvailable() then
+        if InCombatLockdown() then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Bags:|r can't sort the bags in combat.")
+            return
         end
-        OwnCleanup()
+        Sorting.PlaySound()
+        Sorting.Begin()
+        Sorting.pendingBank = bankOpen
+        if CC and CC.SortBags then CC.SortBags() else _G.SortBags() end
         return
     end
-    if DB().useBlizzSort and CC and CC.SortBags then
-        CC.SortBags()
-    elseif DB().useBlizzSort and _G.SortBags then
-        SortBags()
-    else
-        OwnCleanup()
+    -- Said once a session, and only where there is a native sort to point at.
+    if not hintedSort and NativeSortAvailable() then
+        hintedSort = true
+        DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r tidying with its own clean-up. The client's own sort can be switched on under Gaar -> Bags.")
     end
+    OwnCleanup()
+end
+
+-- ---------------------------------------------------------------------------
+-- Sell junk
+--
+-- Where the client has its own junk sale (C_MerchantFrame.SellAllJunkItems, retail and Forever)
+-- that is used: it knows about junk-flagged bags and class junk, and it is one call. Otherwise
+-- grey items with a sell value are sold here one at a time, from the carried bags only, skipping
+-- any bag the client has marked "don't sell junk from this bag". Selling is
+-- C_Container.UseContainerItem - right-clicking the item - so it must never run without a
+-- merchant open: there it would use or equip the item instead. The merchant closing or combat
+-- starting stops it on the spot.
+--
+-- Blizzard's own junk button and its SELL_ALL_JUNK_ITEMS popup are left alone: they are not
+-- clicked, moved or reused, so nothing here can taint them.
+-- ---------------------------------------------------------------------------
+-- State and entry points the event handler needs; the rest is scoped to the block below.
+local Junk = { merchantOpen = false }
+
+do
+    local JUNK_STEP = 0.15
+
+    local function MF() return _G.C_MerchantFrame end
+
+    local function NativeJunkSale()
+        local mf = MF()
+        if not (mf and mf.SellAllJunkItems and mf.IsSellAllJunkEnabled) then return false end
+        local ok, enabled = pcall(mf.IsSellAllJunkEnabled)
+        return (ok and enabled) and true or false
+    end
+
+    local function UseItem(bag, slot)
+        if CC and CC.UseContainerItem then return CC.UseContainerItem(bag, slot) end
+        if _G.UseContainerItem then return _G.UseContainerItem(bag, slot) end
+    end
+
+    -- link, count, quality, has no sell value, locked
+    local function JunkSlotInfo(bag, slot)
+        if CC and CC.GetContainerItemInfo then
+            local i = CC.GetContainerItemInfo(bag, slot)
+            if not i then return nil end
+            return i.hyperlink, i.stackCount or 1, i.quality, i.hasNoValue, i.isLocked
+        end
+        if _G.GetContainerItemInfo then
+            local tex, count, locked, quality, _, _, link, _, noValue = _G.GetContainerItemInfo(bag, slot)
+            if not tex then return nil end
+            return link, count or 1, quality, noValue, locked
+        end
+    end
+
+    local function SellPrice(link)
+        if not link then return 0 end
+        local price = select(11, GetItemInfo(link))
+        return tonumber(price) or 0
+    end
+
+    -- Every grey item with a value in the carried bags. Returns the list and the total value.
+    local function ScanJunk()
+        local list, value = {}, 0
+        for _, bag in ipairs(carried) do
+            if not BagFlagGet(bag, "junk") then
+                for slot = 1, NumSlots(bag) do
+                    local link, count, quality, noValue = JunkSlotInfo(bag, slot)
+                    if link and quality == 0 and not noValue then
+                        local each = SellPrice(link)
+                        -- hasNoValue is missing on the oldest container API; a zero price stands in
+                        if noValue ~= nil or each > 0 then
+                            list[#list + 1] = { bag = bag, slot = slot, link = link }
+                            value = value + each * (count or 1)
+                        end
+                    end
+                end
+            end
+        end
+        return list, value
+    end
+
+    local function JunkCount()
+        local mf = MF()
+        if NativeJunkSale() and mf.GetNumJunkItems then
+            local ok, n = pcall(mf.GetNumJunkItems)
+            if ok and type(n) == "number" then return n end
+        end
+        return #ScanJunk()
+    end
+
+    -- The one-at-a-time seller for clients without a native junk sale.
+    local junkDriver = CreateFrame("Frame"); junkDriver:Hide()
+    local junkAcc, junkSold, junkTried = 0, 0, {}
+
+    function Junk.Stop(reason)
+        if not junkDriver:IsShown() then return end
+        junkDriver:Hide()
+        if reason then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Bags:|r stopped selling junk - " .. reason .. ".")
+        end
+        RefreshList()
+    end
+
+    junkDriver:SetScript("OnUpdate", function(self, elapsed)
+        if not Junk.merchantOpen then Junk.Stop("the merchant closed"); return end
+        if InCombatLockdown() then Junk.Stop("combat"); return end
+        junkAcc = junkAcc + (elapsed or 0)
+        if junkAcc < JUNK_STEP then return end
+        junkAcc = 0
+        for _, j in ipairs(ScanJunk()) do
+            local key = j.bag .. ":" .. j.slot
+            local _, _, _, _, locked = JunkSlotInfo(j.bag, j.slot)
+            -- A slot already tried that still holds the same item was refused; leave it be rather
+            -- than try it forever.
+            if not locked and junkTried[key] ~= j.link then
+                junkTried[key] = j.link
+                UseItem(j.bag, j.slot)
+                junkSold = junkSold + 1
+                return
+            end
+        end
+        self:Hide()
+        if junkSold > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff5599ffGaar Bags:|r sold %d junk item%s.",
+                junkSold, junkSold == 1 and "" or "s"))
+        end
+        RefreshList()
+    end)
+
+    local function SellJunkNow()
+        if not Junk.merchantOpen or InCombatLockdown() then return end
+        if NativeJunkSale() then
+            MF().SellAllJunkItems()
+            return
+        end
+        if junkDriver:IsShown() then return end
+        junkAcc, junkSold, junkTried = JUNK_STEP, 0, {}
+        junkDriver:Show()
+        RefreshList()
+    end
+
+    if _G.StaticPopupDialogs then
+        StaticPopupDialogs["GAARBAGS_SELL_JUNK"] = {
+            text = "Sell %s?\n\nThe merchant's buyback only keeps the last 12 items sold.",
+            button1 = _G.YES or "Yes",
+            button2 = _G.NO or "No",
+            OnAccept = function() SellJunkNow() end,
+            timeout = 0,
+            whileDead = false,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+    end
+
+    local function JunkSummary(count, value)
+        local what = string.format("%d junk item%s", count, count == 1 and "" or "s")
+        if value and value > 0 then what = what .. " for about " .. GetCoinTextureString(value) end
+        return what
+    end
+
+    function Junk.Request()
+        if not Junk.merchantOpen then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r talk to a merchant first, then sell junk.")
+            return
+        end
+        if InCombatLockdown() then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff6666Gaar Bags:|r can't sell junk in combat.")
+            return
+        end
+        if junkDriver:IsShown() then return end
+        local count = JunkCount()
+        if count <= 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r no junk to sell.")
+            return
+        end
+        if DB().confirmSellJunk and _G.StaticPopup_Show and _G.StaticPopupDialogs then
+            local _, value = ScanJunk()
+            StaticPopup_Show("GAARBAGS_SELL_JUNK", JunkSummary(count, value))
+        else
+            SellJunkNow()
+        end
+    end
+
+    UpdateJunkButton = function()
+        local want = Junk.merchantOpen and DB().sellJunkButton and true or false
+        if want ~= junkBtn:IsShown() then
+            if want then junkBtn:Show() else junkBtn:Hide() end
+            AnchorDragBar()
+        end
+        if not want then return end
+        local busy = junkDriver:IsShown()
+        local has = (not busy) and JunkCount() > 0
+        if has then junkBtn:Enable() else junkBtn:Disable() end
+        junkBtn.icon:SetDesaturated(not has)
+        junkBtn.icon:SetAlpha(has and 1 or 0.4)
+    end
+
+    junkBtn.tooltip = function(tt)
+        tt:AddLine("Sell junk")
+        if junkDriver:IsShown() then
+            tt:AddLine("Selling...", 0.8, 0.8, 0.8)
+            return
+        end
+        local count = JunkCount()
+        if count <= 0 then
+            tt:AddLine("Nothing to sell.", 0.6, 0.6, 0.6)
+            return
+        end
+        local _, value = ScanJunk()
+        tt:AddLine(string.format("%d item%s", count, count == 1 and "" or "s"), 1, 1, 1)
+        if value > 0 then tt:AddLine("Worth about " .. GetCoinTextureString(value), 1, 1, 1) end
+        tt:AddLine("Buyback only keeps the last 12 items sold.", 0.6, 0.6, 0.6)
+    end
+    junkBtn:SetScript("OnClick", Junk.Request)
 end
 
 -- HeaderButton already wires OnEnter/OnLeave from each button's own .tip function.
@@ -1566,7 +2064,8 @@ end)
 -- ---------------------------------------------------------------------------
 -- Events
 -- ---------------------------------------------------------------------------
-local function Show() f:Show(); RefreshList() end
+-- Opening draws straight away rather than a frame later, so the window never shows stale slots.
+local function Show() f:Show(); RebuildNow() end
 local function Hide() f:Hide() end
 local function Toggle() if f:IsShown() then Hide() else Show() end end
 _G.GaarBags_Toggle = Toggle
@@ -1584,7 +2083,35 @@ local EVENTS = {
     "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
-ev:SetScript("OnEvent", function(_, event)
+-- Not on every client. Registering an event the client does not know raises an error, so the
+-- pcall result doubles as the feature check for how a native sort is seen to finish.
+local hasBagUpdateDelayed = pcall(ev.RegisterEvent, ev, "BAG_UPDATE_DELAYED") and true or false
+for _, e in ipairs({ "ADDON_LOADED", "ITEM_UNLOCKED", "PLAYER_REGEN_DISABLED" }) do
+    pcall(ev.RegisterEvent, ev, e)
+end
+ev:SetScript("OnEvent", function(_, event, arg1)
+    if event == "ADDON_LOADED" then
+        if arg1 == "GaarBags" then InitSavedVariables() end
+        return
+    end
+    if event == "BAG_UPDATE" or event == "ITEM_LOCK_CHANGED" then
+        if Sorting.active then Sorting.sawUpdate = true end
+    elseif event == "BAG_UPDATE_DELAYED" then
+        -- Only a settle that follows movement ends the sort's quiet period; one already queued
+        -- when the sort was asked for would end it before anything had moved.
+        if Sorting.active and Sorting.sawUpdate then Sorting.End() end
+    elseif event == "ITEM_UNLOCKED" then
+        if Sorting.active and Sorting.sawUpdate and not hasBagUpdateDelayed
+            and not Sorting.CarriedLocked() then
+            Sorting.End()
+        end
+        return
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        Junk.Stop("combat")
+        if _G.StaticPopup_Hide then StaticPopup_Hide("GAARBAGS_SELL_JUNK") end
+        Sorting.pendingBank = false
+        return
+    end
     if event == "PLAYER_LOGIN" then
         ApplyBackdropColor(); ApplyFooterFont(); f:SetScale(DB().scale or 1)
         title:SetText((UnitName("player") or "Gaar") .. "'s Bags")
@@ -1609,6 +2136,15 @@ ev:SetScript("OnEvent", function(_, event)
         RebuildBagList()
         if DB().autoOpen and autoOpened then autoOpened = false; Hide() else RefreshList() end
         return
+    end
+    if event == "MERCHANT_SHOW" then
+        Junk.merchantOpen = true
+        RefreshList()     -- brings the junk button up
+    elseif event == "MERCHANT_CLOSED" then
+        Junk.merchantOpen = false
+        Junk.Stop("the merchant closed")
+        if _G.StaticPopup_Hide then StaticPopup_Hide("GAARBAGS_SELL_JUNK") end
+        UpdateJunkButton()
     end
     if event == "MERCHANT_SHOW" or event == "MAIL_SHOW"
         or event == "AUCTION_HOUSE_SHOW" or event == "TRADE_SHOW" then
@@ -1660,7 +2196,7 @@ end)
 grip:SetScript("OnMouseUp", function()
     f:StopMovingOrSizing()
     f.gaarResizing = nil
-    RefreshList()
+    RebuildNow()      -- now, not next frame: the height check below reads what Layout worked out
     -- dragged shorter than the grid needs: snap back so nothing is cut off
     if f.gaarNeededHeight and f:GetHeight() < f.gaarNeededHeight then
         f:SetHeight(f.gaarNeededHeight)
@@ -1734,8 +2270,26 @@ function GaarBags_BuildOptions(container)
         function(v) DB().override = v end)
     check("Open at merchant, bank, mail, auction, trade", function() return DB().autoOpen end,
         function(v) DB().autoOpen = v end)
-    check("Use the client's own bag sorting", function() return DB().useBlizzSort end,
+    -- Labelled for what the client actually has, so the box never promises a sort that is not
+    -- there: Era has no native sort and always uses the built-in clean-up.
+    check(NativeSortAvailable() and "Use the client's own bag sorting"
+            or "Use the client's own bag sorting (not on this client)",
+        function() return DB().useBlizzSort end,
         function(v) DB().useBlizzSort = v end)
+    -- Client settings shared with the native bag window, read and written through the client
+    -- rather than kept in GaarBagsDB. Only offered where the client has them.
+    if CC and CC.GetSortBagsRightToLeft and CC.SetSortBagsRightToLeft then
+        check("Client sort: right to left", function() return CC.GetSortBagsRightToLeft() end,
+            function(v) CC.SetSortBagsRightToLeft(v) end)
+    end
+    if CC and CC.GetInsertItemsLeftToRight and CC.SetInsertItemsLeftToRight then
+        check("Client sort: new items go in left to right", function() return CC.GetInsertItemsLeftToRight() end,
+            function(v) CC.SetInsertItemsLeftToRight(v) end)
+    end
+    check("\"Sell junk\" button at merchants", function() return DB().sellJunkButton end,
+        function(v) DB().sellJunkButton = v; RefreshList() end)
+    check("Ask before selling junk", function() return DB().confirmSellJunk end,
+        function(v) DB().confirmSellJunk = v end)
     check("Upgrade arrows from Pawn", function() return DB().pawnArrows end,
         function(v) DB().pawnArrows = v; RefreshList() end)
     check("List other characters holding an item on its tooltip", function() return DB().altTooltips end,
@@ -1847,7 +2401,7 @@ function GaarBags_BuildOptions(container)
 
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 18, y); hint:SetWidth(340); hint:SetJustifyH("LEFT")
-    hint:SetText("Drag the corner grip to resize; the window never goes smaller than the slots need, so dragging it too short snaps back. Mouse-wheel over the window scales it. On the bag bar: hover a bag to highlight its slots, click to keep the highlight, right-click to hide that bag. The fallback order only applies when the client's own sorting is off. Each character saves what it is carrying while you play it, and every character can read the whole account back; the bank is only recorded while its frame is open, so it is stamped separately.")
+    hint:SetText("Drag the corner grip to resize; the window never goes smaller than the slots need, so dragging it too short snaps back. Mouse-wheel over the window scales it. On the bag bar: hover a bag to highlight its slots, click to keep the highlight, right-click to hide that bag, or, on clients that have them, for its \"ignore on clean up\" and \"don't sell junk\" flags. The fallback order only applies to the built-in clean-up. Each character saves what it is carrying while you play it, and every character can read the whole account back; the bank is only recorded while its frame is open, so it is stamped separately.")
     y = y - 62
 
     container.gaarRefresh = function() for _, fn in ipairs(refreshers) do fn() end end
@@ -1866,6 +2420,7 @@ SlashCmdList["GAARBAGS"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
     if msg == "config" or msg == "options" then OpenOptions()
     elseif msg == "sort" or msg == "clean" then DoSort()
+    elseif msg == "junk" or msg == "selljunk" then Junk.Request()
     else Toggle() end
 end
 

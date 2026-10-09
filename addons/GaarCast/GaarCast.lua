@@ -27,6 +27,11 @@ local ADDON = "Gaar Cast"
 -- empty table in place before that handover, and on this client that was enough to stop the
 -- saved one ever arriving: every session began blank and wrote its blank back over the file.
 --
+-- That reading was taken on an early Forever beta build that loaded no addon's saved variables
+-- at all (docs/forever-client-findings.md), so the early global was probably not the cause. On
+-- build 70291 saved variables persist and the trace binds at ADDON_LOADED with a table, as on
+-- retail. The staged binding below is kept because it is harmless either way.
+--
 -- So nothing is assigned to GaarCastDB until ADDON_LOADED. Until then DB() hands out a staging
 -- table; at ADDON_LOADED whatever the client provided wins, and staging is applied on top only
 -- where the loaded table has nothing to say.
@@ -35,6 +40,8 @@ local dbBound = false
 
 -- ADDON_LOADED was too early. The recorded handover said "client gave nil" against a file that
 -- plainly held a saved size, so on this client the saved table arrives later than that event.
+-- (Also from the early Forever build that never handed saved tables back at any stage. On 70291
+-- the table is there at ADDON_LOADED, so the first attempt is the one that binds.)
 --
 -- Binding is therefore attempted at each stage in turn and only takes when the client has
 -- actually provided a table. Creating the global ourselves before then is what would stop the
@@ -118,9 +125,10 @@ local function BlizzBar(unit)
 end
 
 -- Fallback anchor + size, used only when this client has no Blizzard bar for that unit.
--- Where a bar sits when nothing has been saved. On the Forever beta that is every session, since
--- the client writes saved variables and never returns them, so these are what you actually get
--- there - which is why the player bar's numbers below are a measured layout rather than a guess.
+-- Where a bar sits when nothing has been saved. On early Forever beta builds that was every
+-- session, since the client wrote saved variables and never returned them - which is why the
+-- player bar's numbers below are a measured layout rather than a guess. From build 70291 saved
+-- variables persist, so these only apply until a bar is first moved.
 --
 -- Taken from a real session: position CENTER 225.8,-28.7 and size 372x22, read out of
 -- SavedVariables. The other three have never been placed, so they keep their original estimates.
@@ -226,6 +234,8 @@ end
 -- What GaarCastDB held at each stage of loading. Two theories about the missing positions have
 -- been wrong, and the file on disk has gone from holding a real position to holding none, so
 -- the load order is being observed rather than reasoned about. /gaarcast pos prints it.
+-- The answer turned out to be the client: early Forever builds loaded no saved variables for
+-- any addon. On 70291 the trace reads nil at file scope and a table at ADDON_LOADED.
 local loadTrace = {}
 local function Trace(when)
     local n = 0

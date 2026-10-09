@@ -4,8 +4,9 @@
   Retail moved the spell book's skill-line half into C_SpellBook and changed the shape of the
   answer with it: GetSpellTabInfo returned four values, GetSpellBookSkillLineInfo returns one
   table. Three calls this addon used are gone from the retail and Forever clients entirely -
-  GetNumSpellTabs, GetSpellTabInfo and IsPassiveSpell - and they are the only removals in the
-  whole suite. Verified by diffing the strings of each client binary against Classic Era's.
+  GetNumSpellTabs, GetSpellTabInfo and IsPassiveSpell. Found by diffing the strings of each
+  client binary against Classic Era's, where they were the only C-API removals in the suite;
+  the in-game probe later found more elsewhere (docs/forever-client-findings.md).
 
   Everything the two clients disagree about is resolved here rather than at each call site, so
   the rest of the addon reads the same on both. Shared through the addon table, not a global:

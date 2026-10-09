@@ -47,18 +47,26 @@ end
 -- turned this addon off on the very client it was written for. What matters is whether the
 -- client actually hands out secret unit values.
 --
--- Two signals, because neither alone is enough. The project id settles retail outright, before
--- a single hook is installed, which matters because installing one is itself the taint. And a
--- secret value seen in passing settles anything else - a flavour this was never told about -
--- at the cost of a short window before it notices.
-local function IsMainline()
-    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+-- Two signals, because neither alone is enough. The project id settles retail and Forever
+-- outright, before a single hook is installed, which matters because installing one is itself
+-- the taint. And a secret value seen in passing settles anything else - a flavour this was never
+-- told about - at the cost of a short window before it notices.
+--
+-- Forever used to report WOW_PROJECT_MAINLINE (1); by build 1.60.1.70245 it reports
+-- WOW_PROJECT_CAMELOT (18). Without naming it here the addon would go active on Forever and taint
+-- the unit frames until the first secret value turned it off - exactly what the project-id check
+-- exists to prevent. The constant only exists on Forever, hence the literal fallback - on every
+-- other client it is nil and the id never equals 18.
+local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
+local function IsRetailOrForever()
+    local id = _G.WOW_PROJECT_ID
+    return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
 end
 
 local sawSecretValue = false
 
--- On retail this addon cannot work, and the reason is worth stating rather than leaving as a
--- setting nobody understands.
+-- On retail and Forever this addon cannot work, and the reason is worth stating rather than
+-- leaving as a setting nobody understands.
 --
 -- Everything here restyles Blizzard's own unit frames in place. Writing to one taints it, and
 -- once a unit frame is tainted, Blizzard's own code inside it can no longer compare the secret
@@ -71,7 +79,7 @@ local sawSecretValue = false
 -- the setting is there for experimenting, not because it is expected to work.
 local function Active()
     if DB().allowOnRetail then return true end
-    if IsMainline() or sawSecretValue then return false end
+    if IsRetailOrForever() or sawSecretValue then return false end
     return true
 end
 

@@ -17,6 +17,9 @@
       the old way, and hands back a table instead of three values. C_Container.GetContainerItemInfo
       and GetTrackingInfo have both done exactly that, and neither raises an error.
 
+  On every login it also checks that SavedVariables come back at all - account-wide and per
+  character - with a counter it reads, bumps and writes back (the persistence canary below).
+
   Everything is probed through pcall and nothing is called that could change game state. This
   is the one addon that has to survive an API it knows nothing about, so it never assumes a
   call will return, or even that the name it is reaching for is a function.
@@ -25,6 +28,26 @@
 local _G = _G
 local ADDON = "Gaar Probe"
 local VERSION = "1.0"
+-- The folder name the client loaded us under, which is what ADDON_LOADED reports.
+local ADDON_NAME = ... or "GaarProbe"
+
+-- ---------------------------------------------------------------------------
+-- Persistence canary, part one: what the saved tables look like before the client loads them.
+--
+-- The client runs an addon's files first and loads its SavedVariables afterwards, just before
+-- ADDON_LOADED. So both of these should read nil here; anything else is worth knowing, and it
+-- has to be recorded on the first lines of the file, before the error collector further down
+-- gets a chance to create GaarProbeDB itself.
+-- ---------------------------------------------------------------------------
+local persistence = {
+    fileScope = { account = type(GaarProbeDB), character = type(GaarProbeCharDB) },
+    addonLoaded = nil,    -- filled in at ADDON_LOADED
+    account = nil,        -- canary results, filled in at PLAYER_LOGIN
+    character = nil,
+}
+-- A table the error collector made before the client loaded the saved file, if it made one. A
+-- "table" at ADDON_LOADED proves nothing when it is this one.
+local preLoadTable
 
 -- ---------------------------------------------------------------------------
 -- What the suite touches, straight out of tools/check.sh
@@ -219,6 +242,124 @@ local function Shape(label, fn, ...)
 end
 
 -- ---------------------------------------------------------------------------
+-- Persistence canary, part two
+--
+-- A setting that silently resets is easy to blame on the addon, and the Forever beta spent weeks
+-- handing nothing back (docs/forever-client-findings.md). So the probe answers the question
+-- itself: each login reads the canary the previous session left, bumps the count and writes it
+-- back. A canary that comes back means the file was loaded; none means first run or no loading.
+-- Both kinds of saved variable are tested, because a client can load one and not the other.
+-- ---------------------------------------------------------------------------
+local function Now() return date("%Y-%m-%d %H:%M:%S") end
+
+local function ClientBuild()
+    local version, build, _, toc
+    pcall(function() version, build, _, toc = GetBuildInfo() end)
+    return tostring(version or "?") .. "." .. tostring(build or "?"), toc
+end
+
+-- Called at ADDON_LOADED for this addon: the moment the saved file has just been applied.
+local function RecordAddonLoaded()
+    local function describe(v)
+        local t = type(v)
+        if t == "table" and v == preLoadTable then
+            return "table (made by the error collector, not loaded from disk)"
+        end
+        return t
+    end
+    local olderReport
+    if type(GaarProbeDB) == "table" and GaarProbeDB ~= preLoadTable then
+        -- `when` is written by the report on PLAYER_LOGIN or /gaarprobe, never before this point,
+        -- so finding it here means the file came back - even if it predates the canary.
+        olderReport = GaarProbeDB.when
+    end
+    persistence.addonLoaded = {
+        account = describe(GaarProbeDB),
+        character = describe(GaarProbeCharDB),
+        olderReport = olderReport,
+    }
+end
+
+-- Reads the previous canary in `db`, writes the next one, and says what that proves.
+local function TickCanary(db, olderReport)
+    local prev = (type(db.canary) == "table") and db.canary or nil
+    local build, toc = ClientBuild()
+    local count = ((prev and tonumber(prev.count)) or 0) + 1
+    db.canary = { count = count, when = Now(), build = build, interface = toc }
+
+    local res = { count = count }
+    if prev then
+        res.status = "YES"
+        res.previous = { count = prev.count, when = prev.when, build = prev.build, interface = prev.interface }
+    elseif olderReport then
+        -- An earlier probe version wrote this file and it came back; it just had no canary yet.
+        res.status = "LIKELY"
+        res.olderReport = olderReport
+    else
+        res.status = "NO"
+    end
+    return res
+end
+
+local function Verdict(res)
+    if not res then return "not checked" end
+    if res.status == "YES" then
+        return string.format("YES (canary #%d, last written %s on build %s)",
+            res.count, tostring(res.previous.when), tostring(res.previous.build))
+    elseif res.status == "LIKELY" then
+        return string.format("LIKELY (no previous canary, but the file came back with a report from %s)",
+            tostring(res.olderReport))
+    end
+    return "NO (no previous canary - first run, or SV not loaded)"
+end
+
+local VERDICT_COLOUR = { YES = "|cff40ff40", LIKELY = "|cffffcc00", NO = "|cffff6666" }
+
+local function Canary()
+    if type(GaarProbeDB) ~= "table" then GaarProbeDB = {} end
+    if type(GaarProbeCharDB) ~= "table" then GaarProbeCharDB = {} end
+    local loaded = persistence.addonLoaded
+    persistence.account = TickCanary(GaarProbeDB, loaded and loaded.olderReport)
+    persistence.character = TickCanary(GaarProbeCharDB, nil)
+
+    local build, toc = ClientBuild()
+    -- Kept on disk next to the report, so the answer can be read out of WTF after logout.
+    GaarProbeDB.persistence = {
+        checkedAt = Now(),
+        build = build,
+        interface = toc,
+        projectId = _G.WOW_PROJECT_ID,
+        projectCamelot = _G.WOW_PROJECT_CAMELOT,
+        fileScopeType = { account = persistence.fileScope.account, character = persistence.fileScope.character },
+        addonLoadedType = loaded and { account = loaded.account, character = loaded.character } or "ADDON_LOADED not seen",
+        account = persistence.account,
+        character = persistence.character,
+    }
+
+    local function part(label, res)
+        return label .. " " .. (VERDICT_COLOUR[res.status] or "") .. Verdict(res) .. "|r"
+    end
+    print("|cff33ff99GaarProbe:|r SV persisted: " .. part("account", persistence.account) ..
+        "; " .. part("per-character", persistence.character))
+end
+
+-- The same answer as report lines, so it sits in the saved report and in /gaarprobe dump.
+local function PersistenceLines()
+    local p = persistence
+    local loaded = p.addonLoaded
+    return {
+        "",
+        "== saved variables persistence ==",
+        string.format("  file scope:   GaarProbeDB=%s  GaarProbeCharDB=%s",
+            p.fileScope.account, p.fileScope.character),
+        loaded and string.format("  ADDON_LOADED: GaarProbeDB=%s  GaarProbeCharDB=%s",
+            loaded.account, loaded.character) or "  ADDON_LOADED: not seen for " .. tostring(ADDON_NAME),
+        "  account canary:       " .. Verdict(p.account),
+        "  per-character canary: " .. Verdict(p.character),
+    }
+end
+
+-- ---------------------------------------------------------------------------
 -- The report
 -- ---------------------------------------------------------------------------
 local function Build()
@@ -242,6 +383,7 @@ local function Build()
     table.sort(proj)
     add("project id " .. tostring(_G.WOW_PROJECT_ID) .. "   constants: " ..
         (next(proj) and table.concat(proj, " ") or "none"))
+    for _, l in ipairs(PersistenceLines()) do add(l) end
 
     -- A global that is gone is not the same as a global that has moved, and the report has been
     -- listing both as "missing" all along - which is why a module reading 25 of 37 looked alarming
@@ -575,7 +717,10 @@ local function RecordError(msg)
 end
 
 local function SaveErrors()
-    if type(GaarProbeDB) ~= "table" then GaarProbeDB = {} end
+    if type(GaarProbeDB) ~= "table" then
+        GaarProbeDB = {}
+        if not persistence.addonLoaded then preLoadTable = GaarProbeDB end
+    end
     local out = {}
     for _, msg in ipairs(errorOrder) do
         out[#out + 1] = { count = errorCounts[msg], message = msg }
@@ -658,10 +803,21 @@ SlashCmdList["GAARPROBE"] = function(msg)
 end
 
 -- Runs itself once on login as well as on demand: a report that needs remembering is a report
--- that does not get made.
+-- that does not get made. ADDON_LOADED is only listened to for the persistence canary; the canary
+-- itself runs at login, before the report, so the report can include its answer.
 local ev = CreateFrame("Frame")
+ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function(self)
+ev:SetScript("OnEvent", function(self, event, name)
+    if event == "ADDON_LOADED" then
+        if name == ADDON_NAME then
+            self:UnregisterEvent("ADDON_LOADED")
+            pcall(RecordAddonLoaded)
+        end
+        return
+    end
     self:UnregisterAllEvents()
+    local ok, err = pcall(Canary)
+    if not ok then print("|cffff6666" .. ADDON .. ":|r persistence canary failed: " .. tostring(err)) end
     Run(false)
 end)

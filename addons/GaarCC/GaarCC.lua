@@ -137,11 +137,18 @@ end
 --
 -- So the hook is not installed there. Not disabled inside, not returning early: absent, for the
 -- same reason GaarFrames stays out of the unit frames.
-local function IsMainline()
-    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+--
+-- Those clients are retail and Forever. Forever used to report WOW_PROJECT_MAINLINE (1), so a
+-- plain mainline check covered both; by build 1.60.1.70245 it reports its own project id,
+-- WOW_PROJECT_CAMELOT (18), and has to be named explicitly. The constant only exists on Forever,
+-- hence the literal fallback - on every other client it is nil and the id never equals 18.
+local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
+local function IsRetailOrForever()
+    local id = _G.WOW_PROJECT_ID
+    return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
 end
 
-if IsMainline() and not DB().forceOnRetail then
+if IsRetailOrForever() and not DB().forceOnRetail then
     local ev = CreateFrame("Frame")
     ev:RegisterEvent("PLAYER_LOGIN")
     ev:SetScript("OnEvent", function(self)

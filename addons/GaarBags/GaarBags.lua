@@ -1517,13 +1517,21 @@ end
 -- refuses to start in combat - so it is the safe one to reach for while the other is unknown.
 -- Classic Era has issecretvalue as well, so that is not the question - the question is whether
 -- this is the client whose sort took us down, and the project id answers it directly.
-local function IsMainline()
-    return _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+--
+-- "Retail" here covers Forever too. Forever reported WOW_PROJECT_MAINLINE (1) when this guard
+-- was written, so it kept Forever on our own cleanup as well; by build 1.60.1.70245 it reports
+-- WOW_PROJECT_CAMELOT (18) instead, and without naming it the guard would quietly let Blizzard's
+-- sort back in there. The constant only exists on Forever, hence the literal fallback - on
+-- every other client it is nil and the id never equals 18.
+local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
+local function IsRetailOrForever()
+    local id = _G.WOW_PROJECT_ID
+    return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
 end
 local warnedSort = false
 
 local function DoSort()
-    if IsMainline() then
+    if IsRetailOrForever() then
         if not warnedSort then
             warnedSort = true
             DEFAULT_CHAT_FRAME:AddMessage("|cff5599ffGaar Bags:|r using its own tidy here - Blizzard's sort crashes this client from an addon button.")

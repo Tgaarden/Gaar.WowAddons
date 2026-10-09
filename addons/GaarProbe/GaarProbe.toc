@@ -6,5 +6,6 @@
 ## Category-enUS: Gaar
 ## Version: 1.0
 ## SavedVariables: GaarProbeDB
+## SavedVariablesPerCharacter: GaarProbeCharDB
 
 GaarProbe.lua

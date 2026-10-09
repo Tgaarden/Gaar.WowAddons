@@ -30,6 +30,8 @@ local function Secret(a, b)
     return b ~= nil and issecretvalue(b) or false
 end
 local ADDON = "Gaar CC"
+-- The folder name the client loaded this under, which is what ADDON_LOADED reports.
+local ADDON_NAME = ... or "GaarCC"
 local format = string.format
 
 local function DB()
@@ -148,18 +150,42 @@ local function IsRetailOrForever()
     return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
 end
 
-if IsRetailOrForever() and not DB().forceOnRetail then
-    local ev = CreateFrame("Frame")
-    ev:RegisterEvent("PLAYER_LOGIN")
-    ev:SetScript("OnEvent", function(self)
-        self:UnregisterAllEvents()
-        print("|cff5599ff" .. ADDON .. ":|r this client hides cooldown timings and draws its own numbers, so the count is off here.")
-    end)
-else
+local hooked = false
+local function InstallHook()
+    if hooked then return end
+    hooked = true
     local cdProto = CreateFrame("Cooldown", nil, UIParent)
     local cdIndex = getmetatable(cdProto).__index
     hooksecurefunc(cdIndex, "SetCooldown", function(cd, start, duration)
         HandleCooldown(cd, start, duration)
+    end)
+end
+
+-- forceOnRetail is a saved setting, and the client only hands the saved table over after this
+-- file has run and before ADDON_LOADED. Read at file scope it was always the default false, so a
+-- saved true could never take effect. Where the setting cannot matter - every client other than
+-- retail and Forever - the hook goes in straight away as before. On retail and Forever the
+-- decision waits for ADDON_LOADED, and the notice for PLAYER_LOGIN as before.
+if not IsRetailOrForever() then
+    InstallHook()
+else
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("ADDON_LOADED")
+    ev:RegisterEvent("PLAYER_LOGIN")
+    ev:SetScript("OnEvent", function(self, event, arg1)
+        if event == "ADDON_LOADED" then
+            if arg1 ~= ADDON_NAME then return end
+            self:UnregisterEvent("ADDON_LOADED")
+            if DB().forceOnRetail then
+                InstallHook()
+                self:UnregisterAllEvents()
+            end
+        else
+            self:UnregisterAllEvents()
+            if not hooked then
+                print("|cff5599ff" .. ADDON .. ":|r this client hides cooldown timings and draws its own numbers, so the count is off here.")
+            end
+        end
     end)
 end
 -- Older helper, still hooked if this build happens to have it.

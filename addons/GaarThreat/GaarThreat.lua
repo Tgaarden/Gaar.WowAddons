@@ -26,6 +26,8 @@
 
 local _G = _G
 local ADDON = "Gaar Threat"
+-- The folder name the client loaded this under, which is what ADDON_LOADED reports.
+local ADDON_NAME = ... or "GaarThreat"
 
 local function DB()
     if type(GaarThreatDB) ~= "table" then GaarThreatDB = {} end
@@ -101,10 +103,19 @@ end
 -- ---------------------------------------------------------------------------
 local Redraw
 local frame = CreateFrame("Frame", "GaarThreatFrame", UIParent, "BackdropTemplate")
-local d0 = DB()
-frame:SetSize(d0.width, d0.height)
-if d0.point then frame:SetPoint(d0.point, UIParent, d0.point, d0.x or 0, d0.y or 0)
-else frame:SetPoint("CENTER", -300, 0) end
+
+-- Position and size come from the saved table, which the client only hands over after this file
+-- has run and before ADDON_LOADED. Read here at file scope, DB() still holds the defaults, so the
+-- saved place and size were never used. The frame is laid out with the defaults now, so it is
+-- never without a size or anchor, and laid out again from the saved values at ADDON_LOADED.
+local function ApplyLayout()
+    local d = DB()
+    frame:SetSize(d.width, d.height)
+    frame:ClearAllPoints()
+    if d.point then frame:SetPoint(d.point, UIParent, d.point, d.x or 0, d.y or 0)
+    else frame:SetPoint("CENTER", -300, 0) end
+end
+ApplyLayout()
 frame:SetMovable(true); frame:SetResizable(true); frame:EnableMouse(true); frame:SetClampedToScreen(true)
 if frame.SetResizeBounds then frame:SetResizeBounds(160, 80, 500, 640)
 elseif frame.SetMinResize then frame:SetMinResize(160, 80); frame:SetMaxResize(500, 640) end
@@ -277,12 +288,18 @@ _G.GaarThreat_IsShown = function() return frame:IsShown() end
 -- Events
 -- ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
+for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
                      "PLAYER_TARGET_CHANGED", "UNIT_THREAT_LIST_UPDATE" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
-ev:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_LOGIN" then
+ev:SetScript("OnEvent", function(self, event, arg1)
+    if event == "ADDON_LOADED" then
+        -- The saved variables are in place now: put the window where it was left.
+        if arg1 == ADDON_NAME then
+            self:UnregisterEvent("ADDON_LOADED")
+            ApplyLayout()
+        end
+    elseif event == "PLAYER_LOGIN" then
         if DB().shown then frame:Show(); Redraw() end
     elseif event == "PLAYER_ENTERING_WORLD" then
         if DB().showInInstance and IsInInstance() then DB().shown = true; frame:Show(); Redraw() end

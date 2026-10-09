@@ -22,87 +22,58 @@
 local _G = _G
 local ADDON = "Gaar Cast"
 
--- The client hands the saved table over after this file has run - the load trace shows
--- GaarCastDB as nil at file scope and a table by ADDON_LOADED. Creating the global here put an
--- empty table in place before that handover, and on this client that was enough to stop the
--- saved one ever arriving: every session began blank and wrote its blank back over the file.
---
--- That reading was taken on an early Forever beta build that loaded no addon's saved variables
--- at all (docs/forever-client-findings.md), so the early global was probably not the cause. On
--- build 70291 saved variables persist and the trace binds at ADDON_LOADED with a table, as on
--- retail. The staged binding below is kept because it is harmless either way.
---
--- So nothing is assigned to GaarCastDB until ADDON_LOADED. Until then DB() hands out a staging
--- table; at ADDON_LOADED whatever the client provided wins, and staging is applied on top only
--- where the loaded table has nothing to say.
-local staging = {}
-local dbBound = false
-
--- ADDON_LOADED was too early. The recorded handover said "client gave nil" against a file that
--- plainly held a saved size, so on this client the saved table arrives later than that event.
--- (Also from the early Forever build that never handed saved tables back at any stage. On 70291
--- the table is there at ADDON_LOADED, so the first attempt is the one that binds.)
---
--- Binding is therefore attempted at each stage in turn and only takes when the client has
--- actually provided a table. Creating the global ourselves before then is what would stop the
--- real one arriving, so nothing is created until the last stage, by which point waiting longer
--- would gain nothing.
-local bindLog = {}
-
-local function Provided()
-    if type(GaarCastDB) ~= "table" then return nil end
-    local pos, size = 0, 0
-    if type(GaarCastDB.pos) == "table" then for _ in pairs(GaarCastDB.pos) do pos = pos + 1 end end
-    if type(GaarCastDB.size) == "table" then for _ in pairs(GaarCastDB.size) do size = size + 1 end end
-    return pos, size
-end
-
-local function TryBind(stage, force)
-    if dbBound then return end
-    local pos, size = Provided()
-    bindLog[#bindLog + 1] = string.format("%s=%s", stage,
-        pos and string.format("table pos=%d size=%d", pos, size) or "nil")
-    if not pos and not force then return end     -- nothing handed over yet; wait
-
-    dbBound = true
-    if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
-    for k, v in pairs(staging) do
-        if GaarCastDB[k] == nil then GaarCastDB[k] = v end
-    end
-    staging = {}
-    GaarCastDB.lastLoad = string.format("%s bound at %s [%s]",
-        date("%H:%M:%S"), stage, table.concat(bindLog, " "))
-end
-
-local function BindDB() TryBind("late", true) end
-
-
-local function DB()
-    local d
-    if dbBound then
-        if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
-        d = GaarCastDB
-    else
-        d = staging
-    end
-    if d.show == nil then d.show = { player = true, target = true, focus = true, pet = false } end
-    if d.locked == nil then d.locked = false end
-    if d.showLatency == nil then d.showLatency = true end
-    if d.spark == nil then d.spark = true end
-    if d.showTotal == nil then d.showTotal = true end   -- "remain / total" instead of just remain
-    if d.showTarget == nil then d.showTarget = true end -- name of who the cast is on
-    if d.shield == nil then d.shield = true end         -- shield overlay on uninterruptible casts
-    if d.fade == nil then d.fade = true end             -- fade-out when a cast finishes
-    if d.fontSize == nil then d.fontSize = 11 end
-    if d.texture == nil then d.texture = "Interface\\TargetingFrame\\UI-StatusBar" end
-    if d.pos == nil then d.pos = {} end
+-- Saved settings. The client loads GaarCastDB after this file has run and before ADDON_LOADED,
+-- so until then DB() hands out a table of defaults that the frames built below can read; at
+-- ADDON_LOADED the saved table (or a new one) is bound and filled in wherever it has gaps.
+-- (Early WoW Forever builds never handed saved variables back; that is fixed as of build
+-- 70291 - docs/forever-client-findings.md.)
+local DEFAULTS = {
+    show = { player = true, target = true, focus = true, pet = false },
+    locked = false,
+    showLatency = true,
+    spark = true,
+    showTotal = true,    -- "remain / total" instead of just remain
+    showTarget = true,   -- name of who the cast is on
+    shield = true,       -- shield overlay on uninterruptible casts
+    fade = true,         -- fade-out when a cast finishes
+    fontSize = 11,
+    texture = "Interface\\TargetingFrame\\UI-StatusBar",
     -- Follow Blizzard's own cast bar rather than a dragged position, so Edit Mode decides where
     -- the bar lives. Off by default: on Era there is no Edit Mode, and a saved drag is the only
     -- way to place it there.
-    if d.follow == nil then d.follow = false end    -- [unit] = {point, x, y} — set only once you move a bar
-    if d.size == nil then d.size = {} end  -- [unit] = {w, h} — set only once you resize a bar
-    return d
+    follow = false,
+    pos = {},            -- [unit] = {point, x, y} - set only once you move a bar
+    size = {},           -- [unit] = {w, h} - set only once you resize a bar
+}
+
+-- Keys older versions wrote while chasing the Forever load problem. Nothing reads them now.
+local STALE_KEYS = { "lastLoad" }
+
+-- Fills in whatever `t` is missing, one level deep so a partial `show` table gets its missing
+-- units too. Table defaults are copied rather than shared, so DEFAULTS itself is never written.
+local function ApplyDefaults(t)
+    for k, v in pairs(DEFAULTS) do
+        if type(v) == "table" then
+            if type(t[k]) ~= "table" then t[k] = {} end
+            for k2, v2 in pairs(v) do
+                if t[k][k2] == nil then t[k][k2] = v2 end
+            end
+        elseif t[k] == nil then
+            t[k] = v
+        end
+    end
+    return t
 end
+
+local db = ApplyDefaults({})
+
+local function BindDB()
+    if type(GaarCastDB) ~= "table" then GaarCastDB = {} end
+    for _, k in ipairs(STALE_KEYS) do GaarCastDB[k] = nil end
+    db = ApplyDefaults(GaarCastDB)
+end
+
+local function DB() return db end
 
 local TEXTURES = {
     { label = "Blizzard", tex = "Interface\\TargetingFrame\\UI-StatusBar" },
@@ -231,22 +202,6 @@ end
 
 -- Place + size the bar: a position you dragged wins, otherwise sit exactly on Blizzard's bar
 -- so the bar honours wherever that one has been placed.
--- What GaarCastDB held at each stage of loading. Two theories about the missing positions have
--- been wrong, and the file on disk has gone from holding a real position to holding none, so
--- the load order is being observed rather than reasoned about. /gaarcast pos prints it.
--- The answer turned out to be the client: early Forever builds loaded no saved variables for
--- any addon. On 70291 the trace reads nil at file scope and a table at ADDON_LOADED.
-local loadTrace = {}
-local function Trace(when)
-    local n = 0
-    if type(GaarCastDB) == "table" and type(GaarCastDB.pos) == "table" then
-        for _ in pairs(GaarCastDB.pos) do n = n + 1 end
-    end
-    loadTrace[#loadTrace + 1] = string.format("%s: GaarCastDB=%s pos entries=%d",
-        when, type(GaarCastDB), n)
-end
-Trace("file scope, before frames")
-
 local function ApplyAnchor(f)
     local unit = f.unit
     local pos, size = DB().pos[unit], DB().size[unit]
@@ -555,37 +510,31 @@ local EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
     "UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE",
-    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "PLAYER_LOGIN", "ADDON_LOADED", "EDIT_MODE_LAYOUTS_UPDATED", "VARIABLES_LOADED",
+    "PLAYER_TARGET_CHANGED", "UNIT_PET", "PLAYER_ENTERING_WORLD", "ADDON_LOADED", "EDIT_MODE_LAYOUTS_UPDATED",
 }
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 if HAS_FOCUS then pcall(ev.RegisterEvent, ev, "PLAYER_FOCUS_CHANGED") end
 ev:SetScript("OnEvent", function(_, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == "GaarCast" then
-        -- Sampled before the merge as well as after. Measuring only after binding cannot tell
-        -- "the client handed us nothing" from "the client handed us something and we lost it",
-        -- and that is the whole remaining question.
-        Trace("ADDON_LOADED, raw from client")
-        TryBind("ADDON_LOADED")
-        Trace("ADDON_LOADED, after bind")
-        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
+    if event == "ADDON_LOADED" then
+        if arg1 ~= "GaarCast" then return end
+        ev:UnregisterEvent("ADDON_LOADED")
+        BindDB()
+        -- The bars were built from defaults while this file ran; bring them in line with what
+        -- was saved.
+        for _, u in ipairs(UNITS) do
+            local f = bars[u]
+            ApplyAnchor(f)
+            ApplyFonts(f)
+            f.bar:SetStatusBarTexture(DB().texture)
+            if f.grip then if DB().locked then f.grip:Hide() else f.grip:Show() end end
+            local bf = BlizzBar(u)
+            if bf and DB().show[u] and bf:IsShown() then bf:Hide() end
+        end
         return
     end
-    if event == "VARIABLES_LOADED" then
-        TryBind("VARIABLES_LOADED")
-        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
-        return
-    end
-    if event == "EDIT_MODE_LAYOUTS_UPDATED" then
-        for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
-        return
-    end
-    if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_LOGIN" then
-        TryBind(event, event == "PLAYER_ENTERING_WORLD")
-        Trace(event)
-        -- Both, deliberately. The frames are built while this file runs, which is before the
-        -- saved variables have been loaded, so the anchor applied then is against an empty
-        -- table. Re-applying once the saved data is certainly in is what actually restores a
-        -- dragged position.
+    if event == "PLAYER_ENTERING_WORLD" or event == "EDIT_MODE_LAYOUTS_UPDATED" then
+        -- Blizzard's bars, which an untouched bar sits on, only get their final layout around
+        -- now, so the anchor is worked out again.
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end
         return
     end
@@ -803,23 +752,6 @@ SLASH_GAARCAST1 = "/gaarcast"
 SLASH_GAARCAST2 = "/gcast"
 SlashCmdList["GAARCAST"] = function(msg)
     msg = string.gsub(string.lower(msg or ""), "%s+", "")
-    if msg == "pos" then
-        -- What is stored against what is on screen. Guessing at this twice was enough.
-        print("|cff33ff99" .. ADDON .. "|r saved position vs. where each bar actually is")
-        for _, t in ipairs(loadTrace) do print("  |cff777777" .. t .. "|r") end
-        for _, u in ipairs(UNITS) do
-            local d = DB().pos[u]
-            local f = bars[u]
-            local p, _, _, x, y = f:GetPoint()
-            local live
-            if Secret(x, y) or Secret(p) then live = "|cffff6666secret - cannot be read|r"
-            else live = string.format("%s %.0f,%.0f", tostring(p), x or 0, y or 0) end
-            print(string.format("  %-7s saved: %s   now: %s", u,
-                d and string.format("%s %.0f,%.0f", tostring(d.point), d.x or 0, d.y or 0) or "|cff777777none|r",
-                live))
-        end
-        return
-    end
     if msg == "follow" then
         DB().follow = not DB().follow
         for _, u in ipairs(UNITS) do ApplyAnchor(bars[u]) end

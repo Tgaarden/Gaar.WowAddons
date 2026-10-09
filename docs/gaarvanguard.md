@@ -164,15 +164,17 @@ On **both exports** the current character is re-scanned from the live game state
 string is built — name (see *Full character name* below), level (`UnitLevel`), race/class, faction,
 guild + rank (`GetGuildInfo`), spec, the full talent build, professions, and **equipment** by
 looping equip slots 1–19 via `GetInventoryItemLink` (each id mapped to its canonical slot name).
-This means the export reflects the live character **even when the SavedVariables DB is empty**,
-which is the Forever-beta case (that client does not persist addon SavedVariables and the equipment
-events may never have fired).
+This means the export reflects the live character **even when the SavedVariables DB is empty or
+stale**. That was the normal case on early Forever beta builds, which wrote addon SavedVariables but
+never loaded them back. From build `1.60.1.70291` they persist, account-wide and per character (see
+`docs/forever-client-findings.md`), but the live scan stays: the equipment events may not have fired
+this session, and the character being exported should always be read as it is now.
 
 The **per-character full export** (`/gaarvanguard export`) then emits **only that current
 character** — one full element. The **bulk export** (`/gaarvanguard exportall`) emits every stored
-character but keeps only the identity fields for each (other characters still come from the DB where
-it persists, e.g. Era). Every reader is wrapped in `pcall`, so a missing or reshaped API on one
-client leaves a blank field instead of erroring.
+character but keeps only the identity fields for each (other characters come from the DB, which
+persists on Era and, from build 70291, on Forever too). Every reader is wrapped in `pcall`, so a
+missing or reshaped API on one client leaves a blank field instead of erroring.
 
 ### Full character name (first + last)
 
@@ -202,7 +204,7 @@ name with the live `FullPlayerName()` at export time, so the active character is
 A record written by an older build that stored only a first name **self-corrects the next time that
 character logs in** (login re-runs capture with the full name).
 
-### What else drives capture (keeps the DB fresh in-session / on Era)
+### What else drives capture (keeps the DB fresh between exports)
 
 | Event | Refreshes |
 |---|---|
@@ -463,9 +465,13 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 
 ## Client support
 
-Targets Forever (Mainline TOC, interface `120100, 16001`) and Classic Era (Vanilla TOC,
-`11509`), matching the rest of the suite. Per `docs/forever-client-findings.md` the only globals
-Forever removed that the suite touches are three spellbook skill-line calls, which this addon
-does not use. Note the same document's finding that **Forever does not currently persist addon
-SavedVariables** — so on that client the export reflects the live session, and captured data may
-not survive a reload until Blizzard fixes persistence.
+Targets Forever (`GaarVanguard_Camelot.toc`, interface `16001`; the `_Mainline.toc` also lists
+`120100, 16001`) and Classic Era (`_Vanilla.toc`, `11509`), matching the rest of the suite. Forever
+reports `WOW_PROJECT_ID` = 18 (`WOW_PROJECT_CAMELOT`) rather than retail's 1; this addon does not
+branch on the project id, it checks for each API it uses, so that change did not affect it. The
+`/gaarvanguard probe` box prints the id with the build and interface.
+
+**SavedVariables persist on Forever** from build `1.60.1.70291`, account-wide and per character,
+proven across a full client restart (`docs/forever-client-findings.md`). Early beta builds did not
+load them back, which is why the export re-scans the live character instead of trusting the
+stored record; on current builds `GaarVanguardDB` survives reloads and restarts as it does on Era.

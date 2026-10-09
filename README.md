@@ -68,20 +68,27 @@ docs/            notes worth keeping, chiefly the Classic Era API findings
 
 ## Several game versions, one copy of the code
 
-Every addon carries `_Vanilla` and `_Mainline` TOCs: Classic Era 1.15.x at interface 11509 and
-retail 12.1.x at 120100. `GaarProbe` adds a `_Camelot` TOC and a plain fallback for Forever.
+Every addon carries `_Vanilla`, `_Mainline` and `_Camelot` TOCs: Classic Era 1.15.x at interface
+11509, retail 12.1.x at 120100, and WoW Forever at 16001. `GaarProbe` also keeps a plain fallback
+TOC for a client whose suffix is not known yet.
 
 Each addon carries a TOC file per game flavour rather than a folder per flavour:
 
 ```
 addons/GaarBags/GaarBags_Vanilla.toc     Classic Era
 addons/GaarBags/GaarBags_Mainline.toc    retail, when it is targeted
+addons/GaarBags/GaarBags_Camelot.toc     WoW Forever
 ```
 
 The client picks `Name_<Flavor>.toc` itself and falls back to `Name.toc`. Blizzard's suffixes
-are `_Vanilla`, `_TBC`, `_Wrath`, `_Cata`, `_Mists` and `_Mainline`. This is what Plater,
-Questie, AtlasLoot and ThreatClassic2 all do, and the reason is worth restating: one copy of
-the Lua that asks the client what it supports beats two copies that have to be kept in step.
+are `_Vanilla`, `_TBC`, `_Wrath`, `_Cata`, `_Mists` and `_Mainline`, and Forever uses `_Camelot`.
+This is what Plater, Questie, AtlasLoot and ThreatClassic2 all do, and the reason is worth
+restating: one copy of the Lua that asks the client what it supports beats two copies that have
+to be kept in step.
+
+Forever reports its own project id, `WOW_PROJECT_CAMELOT` (18), not retail's
+`WOW_PROJECT_MAINLINE` (1), so the few checks that mean "retail-shaped client" accept both. See
+`docs/forever-client-findings.md`.
 
 The code already works that way. It checks for `C_Container`, `BackdropTemplate`,
 `SetResizeBounds` and the rest before using them, so most of a retail port is adding a TOC and

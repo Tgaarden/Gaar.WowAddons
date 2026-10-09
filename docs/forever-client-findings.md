@@ -7,14 +7,33 @@ the suite is known to work on it.
 
     strings -n 3 ".../World of Warcraft Beta.app/Contents/MacOS/World of Warcraft" | sort -u
 
+The later sections were added as the client was patched and the probes ran in game. Each one
+names the build it comes from, and the build history below puts them in order.
+
 ## What it is
 
 | | |
 |---|---|
 | Install folder | `_classic_beta_` |
 | Product flavor (`.flavor.info`) | `wow_classic_beta` |
-| Version | `1.60.1.69893` |
+| Version | `1.60.1.69893` when first read; `1.60.1.70291` as of 2026-10-09 |
+| Interface | `16001` |
+| `WOW_PROJECT_ID` | `18` (`WOW_PROJECT_CAMELOT`) since at least 70245; it was `1` on 69913 |
 | Branch codename | `Camelot` (see below) |
+
+## Build history
+
+| Build | Seen | What it meant for addons |
+|---|---|---|
+| `69893` | 2026-09-17 | First reading, from the binary only - no login was possible yet |
+| `69913` | 2026-09-18 to 09-21 | First in-game probe. Interface `16001`, `WOW_PROJECT_ID` = 1 (`WOW_PROJECT_MAINLINE`). SavedVariables written but never loaded back |
+| `69977` | 2026-09-23 to 09-24 | The profession and talent probes. On-disk evidence suggests SavedVariables started coming back around here (medium confidence) |
+| `70058` | by 2026-09-29 | Nothing specific recorded |
+| `70245` | installed 2026-10-07 | `WOW_PROJECT_ID` = 18 (`WOW_PROJECT_CAMELOT`). The change happened somewhere after 69913; which build exactly is unknown |
+| `70291` | installed 2026-10-09 08:32 | SavedVariables persistence confirmed, account and per character, across a full client restart. Full probe report below |
+
+The dates come from the build number stamped in the client's own `Errors/` reports and `Logs/`,
+or from the install time, so "seen" means "in use on that day", not "released on that day".
 
 The version is on the 1.x line, like Classic Era's 1.15.x, but the engine underneath is not
 Era's. Forever's binary exposes **288** `C_*` namespaces against Era's **202**, including a
@@ -79,6 +98,10 @@ suffixes. They are not. Checking the surrounding strings shows both sitting insi
 `PremadeGroupFinderStyleMeta`, among the LFG constants. Reading a literal without reading its
 neighbours produces a confident wrong answer.
 
+**Settled since.** The `Camelot` reading was right. Once the client started reporting
+`WOW_PROJECT_CAMELOT`, every addon in the suite gained a `<Name>_Camelot.toc` at interface `16001`
+(see *The TOC: `_Camelot` at 16001* below).
+
 # Retail (12.1.0)
 
 The same diff was run against retail, build `12.1.0.69814`, with Era as the control again.
@@ -115,6 +138,9 @@ convention was right.
 to addons. That settles the TOC question a different way than expected: `Camelot` is not needed,
 `_Mainline` is what this client should match, and any code branching on the project id treats
 Forever as retail automatically - which is what the suite now does.
+
+**No longer true.** By build 70245 Forever reports its own project id, 18, and no longer counts as
+retail. See *Forever is its own project now* below for what that broke and how the suite handles it.
 
 It is retail-shaped but further along. Everything retail had moved, Forever has moved, and then
 some:
@@ -382,7 +408,11 @@ mapping are verified out of game with a stubbed-API luajit harness on the real p
 `posX` and assigned band, the per-band summed ranks, the class token, and the final resolved spec + tab
 name, so the next in-game run confirms `"Fire"` without guesswork.
 
-# The client does not load addon SavedVariables (2026-09-18)
+# The client did not load addon SavedVariables on early builds (2026-09-18)
+
+**Historical.** This held on build 69913 and is no longer true: on 70291 SavedVariables persist,
+account-wide and per character (next section). It is kept because it explains code and comments
+that were written while it held.
 
 Settings never survive a reload on this build. Addons write their files correctly and are handed
 nothing back.
@@ -400,9 +430,9 @@ size in it. So this is not a matter of binding too early - the table never arriv
 `CENTER, -65.99, -19.97` at 11:56 and `CENTER, 0, 0` in the next session, having reset to its
 default. A mature third-party addon loses its settings the same way.
 
-Worth knowing for anyone porting here: no addon can persist anything on this build yet, so a
-missing setting after a reload is the client, not the port. It also means the writing half
-cannot be tested end to end - a file that looks right on disk proves only that saving works.
+Worth knowing for anyone porting here: no addon could persist anything on that build, so a
+missing setting after a reload was the client, not the port. It also meant the writing half
+could not be tested end to end - a file that looks right on disk proves only that saving works.
 
 **CVars are not a way round it.** `C_CVar.RegisterCVar` works at runtime: a registered CVar can
 be set and read back within the session, confirmed in game with
@@ -411,5 +441,138 @@ drag. It is never written to `Config.wtf`. The file came back byte-identical acr
 so what `RegisterCVar` creates here is temporary - `C_CVar.RemoveTempCVar` sitting in the same
 namespace was the hint, and this is the confirmation.
 
-So there is currently no persistence available to an addon on this build at all. The workaround
-was written, tested and removed rather than left in place looking like it saved something.
+So there was no persistence available to an addon on that build at all. The workaround was
+written, tested and removed rather than left in place looking like it saved something.
+
+# SavedVariables persist (build 70291, 2026-10-09)
+
+They work now, both kinds. `GaarProbe` carries a persistence canary for exactly this question: on
+each login it reads the counter the previous session left, bumps it and writes it back, in an
+account-wide table (`GaarProbeDB`, `## SavedVariables`) and a per-character one (`GaarProbeCharDB`,
+`## SavedVariablesPerCharacter`), because a client can load one kind and not the other.
+
+| Time | What happened | Canary |
+|---|---|---|
+| 09:02:14 | First login with the new probe; written, then flushed to disk by `/reload` | #1 written |
+| 09:02:17 | After the `/reload`: #1 read back and bumped | #2, YES for both |
+| 09:12:10 | Client fully quit, new process started, login on Pala-Tics | #3, YES for both |
+
+The third row is the one that proves it. A `/reload` keeps the process, so in principle a client
+could hand the table back from memory; a cold start cannot, so canary #3 came back from the files
+on disk. The probe's own record of that login reads `checkedAt = 09:13:18`, `count = 3`, with the
+previous canary `#2` from 09:02:17 on the same build.
+
+**Load timing is the normal one.** At file scope both `GaarProbeDB` and `GaarProbeCharDB` are `nil`;
+at `ADDON_LOADED` both are tables. So the client runs an addon's files, then loads its
+SavedVariables, then fires `ADDON_LOADED`, as retail does, and binding a saved table at
+`ADDON_LOADED` is correct here. `GaarCast`'s own load trace agrees: on the same login it recorded
+`bound at ADDON_LOADED [ADDON_LOADED=table ...]`, where on 69913 it recorded `nil` at every stage.
+
+**When it started is not pinned.** Earlier files on disk suggest saved variables began coming back
+around build 69977 (roughly 2026-09-23 to 09-25), but that is medium confidence. Nobody checked on
+the builds in between, which is why the canary now runs on every login.
+
+The CVar finding above (`C_CVar.RegisterCVar` is temporary and never written to `Config.wtf`) was
+not retested on 70291. It no longer matters for persistence, since saved variables do the job.
+
+## Now possible
+
+Several things in the suite were shaped by saved variables not coming back. None of them is wrong
+now, but each could be reconsidered:
+
+- `GaarVanguard` re-scans the live character at export and never trusts its stored record. That is
+  still the right default for the current character, but records for the account's other characters
+  now survive between sessions on Forever too, so `exportall` builds a real roster there.
+- `GaarCast`'s fallback bar positions were measured by hand because a dragged position never came
+  back, and its staged binding and load trace were built to chase the missing table. A dragged
+  position should now persist, and the binding could go back to a plain `ADDON_LOADED` bind.
+- `GaarMap` moves its clock strip out of the way of TomTom's coordinate block, which used to sit on
+  top of it because TomTom forgot its position every session. TomTom should remember it now.
+
+# Forever is its own project now: `WOW_PROJECT_CAMELOT` (18)
+
+On 69913 Forever reported `WOW_PROJECT_ID` = 1, `WOW_PROJECT_MAINLINE`, and the suite relied on that
+to treat it as retail. By 70245 it reports 18, and the 70291 probe reads:
+
+    project id 18   constants: WOW_PROJECT_CAMELOT=18 WOW_PROJECT_CLASSIC=2 WOW_PROJECT_ID=18 WOW_PROJECT_MAINLINE=1
+
+So Forever no longer counts as retail. A plain `WOW_PROJECT_ID == WOW_PROJECT_MAINLINE` check is now
+false on Forever, and every check of that kind silently started treating it as Classic Era again:
+
+- `GaarBags`: the tidy button went back to Blizzard's `SortBags`, which has crashed this client.
+- `GaarCC`: the `SetCooldown` hook went back inside Blizzard's cooldown path.
+- `GaarFrames`: the addon went active and tainted the unit frames until it saw a secret value.
+
+Each of those three now asks `IsRetailOrForever()`, which accepts `WOW_PROJECT_MAINLINE` or
+`WOW_PROJECT_CAMELOT`. The constant only exists on Forever, so each falls back to a literal 18:
+
+    local CAMELOT = _G.WOW_PROJECT_CAMELOT or 18
+    local function IsRetailOrForever()
+        local id = _G.WOW_PROJECT_ID
+        return id ~= nil and (id == _G.WOW_PROJECT_MAINLINE or id == CAMELOT)
+    end
+
+Era (2) and retail (1) behave as before. The rest of the suite does not branch on the project id at
+all: it checks for the API it needs (`C_Container`, `C_Item`, `BackdropTemplate` and so on), so it
+was not affected. `GaarProbe` and `/gaarvanguard probe` both print the id and its constants.
+
+# The TOC: `_Camelot` at 16001
+
+Every addon now ships a `<Name>_Camelot.toc` at `## Interface: 16001`, a copy of its
+`_Mainline.toc` with the interface line changed. This is the suffix the binary pointed at on day
+one, and it is what third-party Forever addons ship. The `_Mainline.toc` files still list
+`120100, 16001` and `GaarProbe` keeps its plain `GaarProbe.toc` as the fallback for a flavour with
+no specific TOC, so whichever file this client picks, the interface matches. The probe does not
+record which file was loaded.
+
+# The API on 70291, from the probe
+
+`GaarProbe`'s report for this build (`client 1.60.1 build 70291 (Oct 7 2026) interface 16001`),
+per module. "Moved" means a `C_*` namespace carries a function of the same name, which a shim can
+follow; "gone" means none does, so a replacement under a different name, or nothing, is the answer.
+
+| Module | Present | Gone | Moved |
+|---|---|---|---|
+| `GaarBags` | 25 of 37 | - | `ContainerIDToInventoryID`, `GetContainerItemCooldown`, `GetContainerItemInfo`, `GetContainerItemLink`, `GetContainerItemQuestInfo`, `GetContainerNumFreeSlots`, `GetContainerNumSlots`, `PickupContainerItem`, `SortBags` -> `C_Container`; `GetItemQualityColor` -> `C_Item`; `GetCoinTextureString` -> `C_CurrencyInfo`; `GetItemInfo` -> `C_TransmogCollection` (see below) |
+| `GaarCC` | 8 of 8 | - | - |
+| `GaarCast` | 13 of 13 | - | - |
+| `GaarFrames` | 20 of 21 | `UnitBuff` | - |
+| `GaarLooter` | 27 of 28 | - | `GetItemInfoInstant` -> `C_Item` |
+| `GaarMap` | 9 of 9 | - | - |
+| `GaarMeter` | 18 of 20 | `CombatLogGetCurrentEventInfo` | `GetSpellTexture` -> `C_Spell` |
+| `GaarOptions` | 9 of 11 | `InterfaceOptionsFrame_OpenToCategory`, `InterfaceOptions_AddCategory` | - |
+| `GaarPlates` | 25 of 26 | `UnitAura` | - |
+| `GaarSpellBook` | 22 of 33 | `GetNumSpellTabs`, `GetSpellTabInfo`, `IsPassiveSpell`, `SpellBookFrame` | `GetSpellBookItemInfo`, `GetSpellBookItemName`, `GetSpellBookItemTexture`, `PickupSpellBookItem` -> `C_SpellBook`; `GetSpellName`, `GetSpellTexture`, `PickupSpell` -> `C_Spell` |
+| `GaarThreat` | 19 of 19 | - | - |
+| `GaarUI` | 2 of 4 | - | `GetAddOnMetadata`, `IsAddOnLoaded` -> `C_AddOns` |
+
+What the gone names mean in practice:
+
+- `UnitAura`, `UnitBuff`: replaced by `C_UnitAuras` under new names (`GetAuraDataByIndex`,
+  `GetBuffDataByIndex`, `GetDebuffDataByIndex`, `GetAuraDataBySlot`, `GetPlayerAuraBySpellID`, all
+  present). `GetAuraDataByIndex` answers with one table, not the old list of values.
+- `CombatLogGetCurrentEventInfo`: still no getter anywhere. `C_CombatLog` carries only
+  `IsCombatLogRestricted`, `ClearEntries` and `SetMessageLimit`; `GetCurrentEventInfo`,
+  `GetCurrentEntryInfo`, `GetEntryCount`, `SeekToNewestEntry`, `SeekToPreviousEntry` and
+  `AddEventFilter` are all absent, and `C_CombatLog.IsCombatLogRestricted()` returns `true`.
+  `GaarMeter` still cannot read the combat log on this client.
+- `InterfaceOptions_AddCategory`, `InterfaceOptionsFrame_OpenToCategory`: replaced by `Settings`
+  (`RegisterCanvasLayoutCategory`, `RegisterAddOnCategory`, `OpenToCategory`,
+  `RegisterVerticalLayoutCategory`) and `SettingsPanel`. `EasyMenu` is gone; `MenuUtil` and
+  `UIDropDownMenu_Initialize` are present.
+- `GetNumSpellTabs`, `GetSpellTabInfo`, `IsPassiveSpell`: replaced by
+  `C_SpellBook.GetNumSpellBookSkillLines`, `GetSpellBookSkillLineInfo` (one table) and
+  `IsSpellBookItemPassive`, as on day one. `SpellBookFrame` is gone and `PlayerSpellsFrame` was not
+  loaded at the time, which proves nothing since it is load-on-demand.
+
+Two readings need care. `GetItemInfo` -> `C_TransmogCollection` is the probe taking the first
+namespace it found with that name; `C_Item.GetItemInfo` is present too and is the one the suite
+uses. And `GetCoinTextureString`, recorded as "nowhere found" on 69913, now shows up under
+`C_CurrencyInfo`, which `GaarBags` already tries before formatting coins by hand.
+
+Everything else matches 69913: `C_Container`, `C_Item`, `C_Spell` and `C_SpellBook` are complete for
+what the suite uses; the frames are the retail ones (`PlayerFrame.healthbar`,
+`PartyFrame.MemberFrame1`, `PlayerCastingBarFrame`, `SettingsPanel`); `SetMinResize` is gone and
+`SetResizeBounds` present. The return shapes worth knowing are all tables:
+`C_Container.GetContainerItemInfo`, `C_Minimap.GetTrackingInfo`, `C_UnitAuras.GetAuraDataByIndex`,
+`C_SpellBook.GetSpellBookSkillLineInfo` and `C_SpellBook.GetSpellBookItemInfo`.

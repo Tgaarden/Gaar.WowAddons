@@ -280,8 +280,10 @@ local function RefreshClock()
 end
 
 -- Another addon's frame can land in the same place as this strip. TomTom's coordinate block
--- does exactly that here: this build never returns saved variables, so TomTom has forgotten
--- where it was put and falls back to its default spot under the minimap, on top of the clock.
+-- did exactly that on early Forever beta builds: they never returned saved variables, so TomTom
+-- forgot where it was put and fell back to its default spot under the minimap, on top of the
+-- clock. Saved variables persist from build 70291, so that should now be rare, but the block's
+-- default spot is still there and the check costs nothing.
 --
 -- Ours moves, because ours is the one that can: it drops below anything overlapping it. The
 -- test is a real overlap rather than "is TomTom loaded", so a block the user has moved

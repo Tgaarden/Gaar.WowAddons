@@ -245,7 +245,8 @@ end
 -- Persistence canary, part two
 --
 -- A setting that silently resets is easy to blame on the addon, and the Forever beta spent weeks
--- handing nothing back (docs/forever-client-findings.md). So the probe answers the question
+-- handing nothing back (docs/forever-client-findings.md). On build 70291 this canary proved that
+-- both kinds now persist, across a full client restart. So the probe answers the question
 -- itself: each login reads the canary the previous session left, bumps the count and writes it
 -- back. A canary that comes back means the file was loaded; none means first run or no loading.
 -- Both kinds of saved variable are tested, because a client can load one and not the other.

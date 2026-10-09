@@ -11,7 +11,8 @@
       (inventory slots 1-19, stored by canonical slot NAME). The
       entry is refreshed whenever the thing it holds can change - login, an equipment swap, a
       level up, a skill/talent change, a guild change - and, crucially, re-scanned live at
-      export so the string is correct even when the DB never persisted (the Forever beta).
+      export so the string is correct even when the stored record is empty or stale (early
+      Forever beta builds did not load SavedVariables back; from build 70291 they do).
       Field names match the Vanguard website's VGD1 `chars` contract exactly (see
       docs/gaarvanguard.md).
     * Records loot the way GaarLooter does, but per character: every completed need/greed roll
@@ -828,8 +829,9 @@ local function CaptureSpec(c)
 end
 
 -- The FULL talent build, so the website can draw the whole tree, not just the spec name.
--- Captured live at capture/export exactly like professions/equipment (the Forever beta does not
--- persist SavedVariables, so a cached build cannot be trusted). Tried in order, all pcall-guarded,
+-- Captured live at capture/export exactly like professions/equipment, so the export never depends
+-- on a cached build (written when early Forever builds did not load SavedVariables back; they do
+-- from build 70291, but the live read is still the safer source). Tried in order, all pcall-guarded,
 -- using whichever API the client actually exposes:
 --
 --   1. Classic talent API (Era). GetNumTalentTabs() + GetTalentTabInfo(tab) -> name, icon,
@@ -1108,7 +1110,7 @@ local function ScanProfessionsClassic()
 end
 
 -- Professions: the primary + secondary trade skills as { name, skill, max }. Scanned LIVE at
--- capture/export like equipment, so it is correct even when the DB never persisted (Forever).
+-- capture/export like equipment, so it is correct even when the stored record is empty or stale.
 -- Prefer the modern C_TradeSkillUI reader (works on retail, Forever and Era), fall back to the
 -- classic skill-line reader (with header expansion) where C_TradeSkillUI is absent. An empty
 -- result leaves any previously captured list in place rather than wiping it.
@@ -1152,8 +1154,8 @@ end
 
 -- A full live scan of one character record from the current game state. Called both on the
 -- capture events and, crucially, at export time - so the export reflects the LIVE current
--- character even when the DB is empty (the Forever beta does not persist SavedVariables, and
--- equipment events may never have fired / persisted).
+-- character even when the DB is empty or stale (early Forever builds did not load SavedVariables
+-- back - they do from build 70291 - and equipment events may never have fired this session).
 local function CaptureInto(c)
     if not c then return end
     safe(CaptureIdentity, c)
@@ -1520,9 +1522,11 @@ end
 -- one character makes a short string that survives the copy out of the in-game EditBox, unlike the
 -- whole-account dump which truncated and lost talents/tail characters.
 --
--- Fresh full scan right now, before building the string. The beta does not persist SavedVariables
--- and equipment events may not have fired, so we never trust cached data for the live character - we
--- re-read name/level/class/guild/spec/professions and loop the equip slots live here.
+-- Fresh full scan right now, before building the string. The stored record may be stale and
+-- equipment events may not have fired, so we never trust cached data for the live character - we
+-- re-read name/level/class/guild/spec/professions and loop the equip slots live here. (This began on
+-- early Forever builds, which did not load SavedVariables back; from build 70291 they persist, but
+-- the live scan is still the right source for the character being exported.)
 local function BuildExportStringCurrent()
     safe(CaptureAll)
     local chars = {}

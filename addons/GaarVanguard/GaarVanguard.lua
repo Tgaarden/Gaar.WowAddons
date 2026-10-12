@@ -44,8 +44,15 @@
   differently on one client degrades to "not captured" instead of erroring. The base64 and JSON
   encoders are self-contained here - no external libraries.
 
-  /gaarvanguard opens the Vanguard view (subcommands: export, exportall, capture, probe,
+  /gaarvanguard opens the Vanguard view (subcommands: export, exportall, capture, sync, probe,
   minimap, minimap reset, config, wipe). Settings under Gaar -> Vanguard.
+
+  Desktop app ("Vanguard Sync")
+    Each character's ready-made export string is also kept in GaarVanguardDB.exports so a desktop
+    companion app can read it from the SavedVariables file on disk and upload it. It is refreshed on
+    logout / reload / exit, when the export is copied, after a recapture and after a level-up.
+    /gaarvanguard sync shows when this character's entry was last stored; auto-sync can be turned
+    off (GaarVanguardDB.autoSync) from the minimap menu, the options panel or /gaarvanguard sync off.
 
   Minimap button: left-click opens a small box with this character's export already selected
   (press Ctrl+C / Cmd+C and it closes itself), right-click opens a menu, drag moves it. Self-
@@ -81,6 +88,7 @@ local function DB()
     if d.chars == nil then d.chars = {} end       -- ["Name-Realm"] = character record
     if d.maxLoot == nil then d.maxLoot = 100 end  -- per-character loot rows kept
     -- d.sync is legacy (was set by the removed import box); the addon no longer writes it.
+    -- d.autoSync (stored exports for the desktop app on/off) is defaulted by AutoSyncEnabled().
     return d
 end
 
@@ -1559,6 +1567,134 @@ local function BuildExportStringAll()
 end
 
 -- ---------------------------------------------------------------------------
+-- Stored exports for the desktop companion app ("Vanguard Sync")
+--
+-- The desktop app cannot talk to the game; all it can do is read our SavedVariables file from disk
+-- (WTF/Account/<ACCOUNT>/SavedVariables/GaarVanguard.lua) and upload what it finds. So the addon keeps
+-- each character's ready-made export string in GaarVanguardDB.exports, keyed exactly like
+-- GaarVanguardDB.chars ("Full Name-Realm"):
+--
+--   exports["Full Name-Realm"] = {
+--       v = 1,                    -- version of THIS record's shape (not of the VGD1 payload)
+--       export = "VGD1:...",      -- byte-identical to /gaarvanguard export at that moment
+--       updatedAt = <time()>,     -- Unix seconds when the string was built
+--       build = "1.60.1.70291",   -- GetBuildInfo() version .. "." .. build, when available
+--       project = 18,             -- WOW_PROJECT_ID, when the client defines it
+--   }
+--
+-- The string always comes from BuildExportStringCurrent(), the same function behind the Export box
+-- and the minimap copy box, so the app uploads exactly what a player would otherwise paste. Entries
+-- are written on PLAYER_LOGOUT (which fires before SavedVariables are saved on logout, /reload and
+-- client exit), whenever the player copies the export, after a manual recapture, and shortly after a
+-- level-up. One entry per character, overwritten each time; entries for characters no longer in
+-- `chars` are dropped, so the table never grows past the characters the addon knows about. The legacy
+-- `sync` key is unrelated and left alone. Contract: docs/gaarvanguard.md.
+--
+-- GaarVanguardDB.autoSync (account-wide boolean, default true) switches all of this off: while it is
+-- false nothing is written or refreshed, existing entries are kept as they are, and the desktop app
+-- reads the same flag and skips uploading. Toggled from the minimap menu, the options panel and
+-- /gaarvanguard sync on|off.
+-- ---------------------------------------------------------------------------
+local EXPORT_RECORD_VERSION = 1
+
+-- Whether stored exports are kept up to date. Only called from events and user actions, i.e. after
+-- SavedVariables have loaded; a missing or non-boolean value means on (and is written back as true
+-- so the desktop app sees an explicit flag).
+local function AutoSyncEnabled()
+    local d = DB()
+    if type(d.autoSync) ~= "boolean" then d.autoSync = true end
+    return d.autoSync
+end
+
+-- "version.build" from GetBuildInfo(), e.g. "1.60.1.70291"; nil when the client does not answer.
+local function ClientBuild()
+    if type(GetBuildInfo) ~= "function" then return nil end
+    local ok, version, build = pcall(GetBuildInfo)
+    if not ok or version == nil then return nil end
+    if build ~= nil and tostring(build) ~= "" then return tostring(version) .. "." .. tostring(build) end
+    return tostring(version)
+end
+
+-- Session clock (GetTime) of the last store, used only to throttle the level-up refresh.
+local lastStoredClock
+
+-- Store `str` as the current character's export. Returns the entry, or nil when there is nothing to
+-- store or no character to attribute it to. Callers wrap this in pcall.
+local function StoreExport(str)
+    if type(str) ~= "string" or str == "" then return nil end
+    -- Auto-sync off: leave exports exactly as they are (no write, no pruning).
+    if not AutoSyncEnabled() then return nil end
+    if not CHARKEY then Identify() end
+    if not CHARKEY then return nil end
+    local d = DB()
+    if type(d.exports) ~= "table" then d.exports = {} end
+    -- Keep only characters the addon knows about: drop entries whose character record is gone (or
+    -- that are not entries at all). The current character always has a record by now, because the
+    -- export string was built from CurrentChar().
+    for key, entry in pairs(d.exports) do
+        if type(entry) ~= "table" or (key ~= CHARKEY and d.chars[key] == nil) then
+            d.exports[key] = nil
+        end
+    end
+    local entry = {
+        v = EXPORT_RECORD_VERSION,
+        export = str,
+        updatedAt = type(time) == "function" and time() or nil,
+        build = ClientBuild(),
+        project = tonumber(_G.WOW_PROJECT_ID),
+    }
+    d.exports[CHARKEY] = entry
+    lastStoredClock = pcall1(_G.GetTime)
+    return entry
+end
+
+-- Build the current character's export (a fresh live scan, as /gaarvanguard export does) and store
+-- it. The string is returned even when storing fails, so a caller that shows it is never affected.
+local function ExportAndStore()
+    local str = BuildExportStringCurrent()
+    pcall(StoreExport, str)
+    return str
+end
+
+-- PLAYER_LOGOUT is the last event before the client writes SavedVariables to disk, on logout,
+-- /reload and exit alike, so the entry stored here is what the desktop app reads. Everything is
+-- inside pcall: a failure here must never get in the way of logging out. With auto-sync off both
+-- events return before any scan, so they cost nothing.
+-- PLAYER_LEVEL_UP is an optional, light refresh: delayed a moment (UnitLevel can still report the
+-- old level when the event fires) and skipped if an export was stored in the last 30 seconds.
+local LEVELUP_STORE_DELAY, LEVELUP_STORE_MIN_GAP = 2, 30
+local syncEv = CreateFrame("Frame")
+pcall(syncEv.RegisterEvent, syncEv, "PLAYER_LOGOUT")
+pcall(syncEv.RegisterEvent, syncEv, "PLAYER_LEVEL_UP")
+syncEv:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGOUT" then
+        pcall(function()
+            if AutoSyncEnabled() then ExportAndStore() end
+        end)
+        return
+    end
+    if event == "PLAYER_LEVEL_UP" then
+        pcall(function()
+            if not AutoSyncEnabled() then return end
+            local function refresh()
+                pcall(function()
+                    if not AutoSyncEnabled() then return end   -- may have been turned off meanwhile
+                    local now = pcall1(_G.GetTime)
+                    if now and lastStoredClock and now - lastStoredClock < LEVELUP_STORE_MIN_GAP then return end
+                    ExportAndStore()
+                end)
+            end
+            local CT = _G.C_Timer
+            if type(CT) == "table" and type(CT.After) == "function" then
+                CT.After(LEVELUP_STORE_DELAY, refresh)
+            else
+                refresh()
+            end
+        end)
+    end
+end)
+
+-- ---------------------------------------------------------------------------
 -- A reusable read-out box for copying an export string out, modelled on GaarLooter's export frame.
 -- ---------------------------------------------------------------------------
 local function MakeBox(name, title)
@@ -1605,7 +1741,8 @@ local function ShowExport()
         exportFrame = MakeBox("GaarVanguardExport",
             "Export this character — ctrl-A, ctrl-C, paste into the website")
     end
-    exportFrame.box:SetText(BuildExportStringCurrent())
+    -- The same string the box shows is stored for the desktop app (GaarVanguardDB.exports).
+    exportFrame.box:SetText(ExportAndStore())
     exportFrame.box:HighlightText()
     exportFrame:Show()
     exportFrame.box:SetFocus()
@@ -2750,11 +2887,31 @@ end
 -- Recapture the current character and report what was captured. Shared by the slash command
 -- and the minimap menu.
 local function CaptureAndReport()
-    pcall(CaptureAll)
+    -- ExportAndStore does the full live recapture (BuildExportStringCurrent rescans first) and also
+    -- refreshes the stored export, so the desktop app picks the recapture up after the next logout
+    -- or /reload.
+    pcall(ExportAndStore)
     local c = CurrentChar()
     Say("captured " .. (c and (c.name or "?") or "?") ..
         " (" .. (c and c.equipment and #c.equipment or 0) .. " equipped, " ..
         (c and c.loot and #c.loot or 0) .. " loot rows).")
+end
+
+-- Turn auto-sync (the stored exports for the Vanguard Sync desktop app) on or off. Shared by the
+-- minimap menu, the options panel checkbox and /gaarvanguard sync on|off.
+local autoSyncCheck   -- the options panel checkbox, once that panel has been built
+local function SetAutoSync(on)
+    DB().autoSync = on and true or false
+    if on then
+        Say("Auto-sync on — the Vanguard Sync desktop app will pick up this character after logout/reload.")
+    else
+        Say("Auto-sync off — the Vanguard Sync desktop app will not pick up this character after logout/reload.")
+    end
+    if autoSyncCheck then pcall(autoSyncCheck.SetChecked, autoSyncCheck, on and true or false) end
+end
+
+local function ToggleAutoSync()
+    SetAutoSync(not AutoSyncEnabled())
 end
 
 -- ---------------------------------------------------------------------------
@@ -2890,9 +3047,10 @@ local function ShowQuickCopy(title, text, doneMessage)
 end
 
 -- The character export is the same BuildExportStringCurrent() the Export box uses, so the string
--- is identical to /gaarvanguard export for the same character state.
+-- is identical to /gaarvanguard export for the same character state. It is also stored for the
+-- desktop app, exactly as shown.
 local function QuickCopyCurrent()
-    ShowQuickCopy("Vanguard export — this character", BuildExportStringCurrent(),
+    ShowQuickCopy("Vanguard export — this character", ExportAndStore(),
         "Copied! Paste it into the Vanguard website.")
 end
 
@@ -3027,6 +3185,8 @@ local function MinimapMenuEntries()
         { divider = true },
         { text = "Open Vanguard view", func = ShowView },
         { text = "Recapture this character", func = CaptureAndReport },
+        { text = "Auto-sync (Vanguard Sync app)", checkbox = true, checked = AutoSyncEnabled,
+          func = ToggleAutoSync },
     }
     if type(_G.GaarOptions_Open) == "function" then
         list[#list + 1] = { text = "Settings", func = function() _G.GaarOptions_Open("vanguard") end }
@@ -3087,7 +3247,14 @@ local function ShowCustomMenu(owner, entries)
             r.text:SetText(it.title and ("|cffffd100" .. it.title .. "|r") or "")
             r:EnableMouse(false); r:SetScript("OnClick", nil)
         else
-            r.text:SetText(it.text)
+            local label = it.text
+            if it.checkbox then
+                -- A toggle row: check mark when on, an empty box when off.
+                local on = it.checked and it.checked()
+                label = (on and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t "
+                    or "|TInterface\\Buttons\\UI-CheckBox-Up:14:14|t ") .. label
+            end
+            r.text:SetText(label)
             r:EnableMouse(true)
             r:SetScript("OnClick", function() m:Hide(); it.func() end)
         end
@@ -3115,6 +3282,12 @@ local function ShowMinimapMenu(owner)
             for _, e in ipairs(entries) do
                 if e.divider then
                     if type(root.CreateDivider) == "function" then root:CreateDivider() end
+                elseif e.checkbox and type(root.CreateCheckbox) == "function" then
+                    root:CreateCheckbox(e.text, function() return e.checked() and true or false end,
+                        function() e.func() end)
+                elseif e.checkbox then
+                    -- A client whose menu has no checkbox: show the state in the label instead.
+                    root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
                 else
                     root:CreateButton(e.text, function() e.func() end)
                 end
@@ -3288,6 +3461,20 @@ function GaarVanguard_BuildOptions(container)
     end)
     y = y - 30
 
+    local asName = "GaarVanguardAutoSyncCheck"
+    local asCheck = CreateFrame("CheckButton", asName, container, "UICheckButtonTemplate")
+    asCheck:SetSize(24, 24); asCheck:SetPoint("TOPLEFT", 14, y)
+    local asText = _G[asName .. "Text"] or asCheck.Text
+    if asText then
+        asText:SetText("Auto-sync (Vanguard Sync app)")
+        asText:SetFontObject(GameFontHighlight)
+    end
+    asCheck:SetScript("OnClick", function(self)
+        SetAutoSync(self:GetChecked() and true or false)
+    end)
+    autoSyncCheck = asCheck
+    y = y - 30
+
     local count = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 18, y); count:SetWidth(360); count:SetJustifyH("LEFT")
     local function refreshCount()
@@ -3301,9 +3488,10 @@ function GaarVanguard_BuildOptions(container)
     local function refreshAll()
         refreshCount()
         mmCheck:SetChecked(not MinimapDB().hide)
+        asCheck:SetChecked(AutoSyncEnabled())
     end
     refreshAll()
-    recapBtn:SetScript("OnClick", function() pcall(CaptureAll); refreshCount() end)
+    recapBtn:SetScript("OnClick", function() pcall(ExportAndStore); refreshCount() end)
     y = y - 30
 
     local hint = container:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -3324,12 +3512,49 @@ _G.GaarVanguard_Config = OpenOptions
 -- ---------------------------------------------------------------------------
 -- Slash commands
 -- ---------------------------------------------------------------------------
+-- "/gaarvanguard sync": when this character's export was last stored for the desktop app. Read-only,
+-- so it shows whether the logout / reload path has actually written something.
+local function SyncStatus()
+    if not CHARKEY then Identify() end
+    local d = DB()
+    local exports = type(d.exports) == "table" and d.exports or {}
+    local n = 0
+    for _, e in pairs(exports) do if type(e) == "table" then n = n + 1 end end
+    local e = CHARKEY and exports[CHARKEY]
+    if type(e) ~= "table" or type(e.export) ~= "string" then
+        Say("Vanguard Sync: no export stored for this character yet. It is stored when you log out or " ..
+            "/reload (or copy the export), and the desktop app reads it from disk after that.")
+    else
+        local at = tonumber(e.updatedAt)
+        local when = "at an unknown time"
+        if at then
+            local stamp = pcall1(_G.date, "%Y-%m-%d %H:%M:%S", at)
+            local now = type(time) == "function" and time() or nil
+            local ago = now and math.max(0, now - at) or nil
+            when = (stamp or tostring(at)) ..
+                (ago and string.format(" (%d min %d s ago)", math.floor(ago / 60), ago % 60) or "")
+        end
+        Say(string.format("Vanguard Sync: this character's export was last stored %s, %d characters long" ..
+            "%s.", when, #e.export, e.build and (", build " .. tostring(e.build)) or ""))
+    end
+    Say(string.format("Vanguard Sync: %d character export(s) stored. SavedVariables are only written to " ..
+        "disk on logout, /reload or exit - the desktop app sees changes after that.", n))
+    if AutoSyncEnabled() then
+        Say("Vanguard Sync: auto-sync is ON (|cffffd100/gaarvg sync off|r to stop).")
+    else
+        Say("Vanguard Sync: auto-sync is OFF - nothing is stored and the app skips uploading " ..
+            "(|cffffd100/gaarvg sync on|r to resume).")
+    end
+end
+
 local function Usage()
     print("|cff5599ff" .. ADDON .. "|r — commands:")
     print("  |cffffd100/gaarvanguard|r or |cffffd100/gaarvg|r — open the in-game Vanguard view (synced goals/instances)")
     print("  |cffffd100/gaarvanguard export|r — full VGD1 string for THIS character (the reliable, primary export)")
     print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
+    print("  |cffffd100/gaarvanguard sync|r — when this character's export was last stored for the Vanguard Sync desktop app, and whether auto-sync is on")
+    print("  |cffffd100/gaarvanguard sync on|r / |cffffd100sync off|r — turn auto-sync for the Vanguard Sync desktop app on or off")
     print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
     print("  |cffffd100/gaarvanguard minimap|r — show or hide the minimap button")
     print("  |cffffd100/gaarvanguard minimap reset|r — put the minimap button back at its default spot")
@@ -3354,6 +3579,12 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
         SetMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimapreset" then
         ResetMinimapButton()
+    elseif msg == "sync" then
+        SyncStatus()
+    elseif msg == "syncon" then      -- "sync on" (whitespace is stripped above)
+        SetAutoSync(true)
+    elseif msg == "syncoff" then
+        SetAutoSync(false)
     elseif msg == "probe" then
         pcall(ShowProbe)
     elseif msg == "config" or msg == "options" then

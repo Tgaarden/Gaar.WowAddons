@@ -2975,15 +2975,19 @@ local function PlaceMinimapButton()
     -- when it squares the minimap. On a square minimap the direction vector is stretched until its
     -- longest component reaches the edge, so the button follows the corners and flat sides.
     local shape = pcall1(_G.GetMinimapShape) or "ROUND"
+    local mw = mm.GetWidth and mm:GetWidth()
+    if IsSecret(mw) or type(mw) ~= "number" or mw <= 0 then mw = 140 end
     if shape == "SQUARE" then
-        local mw = mm.GetWidth and mm:GetWidth()
-        if IsSecret(mw) or type(mw) ~= "number" or mw <= 0 then mw = 140 end
         local half = mw / 2 + 8
         local reach = math.max(math.abs(cos), math.abs(sin))
         if reach < 0.0001 then reach = 1 end
         x, y = half * cos / reach, half * sin / reach
     else
-        x, y = 80 * cos, 80 * sin   -- just outside the default round minimap's art
+        -- On the minimap's rim: half its width plus 5, the same ring LibDBIcon buttons sit on.
+        -- Scaling with the width keeps it on the edge of both the 140px Classic minimap and the
+        -- larger retail-style one on Forever (a fixed radius sat inside the art there).
+        local r = mw / 2 + 5
+        x, y = r * cos, r * sin
     end
     b:ClearAllPoints()
     b:SetPoint("CENTER", mm, "CENTER", x, y)

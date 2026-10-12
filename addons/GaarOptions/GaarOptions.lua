@@ -330,8 +330,13 @@ local function PlaceButton()
         if reach < 0.0001 then reach = 1 end
         x, y = half * cos / reach, half * sin / reach
     else
-        -- 80 sits just outside the minimap art on the default round minimap
-        x, y = 80 * cos, 80 * sin
+        -- On the minimap's rim: half its width plus 5, the same ring LibDBIcon buttons sit on.
+        -- Scaling with the width keeps it on the edge of both the 140px Classic minimap and the
+        -- larger retail-style one on Forever (a fixed radius of 80 sat inside the art there).
+        local mw = Minimap and Minimap:GetWidth()
+        if Secret(mw) or type(mw) ~= "number" or mw <= 0 then mw = 140 end
+        local r = mw / 2 + 5
+        x, y = r * cos, r * sin
     end
 
     minimapButton:ClearAllPoints()

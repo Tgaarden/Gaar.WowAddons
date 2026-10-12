@@ -226,6 +226,25 @@ longer depends on any single scan:
   naked happens one piece at a time, and the last step (one item to none) is accepted.
 - The result is kept in `chars[...].equipment`, so the stored record carries the equipment too.
 
+### Level, talents and professions at logout
+
+The same build (`1.60.1.70338`) later stored an export at **client exit** with the level and talents
+the character had at **login** (level 24, 20 talent points) although it had levelled to 25 and spent
+a point during play; a `/reload` a few minutes later stored 25 / 21 correctly. When the client exits,
+`UnitLevel` and the trait graph can answer at `PLAYER_LOGOUT` with the state from login, or with
+nothing, and a stale answer looks perfectly valid. So the most recent capture made **while playing**
+is the source of truth, and the logout scan only adds what is plausibly newer:
+
+- **level** — the highest level seen this session (a level never goes down within one), including
+  the level `PLAYER_LEVEL_UP` / `PLAYER_LEVEL_CHANGED` announce before `UnitLevel` catches up;
+- **talents** (and the spec they give) — the in-play build, unless the logout read has **more**
+  points spent, and no more than the level, i.e. a point spent in the last seconds before logout;
+- **professions** — the in-play list, each skill raised to the logout value where that is higher;
+- **equipment** — merged slot by slot as above.
+
+The logout writes `GaarVanguardDB.lastLogoutDiag` with what it could read live next to what it used
+(see *SavedVariables shape*), and `/gaarvanguard sync` prints it.
+
 ### What else drives capture (keeps the DB fresh between exports)
 
 | Event | Refreshes |
@@ -548,9 +567,10 @@ overwriting its previous entry):
 | `PLAYER_LOGOUT` | fires before the client saves SavedVariables on **logout, `/reload` and client exit**, so this is the entry the app normally reads. Its equipment scan only tops up what the session already read (see *Equipment*), never empties it. Fully `pcall`-guarded: a failure never gets in the way of logging out (the previous entry is then simply kept) |
 | copying the export | `/gaarvanguard export`, the *Export this char* button and the minimap left-click / *Copy export (this character)* store exactly the string they show |
 | a manual recapture | `/gaarvanguard capture`, the minimap *Recapture this character* and the *Recapture now* button |
-| login / loading screen | 3 seconds after `PLAYER_ENTERING_WORLD` the equipment is re-read, and the entry is stored if level, equipment or professions differ from the last store this session (so always once per login) |
-| `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` (`player`), `SKILL_LINES_CHANGED` | debounced: checked 3 seconds after the last such event, stored only if level, equipment or professions changed |
-| `PLAYER_LEVEL_UP` | always stored, 3 seconds after the event (`UnitLevel` can still report the old level when it fires) |
+| login / loading screen | 3 seconds after `PLAYER_ENTERING_WORLD` the equipment is re-read, and the entry is stored if level, talents, equipment or professions differ from the last store this session (so always once per login) |
+| `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` (`player`), `SKILL_LINES_CHANGED`, `UNIT_LEVEL` (`player`), and the talent events `TRAIT_CONFIG_UPDATED`, `TRAIT_TREE_CHANGED`, `PLAYER_TALENT_UPDATE`, `CHARACTER_POINTS_CHANGED`, `ACTIVE_COMBAT_CONFIG_CHANGED` | debounced: 3 seconds after the last such event level, talents and equipment are re-read, and the entry is stored only if level, talents (points per tree and every rank), equipment or professions changed. Events a client does not know are skipped |
+| `PLAYER_LEVEL_UP`, `PLAYER_LEVEL_CHANGED` | always stored, 3 seconds after the event, with the level the event announces (`UnitLevel` can still report the old level when it fires); if `UnitLevel` has not caught up by then, stored once more 3 seconds later |
+| every 30 seconds in play | a cheap read of the level and the points spent; a change schedules the debounced store above. A safety net for clients that do not fire the talent events |
 
 The debounced refreshes use `C_Timer.After` (where the client lacks it they run at once), wait out
 combat, and re-check `autoSync` when they fire.
@@ -568,7 +588,8 @@ is left alone.
 
 `/gaarvanguard sync` prints when this character's entry was last stored (time and age, string length,
 build), what that stored string holds (equipped items, loot rows, level - read back from the string
-itself), a live equipment read next to the record's count, how many entries exist and whether
+itself), its level and talent points next to the values read while playing, what the last logout
+could read live against what it stored (`lastLogoutDiag`), a live equipment read next to the record's count, how many entries exist and whether
 auto-sync is on, so a player can check the app will have fresh data after the next logout or
 `/reload`. `/gaarvanguard probe` adds an equipment section: which inventory readers the client has
 and what each returns for the head, chest and main-hand slots.
@@ -596,6 +617,13 @@ GaarVanguardDB = {
     ["Name-Realm"] = { v = 1, export = "VGD1:...", updatedAt, build, project },
     ...
   },
+  lastLogoutDiag = {                         -- written at every PLAYER_LOGOUT while auto-sync is on
+    when, build,                             -- time() and "version.build"
+    levelLive, levelInPlay, levelUsed,       -- UnitLevel at logout / highest in play / exported
+    talentsLive, talentsInPlay, talentsUsed, -- points spent: logout read (nil = unreadable) / in play / exported
+    equipLive, equipUnknown, equipUsed,      -- items read at logout / slots unreadable / exported
+    profsLive, profsUsed,                    -- professions read at logout / exported
+  },
   sync = <legacy website sync document (k="sync") from a pre-export-only version, or absent>,  -- rendered by the in-game view; the addon no longer writes it
 }
 ```
@@ -612,7 +640,8 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
   characters**, identity fields only
 - `/gaarvanguard capture` — recapture the current character now
 - `/gaarvanguard sync` — when this character's export was last stored for the Vanguard Sync desktop app,
-  and whether auto-sync is on
+  what it holds (level and talent points next to the in-play values), what the last logout could
+  read, and whether auto-sync is on
 - `/gaarvanguard sync on` / `/gaarvanguard sync off` — turn auto-sync for the desktop app on or off
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
 - `/gaarvanguard minimap` — show or hide the minimap button

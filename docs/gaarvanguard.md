@@ -154,7 +154,8 @@ More field notes:
   skipped. `edges` is **additive** — it is `[]` when the client exposes no edges (or on the Era /
   purchased-only routes, which do not emit edges), so an older record without it still renders.
 - `equipment` covers inventory slots 1–19. `itemId` and `quality` may be absent for an item the
-  client had not cached at scan time; `name` falls back to the raw item link.
+  client could not describe at scan time (quality falls back to `GetInventoryItemQuality`); `name`
+  falls back to the raw item link. See *Equipment* below for how a slot is read.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
   `when` is a Unix timestamp (`time()`).
 
@@ -163,7 +164,7 @@ More field notes:
 On **both exports** the current character is re-scanned from the live game state right before the
 string is built — name (see *Full character name* below), level (`UnitLevel`), race/class, faction,
 guild + rank (`GetGuildInfo`), spec, the full talent build, professions, and **equipment** by
-looping equip slots 1–19 via `GetInventoryItemLink` (each id mapped to its canonical slot name).
+looping equip slots 1–19 (each id mapped to its canonical slot name; see *Equipment* below).
 This means the export reflects the live character **even when the SavedVariables DB is empty or
 stale**. That was the normal case on early Forever beta builds, which wrote addon SavedVariables but
 never loaded them back. From build `1.60.1.70291` they persist, account-wide and per character (see
@@ -204,12 +205,35 @@ name with the live `FullPlayerName()` at export time, so the active character is
 A record written by an older build that stored only a first name **self-corrects the next time that
 character logs in** (login re-runs capture with the full name).
 
+### Equipment
+
+On build `1.60.1.70338` the exports stored at `PLAYER_LOGOUT` came out with an **empty equipment
+list** for every character while loot, talents, professions and level were intact, and the next
+desktop upload wiped the gear on the website. Either the client has already torn the inventory down
+when `PLAYER_LOGOUT` fires, or an inventory reader returns nothing on that build. The capture no
+longer depends on any single scan:
+
+- **Every slot is read through several APIs**, each feature-detected and `pcall`-guarded:
+  `GetInventoryItemLink` and `GetInventoryItemID`, then `C_Item.GetItemLink` / `C_Item.GetItemID` with
+  `ItemLocation:CreateFromEquipmentSlot(slot)`, then `C_TooltipInfo.GetInventoryItem`. A **secret
+  value** is treated as "could not read" and never compared or indexed. `GetInventoryItemTexture`
+  tells a genuinely empty slot from one that holds something we could not read.
+- **A reading is taken at face value only in-session**, once the inventory has had a few seconds to
+  load after `PLAYER_ENTERING_WORLD`, and only when all 19 slots were accounted for. Anything else -
+  including **every scan at logout** - is laid over the best earlier reading slot by slot (this
+  session's, else the stored record's `chars[...].equipment`), so a failed read never drops gear.
+- A reading with **no items at all where there were several before** is not trusted either; going
+  naked happens one piece at a time, and the last step (one item to none) is accepted.
+- The result is kept in `chars[...].equipment`, so the stored record carries the equipment too.
+
 ### What else drives capture (keeps the DB fresh between exports)
 
 | Event | Refreshes |
 |---|---|
 | `PLAYER_LOGIN`, `PLAYER_ENTERING_WORLD` | the whole record |
 | `PLAYER_EQUIPMENT_CHANGED` | equipment |
+| `PLAYER_ENTERING_WORLD` + 3 s | equipment, now trusted as loaded |
+| `UNIT_INVENTORY_CHANGED` (`player`) | equipment (at the debounced store check) |
 | `PLAYER_LEVEL_UP` | the whole record |
 | `SKILL_LINES_CHANGED` | professions |
 | `CHARACTER_POINTS_CHANGED` | spec + full talent build |
@@ -521,10 +545,15 @@ overwriting its previous entry):
 
 | Trigger | Notes |
 |---|---|
-| `PLAYER_LOGOUT` | fires before the client saves SavedVariables on **logout, `/reload` and client exit**, so this is the entry the app normally reads. Fully `pcall`-guarded: a failure never gets in the way of logging out (the previous entry is then simply kept) |
+| `PLAYER_LOGOUT` | fires before the client saves SavedVariables on **logout, `/reload` and client exit**, so this is the entry the app normally reads. Its equipment scan only tops up what the session already read (see *Equipment*), never empties it. Fully `pcall`-guarded: a failure never gets in the way of logging out (the previous entry is then simply kept) |
 | copying the export | `/gaarvanguard export`, the *Export this char* button and the minimap left-click / *Copy export (this character)* store exactly the string they show |
 | a manual recapture | `/gaarvanguard capture`, the minimap *Recapture this character* and the *Recapture now* button |
-| `PLAYER_LEVEL_UP` | a light refresh, 2 seconds after the event (via `C_Timer.After` where it exists) and skipped if an entry was stored in the last 30 seconds |
+| login / loading screen | 3 seconds after `PLAYER_ENTERING_WORLD` the equipment is re-read, and the entry is stored if level, equipment or professions differ from the last store this session (so always once per login) |
+| `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` (`player`), `SKILL_LINES_CHANGED` | debounced: checked 3 seconds after the last such event, stored only if level, equipment or professions changed |
+| `PLAYER_LEVEL_UP` | always stored, 3 seconds after the event (`UnitLevel` can still report the old level when it fires) |
+
+The debounced refreshes use `C_Timer.After` (where the client lacks it they run at once), wait out
+combat, and re-check `autoSync` when they fire.
 
 **When the app can see it:** the game only writes SavedVariables to disk on **logout, `/reload`
 and client exit**. An entry written mid-session (copy, recapture, level-up) sits in memory until
@@ -538,8 +567,11 @@ dropped, so `exports` never holds more than the characters the addon knows about
 is left alone.
 
 `/gaarvanguard sync` prints when this character's entry was last stored (time and age, string length,
-build), how many entries exist and whether auto-sync is on, so a player can check the app will have
-fresh data after the next logout or `/reload`.
+build), what that stored string holds (equipped items, loot rows, level - read back from the string
+itself), a live equipment read next to the record's count, how many entries exist and whether
+auto-sync is on, so a player can check the app will have fresh data after the next logout or
+`/reload`. `/gaarvanguard probe` adds an equipment section: which inventory readers the client has
+and what each returns for the head, chest and main-hand slots.
 
 ## SavedVariables shape
 

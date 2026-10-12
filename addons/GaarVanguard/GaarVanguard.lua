@@ -45,7 +45,11 @@
   encoders are self-contained here - no external libraries.
 
   /gaarvanguard opens the Vanguard view (subcommands: export, exportall, capture, probe,
-  config, wipe). Settings under Gaar -> Vanguard.
+  minimap, minimap reset, config, wipe). Settings under Gaar -> Vanguard.
+
+  Minimap button: left-click opens a small box with this character's export already selected
+  (press Ctrl+C / Cmd+C and it closes itself), right-click opens a menu, drag moves it. Self-
+  contained here because GaarVanguard ships on its own; it does not need GaarOptions.
 ]]
 
 local _G = _G
@@ -2739,6 +2743,498 @@ local function ShowProbe()
 end
 _G.GaarVanguard_ShowProbe = ShowProbe
 
+local function Say(msg)
+    print("|cff5599ff" .. ADDON .. ":|r " .. msg)
+end
+
+-- Recapture the current character and report what was captured. Shared by the slash command
+-- and the minimap menu.
+local function CaptureAndReport()
+    pcall(CaptureAll)
+    local c = CurrentChar()
+    Say("captured " .. (c and (c.name or "?") or "?") ..
+        " (" .. (c and c.equipment and #c.equipment or 0) .. " equipped, " ..
+        (c and c.loot and #c.loot or 0) .. " loot rows).")
+end
+
+-- ---------------------------------------------------------------------------
+-- Quick copy popup
+--
+-- An addon cannot write to the system clipboard: CopyToClipboard is reserved for Blizzard code.
+-- The closest we can get is a small box whose text is already selected and focused, so the
+-- player only has to press Ctrl+C (Cmd+C on a Mac). The box watches for that keystroke and closes
+-- itself with a short confirmation once it has been pressed. The text is read-only: any edit is
+-- undone straight away, and clicking into the box selects everything again.
+-- ---------------------------------------------------------------------------
+local WEBSITE_URL = "https://vanguard.gaaruniverse.no"
+
+local function CopyKeyLabel()
+    if pcall1(_G.IsMacClient) then return "Cmd+C" end
+    return "Ctrl+C"
+end
+
+-- Ctrl+C everywhere, plus Cmd+C on a Mac (IsMetaKeyDown reports Cmd where the client has it).
+local function IsCopyKeystroke(key)
+    if key ~= "C" and key ~= "c" then return false end
+    return (pcall1(_G.IsControlKeyDown) or pcall1(_G.IsMetaKeyDown)) and true or false
+end
+
+local function After(seconds, fn)
+    local CT = _G.C_Timer
+    if type(CT) == "table" and type(CT.After) == "function" then
+        CT.After(seconds, fn)
+        return true
+    end
+    return false
+end
+
+local quickCopy
+
+-- Close the popup after the copy keystroke. Called from a short timer after the key goes down
+-- (so the edit box has done the copy before it loses focus) and again on key up; whichever comes
+-- first does the work, the other finds nothing pending.
+local function FinishQuickCopy()
+    local f = quickCopy
+    if not f or not f.copyPending then return end
+    f.copyPending = nil
+    local msg = f.doneMessage or "Copied!"
+    if f:IsShown() then f:Hide() end
+    Say(msg)
+    local errs = _G.UIErrorsFrame
+    if errs and type(errs.AddMessage) == "function" then
+        pcall(errs.AddMessage, errs, "Copied!", 0.3, 1.0, 0.4)
+    end
+end
+
+local function QuickCopyFrame()
+    if quickCopy then return quickCopy end
+    local name = "GaarVanguardQuickCopy"
+    local f = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
+    f:SetSize(460, 136); f:SetPoint("CENTER", 0, 140)
+    f:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
+    f:SetBackdropColor(0.05, 0.06, 0.08, 0.97)
+    f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetMovable(true); f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    f:SetScript("OnHide", function(self)
+        self.copyPending = nil
+        if self.box then self.box:ClearFocus() end   -- hand the keyboard back to the game
+    end)
+    table.insert(UISpecialFrames, name)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOPLEFT", 12, -12)
+
+    local close = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    close:SetSize(60, 20); close:SetPoint("TOPRIGHT", -12, -10); close:SetText("Close")
+    close:SetScript("OnClick", function() f:Hide() end)
+
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.hint:SetPoint("BOTTOMLEFT", 12, 10)
+
+    local scroll = CreateFrame("ScrollFrame", name .. "Scroll", f, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 12, -38); scroll:SetPoint("BOTTOMRIGHT", -32, 32)
+
+    local box = CreateFrame("EditBox", nil, scroll)
+    box:SetMultiLine(true); box:SetAutoFocus(false)
+    box:SetFontObject(ChatFontNormal)
+    box:SetWidth(410)
+    box:SetScript("OnEscapePressed", function() f:Hide() end)
+    -- Read-only: put the text back if anything changes it. Comparing against the stored text
+    -- (rather than trusting the userInput flag) also stops the restore from re-triggering itself.
+    box:SetScript("OnTextChanged", function(self)
+        if self.lockedText and self:GetText() ~= self.lockedText then
+            self:SetText(self.lockedText)
+            self:HighlightText()
+        end
+    end)
+    box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    box:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+    box:SetScript("OnKeyDown", function(_, key)
+        if IsCopyKeystroke(key) then
+            f.copyPending = true
+            After(0.1, FinishQuickCopy)
+        end
+    end)
+    box:SetScript("OnKeyUp", function(_, key)
+        if f.copyPending and (key == "C" or key == "c") then FinishQuickCopy() end
+    end)
+    scroll:SetScrollChild(box)
+    f.box = box
+
+    f:Hide()
+    quickCopy = f
+    return f
+end
+
+-- Show `text` in the popup, selected and focused, ready for one copy keystroke.
+local function ShowQuickCopy(title, text, doneMessage)
+    local f = QuickCopyFrame()
+    text = text or ""
+    f.copyPending = nil
+    f.doneMessage = doneMessage
+    f.title:SetText(title)
+    f.hint:SetText("Press " .. CopyKeyLabel() .. " to copy  -  Esc to close")
+    f.box.lockedText = nil
+    f.box:SetText(text)
+    f.box.lockedText = text
+    f:Show()
+    f.box:SetFocus()
+    f.box:HighlightText()
+    -- Some clients drop the selection when focus lands; select again on the next frame.
+    After(0, function() if f:IsShown() then f.box:HighlightText() end end)
+    return f
+end
+
+-- The character export is the same BuildExportStringCurrent() the Export box uses, so the string
+-- is identical to /gaarvanguard export for the same character state.
+local function QuickCopyCurrent()
+    ShowQuickCopy("Vanguard export — this character", BuildExportStringCurrent(),
+        "Copied! Paste it into the Vanguard website.")
+end
+
+local function QuickCopyAll()
+    ShowQuickCopy("Vanguard export — all characters (identity only)", BuildExportStringAll(),
+        "Copied! Paste it into the Vanguard website.")
+end
+
+-- Addons cannot open a browser either, so the URL goes into the same copy box.
+local function ShowWebsite()
+    ShowQuickCopy("Vanguard website", WEBSITE_URL, "Copied! Paste it into your browser.")
+end
+
+-- ---------------------------------------------------------------------------
+-- Minimap button
+--
+-- For players who would rather click than type: left-click copies this character's export,
+-- right-click opens a small menu, dragging moves the button around the minimap's edge. The
+-- placement logic mirrors GaarOptions' button, copied rather than shared: GaarVanguard ships on its
+-- own as a ZIP, so it cannot depend on GaarOptions or on a library such as LibDBIcon.
+--
+-- Settings live in GaarVanguardDB.minimap = { hide = <bool>, angle = <degrees> } and are only read
+-- once SavedVariables have loaded (ADDON_LOADED / PLAYER_LOGIN below), never at file scope.
+-- ---------------------------------------------------------------------------
+local ADDON_FOLDER = "GaarVanguard"
+-- GaarOptions' button defaults to 205 degrees; 245 keeps the two about 55 px apart on the round
+-- minimap, so both can be shown without overlapping.
+local MINIMAP_DEFAULT_ANGLE = 245
+-- Built-in icons, best first. INV_Misc_Note_03 (a written note, i.e. the export) is referenced by
+-- installed addons on Era, Forever and retail alike; the others are fallbacks in case a client
+-- does not resolve it.
+local MINIMAP_ICONS = {
+    "Interface\\Icons\\INV_Misc_Note_03",
+    "Interface\\Icons\\INV_Misc_Map_01",
+    "Interface\\Icons\\INV_Misc_QuestionMark",
+}
+
+local function MinimapDB()
+    local d = DB()
+    local m = d.minimap
+    if type(m) ~= "table" then
+        m = { hide = (m == false) }   -- a bare on/off flag is honoured, not thrown away
+        d.minimap = m
+    end
+    if type(m.hide) ~= "boolean" then m.hide = false end
+    local a = tonumber(m.angle)
+    if not a or a ~= a or a == math.huge or a == -math.huge then a = MINIMAP_DEFAULT_ANGLE end
+    m.angle = a % 360
+    return m
+end
+
+-- Geometry read off a Blizzard frame can be a secret value on newer clients, and a secret cannot be
+-- compared or divided, so it is checked before it is used at all (same guard as GaarOptions).
+local issecretvalue = _G.issecretvalue
+local function IsSecret(v)
+    if type(issecretvalue) ~= "function" then return false end
+    return issecretvalue(v) and true or false
+end
+
+local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+
+local function PickMinimapIcon()
+    local getID = _G.GetFileIDFromPath
+    if type(getID) ~= "function" then return MINIMAP_ICONS[1] end
+    for _, path in ipairs(MINIMAP_ICONS) do
+        if pcall1(getID, path) then return path end
+    end
+    return MINIMAP_ICONS[1]
+end
+
+local minimapButton
+
+local function PlaceMinimapButton()
+    local b, mm = minimapButton, _G.Minimap
+    if not b or not mm then return end
+    local angle = math.rad(MinimapDB().angle)
+    local cos, sin = math.cos(angle), math.sin(angle)
+    local x, y
+    -- GetMinimapShape is the convention every minimap-button addon reads, and GaarMap defines it
+    -- when it squares the minimap. On a square minimap the direction vector is stretched until its
+    -- longest component reaches the edge, so the button follows the corners and flat sides.
+    local shape = pcall1(_G.GetMinimapShape) or "ROUND"
+    if shape == "SQUARE" then
+        local mw = mm.GetWidth and mm:GetWidth()
+        if IsSecret(mw) or type(mw) ~= "number" or mw <= 0 then mw = 140 end
+        local half = mw / 2 + 8
+        local reach = math.max(math.abs(cos), math.abs(sin))
+        if reach < 0.0001 then reach = 1 end
+        x, y = half * cos / reach, half * sin / reach
+    else
+        x, y = 80 * cos, 80 * sin   -- just outside the default round minimap's art
+    end
+    b:ClearAllPoints()
+    b:SetPoint("CENTER", mm, "CENTER", x, y)
+end
+-- GaarMap calls this (when present) after it squares the minimap, so the button moves at once.
+_G.GaarVanguard_PlaceMinimapButton = PlaceMinimapButton
+
+-- The minimap angle, in degrees, of the cursor relative to the minimap's centre; nil when the
+-- geometry cannot be read.
+local function CursorAngle()
+    local mm = _G.Minimap
+    if not mm or type(GetCursorPosition) ~= "function" then return nil end
+    local mx, my = mm:GetCenter()
+    local scale = mm:GetEffectiveScale()
+    if IsSecret(mx) or IsSecret(my) or IsSecret(scale) then return nil end
+    local cx, cy = GetCursorPosition()
+    if type(mx) ~= "number" or type(my) ~= "number" or type(cx) ~= "number" or type(cy) ~= "number"
+       or type(scale) ~= "number" or scale == 0 then
+        return nil
+    end
+    cx, cy = cx / scale, cy / scale
+    return math.deg(atan2(cy - my, cx - mx)) % 360
+end
+
+-- ---------------------------------------------------------------------------
+-- Right-click menu. Blizzard's own menu (MenuUtil) where the client has it - retail and Forever -
+-- and otherwise (Classic Era) a small menu drawn here, the way GaarBags does it, rather than
+-- UIDropDownMenu, whose shared state is prone to taint.
+-- ---------------------------------------------------------------------------
+local SetMinimapHidden   -- defined below; the menu's "Hide" entry calls it
+
+local function MinimapMenuEntries()
+    local list = {
+        { text = "Copy export (this character)", func = QuickCopyCurrent },
+        { text = "Copy export (all characters)", func = QuickCopyAll },
+        { text = "Open website", func = ShowWebsite },
+        { divider = true },
+        { text = "Open Vanguard view", func = ShowView },
+        { text = "Recapture this character", func = CaptureAndReport },
+    }
+    if type(_G.GaarOptions_Open) == "function" then
+        list[#list + 1] = { text = "Settings", func = function() _G.GaarOptions_Open("vanguard") end }
+    end
+    list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
+    return list
+end
+
+local customMenu
+local function ShowCustomMenu(owner, entries)
+    local m = customMenu
+    if not m then
+        m = CreateFrame("Frame", "GaarVanguardMinimapMenu", UIParent, "BackdropTemplate")
+        m:SetFrameStrata("DIALOG")
+        m:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+        m:SetBackdropColor(0.07, 0.08, 0.10, 0.97)
+        m:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+        m:EnableMouse(true)
+        m:SetClampedToScreen(true)
+        m.rows = {}
+        m:Hide()
+        table.insert(UISpecialFrames, "GaarVanguardMinimapMenu")
+        -- Close once the mouse has been away from both the menu and the button for a moment.
+        m:SetScript("OnUpdate", function(self, elapsed)
+            local over = self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())
+            if over then
+                self.idle = 0
+            else
+                self.idle = (self.idle or 0) + (elapsed or 0)
+                if self.idle > 2 then self:Hide() end
+            end
+        end)
+        customMenu = m
+    end
+    if m:IsShown() and m.owner == owner then m:Hide(); return m end
+
+    local rows = { { title = ADDON } }
+    for _, e in ipairs(entries) do rows[#rows + 1] = e end
+    local w, y = 160, -6
+    for i, it in ipairs(rows) do
+        local r = m.rows[i]
+        if not r then
+            r = CreateFrame("Button", nil, m)
+            r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            r.text:SetPoint("LEFT", 8, 0); r.text:SetJustifyH("LEFT")
+            r:SetHighlightTexture(FLAT, "ADD")
+            local hl = r:GetHighlightTexture()
+            if hl then hl:SetVertexColor(1, 1, 1, 0.10) end
+            m.rows[i] = r
+        end
+        local h = it.divider and 8 or 18
+        r:SetHeight(h)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", 4, y); r:SetPoint("TOPRIGHT", -4, y)
+        if it.title or it.divider then
+            r.text:SetText(it.title and ("|cffffd100" .. it.title .. "|r") or "")
+            r:EnableMouse(false); r:SetScript("OnClick", nil)
+        else
+            r.text:SetText(it.text)
+            r:EnableMouse(true)
+            r:SetScript("OnClick", function() m:Hide(); it.func() end)
+        end
+        w = math.max(w, (r.text:GetStringWidth() or 0) + 24)
+        r:Show()
+        y = y - h
+    end
+    for i = #rows + 1, #m.rows do m.rows[i]:Hide() end
+    m:SetSize(w, -y + 6)
+    m:ClearAllPoints()
+    m:SetPoint("TOPRIGHT", owner, "BOTTOMLEFT", 0, 0)
+    m.owner = owner
+    m.idle = 0
+    m:Show()
+    return m
+end
+
+-- Returns which menu was used ("MenuUtil" or "custom"); the harness checks it.
+local function ShowMinimapMenu(owner)
+    local entries = MinimapMenuEntries()
+    local MU = _G.MenuUtil
+    if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
+        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+            if type(root.CreateTitle) == "function" then root:CreateTitle(ADDON) end
+            for _, e in ipairs(entries) do
+                if e.divider then
+                    if type(root.CreateDivider) == "function" then root:CreateDivider() end
+                else
+                    root:CreateButton(e.text, function() e.func() end)
+                end
+            end
+        end)
+        if ok then return "MenuUtil" end
+    end
+    ShowCustomMenu(owner, entries)
+    return "custom"
+end
+
+local function BuildMinimapButton()
+    if minimapButton then return minimapButton end
+    local mm = _G.Minimap
+    if not mm then return nil end
+
+    local b = CreateFrame("Button", "GaarVanguardMinimapButton", mm)
+    b:SetSize(31, 31)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel((mm:GetFrameLevel() or 0) + 8)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetMovable(true)
+
+    -- The standard minimap-button look: dark disc, the icon, the gold tracking ring on top.
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    bg:SetSize(20, 20)
+    bg:SetPoint("TOPLEFT", 7, -5)
+
+    local icon = b:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture(PickMinimapIcon())
+    icon:SetSize(17, 17)
+    icon:SetPoint("TOPLEFT", 7, -6)
+    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    b.icon = icon
+
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT", 0, 0)
+
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+
+    b:SetScript("OnDragStart", function(self)
+        GameTooltip:Hide()
+        self:SetScript("OnUpdate", function()
+            local a = CursorAngle()
+            if a then
+                MinimapDB().angle = a
+                PlaceMinimapButton()
+            end
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine(ADDON)
+        GameTooltip:AddLine("Left-click: copy export string for this character", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: menu", 1, 1, 1)
+        GameTooltip:AddLine("Drag: move", 0.6, 0.6, 0.6)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    b:SetScript("OnClick", function(self, button)
+        GameTooltip:Hide()
+        if button == "RightButton" then
+            ShowMinimapMenu(self)
+        else
+            QuickCopyCurrent()
+        end
+    end)
+
+    minimapButton = b
+    return b
+end
+
+local function ApplyMinimap()
+    if MinimapDB().hide then
+        if minimapButton then minimapButton:Hide() end
+        if customMenu then customMenu:Hide() end
+        return
+    end
+    if BuildMinimapButton() then
+        PlaceMinimapButton()
+        minimapButton:Show()
+    end
+end
+
+SetMinimapHidden = function(hide)
+    MinimapDB().hide = hide and true or false
+    ApplyMinimap()
+    if hide then
+        Say("minimap button hidden. Type |cffffd100/gaarvg minimap|r to show it again.")
+    else
+        Say("minimap button shown.")
+    end
+end
+
+local function ResetMinimapButton()
+    local m = MinimapDB()
+    m.angle = MINIMAP_DEFAULT_ANGLE
+    m.hide = false
+    ApplyMinimap()
+    Say("minimap button reset to its default position.")
+end
+
+-- Build the button once our SavedVariables are in (ADDON_LOADED for this addon), and place it
+-- again at PLAYER_LOGIN in case another addon changed the minimap's shape in between.
+local minimapEv = CreateFrame("Frame")
+pcall(minimapEv.RegisterEvent, minimapEv, "ADDON_LOADED")
+pcall(minimapEv.RegisterEvent, minimapEv, "PLAYER_LOGIN")
+minimapEv:SetScript("OnEvent", function(self, event, name)
+    if event == "ADDON_LOADED" then
+        if name ~= ADDON_FOLDER then return end
+        pcall(self.UnregisterEvent, self, "ADDON_LOADED")
+    end
+    pcall(ApplyMinimap)
+end)
+
 -- ---------------------------------------------------------------------------
 -- Options panel (Gaar -> Vanguard)
 -- ---------------------------------------------------------------------------
@@ -2775,6 +3271,19 @@ function GaarVanguard_BuildOptions(container)
     probeBtn:SetScript("OnClick", ShowProbe)
     y = y - 34
 
+    local mmName = "GaarVanguardMinimapCheck"
+    local mmCheck = CreateFrame("CheckButton", mmName, container, "UICheckButtonTemplate")
+    mmCheck:SetSize(24, 24); mmCheck:SetPoint("TOPLEFT", 14, y)
+    local mmText = _G[mmName .. "Text"] or mmCheck.Text
+    if mmText then
+        mmText:SetText("Minimap button")
+        mmText:SetFontObject(GameFontHighlight)
+    end
+    mmCheck:SetScript("OnClick", function(self)
+        SetMinimapHidden(not self:GetChecked())
+    end)
+    y = y - 30
+
     local count = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     count:SetPoint("TOPLEFT", 18, y); count:SetWidth(360); count:SetJustifyH("LEFT")
     local function refreshCount()
@@ -2785,7 +3294,11 @@ function GaarVanguard_BuildOptions(container)
         end
         count:SetText(string.format("|cff777777%d character(s) captured, %d loot row(s).|r", nChars, nLoot))
     end
-    refreshCount()
+    local function refreshAll()
+        refreshCount()
+        mmCheck:SetChecked(not MinimapDB().hide)
+    end
+    refreshAll()
     recapBtn:SetScript("OnClick", function() pcall(CaptureAll); refreshCount() end)
     y = y - 30
 
@@ -2794,7 +3307,7 @@ function GaarVanguard_BuildOptions(container)
     hint:SetText("Every character you log in on is added to one account-wide database and refreshed automatically. \"Export this char\" makes a full, reliable VGD1 string for the current character (all its data) - this is the primary export. \"Sync all (identity)\" makes a short VGD1 string listing every stored character with identity fields only, to populate the account pool. Both paste into the Vanguard website. This addon is export-only: view and manage your Vanguards, goals and readiness on the website.")
     y = y - 90
 
-    container.gaarRefresh = refreshCount
+    container.gaarRefresh = refreshAll
     return -y
 end
 
@@ -2814,6 +3327,8 @@ local function Usage()
     print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
     print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
+    print("  |cffffd100/gaarvanguard minimap|r — show or hide the minimap button")
+    print("  |cffffd100/gaarvanguard minimap reset|r — put the minimap button back at its default spot")
     print("  |cffffd100/gaarvanguard config|r — settings under Gaar -> Vanguard")
     print("  |cffffd100/gaarvanguard wipe|r — clear the whole database")
 end
@@ -2829,17 +3344,19 @@ SlashCmdList["GAARVANGUARD"] = function(msg)
     elseif msg == "exportall" or msg == "syncall" then
         ShowExportAll()
     elseif msg == "capture" or msg == "refresh" then
-        pcall(CaptureAll)
-        local c = CurrentChar()
-        print("|cff5599ff" .. ADDON .. ":|r captured " .. (c and (c.name or "?") or "?") ..
-            " (" .. (c and c.equipment and #c.equipment or 0) .. " equipped, " ..
-            (c and c.loot and #c.loot or 0) .. " loot rows).")
+        CaptureAndReport()
+    elseif msg == "minimap" then
+        -- Whitespace is stripped above, so "minimap reset" arrives as "minimapreset".
+        SetMinimapHidden(not MinimapDB().hide)
+    elseif msg == "minimapreset" then
+        ResetMinimapButton()
     elseif msg == "probe" then
         pcall(ShowProbe)
     elseif msg == "config" or msg == "options" then
         OpenOptions()
     elseif msg == "wipe" then
         GaarVanguardDB = nil; DB()
+        pcall(ApplyMinimap)   -- the minimap settings were cleared too; back to the defaults
         print("|cff5599ff" .. ADDON .. ":|r database cleared.")
     else
         Usage()

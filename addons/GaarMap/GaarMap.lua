@@ -511,6 +511,7 @@ local function ApplyMinimapShape()
     squared = true
 
     if _G.GaarOptions_PlaceMinimapButton then _G.GaarOptions_PlaceMinimapButton() end
+    if _G.GaarVanguard_PlaceMinimapButton then _G.GaarVanguard_PlaceMinimapButton() end
 end
 
 -- Asked by other addons before they place a minimap button. Returning the wrong answer is

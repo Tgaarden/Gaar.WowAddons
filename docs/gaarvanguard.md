@@ -427,6 +427,35 @@ close button, mouse-wheel scroll) that renders `GaarVanguardDB.sync` read-only:
 The view is display-only (it writes nothing) and its toolbar button opens the Export box without
 leaving it.
 
+## Minimap button
+
+For players who would rather click than type, GaarVanguard puts its own button on the minimap
+edge (a note icon, `Interface\Icons\INV_Misc_Note_03`, with `INV_Misc_Map_01` and the question
+mark as fallbacks where `GetFileIDFromPath` says the first is missing).
+
+- **Left-click** opens a small copy box holding this character's full export — built by the same
+  `BuildExportStringCurrent()` as `/gaarvanguard export`, so the string is byte-identical — with the
+  text already selected and focused. Press **Ctrl+C** (**Cmd+C** on a Mac; the hint follows
+  `IsMacClient()`) and the box closes itself and prints *Copied!*. **Esc** closes it without
+  copying. The text is read-only: edits are undone and a click re-selects everything.
+- **Right-click** opens a menu: *Copy export (this character)*, *Copy export (all characters)*
+  (the `exportall` string, in the same copy box), *Open website* (puts
+  `https://vanguard.gaaruniverse.no` in the copy box), *Open Vanguard view*, *Recapture this
+  character*, *Settings* (only when GaarOptions is installed) and *Hide minimap button*. The menu
+  is Blizzard's `MenuUtil.CreateContextMenu` where it exists (retail, Forever) and a small
+  self-drawn menu otherwise (Classic Era), so `UIDropDownMenu` is never touched.
+- **Drag** moves it around the minimap. The angle is saved; on a square minimap (GaarMap, via
+  `GetMinimapShape`) it follows the edge and corners instead of a circle.
+
+Why the copy box instead of the clipboard: addons cannot write to the system clipboard —
+`CopyToClipboard` is reserved for Blizzard code — so the box does everything except the one
+keystroke only the player can press.
+
+The button is self-contained in `GaarVanguard.lua` (the placement logic mirrors GaarOptions' button
+but is copied, not shared), because GaarVanguard ships on its own as a ZIP. Its default angle (245°)
+is 40° away from GaarOptions' (205°) so both can show at once. Settings are read once
+SavedVariables have loaded (`ADDON_LOADED`), never at file scope.
+
 ## SavedVariables shape
 
 `GaarVanguardDB`:
@@ -444,6 +473,7 @@ GaarVanguardDB = {
     ...
   },
   maxLoot = 100,
+  minimap = { hide = false, angle = 245 },   -- minimap button: hidden?, position in degrees
   sync = <legacy website sync document (k="sync") from a pre-export-only version, or absent>,  -- rendered by the in-game view; the addon no longer writes it
 }
 ```
@@ -460,6 +490,8 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
   characters**, identity fields only
 - `/gaarvanguard capture` — recapture the current character now
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
+- `/gaarvanguard minimap` — show or hide the minimap button
+- `/gaarvanguard minimap reset` — put the minimap button back at its default position (and show it)
 - `/gaarvanguard config` — settings under **Gaar → Vanguard**
 - `/gaarvanguard wipe` — clear the whole database
 

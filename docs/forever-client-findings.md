@@ -31,6 +31,7 @@ names the build it comes from, and the build history below puts them in order.
 | `70058` | by 2026-09-29 | Nothing specific recorded |
 | `70245` | installed 2026-10-07 | `WOW_PROJECT_ID` = 18 (`WOW_PROJECT_CAMELOT`). The change happened somewhere after 69913; which build exactly is unknown |
 | `70291` | installed 2026-10-09 08:32 | SavedVariables persistence confirmed, account and per character, across a full client restart. Full probe report below |
+| `70338` | in use 2026-10-12 | GaarVanguard's exports stored at `PLAYER_LOGOUT` came out with **no equipment** for every character (loot, talents, professions and level intact). Either the inventory is already gone at logout or an inventory reader returns nothing on this build; not yet told apart. GaarVanguard no longer relies on the logout scan (see `docs/gaarvanguard.md`, *Equipment*) and `/gaarvanguard sync` / `probe` show the live read |
 
 The dates come from the build number stamped in the client's own `Errors/` reports and `Logs/`,
 or from the install time, so "seen" means "in use on that day", not "released on that day".

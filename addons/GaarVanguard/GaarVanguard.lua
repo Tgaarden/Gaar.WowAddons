@@ -50,8 +50,11 @@
   Desktop app ("Vanguard Sync")
     Each character's ready-made export string is also kept in GaarVanguardDB.exports so a desktop
     companion app can read it from the SavedVariables file on disk and upload it. It is refreshed on
-    logout / reload / exit, when the export is copied, after a recapture and after a level-up.
-    /gaarvanguard sync shows when this character's entry was last stored; auto-sync can be turned
+    logout / reload / exit, when the export is copied, after a recapture, and a few seconds after
+    login, a level-up or a change of equipment or professions - so it is already right before
+    logout, and the logout scan only tops it up (it never drops equipment it cannot read).
+    /gaarvanguard sync shows when this character's entry was last stored and what it holds
+    (equipped items, loot rows, level) next to a live equipment read; auto-sync can be turned
     off (GaarVanguardDB.autoSync) from the minimap menu, the options panel or /gaarvanguard sync off.
 
   Minimap button: left-click opens a small box with this character's export already selected
@@ -72,6 +75,8 @@ local SLOT_NAMES = {
     [11] = "Finger1", [12] = "Finger2", [13] = "Trinket1", [14] = "Trinket2",
     [15] = "Back", [16] = "MainHand", [17] = "OffHand", [18] = "Ranged", [19] = "Tabard",
 }
+local SLOT_IDS = {}   -- the reverse: canonical slot name -> inventory slot id
+for id, name in pairs(SLOT_NAMES) do SLOT_IDS[name] = id end
 
 -- The item lookups live in C_Item on newer clients and as globals on Era; one local each keeps
 -- the call sites below unchanged, the same move GaarLooter and GaarBags make.
@@ -200,6 +205,27 @@ local function Base64Encode(data)
     end) .. pad
 end
 
+-- The reverse, only used to read a stored export back for /gaarvanguard sync. Characters outside the
+-- alphabet (padding included) are skipped.
+local function Base64Decode(data)
+    if type(data) ~= "string" then return "" end
+    local out, acc, bits = {}, 0, 0
+    for i = 1, #data do
+        local v = B64:find(data:sub(i, i), 1, true)
+        if v then
+            acc = acc * 64 + (v - 1)
+            bits = bits + 6
+            if bits >= 8 then
+                bits = bits - 8
+                local p = 2 ^ bits
+                out[#out + 1] = string.char(math.floor(acc / p))
+                acc = acc % p
+            end
+        end
+    end
+    return table.concat(out)
+end
+
 -- ---------------------------------------------------------------------------
 -- JSON encode (self-contained)
 -- ---------------------------------------------------------------------------
@@ -269,6 +295,24 @@ local function safe(fn, ...)
     local ok, a, b, c, d, e, f, g = pcall(fn, ...)
     if ok then return a, b, c, d, e, f, g end
     return nil
+end
+
+-- Newer clients can hand back a "secret" value that may not be compared, indexed or used as a key.
+-- Anything that might be one is checked here before it is used at all.
+local issecretvalue = _G.issecretvalue
+local function IsSecret(v)
+    if type(issecretvalue) ~= "function" then return false end
+    return issecretvalue(v) and true or false
+end
+
+-- C_Timer.After where the client has it; returns false (and does nothing) where it does not.
+local function After(seconds, fn)
+    local CT = _G.C_Timer
+    if type(CT) == "table" and type(CT.After) == "function" then
+        CT.After(seconds, fn)
+        return true
+    end
+    return false
 end
 
 local function CaptureIdentity(c)
@@ -1139,29 +1183,189 @@ local function CaptureProfessions(c)
     end
 end
 
--- Equipment: inventory slots 1-19, scanned live via GetInventoryItemLink. `slot` is stored as
--- the canonical slot NAME string (SLOT_NAMES), never the numeric id. Quality comes from
--- GetItemInfo, which is asynchronous and may be nil for an item not yet cached - stored when
--- present, skipped when not.
-local function CaptureEquipment(c)
-    if type(GetInventoryItemLink) ~= "function" then return end
-    local out = {}
-    for slot = 1, 19 do
-        local link = safe(GetInventoryItemLink, "player", slot)
-        if link then
-            local itemId
-            if GetItemInfoInstant then itemId = safe(GetItemInfoInstant, link) end
-            local name, _, quality
-            if GetItemInfo then name, _, quality = safe(GetItemInfo, link) end
-            out[#out + 1] = {
-                slot = SLOT_NAMES[slot] or tostring(slot),
-                itemId = tonumber(itemId) or nil,
-                quality = tonumber(quality) or nil,
-                name = name or link,
-            }
+-- ---------------------------------------------------------------------------
+-- Equipment: inventory slots 1-19. `slot` is stored as the canonical slot NAME string
+-- (SLOT_NAMES), never the numeric id.
+--
+-- A single live scan is not something to trust on its own. On build 1.60.1.70338 the exports
+-- stored at PLAYER_LOGOUT came out with an empty equipment list for every character while loot,
+-- talents, professions and level were all there, and the website's gear was wiped on the next
+-- upload. Either the client has already torn the inventory down by the time PLAYER_LOGOUT fires, or
+-- a reader came back empty on that build; the code below copes with both:
+--   * every slot is read through several APIs, feature-detected (GetInventoryItemLink /
+--     GetInventoryItemID, then C_Item with an ItemLocation, then the tooltip data), and secret
+--     values are treated as "could not read", never compared or indexed;
+--   * GetInventoryItemTexture tells an empty slot from one that holds something we could not read;
+--   * a reading is only taken at face value in-session, once the inventory has had a few seconds to
+--     load after PLAYER_ENTERING_WORLD, and only when every slot was accounted for. Anything else -
+--     including every scan at logout - is merged slot by slot over the best earlier reading (this
+--     session's, else the stored record's), so gear is never dropped because a read failed;
+--   * a reading that suddenly has no items at all where there were several before is not trusted
+--     either: going naked happens one piece at a time, and each step is a reading of its own.
+-- ---------------------------------------------------------------------------
+local equipReady = false   -- set a few seconds after PLAYER_ENTERING_WORLD, once items have loaded
+local loggingOut = false   -- set by the PLAYER_LOGOUT handler before the final export is built
+local sessionEquip         -- this session's last trusted (or merged) equipment list, nil until one
+
+-- One reading from fn(...): nil when the API is missing, errors or hands back a secret. `bad` is
+-- true when the API exists but could not be read.
+local function ReadValue(fn, ...)
+    if type(fn) ~= "function" then return nil, false end
+    local ok, v = pcall(fn, ...)
+    if not ok or IsSecret(v) then return nil, true end
+    return v, false
+end
+
+local function EquipLocation(slot)
+    local IL = _G.ItemLocation
+    if type(IL) ~= "table" or type(IL.CreateFromEquipmentSlot) ~= "function" then return nil end
+    local ok, loc = pcall(IL.CreateFromEquipmentSlot, IL, slot)
+    if ok and type(loc) == "table" then return loc end
+    return nil
+end
+
+-- One equipment slot. Returns item, state: item is { slot, itemId, quality, name } or nil; state is
+-- "item", "empty" (verifiably nothing there) or "unknown" (could not tell).
+local function ReadEquipSlot(slot)
+    local unreadable, readers = false, 0
+    local function read(fn, ...)
+        if type(fn) == "function" then readers = readers + 1 end
+        local v, bad = ReadValue(fn, ...)
+        if bad then unreadable = true end
+        return v
+    end
+    local function str(v) if type(v) == "string" and v ~= "" then return v end return nil end
+    local function num(v) v = tonumber(v); if v and v > 0 then return v end return nil end
+
+    local link = str(read(_G.GetInventoryItemLink, "player", slot))
+    local itemId = num(read(_G.GetInventoryItemID, "player", slot))
+
+    local CI = _G.C_Item
+    if (not link or not itemId) and type(CI) == "table" then
+        local loc = EquipLocation(slot)
+        if loc then
+            local exists = true
+            if type(CI.DoesItemExist) == "function" then exists = read(CI.DoesItemExist, loc) end
+            if exists then
+                link = link or str(read(CI.GetItemLink, loc))
+                itemId = itemId or num(read(CI.GetItemID, loc))
+            end
         end
     end
-    c.equipment = out
+
+    local itemReaders = readers   -- how many item APIs this client actually has
+
+    -- Is anything in the slot at all? nil texture = empty; no texture API = cannot tell.
+    local texFn = _G.GetInventoryItemTexture
+    local tex = read(texFn, "player", slot)
+
+    -- Something is there but the direct readers did not say what: ask the tooltip data.
+    if not link and not itemId and tex ~= nil then
+        local TI = _G.C_TooltipInfo
+        if type(TI) == "table" then
+            local data = read(TI.GetInventoryItem, "player", slot)
+            if type(data) == "table" then
+                local h, id = data.hyperlink, data.id
+                if not IsSecret(h) then link = str(h) end
+                if not IsSecret(id) then itemId = num(id) end
+            end
+        end
+    end
+
+    if not link and not itemId then
+        if tex == nil and type(texFn) == "function" and itemReaders > 0 and not unreadable then
+            return nil, "empty"
+        end
+        return nil, "unknown"
+    end
+
+    if not itemId and link and GetItemInfoInstant then itemId = num(ReadValue(GetItemInfoInstant, link)) end
+    -- GetItemInfo is asynchronous: name and quality are nil for an item the client has not cached
+    -- yet. Quality then comes from the inventory itself, and the name falls back to the raw link.
+    local name, quality
+    if GetItemInfo then
+        local ok, n, _, q = pcall(GetItemInfo, link or itemId)
+        if ok then
+            if not IsSecret(n) then name = str(n) end
+            if not IsSecret(q) then quality = tonumber(q) end
+        end
+    end
+    if quality == nil then quality = tonumber((ReadValue(_G.GetInventoryItemQuality, "player", slot))) end
+    if not name and itemId and type(CI) == "table" and type(CI.RequestLoadItemDataByID) == "function" then
+        pcall(CI.RequestLoadItemDataByID, itemId)   -- so a later scan has the name
+    end
+    return {
+        slot = SLOT_NAMES[slot] or tostring(slot),
+        itemId = itemId,
+        quality = quality,
+        name = name or link,
+    }, "item"
+end
+
+-- A live scan of all 19 slots: the items found, and how many slots could not be accounted for.
+local function ScanEquipment()
+    local items, unknown = {}, 0
+    for slot = 1, 19 do
+        local ok, item, state = pcall(ReadEquipSlot, slot)
+        if ok and item then
+            items[#items + 1] = item
+        elseif not ok or state ~= "empty" then
+            unknown = unknown + 1
+        end
+    end
+    return items, unknown
+end
+
+-- `base` with `over` laid on top, slot by slot (`over` wins), in slot order. Older records that
+-- stored a numeric slot are normalised to the slot name on the way through.
+local function MergeEquipment(base, over)
+    local bySlot = {}
+    local function put(list)
+        if type(list) ~= "table" then return end
+        for _, e in ipairs(list) do
+            if type(e) == "table" then
+                local id = e.slot
+                if type(id) == "string" then id = SLOT_IDS[id] end
+                if type(id) == "number" and SLOT_NAMES[id] then
+                    bySlot[id] = { slot = SLOT_NAMES[id], itemId = e.itemId, quality = e.quality, name = e.name }
+                end
+            end
+        end
+    end
+    put(base)
+    put(over)
+    local out = {}
+    for id = 1, 19 do
+        if bySlot[id] then out[#out + 1] = bySlot[id] end
+    end
+    return out
+end
+
+local function CaptureEquipment(c)
+    if not c then return end
+    local items, unknown = ScanEquipment()
+    local earlier = sessionEquip or c.equipment
+    local earlierCount = type(earlier) == "table" and #earlier or 0
+    local trusted = equipReady and not loggingOut and unknown == 0
+        and (#items > 0 or earlierCount <= 1)
+    if trusted then
+        c.equipment = items
+    else
+        c.equipment = MergeEquipment(earlier, items)
+    end
+    if not loggingOut then sessionEquip = c.equipment end
+end
+
+-- Compact fingerprint of an equipment list, to tell whether it changed since the last stored export.
+local function EquipmentSignature(list)
+    if type(list) ~= "table" then return "" end
+    local parts = {}
+    for _, e in ipairs(list) do
+        if type(e) == "table" then
+            parts[#parts + 1] = tostring(e.slot) .. "=" .. tostring(e.itemId or e.name)
+        end
+    end
+    return table.concat(parts, ";")
 end
 
 -- A full live scan of one character record from the current game state. Called both on the
@@ -1585,8 +1789,9 @@ end
 -- The string always comes from BuildExportStringCurrent(), the same function behind the Export box
 -- and the minimap copy box, so the app uploads exactly what a player would otherwise paste. Entries
 -- are written on PLAYER_LOGOUT (which fires before SavedVariables are saved on logout, /reload and
--- client exit), whenever the player copies the export, after a manual recapture, and shortly after a
--- level-up. One entry per character, overwritten each time; entries for characters no longer in
+-- client exit), whenever the player copies the export, after a manual recapture, and a few seconds
+-- after login, a level-up or a change of equipment or professions (ScheduleStore, below). One entry
+-- per character, overwritten each time; entries for characters no longer in
 -- `chars` are dropped, so the table never grows past the characters the addon knows about. The legacy
 -- `sync` key is unrelated and left alone. Contract: docs/gaarvanguard.md.
 --
@@ -1615,9 +1820,6 @@ local function ClientBuild()
     return tostring(version)
 end
 
--- Session clock (GetTime) of the last store, used only to throttle the level-up refresh.
-local lastStoredClock
-
 -- Store `str` as the current character's export. Returns the entry, or nil when there is nothing to
 -- store or no character to attribute it to. Callers wrap this in pcall.
 local function StoreExport(str)
@@ -1644,54 +1846,105 @@ local function StoreExport(str)
         project = tonumber(_G.WOW_PROJECT_ID),
     }
     d.exports[CHARKEY] = entry
-    lastStoredClock = pcall1(_G.GetTime)
     return entry
 end
+
+-- What the stored export's content hinges on besides talents and loot: level, equipment and
+-- professions. Compared against the value at the last store so an event that changed none of them
+-- does not rebuild the export.
+local function StoredSignature()
+    local c = CurrentChar()
+    if not c then return nil end
+    local profs = {}
+    if type(c.professions) == "table" then
+        for _, p in ipairs(c.professions) do
+            if type(p) == "table" then
+                profs[#profs + 1] = tostring(p.name) .. ":" .. tostring(p.skill) .. "/" .. tostring(p.max)
+            end
+        end
+    end
+    return tostring(c.lvl) .. "|" .. EquipmentSignature(c.equipment) .. "|" .. table.concat(profs, ";")
+end
+local lastStoredSig   -- StoredSignature() right after the last successful store this session
 
 -- Build the current character's export (a fresh live scan, as /gaarvanguard export does) and store
 -- it. The string is returned even when storing fails, so a caller that shows it is never affected.
 local function ExportAndStore()
     local str = BuildExportStringCurrent()
-    pcall(StoreExport, str)
+    local ok, entry = pcall(StoreExport, str)
+    if ok and entry then lastStoredSig = StoredSignature() end
     return str
 end
 
+-- Debounced refresh of the stored export while playing, so `exports` is already right before logout
+-- rather than depending on the logout-time scan alone. Every call restarts the countdown (C_Timer
+-- cannot cancel, so a generation number retires the older timers); when it runs out the export is
+-- rebuilt and stored - unless nothing it depends on changed since the last store (`force` skips that
+-- check). Never in combat: it waits and tries again. Off while auto-sync is off.
+local STORE_DEBOUNCE = 3       -- seconds after the last change
+local EQUIP_SETTLE = 3         -- seconds after PLAYER_ENTERING_WORLD before equipment is trusted
+local storeGen, storeForced = 0, false
+local ScheduleStore
+ScheduleStore = function(force)
+    if not AutoSyncEnabled() then return end
+    if force then storeForced = true end
+    storeGen = storeGen + 1
+    local gen = storeGen
+    local function fire()
+        if gen ~= storeGen then return end   -- a later change restarted the countdown
+        pcall(function()
+            if not AutoSyncEnabled() then return end   -- may have been turned off meanwhile
+            if pcall1(_G.InCombatLockdown) then ScheduleStore() return end
+            if not storeForced then
+                safe(CaptureEquipment, CurrentChar())
+                if StoredSignature() == lastStoredSig then return end
+            end
+            storeForced = false
+            ExportAndStore()
+        end)
+    end
+    if not After(STORE_DEBOUNCE, fire) then fire() end
+end
+
 -- PLAYER_LOGOUT is the last event before the client writes SavedVariables to disk, on logout,
--- /reload and exit alike, so the entry stored here is what the desktop app reads. Everything is
--- inside pcall: a failure here must never get in the way of logging out. With auto-sync off both
--- events return before any scan, so they cost nothing.
--- PLAYER_LEVEL_UP is an optional, light refresh: delayed a moment (UnitLevel can still report the
--- old level when the event fires) and skipped if an export was stored in the last 30 seconds.
-local LEVELUP_STORE_DELAY, LEVELUP_STORE_MIN_GAP = 2, 30
+-- /reload and exit alike, so the entry stored here is what the desktop app reads. `loggingOut` makes
+-- CaptureEquipment treat its scan as a top-up of this session's equipment rather than the truth (the
+-- inventory may already be gone by now). Everything is inside pcall: a failure here must never get in
+-- the way of logging out. With auto-sync off it returns before any scan, so it costs nothing.
+-- The other events keep the stored entry current during the session (see ScheduleStore):
+--   PLAYER_ENTERING_WORLD    after EQUIP_SETTLE seconds the inventory counts as loaded: equipment is
+--                            re-read and the export stored if anything differs from the last store
+--   PLAYER_EQUIPMENT_CHANGED, UNIT_INVENTORY_CHANGED ("player"), SKILL_LINES_CHANGED
+--                            re-checked a few seconds after the last one, stored only on a change
+--   PLAYER_LEVEL_UP          always stored a few seconds later (UnitLevel can still report the old
+--                            level when the event fires)
 local syncEv = CreateFrame("Frame")
-pcall(syncEv.RegisterEvent, syncEv, "PLAYER_LOGOUT")
-pcall(syncEv.RegisterEvent, syncEv, "PLAYER_LEVEL_UP")
-syncEv:SetScript("OnEvent", function(_, event)
+for _, e in ipairs({ "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP",
+                     "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "SKILL_LINES_CHANGED" }) do
+    pcall(syncEv.RegisterEvent, syncEv, e)
+end
+syncEv:SetScript("OnEvent", function(_, event, a1)
     if event == "PLAYER_LOGOUT" then
         pcall(function()
-            if AutoSyncEnabled() then ExportAndStore() end
+            if not AutoSyncEnabled() then return end
+            loggingOut = true
+            ExportAndStore()
         end)
         return
     end
-    if event == "PLAYER_LEVEL_UP" then
+    if event == "PLAYER_ENTERING_WORLD" then
         pcall(function()
-            if not AutoSyncEnabled() then return end
-            local function refresh()
-                pcall(function()
-                    if not AutoSyncEnabled() then return end   -- may have been turned off meanwhile
-                    local now = pcall1(_G.GetTime)
-                    if now and lastStoredClock and now - lastStoredClock < LEVELUP_STORE_MIN_GAP then return end
-                    ExportAndStore()
-                end)
+            local function settle()
+                equipReady = true
+                pcall(CaptureEquipment, CurrentChar())
+                ScheduleStore()
             end
-            local CT = _G.C_Timer
-            if type(CT) == "table" and type(CT.After) == "function" then
-                CT.After(LEVELUP_STORE_DELAY, refresh)
-            else
-                refresh()
-            end
+            if not After(EQUIP_SETTLE, settle) then settle() end
         end)
+        return
     end
+    if event == "UNIT_INVENTORY_CHANGED" and a1 ~= "player" then return end
+    pcall(ScheduleStore, event == "PLAYER_LEVEL_UP")
 end)
 
 -- ---------------------------------------------------------------------------
@@ -2855,6 +3108,47 @@ local function ProbeNameLines()
     return lines
 end
 
+-- Equipment probe: which inventory readers this client has and what each returns for a few slots,
+-- so a build where one of them comes back empty can be spotted in game.
+local function ProbeEquipmentLines()
+    local lines = {}
+    local function add(x) lines[#lines + 1] = x end
+    local function show(fn, ...)
+        if type(fn) ~= "function" then return "MISSING" end
+        local ok, v = pcall(fn, ...)
+        if not ok then return "error" end
+        if IsSecret(v) then return "SECRET" end
+        if v == nil then return "nil" end
+        return "'" .. tostring(v) .. "'"
+    end
+    local CI = _G.C_Item
+    add("== GaarVanguard equipment probe ==")
+    add("GetInventoryItemLink " .. type(_G.GetInventoryItemLink) .. ", GetInventoryItemID " ..
+        type(_G.GetInventoryItemID) .. ", GetInventoryItemTexture " .. type(_G.GetInventoryItemTexture) ..
+        ", GetInventoryItemQuality " .. type(_G.GetInventoryItemQuality))
+    add("C_Item " .. type(CI) .. ", ItemLocation " .. type(_G.ItemLocation) .. ", C_TooltipInfo " ..
+        type(_G.C_TooltipInfo) .. ", issecretvalue " .. type(issecretvalue))
+    for _, slot in ipairs({ 1, 5, 16 }) do
+        add(string.format("slot %d %s: link %s | id %s | texture %s", slot, SLOT_NAMES[slot],
+            show(_G.GetInventoryItemLink, "player", slot), show(_G.GetInventoryItemID, "player", slot),
+            show(_G.GetInventoryItemTexture, "player", slot)))
+        local loc = EquipLocation(slot)
+        if loc and type(CI) == "table" then
+            add(string.format("    C_Item: exists %s | link %s | id %s", show(CI.DoesItemExist, loc),
+                show(CI.GetItemLink, loc), show(CI.GetItemID, loc)))
+        end
+    end
+    local ok, items, unknown = pcall(ScanEquipment)
+    if ok then
+        add(string.format("=> ScanEquipment: %d items, %d slots unreadable; record holds %d; ready %s",
+            #items, unknown, (function() local c = CurrentChar(); return c and type(c.equipment) == "table"
+                and #c.equipment or 0 end)(), tostring(equipReady)))
+    else
+        add("=> ScanEquipment: error")
+    end
+    return lines
+end
+
 local probeFrame
 local function ShowProbe()
     -- Name probe first so the identity check is at the top of the dump.
@@ -2866,12 +3160,15 @@ local function ShowProbe()
     local tlines = ProbeTalentsLines()
     lines[#lines + 1] = ""
     for _, l in ipairs(tlines) do lines[#lines + 1] = l end
+    local elines = ProbeEquipmentLines()
+    lines[#lines + 1] = ""
+    for _, l in ipairs(elines) do lines[#lines + 1] = l end
     -- Chat: the summary lines, so a glance is enough.
-    print("|cff5599ff" .. ADDON .. ":|r profession + talent probe -")
+    print("|cff5599ff" .. ADDON .. ":|r name + profession + talent + equipment probe -")
     for _, l in ipairs(lines) do print(l) end
     -- Copyable box: the whole thing, to paste back to us.
     if not probeFrame then
-        probeFrame = MakeBox("GaarVanguardProbe", "Profession + talent probe — ctrl-A, ctrl-C, paste this back", false)
+        probeFrame = MakeBox("GaarVanguardProbe", "Name, profession, talent + equipment probe — ctrl-A, ctrl-C, paste this back", false)
     end
     probeFrame.box:SetText(table.concat(lines, "\n"))
     probeFrame.box:HighlightText()
@@ -2934,15 +3231,6 @@ end
 local function IsCopyKeystroke(key)
     if key ~= "C" and key ~= "c" then return false end
     return (pcall1(_G.IsControlKeyDown) or pcall1(_G.IsMetaKeyDown)) and true or false
-end
-
-local function After(seconds, fn)
-    local CT = _G.C_Timer
-    if type(CT) == "table" and type(CT.After) == "function" then
-        CT.After(seconds, fn)
-        return true
-    end
-    return false
 end
 
 local quickCopy
@@ -3103,13 +3391,8 @@ local function MinimapDB()
 end
 
 -- Geometry read off a Blizzard frame can be a secret value on newer clients, and a secret cannot be
--- compared or divided, so it is checked before it is used at all (same guard as GaarOptions).
-local issecretvalue = _G.issecretvalue
-local function IsSecret(v)
-    if type(issecretvalue) ~= "function" then return false end
-    return issecretvalue(v) and true or false
-end
-
+-- compared or divided, so it is checked with IsSecret (defined with the other helpers near the top)
+-- before it is used at all (same guard as GaarOptions).
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 
 local function PickMinimapIcon()
@@ -3536,6 +3819,27 @@ local function SyncStatus()
         end
         Say(string.format("Vanguard Sync: this character's export was last stored %s, %d characters long" ..
             "%s.", when, #e.export, e.build and (", build " .. tostring(e.build)) or ""))
+        -- What the desktop app will upload: read the stored string back and count its rows.
+        local json = e.export:sub(1, #PREFIX) == PREFIX and Base64Decode(e.export:sub(#PREFIX + 1)) or ""
+        local function rows(field, key)
+            local list = json:match('"' .. field .. '":(%b[])')
+            if not list then return "?" end
+            local _, n = list:gsub('"' .. key .. '":', "")
+            return tostring(n)
+        end
+        Say(string.format("Vanguard Sync: stored export holds %s equipped items, %s loot rows, level %s.",
+            rows("equipment", "slot"), rows("loot", "when"), json:match('"lvl":(%d+)') or "?"))
+    end
+    -- The live read next to the character record, so a reader that comes back empty on some build
+    -- shows up here rather than only in the uploaded data.
+    local c = CurrentChar()
+    if c then
+        local ok, items, unknown = pcall(ScanEquipment)
+        Say(string.format("Vanguard Sync: equipment read live now: %s items%s; character record: %d items%s.",
+            ok and tostring(#items) or "error",
+            (ok and unknown > 0) and string.format(" (%d slots could not be read)", unknown) or "",
+            type(c.equipment) == "table" and #c.equipment or 0,
+            equipReady and "" or " (inventory still settling after the loading screen)"))
     end
     Say(string.format("Vanguard Sync: %d character export(s) stored. SavedVariables are only written to " ..
         "disk on logout, /reload or exit - the desktop app sees changes after that.", n))
@@ -3553,9 +3857,9 @@ local function Usage()
     print("  |cffffd100/gaarvanguard export|r — full VGD1 string for THIS character (the reliable, primary export)")
     print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
-    print("  |cffffd100/gaarvanguard sync|r — when this character's export was last stored for the Vanguard Sync desktop app, and whether auto-sync is on")
+    print("  |cffffd100/gaarvanguard sync|r — when this character's export was last stored for the Vanguard Sync desktop app, what it holds (equipped items, loot, level), and whether auto-sync is on")
     print("  |cffffd100/gaarvanguard sync on|r / |cffffd100sync off|r — turn auto-sync for the Vanguard Sync desktop app on or off")
-    print("  |cffffd100/gaarvanguard probe|r — dump which profession + talent APIs this client exposes")
+    print("  |cffffd100/gaarvanguard probe|r — dump which name, profession, talent and equipment APIs this client exposes")
     print("  |cffffd100/gaarvanguard minimap|r — show or hide the minimap button")
     print("  |cffffd100/gaarvanguard minimap reset|r — put the minimap button back at its default spot")
     print("  |cffffd100/gaarvanguard config|r — settings under Gaar -> Vanguard")

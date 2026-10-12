@@ -51,10 +51,12 @@
     Each character's ready-made export string is also kept in GaarVanguardDB.exports so a desktop
     companion app can read it from the SavedVariables file on disk and upload it. It is refreshed on
     logout / reload / exit, when the export is copied, after a recapture, and a few seconds after
-    login, a level-up or a change of equipment or professions - so it is already right before
-    logout, and the logout scan only tops it up (it never drops equipment it cannot read).
+    login, a level-up or a change of talents, equipment or professions - so it is already right
+    before logout, and the logout scan only tops up what was read while playing (it never drops
+    equipment it cannot read, nor goes back to a level or talents the client remembers from login).
     /gaarvanguard sync shows when this character's entry was last stored and what it holds
-    (equipped items, loot rows, level) next to a live equipment read; auto-sync can be turned
+    (equipped items, loot rows, level, talent points) next to the in-play values and a live
+    equipment read, plus what the last logout could read (lastLogoutDiag); auto-sync can be turned
     off (GaarVanguardDB.autoSync) from the minimap menu, the options panel or /gaarvanguard sync off.
 
   Minimap button: left-click opens a small box with this character's export already selected
@@ -315,6 +317,51 @@ local function After(seconds, fn)
     return false
 end
 
+-- ---------------------------------------------------------------------------
+-- In-play state versus the logout scan.
+--
+-- On build 1.60.1.70338 quitting the game stored an export with the level and talents the character
+-- had at LOGIN (level 24, 20 points) although it had levelled to 25 and spent a point during play,
+-- while a /reload a few minutes later stored the right values. When the client exits, UnitLevel and
+-- the trait graph at PLAYER_LOGOUT can hand back the state from login, or nothing at all, just as the
+-- inventory can be gone already (see Equipment below). A stale reading looks perfectly valid, so it
+-- cannot be caught by checking the value alone.
+--
+-- So the source of truth is the most recent capture made while PLAYING (`inPlay`); the logout scan
+-- only adds what it can read that is plausibly newer:
+--   * level: the highest level seen this session (a level never goes down within one), counting
+--     the level PLAYER_LEVEL_UP announces even before UnitLevel catches up;
+--   * talents: the in-play build, unless the logout read has MORE points spent (a point spent in the
+--     last seconds before logout) and no more than the level allows;
+--   * professions: the in-play list, each skill raised to the logout value where that is higher;
+--   * equipment: merged slot by slot (CaptureEquipment).
+-- `liveRead` keeps what the most recent capture could read live, for GaarVanguardDB.lastLogoutDiag.
+-- ---------------------------------------------------------------------------
+local loggingOut = false   -- set by the PLAYER_LOGOUT handler before the final export is built
+local inPlay = {}          -- lvl, talents, talentPts, spec, professions from in-play captures
+local liveRead = {}        -- lvl, talentPts, profs, equip, equipUnknown from the latest live read
+
+-- UnitLevel("player") as a plain positive number, or nil when it is missing, errors, is secret or 0.
+local function ReadLiveLevel()
+    local fn = _G.UnitLevel
+    if type(fn) ~= "function" then return nil end
+    local ok, lvl = pcall(fn, "player")
+    if not ok or IsSecret(lvl) then return nil end
+    lvl = tonumber(lvl)
+    if lvl and lvl > 0 then return lvl end
+    return nil
+end
+
+-- Total points spent in a talent build (the sum of its trees' points), or nil for no build.
+local function TalentPoints(build)
+    if type(build) ~= "table" or #build == 0 then return nil end
+    local n = 0
+    for _, t in ipairs(build) do
+        if type(t) == "table" then n = n + (tonumber(t.points) or 0) end
+    end
+    return n
+end
+
 local function CaptureIdentity(c)
     Identify()
     -- Always store the FULL "First Last" name (same helper the per-character export uses), so the
@@ -329,8 +376,12 @@ local function CaptureIdentity(c)
     local className, classFile = safe(UnitClass, "player")
     c.cls = className or c.cls
     c.classFile = classFile or c.classFile
-    local lvl = safe(UnitLevel, "player")
-    if type(lvl) == "number" and lvl > 0 then c.lvl = lvl end
+    -- Level: the live read, but never below the highest level seen while playing this session.
+    local lvl = ReadLiveLevel()
+    liveRead.lvl = lvl
+    if lvl and not loggingOut and lvl > (inPlay.lvl or 0) then inPlay.lvl = lvl end
+    local use = math.max(lvl or 0, inPlay.lvl or 0)
+    if use > 0 then c.lvl = use end
     local faction = safe(UnitFactionGroup, "player")
     if faction and faction ~= "Neutral" then c.faction = faction end
 end
@@ -964,6 +1015,20 @@ local function CaptureTalents(c)
             if allNamed then build = traits end
         end
     end
+    local livePts = TalentPoints(build)
+    liveRead.talentPts = livePts
+    -- At logout the in-play build wins (the live read may be the build from login), unless the live
+    -- read has more points spent and no more than the level allows: a point spent in the seconds
+    -- before logout, which no in-play capture has seen yet.
+    if loggingOut and inPlay.talents then
+        local newer = livePts and livePts > (inPlay.talentPts or 0)
+            and (type(c.lvl) ~= "number" or livePts <= c.lvl)
+        if not newer then
+            c.talents = inPlay.talents
+            c.spec = inPlay.spec
+            return
+        end
+    end
     if build and #build > 0 then
         c.talents = build
         -- Backstop the spec from the build if CaptureSpec did not already resolve one: the tab/tree
@@ -974,6 +1039,9 @@ local function CaptureTalents(c)
                 if (t.points or 0) > bestPts then best, bestPts = t.tab, t.points end
             end
             if best and bestPts > 0 then c.spec = best end
+        end
+        if not loggingOut then
+            inPlay.talents, inPlay.talentPts, inPlay.spec = build, livePts, c.spec
         end
     else
         -- Neither shape produced a build. Leave any previously captured build untouched; the probe
@@ -1176,7 +1244,29 @@ local function CaptureProfessions(c)
         local classic = ScanProfessionsClassic()
         if classic and #classic > 0 then out = classic end
     end
+    liveRead.profs = out and #out or nil
+    -- At logout the in-play list wins; a profession it holds only takes a higher skill/max from the
+    -- live read. A profession only the live read has is left out: one learned during play was already
+    -- stored by SKILL_LINES_CHANGED, so it is more likely one unlearned since login.
+    if loggingOut and inPlay.professions then
+        local live = {}
+        if out then
+            for _, p in ipairs(out) do live[p.name] = p end
+        end
+        local merged = {}
+        for _, p in ipairs(inPlay.professions) do
+            local l = live[p.name]
+            merged[#merged + 1] = {
+                name = p.name,
+                skill = math.max(p.skill or 0, l and l.skill or 0),
+                max = math.max(p.max or 0, l and l.max or 0),
+            }
+        end
+        c.professions = merged
+        return
+    end
     if out and #out > 0 then
+        if not loggingOut then inPlay.professions = out end
         c.professions = out
     else
         c.professions = c.professions or {}
@@ -1204,7 +1294,6 @@ end
 --     either: going naked happens one piece at a time, and each step is a reading of its own.
 -- ---------------------------------------------------------------------------
 local equipReady = false   -- set a few seconds after PLAYER_ENTERING_WORLD, once items have loaded
-local loggingOut = false   -- set by the PLAYER_LOGOUT handler before the final export is built
 local sessionEquip         -- this session's last trusted (or merged) equipment list, nil until one
 
 -- One reading from fn(...): nil when the API is missing, errors or hands back a secret. `bad` is
@@ -1344,6 +1433,7 @@ end
 local function CaptureEquipment(c)
     if not c then return end
     local items, unknown = ScanEquipment()
+    liveRead.equip, liveRead.equipUnknown = #items, unknown
     local earlier = sessionEquip or c.equipment
     local earlierCount = type(earlier) == "table" and #earlier or 0
     local trusted = equipReady and not loggingOut and unknown == 0
@@ -1790,7 +1880,7 @@ end
 -- and the minimap copy box, so the app uploads exactly what a player would otherwise paste. Entries
 -- are written on PLAYER_LOGOUT (which fires before SavedVariables are saved on logout, /reload and
 -- client exit), whenever the player copies the export, after a manual recapture, and a few seconds
--- after login, a level-up or a change of equipment or professions (ScheduleStore, below). One entry
+-- after login, a level-up or a change of talents, equipment or professions (ScheduleStore, below). One entry
 -- per character, overwritten each time; entries for characters no longer in
 -- `chars` are dropped, so the table never grows past the characters the addon knows about. The legacy
 -- `sync` key is unrelated and left alone. Contract: docs/gaarvanguard.md.
@@ -1849,9 +1939,27 @@ local function StoreExport(str)
     return entry
 end
 
--- What the stored export's content hinges on besides talents and loot: level, equipment and
--- professions. Compared against the value at the last store so an event that changed none of them
--- does not rebuild the export.
+-- Compact fingerprint of a talent build: every tree's name and points, and every talent's rank.
+local function TalentSignature(build)
+    if type(build) ~= "table" then return "" end
+    local parts = {}
+    for _, t in ipairs(build) do
+        if type(t) == "table" then
+            local ranks = {}
+            if type(t.talents) == "table" then
+                for _, n in ipairs(t.talents) do
+                    if type(n) == "table" then ranks[#ranks + 1] = tostring(n.rank or 0) end
+                end
+            end
+            parts[#parts + 1] = tostring(t.tab) .. ":" .. tostring(t.points) .. ":" .. table.concat(ranks, ",")
+        end
+    end
+    return table.concat(parts, ";")
+end
+
+-- What the stored export's content hinges on besides loot: level, talents (and the spec they give),
+-- equipment and professions. Compared against the value at the last store so an event that changed
+-- none of them does not rebuild the export.
 local function StoredSignature()
     local c = CurrentChar()
     if not c then return nil end
@@ -1863,7 +1971,8 @@ local function StoredSignature()
             end
         end
     end
-    return tostring(c.lvl) .. "|" .. EquipmentSignature(c.equipment) .. "|" .. table.concat(profs, ";")
+    return tostring(c.lvl) .. "|" .. tostring(c.spec) .. "|" .. TalentSignature(c.talents) .. "|" ..
+        EquipmentSignature(c.equipment) .. "|" .. table.concat(profs, ";")
 end
 local lastStoredSig   -- StoredSignature() right after the last successful store this session
 
@@ -1878,12 +1987,16 @@ end
 
 -- Debounced refresh of the stored export while playing, so `exports` is already right before logout
 -- rather than depending on the logout-time scan alone. Every call restarts the countdown (C_Timer
--- cannot cancel, so a generation number retires the older timers); when it runs out the export is
--- rebuilt and stored - unless nothing it depends on changed since the last store (`force` skips that
--- check). Never in combat: it waits and tries again. Off while auto-sync is off.
+-- cannot cancel, so a generation number retires the older timers); when it runs out level, talents
+-- and equipment are re-read and the export is rebuilt and stored - unless nothing it depends on
+-- changed since the last store (`force` skips that check). Never in combat: it waits and tries again.
+-- Off while auto-sync is off.
 local STORE_DEBOUNCE = 3       -- seconds after the last change
 local EQUIP_SETTLE = 3         -- seconds after PLAYER_ENTERING_WORLD before equipment is trusted
+local POLL_INTERVAL = 30       -- seconds between the in-play level/talent checks (see StartPoll)
 local storeGen, storeForced = 0, false
+-- Set by a level-up until UnitLevel has caught up: { from = the level before it, retried = bool }.
+local levelCheck
 local ScheduleStore
 ScheduleStore = function(force)
     if not AutoSyncEnabled() then return end
@@ -1894,41 +2007,152 @@ ScheduleStore = function(force)
         if gen ~= storeGen then return end   -- a later change restarted the countdown
         pcall(function()
             if not AutoSyncEnabled() then return end   -- may have been turned off meanwhile
+            if loggingOut then return end              -- PLAYER_LOGOUT has stored the final entry
             if pcall1(_G.InCombatLockdown) then ScheduleStore() return end
             if not storeForced then
-                safe(CaptureEquipment, CurrentChar())
+                -- Professions and guild have their own capture events; these can change silently.
+                local c = CurrentChar()
+                safe(CaptureIdentity, c)
+                safe(CaptureSpec, c)
+                safe(CaptureTalents, c)
+                safe(CaptureEquipment, c)
                 if StoredSignature() == lastStoredSig then return end
             end
             storeForced = false
             ExportAndStore()
+            -- UnitLevel can still report the old level a few seconds after PLAYER_LEVEL_UP. The level
+            -- the event announced is already in the export; read once more later so everything that
+            -- comes with the new level (talent points, max skill) is stored as well.
+            if levelCheck then
+                local live = ReadLiveLevel()
+                if levelCheck.retried or not levelCheck.from or (live and live > levelCheck.from) then
+                    levelCheck = nil
+                else
+                    levelCheck.retried = true
+                    ScheduleStore(true)
+                end
+            end
         end)
     end
     if not After(STORE_DEBOUNCE, fire) then fire() end
 end
 
+-- Points spent in the talent trees, read as cheaply as the client allows (no names or icons): the
+-- classic tab totals on Era, the purchased ranks of the trait graph on Forever / retail. nil when
+-- neither can be read.
+local function QuickTalentPoints()
+    if type(_G.GetNumTalentTabs) == "function" and type(_G.GetTalentTabInfo) == "function" then
+        local tabs = tonumber(safe(_G.GetNumTalentTabs)) or 0
+        if tabs > 0 then
+            local n = 0
+            for i = 1, tabs do
+                local _, _, pts = safe(_G.GetTalentTabInfo, i)
+                n = n + (tonumber(pts) or 0)
+            end
+            return n
+        end
+    end
+    local CCT, CT = _G.C_ClassTalents, _G.C_Traits
+    if type(CCT) ~= "table" or type(CT) ~= "table" or type(CCT.GetActiveConfigID) ~= "function"
+       or type(CT.GetConfigInfo) ~= "function" or type(CT.GetTreeNodes) ~= "function"
+       or type(CT.GetNodeInfo) ~= "function" then
+        return nil
+    end
+    local configID = safe(CCT.GetActiveConfigID)
+    if type(configID) ~= "number" then return nil end
+    local cfg = safe(CT.GetConfigInfo, configID)
+    if type(cfg) ~= "table" or type(cfg.treeIDs) ~= "table" then return nil end
+    local n = 0
+    for _, treeID in ipairs(cfg.treeIDs) do
+        local nodes = safe(CT.GetTreeNodes, treeID)
+        if type(nodes) == "table" then
+            for _, nodeID in ipairs(nodes) do
+                local ni = safe(CT.GetNodeInfo, configID, nodeID)
+                if type(ni) == "table" then
+                    n = n + (tonumber(ni.ranksPurchased) or tonumber(ni.activeRank) or 0)
+                end
+            end
+        end
+    end
+    return n
+end
+
+-- A safety net under the events: which talent events a client fires is not known for every build
+-- (Forever has the retail trait system but Vanilla talents), so every POLL_INTERVAL seconds the level
+-- and the points spent are read cheaply, and a change schedules the debounced store. Started once,
+-- after the first loading screen; skipped while auto-sync is off or the client is logging out.
+local pollStarted, pollLast = false, nil
+local function PollTick()
+    if loggingOut or not AutoSyncEnabled() then return end
+    local now = tostring(ReadLiveLevel()) .. "/" .. tostring(QuickTalentPoints())
+    if pollLast and now ~= pollLast then ScheduleStore() end
+    pollLast = now
+end
+local function StartPoll()
+    if pollStarted then return end
+    pollStarted = true
+    pcall(PollTick)
+    local CT = _G.C_Timer
+    if type(CT) == "table" and type(CT.NewTicker) == "function" then
+        pcall(CT.NewTicker, POLL_INTERVAL, function() pcall(PollTick) end)
+    else
+        local function again()
+            pcall(PollTick)
+            After(POLL_INTERVAL, again)
+        end
+        After(POLL_INTERVAL, again)
+    end
+end
+
 -- PLAYER_LOGOUT is the last event before the client writes SavedVariables to disk, on logout,
 -- /reload and exit alike, so the entry stored here is what the desktop app reads. `loggingOut` makes
--- CaptureEquipment treat its scan as a top-up of this session's equipment rather than the truth (the
--- inventory may already be gone by now). Everything is inside pcall: a failure here must never get in
--- the way of logging out. With auto-sync off it returns before any scan, so it costs nothing.
+-- the capture treat its live reads as a top-up of what was read while playing (see `inPlay` above;
+-- on exit the client may already hand back the state from login, or nothing). What the client could
+-- still read and what was used is kept in GaarVanguardDB.lastLogoutDiag. Everything is inside pcall:
+-- a failure here must never get in the way of logging out. With auto-sync off it returns before any
+-- scan, so it costs nothing.
 -- The other events keep the stored entry current during the session (see ScheduleStore):
 --   PLAYER_ENTERING_WORLD    after EQUIP_SETTLE seconds the inventory counts as loaded: equipment is
 --                            re-read and the export stored if anything differs from the last store
---   PLAYER_EQUIPMENT_CHANGED, UNIT_INVENTORY_CHANGED ("player"), SKILL_LINES_CHANGED
+--   PLAYER_EQUIPMENT_CHANGED, UNIT_INVENTORY_CHANGED ("player"), SKILL_LINES_CHANGED, UNIT_LEVEL
+--   ("player"), and the talent events TRAIT_CONFIG_UPDATED, TRAIT_TREE_CHANGED, PLAYER_TALENT_UPDATE,
+--   CHARACTER_POINTS_CHANGED, ACTIVE_COMBAT_CONFIG_CHANGED
 --                            re-checked a few seconds after the last one, stored only on a change
---   PLAYER_LEVEL_UP          always stored a few seconds later (UnitLevel can still report the old
---                            level when the event fires)
+--   PLAYER_LEVEL_UP, PLAYER_LEVEL_CHANGED
+--                            always stored a few seconds later, with the level the event announces
+--                            (UnitLevel can still report the old one), and re-read once more if
+--                            UnitLevel had not caught up yet
+-- Events a client does not know are skipped (RegisterEvent errors on them, inside pcall).
 local syncEv = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP",
-                     "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED", "SKILL_LINES_CHANGED" }) do
+for _, e in ipairs({ "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "PLAYER_LEVEL_CHANGED",
+                     "UNIT_LEVEL", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED",
+                     "SKILL_LINES_CHANGED", "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CHANGED",
+                     "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED",
+                     "ACTIVE_COMBAT_CONFIG_CHANGED" }) do
     pcall(syncEv.RegisterEvent, syncEv, e)
 end
-syncEv:SetScript("OnEvent", function(_, event, a1)
+syncEv:SetScript("OnEvent", function(_, event, a1, a2)
     if event == "PLAYER_LOGOUT" then
         pcall(function()
             if not AutoSyncEnabled() then return end
             loggingOut = true
             ExportAndStore()
+            local c = CurrentChar()
+            DB().lastLogoutDiag = {
+                when = type(time) == "function" and time() or nil,
+                build = ClientBuild(),
+                levelLive = liveRead.lvl,
+                levelInPlay = inPlay.lvl,
+                levelUsed = c and c.lvl,
+                talentsLive = liveRead.talentPts,
+                talentsInPlay = inPlay.talentPts,
+                talentsUsed = c and TalentPoints(c.talents),
+                equipLive = liveRead.equip,
+                equipUnknown = liveRead.equipUnknown,
+                equipUsed = c and type(c.equipment) == "table" and #c.equipment or nil,
+                profsLive = liveRead.profs,
+                profsUsed = c and type(c.professions) == "table" and #c.professions or nil,
+            }
         end)
         return
     end
@@ -1938,13 +2162,31 @@ syncEv:SetScript("OnEvent", function(_, event, a1)
                 equipReady = true
                 pcall(CaptureEquipment, CurrentChar())
                 ScheduleStore()
+                StartPoll()
             end
             if not After(EQUIP_SETTLE, settle) then settle() end
         end)
         return
     end
-    if event == "UNIT_INVENTORY_CHANGED" and a1 ~= "player" then return end
-    pcall(ScheduleStore, event == "PLAYER_LEVEL_UP")
+    if (event == "UNIT_INVENTORY_CHANGED" or event == "UNIT_LEVEL") and a1 ~= "player" then return end
+    if event == "PLAYER_LEVEL_UP" or event == "PLAYER_LEVEL_CHANGED" then
+        pcall(function()
+            -- PLAYER_LEVEL_UP(newLevel, ...); PLAYER_LEVEL_CHANGED(oldLevel, newLevel, ...).
+            local announced = event == "PLAYER_LEVEL_UP" and a1 or a2
+            if IsSecret(announced) then announced = nil end
+            announced = tonumber(announced)
+            local before = inPlay.lvl or ReadLiveLevel()
+            -- A level-up is one level (two at most if events bunch up); anything else is not trusted.
+            if announced and announced > (inPlay.lvl or 0) and (not before or announced <= before + 2) then
+                inPlay.lvl = announced
+            end
+            -- PLAYER_LEVEL_UP and PLAYER_LEVEL_CHANGED both fire on retail; the first one sets this.
+            if not levelCheck then levelCheck = { from = before, retried = false } end
+            ScheduleStore(true)
+        end)
+        return
+    end
+    pcall(ScheduleStore)
 end)
 
 -- ---------------------------------------------------------------------------
@@ -3829,6 +4071,29 @@ local function SyncStatus()
         end
         Say(string.format("Vanguard Sync: stored export holds %s equipped items, %s loot rows, level %s.",
             rows("equipment", "slot"), rows("loot", "when"), json:match('"lvl":(%d+)') or "?"))
+        -- Level and talent points: what the stored export holds next to what was read while playing,
+        -- so a stale entry shows up before logout. The first "talents" key is the build's own list;
+        -- only its trees carry "points".
+        local storedPts = "?"
+        local tlist = json:match('"talents":(%b[])')
+        if tlist then
+            local n = 0
+            for p in tlist:gmatch('"points":(%d+)') do n = n + tonumber(p) end
+            storedPts = tostring(n)
+        end
+        Say(string.format("Vanguard Sync: level %s in play / %s stored; talent points %s in play / %s stored.",
+            tostring(inPlay.lvl or "?"), json:match('"lvl":(%d+)') or "?",
+            tostring(inPlay.talentPts or "?"), storedPts))
+    end
+    -- What the last logout could still read live, next to what it stored.
+    local dg = d.lastLogoutDiag
+    if type(dg) == "table" then
+        local stamp = tonumber(dg.when) and pcall1(_G.date, "%Y-%m-%d %H:%M:%S", tonumber(dg.when)) or "?"
+        Say(string.format("Vanguard Sync: last logout (%s): level live %s / used %s, talent points live %s / " ..
+            "used %s, equipped items live %s / used %s.", tostring(stamp),
+            tostring(dg.levelLive or "-"), tostring(dg.levelUsed or "-"),
+            tostring(dg.talentsLive or "-"), tostring(dg.talentsUsed or "-"),
+            tostring(dg.equipLive or "-"), tostring(dg.equipUsed or "-")))
     end
     -- The live read next to the character record, so a reader that comes back empty on some build
     -- shows up here rather than only in the uploaded data.
@@ -3857,7 +4122,7 @@ local function Usage()
     print("  |cffffd100/gaarvanguard export|r — full VGD1 string for THIS character (the reliable, primary export)")
     print("  |cffffd100/gaarvanguard exportall|r — lightweight VGD1 string for ALL stored characters (identity only)")
     print("  |cffffd100/gaarvanguard capture|r — recapture this character now")
-    print("  |cffffd100/gaarvanguard sync|r — when this character's export was last stored for the Vanguard Sync desktop app, what it holds (equipped items, loot, level), and whether auto-sync is on")
+    print("  |cffffd100/gaarvanguard sync|r — when this character's export was last stored for the Vanguard Sync desktop app, what it holds (equipped items, loot, level, talent points vs. in play), what the last logout could read, and whether auto-sync is on")
     print("  |cffffd100/gaarvanguard sync on|r / |cffffd100sync off|r — turn auto-sync for the Vanguard Sync desktop app on or off")
     print("  |cffffd100/gaarvanguard probe|r — dump which name, profession, talent and equipment APIs this client exposes")
     print("  |cffffd100/gaarvanguard minimap|r — show or hide the minimap button")

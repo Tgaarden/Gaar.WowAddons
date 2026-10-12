@@ -441,7 +441,8 @@ mark as fallbacks where `GetFileIDFromPath` says the first is missing).
 - **Right-click** opens a menu: *Copy export (this character)*, *Copy export (all characters)*
   (the `exportall` string, in the same copy box), *Open website* (puts
   `https://vanguard.gaaruniverse.no` in the copy box), *Open Vanguard view*, *Recapture this
-  character*, *Settings* (only when GaarOptions is installed) and *Hide minimap button*. The menu
+  character*, *Auto-sync (Vanguard Sync app)* (a checkbox; see *Stored exports for the desktop app*
+  below), *Settings* (only when GaarOptions is installed) and *Hide minimap button*. The menu
   is Blizzard's `MenuUtil.CreateContextMenu` where it exists (retail, Forever) and a small
   self-drawn menu otherwise (Classic Era), so `UIDropDownMenu` is never touched.
 - **Drag** moves it around the minimap. The angle is saved; on a square minimap (GaarMap, via
@@ -474,6 +475,7 @@ Shape:
 ```lua
 GaarVanguardDB = {
   -- ...
+  autoSync = true,
   exports = {
     ["Mag Tics-Nostalrius"] = {
       v = 1,
@@ -495,13 +497,27 @@ GaarVanguardDB = {
 | `build` | string, optional | `GetBuildInfo()` version and build joined with a dot, e.g. `"1.60.1.70291"`; absent if the client did not answer |
 | `project` | number, optional | `WOW_PROJECT_ID` (Forever 18, retail 1, Classic Era 2); absent where the client does not define it |
 
+**`autoSync`** (top level, boolean, account-wide) is the player's on/off switch for the desktop app:
+
+- **Missing means `true`.** The addon writes an explicit `true` the first time it reads the flag.
+- **When `autoSync == false` the app must skip uploading** for that account (every character in the
+  file), even though `exports` may still hold entries.
+- While it is off the addon writes and refreshes nothing: no trigger below runs, and existing
+  entries are left exactly as they were (no pruning either). Turning it back on resumes from the next
+  trigger.
+- It is toggled from the minimap right-click menu (*Auto-sync (Vanguard Sync app)*, a checkbox on
+  retail/Forever and a check-mark row in the Classic Era menu), the *Auto-sync (Vanguard Sync app)*
+  checkbox under Gaar → Vanguard, and `/gaarvanguard sync on` / `/gaarvanguard sync off`. A chat line
+  confirms each change. Like every SavedVariable, a change reaches the file on the next logout,
+  `/reload` or exit.
+
 The `export` string is exactly what the player would otherwise paste into the website, so the app
 handles it the same way the website does: strip `VGD1:`, base64-decode, parse the `k = "chars"` JSON
 (see the contract above; the website does this in `Vanguard/src/lib/protocol.ts`) and send the
 characters to `POST /api/vanguard/characters/import-batch`.
 
-**When an entry is written** (always for the logged-in character only, overwriting its previous
-entry):
+**When an entry is written** (only while `autoSync` is on; always for the logged-in character only,
+overwriting its previous entry):
 
 | Trigger | Notes |
 |---|---|
@@ -522,8 +538,8 @@ dropped, so `exports` never holds more than the characters the addon knows about
 is left alone.
 
 `/gaarvanguard sync` prints when this character's entry was last stored (time and age, string length,
-build) and how many entries exist, so a player can check the app will have fresh data after the next
-logout or `/reload`.
+build), how many entries exist and whether auto-sync is on, so a player can check the app will have
+fresh data after the next logout or `/reload`.
 
 ## SavedVariables shape
 
@@ -543,6 +559,7 @@ GaarVanguardDB = {
   },
   maxLoot = 100,
   minimap = { hide = false, angle = 245 },   -- minimap button: hidden?, position in degrees
+  autoSync = true,                           -- Vanguard Sync desktop app on/off (missing = true)
   exports = {                                -- for the Vanguard Sync desktop app (see above)
     ["Name-Realm"] = { v = 1, export = "VGD1:...", updatedAt, build, project },
     ...
@@ -562,7 +579,9 @@ are migrated to the canonical names on the way out, so a mixed DB still exports 
 - `/gaarvanguard exportall` (alias `syncall`) — lightweight VGD1 `chars` string for **all stored
   characters**, identity fields only
 - `/gaarvanguard capture` — recapture the current character now
-- `/gaarvanguard sync` — when this character's export was last stored for the Vanguard Sync desktop app
+- `/gaarvanguard sync` — when this character's export was last stored for the Vanguard Sync desktop app,
+  and whether auto-sync is on
+- `/gaarvanguard sync on` / `/gaarvanguard sync off` — turn auto-sync for the desktop app on or off
 - `/gaarvanguard probe` — dump which profession + talent APIs this client exposes (chat + copyable box)
 - `/gaarvanguard minimap` — show or hide the minimap button
 - `/gaarvanguard minimap reset` — put the minimap button back at its default position (and show it)

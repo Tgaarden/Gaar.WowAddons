@@ -352,6 +352,34 @@ local function ReadLiveLevel()
     return nil
 end
 
+-- UnitXP / UnitXPMax ("player"): the XP earned within the current level and the XP that level needs,
+-- as whole numbers. nil when either API is missing, errors, is secret or not a number, when the level
+-- needs no XP (xpMax 0, e.g. at the level cap), or when the pair does not fit (xp below 0 or above
+-- xpMax).
+local function ReadLiveXP()
+    local fx, fm = _G.UnitXP, _G.UnitXPMax
+    if type(fx) ~= "function" or type(fm) ~= "function" then return nil end
+    local okX, xp = pcall(fx, "player")
+    local okM, xpMax = pcall(fm, "player")
+    if not okX or not okM or IsSecret(xp) or IsSecret(xpMax) then return nil end
+    xp, xpMax = tonumber(xp), tonumber(xpMax)
+    if not xp or not xpMax then return nil end
+    if not (xpMax > 0 and xp >= 0 and xp <= xpMax) then return nil end   -- also rejects NaN
+    return math.floor(xp), math.floor(xpMax)
+end
+
+-- Read the XP live and, while playing, keep it in `inPlay` together with the level UnitLevel reported
+-- in the same moment (`xpLvl`), so the export only ever pairs XP with the level it belongs to: XP
+-- resets at a level-up, and UnitLevel can lag behind PLAYER_LEVEL_UP. At logout the read is kept for
+-- the diagnostics only, as with the level: the client can answer there with the state from login.
+local function UpdateInPlayXP()
+    local lvl = ReadLiveLevel()
+    local xp, xpMax = ReadLiveXP()
+    liveRead.xp = xp
+    if loggingOut then return end
+    if lvl and xp then inPlay.xp, inPlay.xpMax, inPlay.xpLvl = xp, xpMax, lvl end
+end
+
 -- Total points spent in a talent build (the sum of its trees' points), or nil for no build.
 local function TalentPoints(build)
     if type(build) ~= "table" or #build == 0 then return nil end
@@ -377,11 +405,22 @@ local function CaptureIdentity(c)
     c.cls = className or c.cls
     c.classFile = classFile or c.classFile
     -- Level: the live read, but never below the highest level seen while playing this session.
+    local prevLvl = c.lvl
     local lvl = ReadLiveLevel()
     liveRead.lvl = lvl
     if lvl and not loggingOut and lvl > (inPlay.lvl or 0) then inPlay.lvl = lvl end
     local use = math.max(lvl or 0, inPlay.lvl or 0)
     if use > 0 then c.lvl = use end
+    -- XP within the level (`xp` / `xpMax`): the latest in-play read, and only while it was read at
+    -- the level stored above; a read from another level is dropped rather than exported against the
+    -- wrong level. With no in-play read this session the stored pair stands while the level is
+    -- unchanged.
+    UpdateInPlayXP()
+    if inPlay.xpLvl and inPlay.xpLvl == c.lvl then
+        c.xp, c.xpMax = inPlay.xp, inPlay.xpMax
+    elseif inPlay.xpLvl or c.lvl ~= prevLvl then
+        c.xp, c.xpMax = nil, nil
+    end
     local faction = safe(UnitFactionGroup, "player")
     if faction and faction ~= "Neutral" then c.faction = faction end
 end
@@ -1726,6 +1765,8 @@ local function CanonicalChar(c)
         race = c.race,
         cls = c.cls or c.class,          -- canonical class (localized)
         lvl = c.lvl or c.level,          -- canonical level (number)
+        xp = c.xp,                       -- XP within the level (optional; absent when unknown)
+        xpMax = c.xpMax,                 -- XP the level needs (optional; absent when unknown)
         spec = c.spec,
         guild = c.guild,
         guildRank = c.guildRank,
@@ -1820,6 +1861,8 @@ local function MinimalChar(c)
         classFile = c.classFile,         -- locale-independent class token
         faction = c.faction,
         lvl = c.lvl or c.level,          -- canonical level (number)
+        xp = c.xp,                       -- XP within the level (optional)
+        xpMax = c.xpMax,                 -- XP the level needs (optional)
         spec = c.spec,
     }
 end
@@ -1957,9 +2000,9 @@ local function TalentSignature(build)
     return table.concat(parts, ";")
 end
 
--- What the stored export's content hinges on besides loot: level, talents (and the spec they give),
--- equipment and professions. Compared against the value at the last store so an event that changed
--- none of them does not rebuild the export.
+-- What the stored export's content hinges on besides loot: level and XP, talents (and the spec they
+-- give), equipment and professions. Compared against the value at the last store so an event that
+-- changed none of them does not rebuild the export.
 local function StoredSignature()
     local c = CurrentChar()
     if not c then return nil end
@@ -1971,7 +2014,8 @@ local function StoredSignature()
             end
         end
     end
-    return tostring(c.lvl) .. "|" .. tostring(c.spec) .. "|" .. TalentSignature(c.talents) .. "|" ..
+    return tostring(c.lvl) .. "|" .. tostring(c.xp) .. "/" .. tostring(c.xpMax) .. "|" ..
+        tostring(c.spec) .. "|" .. TalentSignature(c.talents) .. "|" ..
         EquipmentSignature(c.equipment) .. "|" .. table.concat(profs, ";")
 end
 local lastStoredSig   -- StoredSignature() right after the last successful store this session
@@ -2115,9 +2159,12 @@ end
 --   PLAYER_ENTERING_WORLD    after EQUIP_SETTLE seconds the inventory counts as loaded: equipment is
 --                            re-read and the export stored if anything differs from the last store
 --   PLAYER_EQUIPMENT_CHANGED, UNIT_INVENTORY_CHANGED ("player"), SKILL_LINES_CHANGED, UNIT_LEVEL
---   ("player"), and the talent events TRAIT_CONFIG_UPDATED, TRAIT_TREE_CHANGED, PLAYER_TALENT_UPDATE,
---   CHARACTER_POINTS_CHANGED, ACTIVE_COMBAT_CONFIG_CHANGED
---                            re-checked a few seconds after the last one, stored only on a change
+--   ("player"), PLAYER_XP_UPDATE ("player"), and the talent events TRAIT_CONFIG_UPDATED,
+--   TRAIT_TREE_CHANGED, PLAYER_TALENT_UPDATE, CHARACTER_POINTS_CHANGED, ACTIVE_COMBAT_CONFIG_CHANGED
+--                            re-checked a few seconds after the last one, stored only on a change.
+--                            PLAYER_XP_UPDATE fires on every kill or quest turn-in; it only reads the
+--                            XP into `inPlay` at once, and the debounce folds a run of them into one
+--                            store a few seconds after the last (never in combat)
 --   PLAYER_LEVEL_UP, PLAYER_LEVEL_CHANGED
 --                            always stored a few seconds later, with the level the event announces
 --                            (UnitLevel can still report the old one), and re-read once more if
@@ -2128,7 +2175,7 @@ for _, e in ipairs({ "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP"
                      "UNIT_LEVEL", "PLAYER_EQUIPMENT_CHANGED", "UNIT_INVENTORY_CHANGED",
                      "SKILL_LINES_CHANGED", "TRAIT_CONFIG_UPDATED", "TRAIT_TREE_CHANGED",
                      "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED",
-                     "ACTIVE_COMBAT_CONFIG_CHANGED" }) do
+                     "ACTIVE_COMBAT_CONFIG_CHANGED", "PLAYER_XP_UPDATE" }) do
     pcall(syncEv.RegisterEvent, syncEv, e)
 end
 syncEv:SetScript("OnEvent", function(_, event, a1, a2)
@@ -2144,6 +2191,9 @@ syncEv:SetScript("OnEvent", function(_, event, a1, a2)
                 levelLive = liveRead.lvl,
                 levelInPlay = inPlay.lvl,
                 levelUsed = c and c.lvl,
+                xpLive = liveRead.xp,
+                xpInPlay = inPlay.xp,
+                xpUsed = c and c.xp,
                 talentsLive = liveRead.talentPts,
                 talentsInPlay = inPlay.talentPts,
                 talentsUsed = c and TalentPoints(c.talents),
@@ -2169,6 +2219,11 @@ syncEv:SetScript("OnEvent", function(_, event, a1, a2)
         return
     end
     if (event == "UNIT_INVENTORY_CHANGED" or event == "UNIT_LEVEL") and a1 ~= "player" then return end
+    if event == "PLAYER_XP_UPDATE" then
+        -- PLAYER_XP_UPDATE(unitTarget); a client that sends no unit is taken to mean the player.
+        if a1 ~= nil and a1 ~= "player" then return end
+        pcall(UpdateInPlayXP)
+    end
     if event == "PLAYER_LEVEL_UP" or event == "PLAYER_LEVEL_CHANGED" then
         pcall(function()
             -- PLAYER_LEVEL_UP(newLevel, ...); PLAYER_LEVEL_CHANGED(oldLevel, newLevel, ...).
@@ -4069,8 +4124,9 @@ local function SyncStatus()
             local _, n = list:gsub('"' .. key .. '":', "")
             return tostring(n)
         end
-        Say(string.format("Vanguard Sync: stored export holds %s equipped items, %s loot rows, level %s.",
-            rows("equipment", "slot"), rows("loot", "when"), json:match('"lvl":(%d+)') or "?"))
+        Say(string.format("Vanguard Sync: stored export holds %s equipped items, %s loot rows, level %s " ..
+            "(XP %s / %s).", rows("equipment", "slot"), rows("loot", "when"), json:match('"lvl":(%d+)') or "?",
+            json:match('"xp":(%d+)') or "-", json:match('"xpMax":(%d+)') or "-"))
         -- Level and talent points: what the stored export holds next to what was read while playing,
         -- so a stale entry shows up before logout. The first "talents" key is the build's own list;
         -- only its trees carry "points".

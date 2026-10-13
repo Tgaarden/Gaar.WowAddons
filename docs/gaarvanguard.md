@@ -24,7 +24,7 @@ There are **two** exports, both emitting the same `k = "chars"` envelope — the
 | Command | Characters | Per-character data | Use |
 |---|---|---|---|
 | `/gaarvanguard export` | **the current character only** (1 element) | **full** — everything below (identity, professions, equipment, loot, full talent trees), scanned live | **primary flow.** One character → a short string that survives the copy out of the in-game EditBox |
-| `/gaarvanguard exportall` | **every stored character** (N elements) | **identity only** — `name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `spec`; **no** professions/equipment/loot/talents | a lightweight skeleton to populate the account pool |
+| `/gaarvanguard exportall` | **every stored character** (N elements) | **identity only** — `name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `xp`, `xpMax`, `spec`; **no** professions/equipment/loot/talents | a lightweight skeleton to populate the account pool |
 
 The split exists because a single string dumping *all* characters *with* their heavy data grew long
 enough to be **truncated** when copied from the in-game EditBox (losing talents and tail
@@ -33,7 +33,7 @@ stays short by carrying identity fields only.
 
 Both are the same contract; the bulk export simply omits the heavy arrays. The full per-character
 JSON is shown below; a bulk element is just the identity fields (a `chars` array of objects with
-`name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `spec` and nothing else).
+`name`, `realm`, `race`, `cls`, `classFile`, `faction`, `lvl`, `xp`, `xpMax`, `spec` and nothing else).
 
 **This is the canonical contract with the website — the field names below must match exactly.**
 The website's VGD1 `chars` importer reads these names; a mismatch is silently dropped (the live
@@ -50,7 +50,9 @@ equipment was empty because it was read from cached events instead of scanned li
       "realm": "Nostalrius",
       "race": "Orc",
       "cls": "Shaman",
-      "lvl": 60,
+      "lvl": 42,
+      "xp": 31250,
+      "xpMax": 89300,
       "spec": "Enhancement",
       "guild": "Warsong Clan",
       "guildRank": "Warchief",
@@ -103,6 +105,8 @@ Canonical field names (each char object):
 | `race` | string | e.g. `"Gnome"`; the website derives faction from race |
 | `cls` | string | localized class, e.g. `"Mage"` (was `class`) |
 | `lvl` | number | character level (was `level`) |
+| `xp` | integer, optional | XP earned within the current level (`UnitXP("player")`). Absent when unknown; always belongs to `lvl` (see *XP within the level* below) |
+| `xpMax` | integer, optional | XP the current level needs (`UnitXPMax("player")`), always > 0 when present. `xp` and `xpMax` come together or not at all |
 | `spec` | string, optional | the talent tree with the most points spent — Vanilla tabs on Era, the `C_Traits` posX band mapped to the classic tab name (e.g. "Fire") on Forever; empty when nothing is spent or no name resolves |
 | `talents` | array | the full talent build — one entry per tab: `{ tab, points, talents: [ { name, rank, max, tier, col, icon?, spellId? } ], edges: [ { ft, fc, tt, tc } ] }` (see below) |
 | `guild` | string, optional | guild name, or absent when not in a guild |
@@ -158,6 +162,10 @@ More field notes:
   falls back to the raw item link. See *Equipment* below for how a slot is read.
 - `loot` is the last 100 rows for that character (see below). `item` is the full item link,
   `when` is a Unix timestamp (`time()`).
+- `xp` / `xpMax` are **additive and optional** (added for the website's XP bar; rested XP is not
+  exported). Both are omitted when either API is missing, errors, returns a secret or non-number
+  value, when `xpMax` is 0 (a level that needs no XP, e.g. the cap), or when `xp` falls outside
+  `0..xpMax`. The envelope stays `VGD1:`; an older reader ignores the two keys.
 
 ### Live scan at export (do not trust the cache)
 
@@ -240,7 +248,19 @@ is the source of truth, and the logout scan only adds what is plausibly newer:
 - **talents** (and the spec they give) — the in-play build, unless the logout read has **more**
   points spent, and no more than the level, i.e. a point spent in the last seconds before logout;
 - **professions** — the in-play list, each skill raised to the logout value where that is higher;
-- **equipment** — merged slot by slot as above.
+- **equipment** — merged slot by slot as above;
+- **XP** — see below.
+
+#### XP within the level
+
+`xp` / `xpMax` follow the same in-play rule. Every live read (at capture and on each
+`PLAYER_XP_UPDATE`) is kept in memory together with the level `UnitLevel` reported in the same
+moment. The record, and so the export, takes that pair **only while that level equals the stored
+`lvl`**: XP resets at a level-up and `UnitLevel` can lag behind `PLAYER_LEVEL_UP`, so a read from the
+other level is dropped (the fields are omitted) until a read at the new level arrives, rather than
+exported against the wrong level. At `PLAYER_LOGOUT` the live read is not used at all (the client can
+answer with the state from login, or 0); the last in-play pair is exported. When there was no read
+this session, the pair already in the record stands as long as the level has not changed.
 
 The logout writes `GaarVanguardDB.lastLogoutDiag` with what it could read live next to what it used
 (see *SavedVariables shape*), and `/gaarvanguard sync` prints it.
@@ -254,6 +274,7 @@ The logout writes `GaarVanguardDB.lastLogoutDiag` with what it could read live n
 | `PLAYER_ENTERING_WORLD` + 3 s | equipment, now trusted as loaded |
 | `UNIT_INVENTORY_CHANGED` (`player`) | equipment (at the debounced store check) |
 | `PLAYER_LEVEL_UP` | the whole record |
+| `PLAYER_XP_UPDATE` (`player`) | XP (read at once; the record at the debounced store check) |
 | `SKILL_LINES_CHANGED` | professions |
 | `CHARACTER_POINTS_CHANGED` | spec + full talent build |
 | `PLAYER_GUILD_UPDATE` | guild + rank |
@@ -567,8 +588,8 @@ overwriting its previous entry):
 | `PLAYER_LOGOUT` | fires before the client saves SavedVariables on **logout, `/reload` and client exit**, so this is the entry the app normally reads. Its equipment scan only tops up what the session already read (see *Equipment*), never empties it. Fully `pcall`-guarded: a failure never gets in the way of logging out (the previous entry is then simply kept) |
 | copying the export | `/gaarvanguard export`, the *Export this char* button and the minimap left-click / *Copy export (this character)* store exactly the string they show |
 | a manual recapture | `/gaarvanguard capture`, the minimap *Recapture this character* and the *Recapture now* button |
-| login / loading screen | 3 seconds after `PLAYER_ENTERING_WORLD` the equipment is re-read, and the entry is stored if level, talents, equipment or professions differ from the last store this session (so always once per login) |
-| `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` (`player`), `SKILL_LINES_CHANGED`, `UNIT_LEVEL` (`player`), and the talent events `TRAIT_CONFIG_UPDATED`, `TRAIT_TREE_CHANGED`, `PLAYER_TALENT_UPDATE`, `CHARACTER_POINTS_CHANGED`, `ACTIVE_COMBAT_CONFIG_CHANGED` | debounced: 3 seconds after the last such event level, talents and equipment are re-read, and the entry is stored only if level, talents (points per tree and every rank), equipment or professions changed. Events a client does not know are skipped |
+| login / loading screen | 3 seconds after `PLAYER_ENTERING_WORLD` the equipment is re-read, and the entry is stored if level, XP, talents, equipment or professions differ from the last store this session (so always once per login) |
+| `PLAYER_EQUIPMENT_CHANGED`, `UNIT_INVENTORY_CHANGED` (`player`), `SKILL_LINES_CHANGED`, `UNIT_LEVEL` (`player`), `PLAYER_XP_UPDATE` (`player`), and the talent events `TRAIT_CONFIG_UPDATED`, `TRAIT_TREE_CHANGED`, `PLAYER_TALENT_UPDATE`, `CHARACTER_POINTS_CHANGED`, `ACTIVE_COMBAT_CONFIG_CHANGED` | debounced: 3 seconds after the last such event level, talents and equipment are re-read, and the entry is stored only if level, XP, talents (points per tree and every rank), equipment or professions changed. `PLAYER_XP_UPDATE` fires on every kill or quest turn-in; the debounce folds a run of them into one store 3 seconds after the last (and waits out combat). Events a client does not know are skipped |
 | `PLAYER_LEVEL_UP`, `PLAYER_LEVEL_CHANGED` | always stored, 3 seconds after the event, with the level the event announces (`UnitLevel` can still report the old level when it fires); if `UnitLevel` has not caught up by then, stored once more 3 seconds later |
 | every 30 seconds in play | a cheap read of the level and the points spent; a change schedules the debounced store above. A safety net for clients that do not fire the talent events |
 
@@ -587,7 +608,7 @@ dropped, so `exports` never holds more than the characters the addon knows about
 is left alone.
 
 `/gaarvanguard sync` prints when this character's entry was last stored (time and age, string length,
-build), what that stored string holds (equipped items, loot rows, level - read back from the string
+build), what that stored string holds (equipped items, loot rows, level and XP - read back from the string
 itself), its level and talent points next to the values read while playing, what the last logout
 could read live against what it stored (`lastLogoutDiag`), a live equipment read next to the record's count, how many entries exist and whether
 auto-sync is on, so a player can check the app will have fresh data after the next logout or
@@ -602,7 +623,7 @@ and what each returns for the head, chest and main-hand slots.
 GaarVanguardDB = {
   chars = {
     ["Name-Realm"] = {
-      name, realm, race, cls, classFile, lvl, faction, spec, guild, guildRank,
+      name, realm, race, cls, classFile, lvl, xp, xpMax, faction, spec, guild, guildRank,
       talents     = { { tab, points, talents = { { name, rank, max, tier, col }, ... } }, ... },
       professions = { { name, skill, max }, ... },
       equipment   = { { slot, itemId, quality, name }, ... },  -- slot is the slot NAME string
@@ -620,6 +641,7 @@ GaarVanguardDB = {
   lastLogoutDiag = {                         -- written at every PLAYER_LOGOUT while auto-sync is on
     when, build,                             -- time() and "version.build"
     levelLive, levelInPlay, levelUsed,       -- UnitLevel at logout / highest in play / exported
+    xpLive, xpInPlay, xpUsed,                -- UnitXP at logout (nil = unreadable) / last in play / exported
     talentsLive, talentsInPlay, talentsUsed, -- points spent: logout read (nil = unreadable) / in play / exported
     equipLive, equipUnknown, equipUsed,      -- items read at logout / slots unreadable / exported
     profsLive, profsUsed,                    -- professions read at logout / exported

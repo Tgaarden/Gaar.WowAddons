@@ -14,10 +14,42 @@ else. It needs no other addon or library.
 - **Clean Up Bags on the left.** On Forever the native button (`BagItemAutoSortButton`) ends up
   hidden under the bag slot icons right of the search box. A copy of it, with the same broom art
   and tooltip, sits left of the search box; the search box moves right and narrows by the same
-  amount, so its right end stays where it was. Clicking it plays the sorting sound and calls
-  `C_Container.SortBags()`. It is greyed out in combat and refuses with a short message there.
-- **Sort order on right-click.** Right-clicking the same button switches the order the clean-up
-  fills your bags in (`C_Container.SetSortBagsRightToLeft`), prints the new order and shows it in
+  amount, so its right end stays where it was. It is greyed out in combat and refuses with a
+  short message there.
+  - **Left-click: visual sort** (the default, see below).
+  - **Shift+left-click: Blizzard's sort**, `C_Container.SortBags()`.
+  - **Right-click: switch Blizzard's sort order** (below).
+  - `/bbf mode blizzard` swaps the two left-clicks (plain = Blizzard, Shift = visual);
+    `/bbf mode visual` puts them back. Saved in `BetterBagsForeverDB`.
+- **Visual sort: sorted the way you see it.** Blizzard's sort fills the bags in bag/slot order.
+  The separate bag frames show that order as intended, but the Combined Backpack draws each bag's
+  slots in reverse, so a bag sorted as stone, 12, bread, scroll reads backwards there - and
+  `SetSortBagsRightToLeft` is one global switch, so it can fix the order of the bags or the order
+  inside them, never both. The visual sort assumes no layout: it reads where every item button
+  actually is on screen (bag from `GetBagID()` or the parent frame's ID, slot from `GetID()`,
+  position from `GetTop()`/`GetLeft()`), and fills the slots in reading order, top-left first:
+  1. partial stacks of the same item are merged;
+  2. **equipment** (armor, weapons) -> **consumables** (food, potions, scrolls, ammo) -> **trade
+     goods** (reagents, cloth, ore, gems, recipes, profession items) -> **quest items** -> **the
+     rest** (containers, keys, hearthstone, misc) are packed from the top-left; inside a group, higher
+     quality first, then item level, name and stack size;
+  3. **junk** (grey with a sell value) is packed into the **bottom-right corner**, with the free
+     slots between it and the rest.
+
+  It works the same in the combined view and in separate bag frames (there, frames are read
+  column by column, top frame first). Bags marked "Ignore on clean up", and specialty bags (soul,
+  quiver, ammo, profession), are left exactly as they are; only the backpack and bags 1-4 are
+  sorted, never the keyring or the bank. If the bags are not open it sorts in plain bag/slot
+  order and says so.
+
+  Safety: one move per 0.05 s with `C_Container.PickupContainerItem`, never a protected function.
+  It waits while items are locked, re-reads the bags before every move (and re-plans if loot or
+  the server changed them), and stops at once on combat, on `/bbf stop`, when the cursor holds
+  something it did not pick up, when a move keeps being refused, or after a hard cap
+  (1500 ticks, or 5 s waiting on locks). It only ever clears the cursor when the cursor holds the
+  item it picked up itself. It finishes with one line, "Sorted: N moves."
+- **Sort order on right-click.** Right-clicking the same button switches the order Blizzard's
+  clean-up fills your bags in (`C_Container.SetSortBagsRightToLeft`), prints the new order and shows it in
   the tooltip. The two orders are named by what you see in the Combined Backpack: **Standard
   (junk bottom-right)** and **Reversed (junk top-left)**. Standard is Blizzard's
   `SortBagsRightToLeft = true`, which is what Forever's own Clean Up uses by default for the
@@ -36,12 +68,17 @@ else. It needs no other addon or library.
 | `/bbf reset` | Back to Blizzard's default position |
 | `/bbf lock`, `/bbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
 | `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
-| `/bbf direction` | Switch the clean-up sort order (same as right-clicking the button) |
+| `/bbf sort` | Run the visual sort |
+| `/bbf stop` | Stop a running visual sort |
+| `/bbf mode visual`, `/bbf mode blizzard` | What a plain left-click on Clean Up does (Shift+left-click does the other); `/bbf mode` shows it |
+| `/bbf direction` | Switch Blizzard's sort order (same as right-clicking the button) |
 | `/bbf direction standard`, `/bbf direction reversed` | Set it to Standard (junk bottom-right) or Reversed (junk top-left); `rtl` and `ltr` work as aliases |
-| `/bbf status` | Which of the frames and functions this client has, the sort order and the saved position |
+| `/bbf status` | Which of the frames and functions this client has, the sort order and mode, how many bag slots were found on screen, and the saved position |
 
 ## How it stays out of the way
 
+- Item moves use `C_Container.PickupContainerItem`, `GetCursorInfo` and `ClearCursor`, the same
+  unprotected calls every bag addon uses, and only out of combat.
 - Blizzard code is only followed, never replaced: `hooksecurefunc("UpdateContainerFrameAnchors")`,
   `hooksecurefunc(ContainerFrameCombinedBags, "UpdateSearchBox")` and `HookScript` on the frame's
   `OnShow`, `OnHide` and drag scripts. No Blizzard function is called from addon code.
@@ -58,4 +95,9 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `ContainerFrameCombinedBags` (and its `TitleContainer`, `UpdateSearchBox`), `BagItemSearchBox`,
 `BagItemAutoSortButton`, `UpdateContainerFrameAnchors`, `ContainerFrameSettingsManager:IsUsingCombinedBags`,
 `C_Container.SortBags`, `C_Container.GetSortBagsRightToLeft` / `SetSortBagsRightToLeft`,
+the item buttons' `GetBagID` (retail `ContainerFrameItemButtonMixin`) and the frames' `Items`,
+`EnumerateValidItems` and `ContainerFrameNItemM` names, `ContainerFrameContainer.ContainerFrames`,
+`C_Container.GetContainerItemInfo` / `PickupContainerItem` / `GetContainerNumFreeSlots` /
+`GetBagSlotFlag` / `GetBackpackAutosortDisabled`, `Enum.BagSlotFlags.DisableAutoSort`,
+`C_Item.GetItemInfo` / `GetItemInfoInstant` / `RequestLoadItemDataByID`, `C_Timer.After`,
 the atlases `bags-button-autosort-up` / `-down`, `BAG_CLEANUP_BAGS` and `SOUNDKIT.UI_BAG_SORTING_01`.

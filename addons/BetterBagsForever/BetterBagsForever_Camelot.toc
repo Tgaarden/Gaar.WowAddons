@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: BetterBagsForever
+## Notes: Makes Forever's Combined Backpack movable and puts a Clean Up Bags button left of its search box. /bbf
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Bag_08
+## SavedVariables: BetterBagsForeverDB
+
+BetterBagsForever.lua

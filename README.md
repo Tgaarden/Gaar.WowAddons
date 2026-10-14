@@ -22,6 +22,7 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
+| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box | `/bbf` |
 
 ## GaarBags: sorting and junk
 
@@ -38,6 +39,16 @@ of the code.
   "Ignore on clean up" and "Don't sell junk from this bag". These, and "sort right to left" / "new
   items left to right" in the settings, are the client's own settings, shared with its native bag
   window, not copies kept by GaarBags.
+
+## BetterBagsForever: the native bags on Forever
+
+A standalone addon for Forever's own **Combined Backpack** - no Gaar addon or library needed, and
+not listed in `GaarUI`. It makes the frame movable (drag the title bar, or Alt-drag an empty part
+of it), saves the position in `BetterBagsForeverDB` and re-applies it whenever Blizzard re-anchors
+the bags. It also adds a **Clean Up Bags** button left of the search box, because Forever's native
+one ends up hidden under the bag slot icons. `/bbf` for help, `/bbf reset`, `/bbf lock`,
+`/bbf unlock`. It ships only a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
+[`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
 
 ## One switch, eleven standalone addons
 

@@ -8,7 +8,7 @@
       is saved in BetterBagsForeverDB and put back every time Blizzard re-anchors the bags.
     * A "Clean Up Bags" button sits on the left of the search box, because on Forever the native
       one (BagItemAutoSortButton) ends up hidden under the bag slot icons on the right.
-      Right-clicking it flips the sort direction (C_Container.SetSortBagsRightToLeft), the same
+      Right-clicking it switches the sort order (C_Container.SetSortBagsRightToLeft), the same
       client setting Blizzard's own bag menu changes.
     * /bbf for help, reset, lock, unlock and direction.
 
@@ -325,14 +325,18 @@ local function CleanUpBags()
 end
 
 -- Read live every time: Blizzard's bag menu can change the same setting behind our back.
+-- The labels describe what the player sees in the Combined Backpack, not Blizzard's wording: the
+-- combined view lists the bags in reverse, so "right to left" (true) is the one that looks normal
+-- there and is what Forever's own Clean Up uses by default. Returns the short and the full label.
 local function DirectionLabel()
     local get = GetDirectionFunctions()
     if not get then return nil end
-    return get() and "right to left" or "left to right"
+    if get() then return "Standard", "Standard (junk bottom-right)" end
+    return "Reversed", "Reversed (junk top-left)"
 end
 
--- Sets the sort direction (true = right to left), or flips it when rightToLeft is nil. Only a
--- client setting changes, nothing moves, so this is allowed in combat.
+-- Sets the sort order (true = Standard, Blizzard's right to left), or flips it when rightToLeft
+-- is nil. Only a client setting changes, nothing moves, so this is allowed in combat.
 local function SetSortDirection(rightToLeft)
     local get, set = GetDirectionFunctions()
     if not get then
@@ -341,7 +345,8 @@ local function SetSortDirection(rightToLeft)
     end
     if rightToLeft == nil then rightToLeft = not get() end
     set(rightToLeft and true or false)
-    Print("Sort direction: " .. DirectionLabel())
+    local _, full = DirectionLabel()
+    Print("Sort order: " .. full)
     return true
 end
 
@@ -358,11 +363,11 @@ local function ShowCleanupTooltip(self)
     if type(_G.BAG_CLEANUP_BAGS_DESCRIPTION) == "string" then
         tip:AddLine(_G.BAG_CLEANUP_BAGS_DESCRIPTION, nil, nil, nil, true)
     end
-    local direction = DirectionLabel()
-    if direction then
-        tip:AddLine("Sort direction: " .. direction, 1, 1, 1)
+    local short, full = DirectionLabel()
+    if short then
+        tip:AddLine("Sort order: " .. full, 1, 1, 1)
         tip:AddLine("Left-click: clean up bags", 0, 1, 0)
-        tip:AddLine("Right-click: switch sort direction (now: " .. direction .. ")", 0, 1, 0)
+        tip:AddLine("Right-click: switch sort order (now: " .. short .. ")", 0, 1, 0)
     end
     tip:Show()
 end
@@ -555,9 +560,9 @@ local function PrintHelp()
     Print("/bbf reset - put the bags back at Blizzard's default position")
     Print("/bbf lock | /bbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
     Print("/bbf native hide | /bbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
-    local direction = DirectionLabel()
-    if direction then
-        Print("/bbf direction - switch the sort direction; /bbf direction ltr | rtl to set it (now: " .. direction .. ")")
+    local _, full = DirectionLabel()
+    if full then
+        Print("/bbf direction - switch the sort order; /bbf direction standard | reversed to set it (now: " .. full .. ")")
     end
     Print("/bbf status - what this client offers")
 end
@@ -568,7 +573,8 @@ local function PrintStatus()
     Print("BagItemAutoSortButton: " .. Yes(GetNativeSortButton()))
     Print("C_Container.SortBags: " .. Yes(GetSortFunction()))
     Print("C_Container.Get/SetSortBagsRightToLeft: " .. Yes(GetDirectionFunctions()))
-    Print("sort direction: " .. (DirectionLabel() or "unknown"))
+    local _, full = DirectionLabel()
+    Print("sort order: " .. (full or "unknown"))
     Print("UpdateContainerFrameAnchors: " .. Yes(type(_G.UpdateContainerFrameAnchors) == "function"))
     Print("using combined bags: " .. (UsingCombinedBags() and "yes" or "no"))
     local pos = db and db.position
@@ -601,8 +607,10 @@ local function OnSlash(msg)
         Print("Blizzard's own clean-up button is " .. (db.hideNativeButton and "hidden." or "shown."))
     elseif msg == "direction" then
         SetSortDirection(nil)
-    elseif msg == "direction ltr" or msg == "direction rtl" then
-        SetSortDirection(msg == "direction rtl")
+    elseif msg == "direction standard" or msg == "direction rtl" then
+        SetSortDirection(true)
+    elseif msg == "direction reversed" or msg == "direction ltr" then
+        SetSortDirection(false)
     elseif msg == "status" then
         PrintStatus()
     else

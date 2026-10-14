@@ -16,48 +16,51 @@ else. It needs no other addon or library.
   and tooltip, sits left of the search box; the search box moves right and narrows by the same
   amount, so its right end stays where it was. It is greyed out in combat and refuses with a
   short message there.
-  - **Left-click: visual sort** (the default, see below).
-  - **Shift+left-click: Blizzard's sort**, `C_Container.SortBags()`.
-  - **Right-click: switch Blizzard's sort order** (below).
-  - `/bbf mode blizzard` swaps the two left-clicks (plain = Blizzard, Shift = visual);
-    `/bbf mode visual` puts them back. Saved in `BetterBagsForeverDB`.
-- **Visual sort: sorted the way you see it.** Blizzard's sort fills the bags in bag/slot order.
-  The separate bag frames show that order as intended, but the Combined Backpack draws each bag's
-  slots in reverse, so a bag sorted as stone, 12, bread, scroll reads backwards there - and
-  `SetSortBagsRightToLeft` is one global switch, so it can fix the order of the bags or the order
-  inside them, never both. The visual sort assumes no layout: it reads where every item button
-  actually is on screen (bag from `GetBagID()` or the parent frame's ID, slot from `GetID()`,
-  position from `GetTop()`/`GetLeft()`), and fills the slots in reading order, top-left first:
-  1. partial stacks of the same item are merged;
-  2. **equipment** (armor, weapons) -> **consumables** (food, potions, scrolls, ammo) -> **trade
-     goods** (reagents, cloth, ore, gems, recipes, profession items) -> **quest items** -> **the
-     rest** (containers, keys, hearthstone, misc) are packed from the top-left; inside a group, higher
-     quality first, then item level, name and stack size;
-  3. **junk** (grey with a sell value) is packed into the **bottom-right corner**, with the free
-     slots between it and the rest.
+  - **Left-click: clean up bags** (below).
+  - **Right-click: switch the sort order** (below).
+- **What a clean-up does.** Left-click always runs Blizzard's own `C_Container.SortBags()`, with
+  the sort sound. Blizzard decides which item goes in which bag. The Combined Backpack draws each
+  bag's slots in reverse, so with the **Standard** order the order inside each bag looks mirrored
+  there; in that one case the addon turns each bag round afterwards:
 
-  It works the same in the combined view and in separate bag frames (there, frames are read
-  column by column, top frame first). Bags marked "Ignore on clean up", and specialty bags (soul,
-  quiver, ammo, profession), are left exactly as they are; only the backpack and bags 1-4 are
-  sorted, never the keyring or the bank. If the bags are not open it sorts in plain bag/slot
-  order and says so.
+  | View | Sort order (`C_Container.GetSortBagsRightToLeft()`) | Left-click does |
+  |---|---|---|
+  | Separate bags | any | `C_Container.SortBags()` only |
+  | Combined Backpack | Reversed (`false`) | `C_Container.SortBags()` only |
+  | Combined Backpack | Standard (`true`) | `C_Container.SortBags()`, wait until it has finished, then mirror each bag |
 
-  Safety: one move per 0.05 s with `C_Container.PickupContainerItem`, never a protected function.
-  It waits while items are locked, re-reads the bags before every move (and re-plans if loot or
-  the server changed them), and stops at once on combat, on `/bbf stop`, when the cursor holds
-  something it did not pick up, when a move keeps being refused, or after a hard cap
-  (1500 ticks, or 5 s waiting on locks). It only ever clears the cursor when the cursor holds the
-  item it picked up itself. It finishes with one line, "Sorted: N moves."
+  "Combined" means `ContainerFrameSettingsManager:IsUsingCombinedBags()`, or, on a client without
+  it, that `ContainerFrameCombinedBags` is shown.
+
+  **Mirroring** swaps slot i with slot n+1-i in the backpack and bags 1-4 (specialty bags
+  included), so the order inside each bag is reversed and every item stays in the bag Blizzard
+  put it in. Bags marked "Ignore on clean up" (and the backpack, if it is) are skipped, because
+  Blizzard did not sort them; the keyring and the bank are never touched.
+
+  - **Waiting for Blizzard's sort:** it counts as finished once no `BAG_UPDATE`,
+    `BAG_UPDATE_DELAYED` or `ITEM_LOCK_CHANGED` has arrived for about 1 s and no carried slot is
+    locked. If that has not happened after about 15 s it gives up, says so, and does not mirror.
+  - **Safety:** the swaps are planned from the bags as Blizzard left them, and done one move per
+    0.05 s with `C_Container.PickupContainerItem`, never a protected function. Pairs that are
+    both empty or hold identical stacks are skipped. Both slots are re-read before every move and
+    checked after it; it waits while either is locked. Two different stacks of the same item
+    (say 20 and 7 linen) are swapped through a free slot, so they can never merge; with no free
+    slot in the carried bags that pair is left as it is and the final message says so. It stops
+    at once on combat, on `/bbf stop`, when the cursor holds something it did not pick up, when a
+    move keeps being refused, when the bags change under a move, or after a hard cap (2 minutes, or
+    5 s waiting on locks). It only ever clears the cursor when the cursor holds the item it picked
+    up itself. It finishes with one line, "Bags mirrored (N swaps)."
 - **Sort order on right-click.** Right-clicking the same button switches the order Blizzard's
-  clean-up fills your bags in (`C_Container.SetSortBagsRightToLeft`), prints the new order and shows it in
-  the tooltip. The two orders are named by what you see in the Combined Backpack: **Standard
-  (junk bottom-right)** and **Reversed (junk top-left)**. Standard is Blizzard's
-  `SortBagsRightToLeft = true`, which is what Forever's own Clean Up uses by default for the
-  combined view (the combined view shows the bags in reverse, so Blizzard's "right to left"
-  wording is misleading there). It is the client setting Blizzard's own bag menu changes, so the two
-  always agree; it is read fresh every time. Switching it works in combat (only sorting is
-  blocked there). On a client without the API, right-click does nothing and the tooltip leaves
-  the line out.
+  clean-up uses (`C_Container.SetSortBagsRightToLeft`): **Standard** is
+  `SortBagsRightToLeft = true`, what Forever's own Clean Up uses by default, and **Reversed** is
+  `false`. It is the client setting Blizzard's own bag menu changes, so the two always agree.
+  Chat, tooltip, `/bbf status` and the choice whether to mirror all read
+  `GetSortBagsRightToLeft()` live, never the value that was asked for: after a change the addon
+  re-reads it (again after 0.2 s, 0.5 s and 1 s if the client is slow) and prints "Sort order: X"
+  only once the client reports X, or "Could not change the sort order (still: X)" if it never
+  does. Further right-clicks are ignored while a change is unconfirmed. Switching works in combat
+  (only sorting is blocked there). On a client without the API, right-click does nothing and the
+  tooltip leaves the line out.
 - Separate (non-combined) bags are left exactly as Blizzard draws them.
 
 ## Commands
@@ -68,17 +71,15 @@ else. It needs no other addon or library.
 | `/bbf reset` | Back to Blizzard's default position |
 | `/bbf lock`, `/bbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
 | `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
-| `/bbf sort` | Run the visual sort |
-| `/bbf stop` | Stop a running visual sort |
-| `/bbf mode visual`, `/bbf mode blizzard` | What a plain left-click on Clean Up does (Shift+left-click does the other); `/bbf mode` shows it |
-| `/bbf direction` | Switch Blizzard's sort order (same as right-clicking the button) |
-| `/bbf direction standard`, `/bbf direction reversed` | Set it to Standard (junk bottom-right) or Reversed (junk top-left); `rtl` and `ltr` work as aliases |
-| `/bbf status` | Which of the frames and functions this client has, the sort order and mode, how many bag slots were found on screen, and the saved position |
+| `/bbf direction` | Switch the sort order (same as right-clicking the button) |
+| `/bbf direction standard`, `/bbf direction reversed` | Set it to Standard (`true`) or Reversed (`false`); `rtl` and `ltr` work as aliases |
+| `/bbf stop` | Stop a running clean-up (the wait or the mirror) |
+| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, the sort order, whether the next clean-up will mirror, and the saved position |
 
 ## How it stays out of the way
 
 - Item moves use `C_Container.PickupContainerItem`, `GetCursorInfo` and `ClearCursor`, the same
-  unprotected calls every bag addon uses, and only out of combat.
+  unprotected calls every bag addon uses, and only out of combat. No Blizzard button is clicked.
 - Blizzard code is only followed, never replaced: `hooksecurefunc("UpdateContainerFrameAnchors")`,
   `hooksecurefunc(ContainerFrameCombinedBags, "UpdateSearchBox")` and `HookScript` on the frame's
   `OnShow`, `OnHide` and drag scripts. No Blizzard function is called from addon code.
@@ -95,9 +96,8 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `ContainerFrameCombinedBags` (and its `TitleContainer`, `UpdateSearchBox`), `BagItemSearchBox`,
 `BagItemAutoSortButton`, `UpdateContainerFrameAnchors`, `ContainerFrameSettingsManager:IsUsingCombinedBags`,
 `C_Container.SortBags`, `C_Container.GetSortBagsRightToLeft` / `SetSortBagsRightToLeft`,
-the item buttons' `GetBagID` (retail `ContainerFrameItemButtonMixin`) and the frames' `Items`,
-`EnumerateValidItems` and `ContainerFrameNItemM` names, `ContainerFrameContainer.ContainerFrames`,
-`C_Container.GetContainerItemInfo` / `PickupContainerItem` / `GetContainerNumFreeSlots` /
-`GetBagSlotFlag` / `GetBackpackAutosortDisabled`, `Enum.BagSlotFlags.DisableAutoSort`,
-`C_Item.GetItemInfo` / `GetItemInfoInstant` / `RequestLoadItemDataByID`, `C_Timer.After`,
+`C_Container.GetContainerNumSlots` / `GetContainerItemInfo` / `PickupContainerItem` /
+`GetContainerNumFreeSlots` / `GetBagSlotFlag` / `GetBackpackAutosortDisabled`,
+`Enum.BagSlotFlags.DisableAutoSort`, the events `BAG_UPDATE`, `BAG_UPDATE_DELAYED` and
+`ITEM_LOCK_CHANGED`, `C_Timer.After`,
 the atlases `bags-button-autosort-up` / `-down`, `BAG_CLEANUP_BAGS` and `SOUNDKIT.UI_BAG_SORTING_01`.

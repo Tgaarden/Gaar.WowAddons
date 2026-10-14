@@ -22,7 +22,7 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
-| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box: left-click sorts in the order you see on screen, Shift+left-click runs Blizzard's sort, right-click switches Blizzard's sort order | `/bbf` |
+| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box: left-click runs Blizzard's sort (and in the Combined Backpack with the Standard order mirrors each bag afterwards), right-click switches Blizzard's sort order | `/bbf` |
 
 ## GaarBags: sorting and junk
 
@@ -46,14 +46,14 @@ A standalone addon for Forever's own **Combined Backpack** - no Gaar addon or li
 not listed in `GaarUI`. It makes the frame movable (drag the title bar, or Alt-drag an empty part
 of it), saves the position in `BetterBagsForeverDB` and re-applies it whenever Blizzard re-anchors
 the bags. It also adds a **Clean Up Bags** button left of the search box, because Forever's native
-one ends up hidden under the bag slot icons. Left-click runs its own **visual sort**: it reads
-where each item button sits on screen and fills the bags top-left first (equipment, consumables,
-trade goods, quest items, the rest) with junk in the bottom-right corner - right in the Combined
-Backpack, which draws each bag's slots in reverse so Blizzard's sort reads backwards there.
-Shift+left-click runs Blizzard's `C_Container.SortBags`; `/bbf mode visual | blizzard` picks which
-one a plain click does, and `/bbf stop` stops a running visual sort. `/bbf` for help, `/bbf reset`,
-`/bbf lock`, `/bbf unlock`, and `/bbf direction` (or right-click the clean-up button) to switch
-Blizzard's sort order between Standard (junk bottom-right) and Reversed (junk top-left). It ships only a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
+one ends up hidden under the bag slot icons. Left-click runs Blizzard's own
+`C_Container.SortBags`. The Combined Backpack draws each bag's slots in reverse, so with the
+Standard order (`SortBagsRightToLeft = true`) the order inside each bag looks mirrored there; in
+that view and order only, the addon waits for Blizzard's sort to finish and then mirrors each bag
+(slot i swaps with slot n+1-i), keeping every item in the bag Blizzard chose. Separate bags and
+the Reversed order get Blizzard's sort and nothing else. Right-click (or `/bbf direction`)
+switches between Standard and Reversed, and only reports a change once the client confirms it.
+`/bbf` for help, `/bbf reset`, `/bbf lock`, `/bbf unlock`, `/bbf stop` and `/bbf status`. It ships only a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
 
 ## One switch, eleven standalone addons

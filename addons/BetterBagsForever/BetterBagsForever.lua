@@ -8,16 +8,16 @@
       is saved in BetterBagsForeverDB and put back every time Blizzard re-anchors the bags.
     * A "Clean Up Bags" button sits on the left of the search box, because on Forever the native
       one (BagItemAutoSortButton) ends up hidden under the bag slot icons on the right.
-      Left-click runs this addon's own "visual" sort (below); Shift+left-click runs the other one
-      (Blizzard's C_Container.SortBags by default; /bbf mode swaps the two). Right-clicking it
-      switches Blizzard's sort order (C_Container.SetSortBagsRightToLeft), the same client setting
-      Blizzard's own bag menu changes.
-    * The visual sort orders the carried bags by what the player actually sees: it reads where
-      each item button sits on screen, so the first slot is the top-left one and junk ends up in
-      the bottom-right corner, in the Combined Backpack (which draws every bag's slots in reverse)
-      as well as in the separate bag frames. Items are moved one at a time with
-      C_Container.PickupContainerItem, out of combat only.
-    * /bbf for help, reset, lock, unlock, direction, mode, sort and stop.
+      Left-click runs Blizzard's own C_Container.SortBags. Right-clicking it switches Blizzard's
+      sort order (C_Container.SetSortBagsRightToLeft), the same client setting Blizzard's own bag
+      menu changes.
+    * In the Combined Backpack with the "Standard" order (SortBagsRightToLeft = true) the order
+      inside each bag reads backwards, because that view draws every bag's slots in reverse. In
+      that one case the addon waits for Blizzard's sort to finish and then mirrors each bag
+      (slot i swaps with slot n+1-i), so which items are in which bag stays exactly as Blizzard
+      left it. Items are moved one at a time with C_Container.PickupContainerItem, out of
+      combat only.
+    * /bbf for help, reset, lock, unlock, direction, native, stop and status.
 
   Names come from Blizzard's retail FrameXML (Interface/AddOns/Blizzard_UIPanels_Game/Mainline/
   ContainerFrame.xml and ContainerFrame.lua): ContainerFrameCombinedBags, BagItemSearchBox,
@@ -51,7 +51,6 @@ local HIGHLIGHT = "Interface\\Buttons\\ButtonHilight-Square"
 local DEFAULTS = {
     locked = false,
     hideNativeButton = false,
-    mode = "visual",        -- what a plain left-click on Clean Up does: "visual" or "blizzard"
 }
 
 local db                -- BetterBagsForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -306,51 +305,38 @@ local function CreateDragHandle()
 end
 
 -- ---------------------------------------------------------------------------
--- Visual sort
+-- Clean-up and the per-bag mirror
 --
--- Blizzard's C_Container.SortBags fills the bags in bag/slot order. The separate bag frames show
--- that order the way it is meant, but the Combined Backpack draws every bag's slots in reverse,
--- so a sorted bag reads backwards there. SetSortBagsRightToLeft is one global switch: it can fix
--- the order of the bags or the order inside them, never both.
+-- Left-click always runs Blizzard's own C_Container.SortBags, which decides which item goes in
+-- which bag and slot. The separate bag frames show that result the way it is meant, and so does
+-- the Combined Backpack with the "Reversed" order (SortBagsRightToLeft = false). The Combined
+-- Backpack with the "Standard" order (true) does not: it draws every bag's slots in reverse, so
+-- the order inside each bag reads backwards there.
 --
--- This sort does not assume any layout. It reads where each item button is on screen, puts the
--- carried-bag slots in reading order (top to bottom, left to right), works out where every item
--- should go, and then moves items one at a time until each slot holds what the plan says:
+-- In that one case the addon waits for Blizzard's sort to finish and then mirrors each bag:
+-- slot i swaps with slot n+1-i. Which items are in which bag stays exactly as Blizzard left it;
+-- only the order inside each bag is turned round.
 --
---   1. merge partial stacks (later stack onto the earlier one), one move per tick;
---   2. plan: equipment, consumables, trade goods, quest items, the rest, packed from the top-left;
---      junk (grey with a sell value) packed into the bottom-right corner;
---   3. place: for the first slot that is wrong, swap in an item that belongs there, preferring
---      one whose own slot wants what is here now (that fixes two slots in one swap).
---
--- Every tick re-reads the live bags, so a slot the server changed meanwhile (loot, a consumed
--- stack) is never acted on blindly; if the plan no longer fits the bags, it is made again.
+--   wait:   poll every 0.1 s. Blizzard's sort counts as finished once no BAG_UPDATE,
+--           BAG_UPDATE_DELAYED or ITEM_LOCK_CHANGED has arrived for about 1 s and no carried
+--           slot is locked. After about 15 s it gives up and does not mirror.
+--   mirror: at most one move per 0.05 s tick with C_Container.PickupContainerItem. The two
+--           slots are re-read before every move and checked after it; two different stacks of
+--           the same item are swapped through a free slot, so they can never merge.
 -- ---------------------------------------------------------------------------
 
-local SORT_STEP = 0.05          -- seconds between ticks; one move per tick at most
-local MAX_TICKS = 1500          -- hard cap on ticks for one sort (about 75 s)
+local WAIT_STEP = 0.1           -- seconds between polls while Blizzard's sort runs
+local QUIET_TICKS = 10          -- polls without a bag event (about 1 s) before the sort counts as done
+local MAX_WAIT_TICKS = 150      -- give up waiting for Blizzard's sort after about 15 s
+local MIRROR_STEP = 0.05        -- seconds between mirror ticks; one move per tick at most
+local MAX_MIRROR_TICKS = 2400   -- hard cap on ticks for one mirror (about 2 minutes)
 local MAX_LOCK_WAIT = 100       -- ticks in a row spent waiting on locked items (about 5 s)
-local MAX_STUCK = 6             -- the same move chosen with nothing changing: it is being refused
-local MAX_REPLANS = 3           -- the bags changed under the plan this many times: give up
-local MIN_ROW_TOLERANCE = 4     -- screen units; buttons closer than this vertically share a row
+local MAX_REFUSALS = 5          -- the same move refused this many times in a row: give up
+local UNCHANGED_GRACE = 4       -- ticks a move may look undone (and unlocked) before it counts as refused
 local CARRIED_BAGS = { 0, 1, 2, 3, 4 }   -- backpack and the four bag slots; not keyring, not bank
 
--- Groups in the order they are laid out. Item classes are Enum.ItemClass numbers, which have been
--- the same since Classic: 0 consumable, 1 container, 2 weapon, 3 gem, 4 armor, 5 reagent,
--- 6 projectile, 7 trade goods, 8 item enhancement, 9 recipe, 11 quiver, 12 quest, 13 key,
--- 15 miscellaneous, 19 profession. Anything else, or an item whose class is not known yet,
--- goes in the "rest" group.
-local GROUP_EQUIPMENT, GROUP_CONSUMABLE, GROUP_TRADE, GROUP_QUEST, GROUP_REST, GROUP_JUNK = 1, 2, 3, 4, 5, 6
-local CLASS_GROUP = {
-    [2] = GROUP_EQUIPMENT, [4] = GROUP_EQUIPMENT,
-    [0] = GROUP_CONSUMABLE, [6] = GROUP_CONSUMABLE,
-    [3] = GROUP_TRADE, [5] = GROUP_TRADE, [7] = GROUP_TRADE, [8] = GROUP_TRADE, [9] = GROUP_TRADE,
-    [19] = GROUP_TRADE,
-    [12] = GROUP_QUEST,
-}
-
-local sortRun           -- the sort in progress, or nil
-local sortGeneration = 0
+local cleanupRun        -- the wait or mirror in progress, or nil
+local runGeneration = 0
 
 local function ContainerAPI()
     local c = _G.C_Container
@@ -364,22 +350,30 @@ local function ContainerFunction(name)
     if type(_G[name]) == "function" then return _G[name] end
 end
 
-local function ItemFunction(name)
-    local item = _G.C_Item
-    if type(item) == "table" and type(item[name]) == "function" then return item[name] end
-    if type(_G[name]) == "function" then return _G[name] end
-end
-
 local function TimerAfter()
     local timer = _G.C_Timer
     if type(timer) == "table" and type(timer.After) == "function" then return timer.After end
 end
 
--- Everything the visual sort needs to move items safely.
-local function CanVisualSort()
+-- Everything the mirror needs to move items safely.
+local function CanMirror()
     return ContainerFunction("PickupContainerItem") and ContainerFunction("GetContainerItemInfo")
         and ContainerFunction("GetContainerNumSlots") and type(_G.GetCursorInfo) == "function"
         and type(_G.ClearCursor) == "function" and TimerAfter() and true or false
+end
+
+-- Blizzard's sort order, read live: true is "Standard", false "Reversed", nil when unknown.
+local function SortRightToLeft()
+    local c = ContainerAPI()
+    if c and type(c.GetSortBagsRightToLeft) == "function" then
+        local ok, v = pcall(c.GetSortBagsRightToLeft)
+        if ok then return v and true or false end
+    end
+end
+
+-- The next left-click will mirror the bags after Blizzard's sort.
+local function WillMirror()
+    return UsingCombinedBags() and SortRightToLeft() == true and CanMirror()
 end
 
 local function NumSlots(bag)
@@ -403,404 +397,94 @@ local function Pickup(bag, slot)
 end
 
 -- One slot's content: key (the item link, so different suffixes or enchants never count as the
--- same item), itemID, count, locked, quality, noValue. nil for an empty slot. The second return
--- is true for a slot that holds something that cannot be identified yet.
-local function SlotContent(bag, slot)
+-- same item), itemID, count and locked; nil for an empty slot. The second return is true while
+-- the slot is busy: locked, or holding something that cannot be identified yet.
+local function ReadSlot(bag, slot)
     local c = ContainerAPI()
-    local itemID, link, count, locked, quality, noValue, present
+    local itemID, link, count, locked, present
     if c and type(c.GetContainerItemInfo) == "function" then
         local ok, info = pcall(c.GetContainerItemInfo, bag, slot)
-        if not ok or type(info) ~= "table" then return nil end
+        if not ok or type(info) ~= "table" then return nil, false end
         present = true
         itemID, link, count, locked = info.itemID, info.hyperlink, info.stackCount, info.isLocked
-        quality, noValue = info.quality, info.hasNoValue
     elseif type(_G.GetContainerItemInfo) == "function" then
-        local tex, n, l, q, _, _, h, _, nv, id = _G.GetContainerItemInfo(bag, slot)
-        if not tex then return nil end
+        local tex, n, l, _, _, _, h, _, _, id = _G.GetContainerItemInfo(bag, slot)
+        if not tex then return nil, false end
         present = true
-        itemID, link, count, locked, quality, noValue = id, h, n, l, q, nv
+        itemID, link, count, locked = id, h, n, l
     end
-    if not present then return nil end
+    if not present then return nil, false end
     if not itemID and type(link) == "string" then itemID = tonumber(link:match("item:(%d+)")) end
     local key = link or (itemID and ("item:" .. itemID))
     if not key then return nil, true end
-    return { key = key, itemID = itemID, link = link, count = tonumber(count) or 1,
-             locked = locked and true or false, quality = quality, noValue = noValue }
+    local content = { key = key, itemID = itemID, count = tonumber(count) or 1, locked = locked and true or false }
+    return content, content.locked
 end
 
--- Reads every slot in the list. Returns the contents (index -> content or nil), whether any of
--- them is locked, and whether any could not be read.
-local function ReadSlots(slots)
-    local contents, anyLocked, unreadable = {}, false, false
-    for i, s in ipairs(slots) do
-        local content, unknown = SlotContent(s.bag, s.slot)
-        contents[i] = content
-        if content and content.locked then anyLocked = true end
-        if unknown then unreadable = true end
-    end
-    return contents, anyLocked, unreadable
+local function Identical(a, b)
+    if a == nil or b == nil then return a == b end
+    return a.key == b.key and a.count == b.count
 end
 
-local function RequestItem(itemID)
-    if not itemID then return end
-    local item = _G.C_Item
-    if type(item) == "table" and type(item.RequestLoadItemDataByID) == "function" then
-        pcall(item.RequestLoadItemDataByID, itemID)
-    end
+-- Same item in both slots: dropping one on the other could merge the stacks instead of swapping.
+local function SameItem(a, b)
+    return a ~= nil and b ~= nil and (a.key == b.key or (a.itemID ~= nil and a.itemID == b.itemID))
 end
 
--- Name, quality, item level, stack size, sell price and class, from whatever the client has.
--- Item data that is not cached yet is requested and the instant (always local) info is used;
--- only complete answers are remembered, so a later tick picks up what has arrived.
-local function ItemDetails(content, cache)
-    local known = cache[content.key]
-    if known then return known end
-    local d = {}
-    local info = ItemFunction("GetItemInfo")
-    if info then
-        local ok, name, _, quality, ilvl, _, _, _, maxStack, _, _, sellPrice, classID =
-            pcall(info, content.link or content.itemID)
-        if ok and name then
-            d.name, d.quality, d.ilvl, d.maxStack, d.sellPrice, d.classID =
-                name, quality, ilvl, maxStack, sellPrice, classID
-        end
-    end
-    local complete = d.name ~= nil
-    if not complete then RequestItem(content.itemID) end
-    if d.classID == nil then
-        local instant = ItemFunction("GetItemInfoInstant")
-        if instant then
-            local ok, _, _, _, _, _, classID = pcall(instant, content.itemID or content.link)
-            if ok then d.classID = classID end
-        end
-    end
-    if d.maxStack == nil and content.itemID then
-        local stackSize = ItemFunction("GetItemMaxStackSizeByID")
-        if stackSize then
-            local ok, n = pcall(stackSize, content.itemID)
-            if ok then d.maxStack = n end
-        end
-    end
-    d.name = d.name or (content.link and content.link:match("%[(.-)%]")) or ""
-    if complete then cache[content.key] = d end
-    return d
-end
-
-local function IsQuestItem(bag, slot)
-    local fn = ContainerFunction("GetContainerItemQuestInfo")
-    if not fn then return false end
-    local ok, a, b = pcall(fn, bag, slot)
-    if not ok then return false end
-    if type(a) == "table" then return (a.isQuestItem or a.questID) and true or false end
-    return (a or b) and true or false
-end
-
--- "Ignore on clean up" (the client's own flag, the one Blizzard's sort obeys) and specialty
--- bags (soul, quiver, ammo, profession: a bag family other than 0), which only take some items
--- and are left exactly as they are.
-local function BagSortable(bag)
+-- Bags Blizzard's sort leaves alone are left alone here too: "Ignore on clean up" on a bag
+-- (Enum.BagSlotFlags.DisableAutoSort) or on the backpack (GetBackpackAutosortDisabled).
+local function SortedByBlizzard(bag)
     if NumSlots(bag) <= 0 then return false end
     local c = ContainerAPI()
-    if c then
-        if bag == 0 then
-            if type(c.GetBackpackAutosortDisabled) == "function" then
-                local ok, off = pcall(c.GetBackpackAutosortDisabled)
-                if ok and off then return false end
-            end
-        else
-            local flags = type(_G.Enum) == "table" and _G.Enum.BagSlotFlags
-            local flag = type(flags) == "table" and flags.DisableAutoSort
-            if flag and type(c.GetBagSlotFlag) == "function" then
-                local ok, off = pcall(c.GetBagSlotFlag, bag, flag)
-                if ok and off then return false end
-            end
+    if not c then return true end
+    if bag == 0 then
+        if type(c.GetBackpackAutosortDisabled) == "function" then
+            local ok, off = pcall(c.GetBackpackAutosortDisabled)
+            if ok and off then return false end
         end
-    end
-    local free = ContainerFunction("GetContainerNumFreeSlots")
-    if free then
-        local ok, _, family = pcall(free, bag)
-        if ok and family and family ~= 0 then return false end
+    else
+        local flags = type(_G.Enum) == "table" and _G.Enum.BagSlotFlags
+        local flag = type(flags) == "table" and flags.DisableAutoSort
+        if flag and type(c.GetBagSlotFlag) == "function" then
+            local ok, off = pcall(c.GetBagSlotFlag, bag, flag)
+            if ok and off then return false end
+        end
     end
     return true
 end
 
--- The open bag frames: the combined one, the separate ContainerFrameN, and anything listed in
--- retail's ContainerFrameContainer.ContainerFrames.
-local function BagFrames()
-    local frames, seen = {}, {}
-    local function add(f)
-        if type(f) == "table" and not seen[f] and type(f.IsVisible) == "function" then
-            seen[f] = true
-            frames[#frames + 1] = f
-        end
+-- Bag family: 0 for an ordinary bag, anything else for a soul, quiver, ammo or profession bag.
+local function BagFamily(bag)
+    local free = ContainerFunction("GetContainerNumFreeSlots")
+    if free then
+        local ok, _, family = pcall(free, bag)
+        if ok and tonumber(family) then return tonumber(family) end
     end
-    add(_G.ContainerFrameCombinedBags)
-    local holder = _G.ContainerFrameContainer
-    if type(holder) == "table" and type(holder.ContainerFrames) == "table" then
-        for _, f in ipairs(holder.ContainerFrames) do add(f) end
-    end
-    for i = 1, tonumber(_G.NUM_CONTAINER_FRAMES) or 13 do add(_G["ContainerFrame" .. i]) end
-    return frames
+    return 0
 end
 
--- Every item button a frame may hold, from each place retail and classic FrameXML keep them.
--- Duplicates are fine; the caller keeps the first visible button per slot.
-local function EachItemButton(frame, visit)
-    if type(frame.Items) == "table" then
-        for _, b in ipairs(frame.Items) do visit(b) end
-    end
-    if type(frame.EnumerateValidItems) == "function" then
-        pcall(function()
-            for _, b in frame:EnumerateValidItems() do visit(b) end
-        end)
-    end
-    local name = type(frame.GetName) == "function" and frame:GetName()
-    if name then
-        for i = 1, tonumber(_G.MAX_CONTAINER_ITEMS) or 36 do visit(_G[name .. "Item" .. i]) end
-    end
-    if type(frame.GetChildren) == "function" then
-        for _, child in ipairs({ frame:GetChildren() }) do
-            if type(child) == "table" and type(child.GetBagID) == "function" then visit(child) end
-        end
-    end
-end
-
--- Bag and slot of an item button: GetBagID() on retail's ContainerFrameItemButtonMixin, else the
--- parent frame's ID (classic FrameXML); the slot is the button's own ID.
-local function ButtonBagSlot(b)
-    if type(b) ~= "table" or type(b.GetID) ~= "function" then return nil end
-    local bag
-    if type(b.GetBagID) == "function" then
-        local ok, v = pcall(b.GetBagID, b)
-        if ok then bag = v end
-    end
-    if bag == nil then bag = b.bagID end
-    if bag == nil and type(b.GetParent) == "function" then
-        local parent = b:GetParent()
-        if type(parent) == "table" and type(parent.GetID) == "function" then bag = parent:GetID() end
-    end
-    return tonumber(bag), tonumber(b:GetID())
-end
-
--- Screen position in common units, so frames with different scales compare.
-local function ScreenRect(region)
-    if type(region.GetTop) ~= "function" or type(region.GetLeft) ~= "function" then return nil end
-    local top, left = region:GetTop(), region:GetLeft()
-    if not top or not left then return nil end
-    local s = type(region.GetEffectiveScale) == "function" and region:GetEffectiveScale() or 1
-    local w = (type(region.GetWidth) == "function" and region:GetWidth() or 0) * s
-    local h = (type(region.GetHeight) == "function" and region:GetHeight() or 0) * s
-    return left * s, top * s, w, h
-end
-
--- Reading order inside one frame: rows from the top (buttons within half a button height of the
--- row's first one share it), each row from the left.
-local function ReadingOrder(entries)
-    table.sort(entries, function(a, b)
-        if a.top ~= b.top then return a.top > b.top end
-        return a.left < b.left
-    end)
-    local rows, row, rowTop, tol = {}, nil, nil, nil
-    for _, e in ipairs(entries) do
-        if not row or rowTop - e.top > tol then
-            row = {}
-            rows[#rows + 1] = row
-            rowTop, tol = e.top, math.max(MIN_ROW_TOLERANCE, e.h / 2)
-        end
-        row[#row + 1] = e
-    end
-    local out = {}
-    for _, r in ipairs(rows) do
-        table.sort(r, function(a, b) return a.left < b.left end)
-        for _, e in ipairs(r) do out[#out + 1] = e end
-    end
-    return out
-end
-
--- Frames in reading order: columns from the left (frames whose left edges are within half a
--- frame width of each other), each column from the top. Separate bag frames stack in columns.
-local function FrameOrder(groups)
-    table.sort(groups, function(a, b)
-        if a.left ~= b.left then return a.left < b.left end
-        return a.top > b.top
-    end)
-    local columns, column, colLeft, tol = {}, nil, nil, nil
-    for _, g in ipairs(groups) do
-        if not column or g.left - colLeft > tol then
-            column = {}
-            columns[#columns + 1] = column
-            colLeft, tol = g.left, math.max(MIN_ROW_TOLERANCE, g.w / 2)
-        end
-        column[#column + 1] = g
-    end
-    local out = {}
-    for _, col in ipairs(columns) do
-        table.sort(col, function(a, b) return a.top > b.top end)
-        for _, g in ipairs(col) do out[#out + 1] = g end
-    end
-    return out
-end
-
--- The slots to sort, first = top-left as the player sees it. Returns the slot list and how many
--- of them were found on screen. Slots of sortable bags that are not on screen (a bag frame that
--- is closed) follow in bag/slot order; with nothing on screen, that is the whole list.
-local function SortSlots()
-    local sortable, sizes = {}, {}
+local function AnyCarriedSlotBusy()
     for _, bag in ipairs(CARRIED_BAGS) do
-        if BagSortable(bag) then
-            sortable[bag] = true
-            sizes[bag] = NumSlots(bag)
+        for slot = 1, NumSlots(bag) do
+            local _, busy = ReadSlot(bag, slot)
+            if busy then return true end
         end
     end
-
-    local seen, groups = {}, {}
-    for _, frame in ipairs(BagFrames()) do
-        if frame:IsVisible() then
-            local entries = {}
-            EachItemButton(frame, function(b)
-                if type(b) ~= "table" or type(b.IsVisible) ~= "function" or not b:IsVisible() then return end
-                local bag, slot = ButtonBagSlot(b)
-                if not bag or not slot or not sortable[bag] or slot < 1 or slot > sizes[bag] then return end
-                local id = bag * 1000 + slot
-                if seen[id] then return end
-                local left, top, _, h = ScreenRect(b)
-                if not left then return end
-                seen[id] = true
-                entries[#entries + 1] = { bag = bag, slot = slot, left = left, top = top, h = h }
-            end)
-            if #entries > 0 then
-                local left, top, w = ScreenRect(frame)
-                groups[#groups + 1] = { entries = entries, left = left or entries[1].left,
-                    top = top or entries[1].top, w = w or 0 }
-            end
-        end
-    end
-
-    local slots, onScreen = {}, 0
-    for _, g in ipairs(FrameOrder(groups)) do
-        for _, e in ipairs(ReadingOrder(g.entries)) do
-            slots[#slots + 1] = { bag = e.bag, slot = e.slot }
-            onScreen = onScreen + 1
-        end
-    end
-    for _, bag in ipairs(CARRIED_BAGS) do
-        if sortable[bag] then
-            for slot = 1, sizes[bag] do
-                if not seen[bag * 1000 + slot] then slots[#slots + 1] = { bag = bag, slot = slot } end
-            end
-        end
-    end
-    return slots, onScreen
+    return false
 end
 
--- Finds two partial stacks of the same item; returns (from, to): the later one goes onto the
--- earlier one, so stacks gather toward the top-left.
-local function FindMerge(contents, count, cache)
-    local firstPartial = {}
-    for i = 1, count do
-        local c = contents[i]
-        if c and c.itemID then
-            local max = tonumber(ItemDetails(c, cache).maxStack)
-            if max and max > 1 and c.count < max then
-                local prev = firstPartial[c.itemID]
-                if prev then return i, prev end
-                firstPartial[c.itemID] = i
-            end
-        end
-    end
+-- Why a run stopped, worded for the phase it was in.
+local function StopMessage(run, reason)
+    if run.phase == "wait" then return "bags not mirrored: " .. reason end
+    return string.format("mirror stopped after %d swaps: %s", run.swaps, reason)
 end
 
-local function SortKey(content, slot, pos, cache)
-    local d = ItemDetails(content, cache)
-    local quality = content.quality or d.quality or 1
-    local junk = quality == 0 and ((d.sellPrice and d.sellPrice > 0)
-        or (d.sellPrice == nil and not content.noValue)) and true or false
-    local group
-    if junk then
-        group = GROUP_JUNK
-    elseif d.classID == 12 or IsQuestItem(slot.bag, slot.slot) then
-        group = GROUP_QUEST
-    else
-        group = CLASS_GROUP[d.classID] or GROUP_REST
-    end
-    return { content = content, group = group, quality = quality, ilvl = tonumber(d.ilvl) or 0,
-             name = d.name, count = content.count, key = content.key, pos = pos }
-end
-
-local function CompareSortKeys(a, b)
-    if a.group ~= b.group then return a.group < b.group end
-    if a.quality ~= b.quality then return a.quality > b.quality end
-    if a.ilvl ~= b.ilvl then return a.ilvl > b.ilvl end
-    if a.name ~= b.name then return a.name < b.name end
-    if a.count ~= b.count then return a.count > b.count end
-    if a.key ~= b.key then return a.key < b.key end
-    return a.pos < b.pos
-end
-
--- The target arrangement: slot index -> { key, count } or nil for a slot that should be empty.
--- Everything but junk is packed from the first (top-left) slot; junk is packed against the last
--- (bottom-right) one, with the free slots in between.
-local function BuildPlan(slots, contents, cache)
-    local items = {}
-    for i, s in ipairs(slots) do
-        if contents[i] then items[#items + 1] = SortKey(contents[i], s, i, cache) end
-    end
-    table.sort(items, CompareSortKeys)
-    local target, rest, junk = {}, {}, {}
-    for _, it in ipairs(items) do
-        if it.group == GROUP_JUNK then junk[#junk + 1] = it else rest[#rest + 1] = it end
-    end
-    for k, it in ipairs(rest) do target[k] = { key = it.key, count = it.count } end
-    local base = #slots - #junk
-    for k, it in ipairs(junk) do target[base + k] = { key = it.key, count = it.count } end
-    return target
-end
-
-local function Fits(content, want)
-    if want == nil then return content == nil end
-    return content ~= nil and content.key == want.key and content.count == want.count
-end
-
--- The next swap: the first slot that does not hold what the plan wants, and a slot that holds
--- it and is not already right. Returns (to, from), or nil plus "done" when every slot fits, or
--- nil plus "changed" when the bags no longer match the plan.
-local function NextSwap(contents, target, count)
-    local pending = false
-    for i = 1, count do
-        local want = target[i]
-        if not Fits(contents[i], want) then
-            if want == nil then
-                -- Something sits in a slot that should be empty; it is pulled out when its own
-                -- target slot comes up. If no target slot is left, the bags changed.
-                pending = true
-            else
-                local fallback
-                for j = 1, count do
-                    if j ~= i and Fits(contents[j], want) and not Fits(contents[j], target[j]) then
-                        if Fits(contents[i], target[j]) then return i, j end
-                        fallback = fallback or j
-                    end
-                end
-                if fallback then return i, fallback end
-                return nil, "changed"
-            end
-        end
-    end
-    if pending then return nil, "changed" end
-    return nil, "done"
-end
-
-local function FinishSort(message)
-    sortRun = nil
-    if message then Print(message) end
-end
-
--- Stops the running sort. The cursor is cleared only when it holds the item this sort picked up;
--- anything else on it belongs to the player.
-local function StopSort(message)
-    local run = sortRun
+-- Stops the running clean-up. The cursor is cleared only when it holds the item this addon
+-- picked up; anything else on it belongs to the player.
+local function StopRun(message)
+    local run = cleanupRun
     if not run then return false end
-    sortRun = nil
+    cleanupRun = nil
     if run.holding ~= nil then
         -- Also reached from the error path, so the cursor check itself must not raise.
         local ok, held = pcall(CursorItem)
@@ -810,115 +494,222 @@ local function StopSort(message)
     return true
 end
 
--- Picks the item up from one slot and puts it on another. On an occupied slot the client swaps
--- the two; onto a partial stack of the same item it merges, and any remainder left on the
--- cursor goes back where it came from. Returns true when something was picked up.
-local function MoveItem(run, from, to)
-    Pickup(from.bag, from.slot)
-    local held = CursorItem()
-    if held == nil then return false end
-    if held == false then
-        StopSort("sort stopped: the cursor picked up something unexpected.")
-        return false
+-- A free slot to park one stack in while two stacks of the same item trade places: the same
+-- bag first (any item fits its own bag), else an ordinary bag that is being mirrored too.
+local function FindTempSlot(run, bag, a, b)
+    local function freeIn(where, skipA, skipB)
+        for slot = 1, NumSlots(where) do
+            if slot ~= skipA and slot ~= skipB then
+                local content, busy = ReadSlot(where, slot)
+                if not content and not busy then return { bag = where, slot = slot } end
+            end
+        end
     end
+    local spot = freeIn(bag, a, b)
+    if spot then return spot end
+    for _, other in ipairs(run.bags) do
+        if other ~= bag and BagFamily(other) == 0 then
+            spot = freeIn(other)
+            if spot then return spot end
+        end
+    end
+end
+
+-- The moves for the next pair that needs any. Returns "ready", "busy" (a slot of the pair is
+-- locked; try again next tick) or "done" (every pair handled).
+local function PreparePair(run)
+    while run.index <= #run.pairs do
+        local p = run.pairs[run.index]
+        local A, B = { bag = p.bag, slot = p.a }, { bag = p.bag, slot = p.b }
+        local a, busyA = ReadSlot(A.bag, A.slot)
+        local b, busyB = ReadSlot(B.bag, B.slot)
+        if busyA or busyB then return "busy" end
+        run.index = run.index + 1
+        if not Identical(a, b) then
+            if not a then
+                run.steps = { { from = B, to = A, intoEmpty = true } }
+            elseif not b then
+                run.steps = { { from = A, to = B, intoEmpty = true } }
+            elseif SameItem(a, b) then
+                local T = FindTempSlot(run, p.bag, p.a, p.b)
+                if T then
+                    run.steps = { { from = A, to = T, intoEmpty = true }, { from = B, to = A, intoEmpty = true },
+                                  { from = T, to = B, intoEmpty = true } }
+                else
+                    run.skipped = run.skipped + 1
+                end
+            else
+                run.steps = { { from = A, to = B } }
+            end
+            if #run.steps > 0 then return "ready" end
+        end
+    end
+    return "done"
+end
+
+-- Picks the item up from one slot and puts it on the other: a move into an empty slot, or a
+-- swap with a different item. Returns "issued", "refused" (nothing was picked up), "changed"
+-- (the slots no longer hold what this move is for) or "cursor".
+local function IssueStep(run, step)
+    local from = ReadSlot(step.from.bag, step.from.slot)
+    local to = ReadSlot(step.to.bag, step.to.slot)
+    if not from or (step.intoEmpty and to) or SameItem(from, to) then return "changed" end
+    step.before = { from = from, to = to }
+    Pickup(step.from.bag, step.from.slot)
+    local held = CursorItem()
+    if held == nil then return "refused" end
+    if held == false then return "cursor" end
     run.holding = held
-    Pickup(to.bag, to.slot)
-    if CursorItem() == held then Pickup(from.bag, from.slot) end
+    Pickup(step.to.bag, step.to.slot)
+    -- Anything of ours still on the cursor goes back where it came from.
+    if CursorItem() == held then Pickup(step.from.bag, step.from.slot) end
     if CursorItem() == held then _G.ClearCursor() end
     run.holding = nil
-    return true
+    run.moves = run.moves + 1
+    run.pending = step
+    run.unchanged = 0
+    return "issued"
 end
 
--- Same move chosen twice in a row with the bags unchanged means the client refused it.
-local function MoveSignature(contents, from, to)
-    local a, b = contents[from], contents[to]
-    return from .. ">" .. to .. ":" .. (a and (a.key .. "x" .. a.count) or "-") .. ":"
-        .. (b and (b.key .. "x" .. b.count) or "-")
+-- The result of the last move: "busy", "done", "unchanged" (the client refused it) or "changed".
+local function CheckPending(run)
+    local step = run.pending
+    local from, busyFrom = ReadSlot(step.from.bag, step.from.slot)
+    local to, busyTo = ReadSlot(step.to.bag, step.to.slot)
+    if busyFrom or busyTo then return "busy" end
+    if Identical(to, step.before.from) and Identical(from, step.before.to) then return "done" end
+    if Identical(from, step.before.from) and Identical(to, step.before.to) then return "unchanged" end
+    return "changed"
 end
 
-local function DoMove(run, contents, from, to)
-    local sig = MoveSignature(contents, from, to)
-    if sig == run.lastSig then
-        run.stuck = run.stuck + 1
-        if run.stuck >= MAX_STUCK then
-            StopSort(string.format("sort stopped after %d moves: the client keeps refusing a move.", run.moves))
-            return
-        end
-    else
-        run.stuck = 0
-    end
-    run.lastSig = sig
-    if MoveItem(run, run.slots[from], run.slots[to]) then run.moves = run.moves + 1 end
+local function WaitOnLocks(run)
+    run.lockWait = run.lockWait + 1
+    if run.lockWait > MAX_LOCK_WAIT then StopRun(StopMessage(run, "items stayed locked.")) end
 end
 
-local function SortStep()
-    local run = sortRun
-    if InCombat() then
-        StopSort(string.format("sort stopped after %d moves: combat.", run.moves))
-        return
-    end
+local function Refused(run)
+    run.refusals = run.refusals + 1
+    if run.refusals >= MAX_REFUSALS then StopRun(StopMessage(run, "the client keeps refusing a move.")) end
+end
+
+local function MirrorStep(run)
     run.ticks = run.ticks + 1
-    if run.ticks > MAX_TICKS or run.moves > run.maxMoves then
-        StopSort(string.format("sort stopped after %d moves (safety limit).", run.moves))
+    if run.ticks > MAX_MIRROR_TICKS or run.moves > run.maxMoves then
+        StopRun(StopMessage(run, "safety limit."))
         return
     end
     if CursorItem() ~= nil then
-        StopSort(string.format("sort stopped after %d moves: the cursor is holding something.", run.moves))
+        StopRun(StopMessage(run, "the cursor is holding something."))
         return
     end
 
-    local count = #run.slots
-    local contents, anyLocked, unreadable = ReadSlots(run.slots)
-    if anyLocked or unreadable then
-        -- A move is still in flight (or an item is loading): wait for it to settle.
-        run.waiting = run.waiting + 1
-        if run.waiting > MAX_LOCK_WAIT then
-            StopSort(string.format("sort stopped after %d moves: items stayed locked.", run.moves))
-        end
-        return
-    end
-    run.waiting = 0
-
-    if run.phase == "merge" then
-        local from, to = FindMerge(contents, count, run.cache)
-        if from then
-            DoMove(run, contents, from, to)
+    if run.pending then
+        local state = CheckPending(run)
+        if state == "busy" then return WaitOnLocks(run) end
+        run.lockWait = 0
+        if state == "unchanged" then
+            -- Give the client a moment to show the move before trying it again; retrying a
+            -- move that is merely slow to appear would undo it.
+            run.unchanged = run.unchanged + 1
+            if run.unchanged < UNCHANGED_GRACE then return end
+            run.pending = nil
+            return Refused(run)          -- the same move is tried again next tick
+        elseif state == "changed" then
+            StopRun(StopMessage(run, "the bags changed."))
             return
         end
-        run.phase = "place"
-        run.target = BuildPlan(run.slots, contents, run.cache)
+        run.pending = nil
+        run.refusals = 0
+        table.remove(run.steps, 1)
+        if #run.steps == 0 then run.swaps = run.swaps + 1 end
     end
 
-    local to, fromOrStatus = NextSwap(contents, run.target, count)
-    if to then
-        DoMove(run, contents, fromOrStatus, to)
-    elseif fromOrStatus == "done" then
-        FinishSort(run.moves == 0 and "bags already sorted." or string.format("Sorted: %d moves.", run.moves))
+    if #run.steps == 0 then
+        local state = PreparePair(run)
+        if state == "busy" then return WaitOnLocks(run) end
+        if state == "done" then
+            local msg = string.format("Bags mirrored (%d swaps).", run.swaps)
+            if run.skipped > 0 then
+                msg = msg .. string.format(" %d pair(s) of the same item were left as they were (no free slot to swap through).", run.skipped)
+            end
+            StopRun(msg)
+            return
+        end
+    end
+
+    local step = run.steps[1]
+    local _, busyFrom = ReadSlot(step.from.bag, step.from.slot)
+    local _, busyTo = ReadSlot(step.to.bag, step.to.slot)
+    if busyFrom or busyTo then return WaitOnLocks(run) end
+    run.lockWait = 0
+    local result = IssueStep(run, step)
+    if result == "refused" then
+        Refused(run)
+    elseif result == "changed" then
+        StopRun(StopMessage(run, "the bags changed."))
+    elseif result == "cursor" then
+        StopRun(StopMessage(run, "the cursor picked up something unexpected."))
+    end
+end
+
+-- Blizzard's sort has settled: plan the pairs from what the bags hold now and start moving.
+local function StartMirror(run)
+    if CursorItem() ~= nil then
+        StopRun(StopMessage(run, "the cursor is holding something."))
+        return
+    end
+    run.bags, run.pairs = {}, {}
+    for _, bag in ipairs(CARRIED_BAGS) do
+        if SortedByBlizzard(bag) then
+            run.bags[#run.bags + 1] = bag
+            local n = NumSlots(bag)
+            for i = 1, math.floor(n / 2) do
+                local a, b = ReadSlot(bag, i), ReadSlot(bag, n + 1 - i)
+                if not Identical(a, b) then
+                    run.pairs[#run.pairs + 1] = { bag = bag, a = i, b = n + 1 - i }
+                end
+            end
+        end
+    end
+    run.phase = "mirror"
+    run.ticks, run.index, run.steps = 0, 1, {}
+    run.maxMoves = 6 * #run.pairs + 20     -- up to three moves per pair, plus retries
+end
+
+local function WaitStep(run)
+    run.ticks = run.ticks + 1
+    if run.activity then
+        run.activity = false
+        run.quiet = 0
     else
-        run.replans = run.replans + 1
-        if run.replans > MAX_REPLANS then
-            StopSort(string.format("sort stopped after %d moves: the bags kept changing.", run.moves))
-            return
-        end
-        run.phase = "merge"      -- new loot may stack with what is there; then plan again
-        run.target = nil
+        run.quiet = run.quiet + 1
+    end
+    if run.quiet >= QUIET_TICKS and not AnyCarriedSlotBusy() then
+        StartMirror(run)
+    elseif run.ticks >= MAX_WAIT_TICKS then
+        StopRun("Blizzard's sort did not finish within 15 s, so the bags were not mirrored.")
     end
 end
 
-local SortTick
-local function ScheduleTick(generation)
-    TimerAfter()(SORT_STEP, function() SortTick(generation) end)
+local RunTick
+local function ScheduleTick(run)
+    local generation = run.generation
+    TimerAfter()(run.phase == "wait" and WAIT_STEP or MIRROR_STEP, function() RunTick(generation) end)
 end
 
-SortTick = function(generation)
-    local run = sortRun
+RunTick = function(generation)
+    local run = cleanupRun
     if not run or run.generation ~= generation then return end
-    local ok, err = pcall(SortStep)
-    if not ok then
-        StopSort("sort stopped after an error: " .. tostring(err))
+    if InCombat() then
+        StopRun(StopMessage(run, "combat."))
         return
     end
-    if sortRun == run then ScheduleTick(generation) end
+    local ok, err = pcall(run.phase == "wait" and WaitStep or MirrorStep, run)
+    if not ok then
+        StopRun(StopMessage(run, "an error: " .. tostring(err)))
+        return
+    end
+    if cleanupRun == run then ScheduleTick(run) end
 end
 
 local function PlaySortSound()
@@ -928,38 +719,37 @@ local function PlaySortSound()
     end
 end
 
-local function VisualSort()
-    if sortRun then
-        Print("already sorting; /bbf stop stops it.")
+-- Left-click: Blizzard's sort, then the mirror when the Combined Backpack is in use with the
+-- Standard order. Separate bags and the Reversed order get Blizzard's sort and nothing else.
+local function CleanUpBags()
+    if cleanupRun then
+        Print("a clean-up is still running; /bbf stop stops it.")
         return false
     end
     if InCombat() then
         Print("bags cannot be cleaned up in combat.")
         return false
     end
-    if not CanVisualSort() then
-        Print("this client lacks what the visual sort needs (C_Container.PickupContainerItem, GetCursorInfo, C_Timer).")
+    local sort = GetSortFunction()
+    if not sort then
+        Print("this client has no C_Container.SortBags.")
         return false
     end
-    if CursorItem() ~= nil then
-        Print("put down what the cursor is holding first.")
-        return false
-    end
-    local slots, onScreen = SortSlots()
-    if #slots == 0 then
-        Print("no bags to sort (all ignored, specialty or empty).")
-        return false
-    end
-    if onScreen == 0 then
-        Print("the bags are not open, so this sorts in bag order. Open them to sort in on-screen order.")
-    end
-    sortGeneration = sortGeneration + 1
-    sortRun = { generation = sortGeneration, slots = slots, phase = "merge", cache = {},
-                moves = 0, ticks = 0, waiting = 0, replans = 0, stuck = 0,
-                maxMoves = 3 * #slots + 20 }
+    local mirror = WillMirror()
     PlaySortSound()
-    ScheduleTick(sortGeneration)
+    sort()
+    if mirror then
+        runGeneration = runGeneration + 1
+        cleanupRun = { generation = runGeneration, phase = "wait", ticks = 0, quiet = 0, activity = false,
+                       swaps = 0, moves = 0, lockWait = 0, refusals = 0, skipped = 0, unchanged = 0 }
+        ScheduleTick(cleanupRun)
+    end
     return true
+end
+
+-- A bag event while Blizzard's sort runs: it is not finished yet.
+local function OnBagActivity()
+    if cleanupRun and cleanupRun.phase == "wait" then cleanupRun.activity = true end
 end
 
 -- ---------------------------------------------------------------------------
@@ -972,71 +762,82 @@ local function SetCombatLook(inCombat)
     if tex and tex.SetDesaturated then tex:SetDesaturated(inCombat) end
 end
 
--- Blizzard's own sort, C_Container.SortBags.
-local function CleanUpBags()
-    if sortRun then
-        Print("a visual sort is running; /bbf stop stops it.")
-        return false
-    end
-    if InCombat() then
-        Print("bags cannot be cleaned up in combat.")
-        return false
-    end
-    local sort = GetSortFunction()
-    if not sort then
-        Print("this client has no C_Container.SortBags.")
-        return false
-    end
-    PlaySortSound()
-    sort()
-    return true
-end
-
-local MODE_LABEL = { visual = "visual sort (on-screen order)", blizzard = "Blizzard sort (C_Container.SortBags)" }
-
-local function CurrentMode()
-    return (db and db.mode == "blizzard") and "blizzard" or "visual"
-end
-
--- Runs a sort by mode name; a mode this client cannot do falls back to the other one.
-local function RunSort(mode)
-    if mode == "visual" and not CanVisualSort() and GetSortFunction() then mode = "blizzard" end
-    if mode == "blizzard" and not GetSortFunction() and CanVisualSort() then mode = "visual" end
-    if mode == "visual" then return VisualSort() end
-    return CleanUpBags()
-end
-
-local function OtherMode(mode)
-    return mode == "visual" and "blizzard" or "visual"
-end
-
 -- Read live every time: Blizzard's bag menu can change the same setting behind our back.
--- The labels describe what the player sees in the Combined Backpack, not Blizzard's wording: the
--- combined view lists the bags in reverse, so "right to left" (true) is the one that looks normal
--- there and is what Forever's own Clean Up uses by default. Returns the short and the full label.
+-- "Standard" is SortBagsRightToLeft = true, what Forever's own Clean Up uses by default;
+-- "Reversed" is false.
+local function LabelFor(rightToLeft) return rightToLeft and "Standard" or "Reversed" end
+
 local function DirectionLabel()
-    local get = GetDirectionFunctions()
-    if not get then return nil end
-    if get() then return "Standard", "Standard (junk bottom-right)" end
-    return "Reversed", "Reversed (junk top-left)"
+    if not GetDirectionFunctions() then return nil end
+    return LabelFor(SortRightToLeft())
 end
 
--- Sets the sort order (true = Standard, Blizzard's right to left), or flips it when rightToLeft
--- is nil. Only a client setting changes, nothing moves, so this is allowed in combat.
+-- A sort order change the client has not confirmed yet: { target, generation }.
+-- SetSortBagsRightToLeft may apply a moment later (it is account data) or not at all, so the
+-- requested value is never shown anywhere; only what GetSortBagsRightToLeft returns.
+local directionChange
+local directionGeneration = 0
+local DIRECTION_CHECKS = { 0.2, 0.3, 0.5 }   -- re-read 0.2 s, 0.5 s and 1 s after the change
+
+local ShowCleanupTooltip
+
+-- Redraws the clean-up tooltip if it is showing, so it follows the live sort order.
+local function RefreshCleanupTooltip()
+    local tip = _G.GameTooltip
+    if cleanupButton and tip and tip:IsShown() and tip.GetOwner and tip:GetOwner() == cleanupButton then
+        ShowCleanupTooltip(cleanupButton)
+    end
+end
+
+local function ConfirmDirection(generation, attempt)
+    local change = directionChange
+    if not change or change.generation ~= generation then return end
+    local now = SortRightToLeft()
+    if now == change.target then
+        directionChange = nil
+        Print("Sort order: " .. LabelFor(now))
+    elseif attempt >= #DIRECTION_CHECKS then
+        directionChange = nil
+        Print("Could not change the sort order (still: " .. LabelFor(now) .. ").")
+    else
+        TimerAfter()(DIRECTION_CHECKS[attempt + 1], function() ConfirmDirection(generation, attempt + 1) end)
+    end
+    RefreshCleanupTooltip()
+end
+
+-- Sets the sort order (true = Standard, false = Reversed), or flips the live value when
+-- rightToLeft is nil. Only a client setting changes, nothing moves, so this is allowed in combat.
+-- While a change is unconfirmed further requests are refused, so rapid right-clicks can never
+-- toggle from a value the client does not actually have.
 local function SetSortDirection(rightToLeft)
     local get, set = GetDirectionFunctions()
     if not get then
         Print("this client has no C_Container.SetSortBagsRightToLeft.")
         return false
     end
-    if rightToLeft == nil then rightToLeft = not get() end
-    set(rightToLeft and true or false)
-    local _, full = DirectionLabel()
-    Print("Sort order: " .. full)
+    if directionChange then
+        Print("the sort order is still changing (now: " .. LabelFor(SortRightToLeft()) .. "); try again in a moment.")
+        return false
+    end
+    if rightToLeft == nil then rightToLeft = not SortRightToLeft() end
+    rightToLeft = rightToLeft and true or false
+    set(rightToLeft)
+    local now = SortRightToLeft()
+    if now == rightToLeft then
+        Print("Sort order: " .. LabelFor(now))
+    elseif TimerAfter() then
+        directionGeneration = directionGeneration + 1
+        directionChange = { target = rightToLeft, generation = directionGeneration }
+        local generation = directionGeneration
+        TimerAfter()(DIRECTION_CHECKS[1], function() ConfirmDirection(generation, 1) end)
+    else
+        Print("Could not change the sort order (still: " .. LabelFor(now) .. ").")
+    end
+    RefreshCleanupTooltip()
     return true
 end
 
-local function ShowCleanupTooltip(self)
+ShowCleanupTooltip = function(self)
     local tip = _G.GameTooltip
     if not tip then return end
     local title = _G.BAG_CLEANUP_BAGS or "Clean Up Bags"
@@ -1049,37 +850,29 @@ local function ShowCleanupTooltip(self)
     if type(_G.BAG_CLEANUP_BAGS_DESCRIPTION) == "string" then
         tip:AddLine(_G.BAG_CLEANUP_BAGS_DESCRIPTION, nil, nil, nil, true)
     end
-    local mode = CurrentMode()
-    tip:AddLine("Left-click: " .. MODE_LABEL[mode], 0, 1, 0)
-    tip:AddLine("Shift+left-click: " .. MODE_LABEL[OtherMode(mode)], 0, 1, 0)
-    local short, full = DirectionLabel()
+    tip:AddLine("Left-click: clean up bags", 0, 1, 0)
+    tip:AddLine("In the Combined Backpack with Standard order, each bag is mirrored after sorting, so it reads the right way round.", 1, 1, 1, true)
+    local short = DirectionLabel()
     if short then
-        tip:AddLine("Right-click: switch Blizzard's sort order (now: " .. short .. ")", 0, 1, 0)
-        tip:AddLine("Blizzard sort order: " .. full, 1, 1, 1)
+        tip:AddLine("Right-click: switch sort order (now: " .. short .. ")", 0, 1, 0)
+        if directionChange then
+            tip:AddLine("Waiting for the client to confirm the change.", 0.7, 0.7, 0.7, true)
+        end
     end
-    tip:AddLine("The visual sort fills the bags in the order you see them: top-left first, junk in the bottom-right corner.", 1, 1, 1, true)
-    tip:AddLine("/bbf mode visual | blizzard picks what left-click does (now: " .. mode .. "). /bbf stop stops a running sort.", 0.7, 0.7, 0.7, true)
     tip:Show()
 end
 
 local function OnCleanupClick(self, button)
     if button == "RightButton" then
-        if not GetDirectionFunctions() then return end
-        SetSortDirection(nil)
-        local tip = _G.GameTooltip
-        if tip and tip:IsShown() and tip.GetOwner and tip:GetOwner() == self then
-            ShowCleanupTooltip(self)
-        end
+        if GetDirectionFunctions() then SetSortDirection(nil) end
         return
     end
-    local mode = CurrentMode()
-    if type(_G.IsShiftKeyDown) == "function" and _G.IsShiftKeyDown() then mode = OtherMode(mode) end
-    RunSort(mode)
+    CleanUpBags()
 end
 
 local function CreateCleanupButton()
     if cleanupButton or not bagFrame or not GetSearchBox() then return end
-    if not GetSortFunction() and not CanVisualSort() then return end
+    if not GetSortFunction() then return end
     local b = CreateFrame("Button", "BetterBagsForeverCleanUpButton", bagFrame)
     b:SetSize(BUTTON_WIDTH, BUTTON_HEIGHT)
     if b.SetNormalAtlas and HasAtlas(ATLAS_UP) then
@@ -1253,15 +1046,13 @@ local function PrintHelp()
     Print("/bbf reset - put the bags back at Blizzard's default position")
     Print("/bbf lock | /bbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
     Print("/bbf native hide | /bbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
-    Print("Clean Up button: left-click = " .. MODE_LABEL[CurrentMode()] .. ", Shift+left-click = "
-        .. MODE_LABEL[OtherMode(CurrentMode())] .. ", right-click = switch Blizzard's sort order.")
-    Print("/bbf mode visual | blizzard - what a plain left-click does (now: " .. CurrentMode() .. ")")
-    Print("/bbf sort - run the visual sort; /bbf stop - stop a running one")
-    local _, full = DirectionLabel()
-    if full then
-        Print("/bbf direction - switch Blizzard's sort order; /bbf direction standard | reversed to set it (now: " .. full .. ")")
+    Print("Clean Up button: left-click = Blizzard's clean-up; in the Combined Backpack with Standard order each bag is then mirrored. Right-click = switch the sort order.")
+    local label = DirectionLabel()
+    if label then
+        Print("/bbf direction - switch the sort order; /bbf direction standard | reversed to set it (now: " .. label .. ")")
     end
-    Print("/bbf status - what this client offers")
+    Print("/bbf stop - stop a running mirror")
+    Print("/bbf status - what this client offers and what the next clean-up will do")
 end
 
 local function PrintStatus()
@@ -1270,16 +1061,16 @@ local function PrintStatus()
     Print("BagItemAutoSortButton: " .. Yes(GetNativeSortButton()))
     Print("C_Container.SortBags: " .. Yes(GetSortFunction()))
     Print("C_Container.Get/SetSortBagsRightToLeft: " .. Yes(GetDirectionFunctions()))
-    local _, full = DirectionLabel()
-    Print("sort order: " .. (full or "unknown"))
-    Print("visual sort (PickupContainerItem, GetCursorInfo, C_Timer): " .. Yes(CanVisualSort()))
-    Print("left-click mode: " .. CurrentMode() .. (sortRun and " (a visual sort is running)" or ""))
-    if CanVisualSort() then
-        local slots, onScreen = SortSlots()
-        Print(string.format("slots to sort: %d, found on screen: %d", #slots, onScreen))
+    Print("mirror (PickupContainerItem, GetCursorInfo, C_Timer): " .. Yes(CanMirror()))
+    Print("combined bags in use: " .. (UsingCombinedBags() and "yes" or "no"))
+    Print("sort order: " .. (DirectionLabel() or "unknown")
+        .. (directionChange and " (a change is waiting for the client to confirm it)" or ""))
+    Print("next clean-up: " .. (WillMirror() and "Blizzard's sort, then each bag mirrored" or "Blizzard's sort only"))
+    if cleanupRun then
+        Print(cleanupRun.phase == "wait" and "running: waiting for Blizzard's sort to finish"
+            or string.format("running: mirroring, %d swaps so far", cleanupRun.swaps))
     end
     Print("UpdateContainerFrameAnchors: " .. Yes(type(_G.UpdateContainerFrameAnchors) == "function"))
-    Print("using combined bags: " .. (UsingCombinedBags() and "yes" or "no"))
     local pos = db and db.position
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
 end
@@ -1314,17 +1105,9 @@ local function OnSlash(msg)
         SetSortDirection(true)
     elseif msg == "direction reversed" or msg == "direction ltr" then
         SetSortDirection(false)
-    elseif msg == "mode" then
-        Print("left-click runs the " .. MODE_LABEL[CurrentMode()] .. ". /bbf mode visual | blizzard to change it.")
-    elseif msg == "mode visual" or msg == "mode blizzard" then
-        db.mode = msg:sub(6)
-        Print("left-click now runs the " .. MODE_LABEL[db.mode] .. "; Shift+left-click the "
-            .. MODE_LABEL[OtherMode(db.mode)] .. ".")
-    elseif msg == "sort" then
-        VisualSort()
     elseif msg == "stop" then
-        if not StopSort(string.format("sort stopped after %d moves.", sortRun and sortRun.moves or 0)) then
-            Print("no sort is running.")
+        if not (cleanupRun and StopRun(StopMessage(cleanupRun, "stopped."))) then
+            Print("nothing is running.")
         end
     elseif msg == "status" then
         PrintStatus()
@@ -1343,7 +1126,7 @@ local function BindSavedVariables()
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil then db[k] = v end
     end
-    if db.mode ~= "visual" and db.mode ~= "blizzard" then db.mode = DEFAULTS.mode end
+    db.mode = nil       -- left over from 1.1's visual sort, which is gone
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then
         db.position = nil
@@ -1355,8 +1138,13 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("BAG_UPDATE")
+events:RegisterEvent("BAG_UPDATE_DELAYED")
+events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:SetScript("OnEvent", function(_, event, arg1)
-    if event == "ADDON_LOADED" then
+    if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "ITEM_LOCK_CHANGED" then
+        OnBagActivity()
+    elseif event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
             HookBlizzard()
@@ -1368,7 +1156,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if db then HookBlizzard() end
     elseif event == "PLAYER_REGEN_DISABLED" then
         SetCombatLook(true)
-        if sortRun then StopSort(string.format("sort stopped after %d moves: combat.", sortRun.moves)) end
+        if cleanupRun then StopRun(StopMessage(cleanupRun, "combat.")) end
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetCombatLook(false)
         if pendingApply then

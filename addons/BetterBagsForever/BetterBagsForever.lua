@@ -2,13 +2,15 @@
   BetterBagsForever - small fixes for the native "Combined Backpack" on WoW Forever.
 
   Forever ships the retail-style combined bag frame (ContainerFrameCombinedBags). This addon
-  changes three things about it and nothing else:
+  changes these things about it and nothing else:
 
     * The frame can be moved: drag its title bar, or Alt-drag any empty part of it. The position
       is saved in BetterBagsForeverDB and put back every time Blizzard re-anchors the bags.
     * A "Clean Up Bags" button sits on the left of the search box, because on Forever the native
       one (BagItemAutoSortButton) ends up hidden under the bag slot icons on the right.
-    * /bbf for help, reset, lock and unlock.
+      Right-clicking it flips the sort direction (C_Container.SetSortBagsRightToLeft), the same
+      client setting Blizzard's own bag menu changes.
+    * /bbf for help, reset, lock, unlock and direction.
 
   Names come from Blizzard's retail FrameXML (Interface/AddOns/Blizzard_UIPanels_Game/Mainline/
   ContainerFrame.xml and ContainerFrame.lua): ContainerFrameCombinedBags, BagItemSearchBox,
@@ -102,6 +104,16 @@ local function GetSortFunction()
     local container = _G.C_Container
     if type(container) == "table" and type(container.SortBags) == "function" then
         return container.SortBags
+    end
+end
+
+-- The sort direction is a client setting shared with Blizzard's own bag menu. Both halves have
+-- to be there, or the direction feature stays off.
+local function GetDirectionFunctions()
+    local container = _G.C_Container
+    if type(container) == "table" and type(container.GetSortBagsRightToLeft) == "function"
+        and type(container.SetSortBagsRightToLeft) == "function" then
+        return container.GetSortBagsRightToLeft, container.SetSortBagsRightToLeft
     end
 end
 
@@ -312,6 +324,27 @@ local function CleanUpBags()
     return true
 end
 
+-- Read live every time: Blizzard's bag menu can change the same setting behind our back.
+local function DirectionLabel()
+    local get = GetDirectionFunctions()
+    if not get then return nil end
+    return get() and "right to left" or "left to right"
+end
+
+-- Sets the sort direction (true = right to left), or flips it when rightToLeft is nil. Only a
+-- client setting changes, nothing moves, so this is allowed in combat.
+local function SetSortDirection(rightToLeft)
+    local get, set = GetDirectionFunctions()
+    if not get then
+        Print("this client has no C_Container.SetSortBagsRightToLeft.")
+        return false
+    end
+    if rightToLeft == nil then rightToLeft = not get() end
+    set(rightToLeft and true or false)
+    Print("Sort direction: " .. DirectionLabel())
+    return true
+end
+
 local function ShowCleanupTooltip(self)
     local tip = _G.GameTooltip
     if not tip then return end
@@ -325,7 +358,26 @@ local function ShowCleanupTooltip(self)
     if type(_G.BAG_CLEANUP_BAGS_DESCRIPTION) == "string" then
         tip:AddLine(_G.BAG_CLEANUP_BAGS_DESCRIPTION, nil, nil, nil, true)
     end
+    local direction = DirectionLabel()
+    if direction then
+        tip:AddLine("Sort direction: " .. direction, 1, 1, 1)
+        tip:AddLine("Left-click: clean up bags", 0, 1, 0)
+        tip:AddLine("Right-click: switch sort direction (now: " .. direction .. ")", 0, 1, 0)
+    end
     tip:Show()
+end
+
+local function OnCleanupClick(self, button)
+    if button == "RightButton" then
+        if not GetDirectionFunctions() then return end
+        SetSortDirection(nil)
+        local tip = _G.GameTooltip
+        if tip and tip:IsShown() and tip.GetOwner and tip:GetOwner() == self then
+            ShowCleanupTooltip(self)
+        end
+        return
+    end
+    CleanUpBags()
 end
 
 local function CreateCleanupButton()
@@ -346,7 +398,8 @@ local function CreateCleanupButton()
         highlight:SetSize(24, 23)
         highlight:SetPoint("CENTER", b, "CENTER", 0, 0)
     end
-    b:SetScript("OnClick", CleanUpBags)
+    if b.RegisterForClicks then b:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+    b:SetScript("OnClick", OnCleanupClick)
     b:SetScript("OnEnter", ShowCleanupTooltip)
     b:SetScript("OnLeave", function()
         if _G.GameTooltip then _G.GameTooltip:Hide() end
@@ -502,6 +555,10 @@ local function PrintHelp()
     Print("/bbf reset - put the bags back at Blizzard's default position")
     Print("/bbf lock | /bbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
     Print("/bbf native hide | /bbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
+    local direction = DirectionLabel()
+    if direction then
+        Print("/bbf direction - switch the sort direction; /bbf direction ltr | rtl to set it (now: " .. direction .. ")")
+    end
     Print("/bbf status - what this client offers")
 end
 
@@ -510,6 +567,8 @@ local function PrintStatus()
     Print("BagItemSearchBox: " .. Yes(_G.BagItemSearchBox))
     Print("BagItemAutoSortButton: " .. Yes(GetNativeSortButton()))
     Print("C_Container.SortBags: " .. Yes(GetSortFunction()))
+    Print("C_Container.Get/SetSortBagsRightToLeft: " .. Yes(GetDirectionFunctions()))
+    Print("sort direction: " .. (DirectionLabel() or "unknown"))
     Print("UpdateContainerFrameAnchors: " .. Yes(type(_G.UpdateContainerFrameAnchors) == "function"))
     Print("using combined bags: " .. (UsingCombinedBags() and "yes" or "no"))
     local pos = db and db.position
@@ -517,7 +576,7 @@ local function PrintStatus()
 end
 
 local function OnSlash(msg)
-    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
     if not db then
         Print("not loaded yet.")
         return
@@ -540,6 +599,10 @@ local function OnSlash(msg)
         db.hideNativeButton = (msg == "native hide")
         LayoutSearchRow()
         Print("Blizzard's own clean-up button is " .. (db.hideNativeButton and "hidden." or "shown."))
+    elseif msg == "direction" then
+        SetSortDirection(nil)
+    elseif msg == "direction ltr" or msg == "direction rtl" then
+        SetSortDirection(msg == "direction rtl")
     elseif msg == "status" then
         PrintStatus()
     else

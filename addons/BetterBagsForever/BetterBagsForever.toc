@@ -2,7 +2,7 @@
 ## Title: BetterBagsForever
 ## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box. /bbf
 ## Author: Gaar
-## Version: 1.2
+## Version: 1.3
 ## IconTexture: Interface\Icons\INV_Misc_Bag_08
 ## SavedVariables: BetterBagsForeverDB
 

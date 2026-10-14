@@ -16,6 +16,16 @@ else. It needs no other addon or library.
   and tooltip, sits left of the search box; the search box moves right and narrows by the same
   amount, so its right end stays where it was. Clicking it plays the sorting sound and calls
   `C_Container.SortBags()`. It is greyed out in combat and refuses with a short message there.
+- **Sort order on right-click.** Right-clicking the same button switches the order the clean-up
+  fills your bags in (`C_Container.SetSortBagsRightToLeft`), prints the new order and shows it in
+  the tooltip. The two orders are named by what you see in the Combined Backpack: **Standard
+  (junk bottom-right)** and **Reversed (junk top-left)**. Standard is Blizzard's
+  `SortBagsRightToLeft = true`, which is what Forever's own Clean Up uses by default for the
+  combined view (the combined view shows the bags in reverse, so Blizzard's "right to left"
+  wording is misleading there). It is the client setting Blizzard's own bag menu changes, so the two
+  always agree; it is read fresh every time. Switching it works in combat (only sorting is
+  blocked there). On a client without the API, right-click does nothing and the tooltip leaves
+  the line out.
 - Separate (non-combined) bags are left exactly as Blizzard draws them.
 
 ## Commands
@@ -26,7 +36,9 @@ else. It needs no other addon or library.
 | `/bbf reset` | Back to Blizzard's default position |
 | `/bbf lock`, `/bbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
 | `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
-| `/bbf status` | Which of the frames and functions this client has, and the saved position |
+| `/bbf direction` | Switch the clean-up sort order (same as right-clicking the button) |
+| `/bbf direction standard`, `/bbf direction reversed` | Set it to Standard (junk bottom-right) or Reversed (junk top-left); `rtl` and `ltr` work as aliases |
+| `/bbf status` | Which of the frames and functions this client has, the sort order and the saved position |
 
 ## How it stays out of the way
 
@@ -45,4 +57,5 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `Interface/AddOns/Blizzard_UIPanels_Game/Mainline/ContainerFrame.xml` and `ContainerFrame.lua`):
 `ContainerFrameCombinedBags` (and its `TitleContainer`, `UpdateSearchBox`), `BagItemSearchBox`,
 `BagItemAutoSortButton`, `UpdateContainerFrameAnchors`, `ContainerFrameSettingsManager:IsUsingCombinedBags`,
+`C_Container.SortBags`, `C_Container.GetSortBagsRightToLeft` / `SetSortBagsRightToLeft`,
 the atlases `bags-button-autosort-up` / `-down`, `BAG_CLEANUP_BAGS` and `SOUNDKIT.UI_BAG_SORTING_01`.

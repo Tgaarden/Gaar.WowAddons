@@ -35,18 +35,25 @@ else. It needs no other addon or library.
 
   How it works:
   - *Waiting:* Blizzard's sort counts as finished once no `BAG_UPDATE`, `BAG_UPDATE_DELAYED` or
-    `ITEM_LOCK_CHANGED` has arrived for about 1 s and no carried slot is locked. After about 15 s
-    it gives up with a message and moves nothing.
+    `ITEM_LOCK_CHANGED` has arrived for about 0.35 s and no carried slot is locked. After about
+    15 s it gives up with a message and moves nothing.
   - *Reading the order:* from the screen. The visible item buttons of `ContainerFrameCombinedBags`
     are mapped to bag and slot (`GetBagID()`, `GetID()`) and sorted top to bottom, then left to
     right, using their effective scale. Only the backpack and bags 1-4 count; the keyring, the
     bank, hidden buttons and specialty bags (soul, quiver, ammo, profession) are left out.
   - *Mirroring:* slot i pairs with slot N+1-i. Pairs that are both empty or hold the same item are
     skipped (nothing visible would change, and stacks can never merge). Every other pair is one
-    `C_Container.PickupContainerItem` on each slot: a move into an empty slot or a swap. One move
-    per 0.05 s, both slots re-read before and checked after each move, locked slots waited for
-    (up to about 5 s). It prints `Reversed (N swaps).` at the end.
-  - *Stops* on combat, `/bbf stop`, something on the cursor that the addon did not pick up, the
+    `C_Container.PickupContainerItem` on each slot: a move into an empty slot or a swap.
+  - *One burst (since 1.5):* no two pairs share a slot, so the moves do not depend on each other
+    and all of them go out in one burst, without waiting for the server between them: up to 10
+    pairs per frame, the rest in the next frames. Both slots are re-read right before each move,
+    and the cursor has to be empty after every pair or the burst ends there. Then a verify pass
+    waits until none of the slots is locked (about 3 s at most), re-reads them, and gives any
+    pair that did not end up mirrored another burst, up to three more rounds. It prints
+    `Reversed (N swaps).` at the end, or how many pairs could not be swapped. Version 1.4 made
+    one move per 0.05 s and waited for the server after each one, plus about 1 s before the
+    first, so the same bags now take a fraction of the time.
+  - *Stops* on combat (checked before every pair), `/bbf stop`, something on the cursor that the addon did not pick up, the
     client refusing a move repeatedly, the bags changing underneath, or a safety limit. The
     cursor is cleared only when it holds the addon's own item.
 - **The sort direction is left alone.** The addon never calls `C_Container.SetSortBagsRightToLeft`

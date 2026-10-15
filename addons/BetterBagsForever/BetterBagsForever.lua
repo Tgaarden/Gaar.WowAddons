@@ -306,26 +306,33 @@ end
 -- slots are mirrored too, so gaps end up mirrored as well. Separate bags, and Reverse off, get
 -- Blizzard's sort and nothing else. The sort-direction setting is never read or changed.
 --
---   wait:    poll every 0.1 s. Blizzard's sort counts as finished once no BAG_UPDATE,
---            BAG_UPDATE_DELAYED or ITEM_LOCK_CHANGED has arrived for about 1 s and no carried
---            slot is locked. After about 15 s it gives up and reverses nothing.
+--   wait:    poll every 0.05 s. Blizzard's sort counts as finished once no BAG_UPDATE,
+--            BAG_UPDATE_DELAYED or ITEM_LOCK_CHANGED has arrived for about 0.35 s and no
+--            carried slot is locked. After about 15 s it gives up and reverses nothing.
 --   read:    the order comes from the screen: the visible item buttons of
 --            ContainerFrameCombinedBags, sorted top to bottom, then left to right. Only the
 --            backpack and bags 1-4 count; specialty bags (soul, quiver, ammo, profession) are
 --            left out entirely, since most items cannot go into them.
---   reverse: at most one move per 0.05 s tick with C_Container.PickupContainerItem. Both slots
---            are re-read before every move and checked after it. Pairs that are both empty or
---            hold the same item are skipped, so two stacks can never merge.
+--   burst:   the mirrored pairs never share a slot, so no move depends on another one. Every
+--            pair that needs a move gets it straight away, without waiting for the server in
+--            between: C_Container.PickupContainerItem on one slot, then on the other, up to
+--            BURST_CHUNK pairs per frame. Both slots are re-read right before each move. Pairs
+--            that are both empty or hold the same item are skipped, so two stacks can never
+--            merge. The cursor has to be empty after every pair, or the burst ends there.
+--   verify:  poll every 0.05 s until none of the pairs' slots is locked (about 3 s at most),
+--            then re-read them. Pairs that are not mirrored yet get another burst, up to
+--            MAX_RETRIES more rounds.
 -- ---------------------------------------------------------------------------
 
-local WAIT_STEP = 0.1           -- seconds between polls while Blizzard's sort runs
-local QUIET_TICKS = 10          -- polls without a bag event (about 1 s) before the sort counts as done
-local MAX_WAIT_TICKS = 150      -- give up waiting for Blizzard's sort after about 15 s
-local MOVE_STEP = 0.05          -- seconds between reverse ticks; one move per tick at most
-local MAX_MOVE_TICKS = 2400     -- hard cap on ticks for one reversal (about 2 minutes)
-local MAX_LOCK_WAIT = 100       -- ticks in a row spent waiting on locked items (about 5 s)
-local MAX_REFUSALS = 5          -- the same move refused this many times in a row: give up
-local UNCHANGED_GRACE = 4       -- ticks a move may look undone (and unlocked) before it counts as refused
+local WAIT_STEP = 0.05          -- seconds between polls while Blizzard's sort runs
+local QUIET_TICKS = 7           -- polls without a bag event (about 0.35 s) before the sort counts as done
+local MAX_WAIT_TICKS = 300      -- give up waiting for Blizzard's sort after about 15 s
+local BURST_CHUNK = 10          -- pairs moved per frame during a burst; the rest follow next frame
+local VERIFY_STEP = 0.05        -- seconds between polls while the server confirms a burst
+local MAX_LOCK_WAIT = 60        -- verify polls spent waiting on locked items (about 3 s)
+local UNCHANGED_GRACE = 4       -- verify polls a moved pair may still look unmoved before it is retried
+local MAX_RETRIES = 3           -- extra bursts for pairs that did not end up mirrored
+local MAX_RUN_TICKS = 2400      -- hard cap on ticks for one reversal
 local FIRST_BAG, LAST_BAG = 0, 4    -- backpack and the four bag slots; not keyring, not bank
 
 local cleanupRun        -- the wait or reversal in progress, or nil
@@ -555,10 +562,33 @@ end
 -- Running a reversal
 -- ---------------------------------------------------------------------------
 
+-- Where one mirrored pair stands: "busy" (a slot is locked), "done" (the two slots have traded
+-- places), "todo" (still as planned) or "changed" (they hold something else).
+local function PairState(pair)
+    local a, busyA = ReadSlot(pair.A.bag, pair.A.slot)
+    local b, busyB = ReadSlot(pair.B.bag, pair.B.slot)
+    if busyA or busyB then return "busy" end
+    if Identical(a, pair.b) and Identical(b, pair.a) then return "done" end
+    if Identical(a, pair.a) and Identical(b, pair.b) then return "todo" end
+    return "changed"
+end
+
+-- Pairs that show the mirrored state right now.
+local function CountSwaps(run)
+    if not run.pairs then return run.swaps end
+    local n = 0
+    for _, pair in ipairs(run.pairs) do
+        if pair.done or PairState(pair) == "done" then n = n + 1 end
+    end
+    return n
+end
+
 -- Why a run stopped, worded for the phase it was in.
 local function StopMessage(run, reason)
     if run.phase == "wait" then return "order not reversed: " .. reason end
-    return string.format("reverse stopped after %d swaps: %s", run.swaps, reason)
+    -- Also reached from the error path, so counting must not raise.
+    local ok, swaps = pcall(CountSwaps, run)
+    return string.format("reverse stopped after %d swaps: %s", ok and swaps or run.swaps, reason)
 end
 
 -- Stops the running clean-up. The cursor is cleared only when it holds the item this addon
@@ -576,57 +606,42 @@ local function StopRun(message)
     return true
 end
 
--- Picks the item up from one slot and puts it on the other: a move into an empty slot, or a
--- swap with a different item. Returns "issued", "refused" (nothing was picked up), "changed"
--- (the slots no longer hold what this move is for) or "cursor".
-local function IssueMove(run, move)
-    local from = ReadSlot(move.from.bag, move.from.slot)
-    local to = ReadSlot(move.to.bag, move.to.slot)
-    if not Identical(from, move.expectFrom) or not Identical(to, move.expectTo) then return "changed" end
-    if not from or SameItem(from, to) then return "changed" end
-    Pickup(move.from.bag, move.from.slot)
+-- One pair's move: pick the item up from one slot and put it on the other, which is a move
+-- into an empty slot or a swap with a different item. Nothing waits for the server here.
+-- Returns "issued", "skipped" (locked, or already mirrored), "refused" (nothing was picked up),
+-- "changed" (the slots no longer hold what the move is for), "cursor" (something that is not
+-- an item came up) or "stuck" (the cursor is not empty afterwards).
+local function IssuePair(run, pair)
+    local state = PairState(pair)
+    if state == "busy" or state == "done" then return "skipped" end
+    if state == "changed" then return "changed" end
+    local from, to = pair.A, pair.B
+    if pair.a == nil then from, to = pair.B, pair.A end
+    Pickup(from.bag, from.slot)
     local held = CursorItem()
     if held == nil then return "refused" end
     if held == false then return "cursor" end
     run.holding = held
-    Pickup(move.to.bag, move.to.slot)
+    Pickup(to.bag, to.slot)
     -- Anything of ours still on the cursor goes back where it came from.
-    if CursorItem() == held then Pickup(move.from.bag, move.from.slot) end
+    if CursorItem() == held then Pickup(from.bag, from.slot) end
     if CursorItem() == held then _G.ClearCursor() end
+    if CursorItem() == held then return "stuck" end      -- still ours: StopRun clears it
     run.holding = nil
     run.moves = run.moves + 1
-    run.pending = move
-    run.unchanged = 0
+    pair.issued = true
+    pair.unchanged = 0
+    if CursorItem() ~= nil then return "stuck" end
     return "issued"
 end
 
--- The result of the last move: "busy", "done", "unchanged" (the client refused it) or "changed".
-local function CheckPending(run)
-    local move = run.pending
-    local from, busyFrom = ReadSlot(move.from.bag, move.from.slot)
-    local to, busyTo = ReadSlot(move.to.bag, move.to.slot)
-    if busyFrom or busyTo then return "busy" end
-    if Identical(to, move.expectFrom) and Identical(from, move.expectTo) then return "done" end
-    if Identical(from, move.expectFrom) and Identical(to, move.expectTo) then return "unchanged" end
-    return "changed"
+local function StartVerify(run)
+    run.phase = "verify"
+    run.lockWait = 0
 end
 
-local function WaitOnLocks(run)
-    run.lockWait = run.lockWait + 1
-    if run.lockWait > MAX_LOCK_WAIT then StopRun(StopMessage(run, "items stayed locked.")) end
-end
-
-local function Refused(run)
-    run.refusals = run.refusals + 1
-    if run.refusals >= MAX_REFUSALS then StopRun(StopMessage(run, "the client keeps refusing a move.")) end
-end
-
-local function ReverseStep(run)
-    run.ticks = run.ticks + 1
-    if run.ticks > MAX_MOVE_TICKS or run.moves > run.maxMoves then
-        StopRun(StopMessage(run, "safety limit."))
-        return
-    end
+-- Moves the queued pairs, BURST_CHUNK per frame, then hands over to the verify pass.
+local function BurstStep(run)
     if CursorItem() ~= nil then
         StopRun(StopMessage(run, "the cursor is holding something."))
         return
@@ -635,48 +650,93 @@ local function ReverseStep(run)
         StopRun(StopMessage(run, "the bags changed."))
         return
     end
-
-    if run.pending then
-        local state = CheckPending(run)
-        if state == "busy" then return WaitOnLocks(run) end
-        run.lockWait = 0
-        if state == "unchanged" then
-            -- Give the client a moment to show the move before trying it again; retrying a
-            -- move that is merely slow to appear would undo it.
-            run.unchanged = run.unchanged + 1
-            if run.unchanged < UNCHANGED_GRACE then return end
-            run.pending = nil
-            return Refused(run)          -- the same move is tried again next tick
-        elseif state == "changed" then
-            StopRun(StopMessage(run, "the bags changed."))
+    local tried = 0
+    while tried < BURST_CHUNK and run.queue[run.qi] do
+        if InCombat() then
+            StopRun(StopMessage(run, "combat."))
             return
         end
-        run.pending = nil
-        run.refusals = 0
-        run.index = run.index + 1
-        run.swaps = run.swaps + 1
+        if run.moves >= run.maxMoves then
+            StopRun(StopMessage(run, "safety limit."))
+            return
+        end
+        local pair = run.queue[run.qi]
+        run.qi = run.qi + 1
+        local result = IssuePair(run, pair)
+        if result == "changed" then
+            StopRun(StopMessage(run, "the bags changed."))
+            return
+        elseif result == "cursor" then
+            StopRun(StopMessage(run, "the cursor picked up something unexpected."))
+            return
+        elseif result == "stuck" then
+            -- Nothing more this burst; the verify pass stops the run unless the cursor empties.
+            StartVerify(run)
+            return
+        elseif result ~= "skipped" then
+            tried = tried + 1
+        end
     end
-
-    local move = run.planned[run.index]
-    if not move then
-        StopRun(string.format("Reversed (%d swaps).", run.swaps))
-        return
-    end
-    local _, busyFrom = ReadSlot(move.from.bag, move.from.slot)
-    local _, busyTo = ReadSlot(move.to.bag, move.to.slot)
-    if busyFrom or busyTo then return WaitOnLocks(run) end
-    run.lockWait = 0
-    local result = IssueMove(run, move)
-    if result == "refused" then
-        Refused(run)
-    elseif result == "changed" then
-        StopRun(StopMessage(run, "the bags changed."))
-    elseif result == "cursor" then
-        StopRun(StopMessage(run, "the cursor picked up something unexpected."))
-    end
+    if not run.queue[run.qi] then StartVerify(run) end
 end
 
--- Blizzard's sort has settled: read the visible order and plan one move per mirrored pair.
+-- Waits for the server to settle the moves, then retries the pairs that did not end up
+-- mirrored, or finishes.
+local function VerifyStep(run)
+    if CursorItem() ~= nil then
+        StopRun(StopMessage(run, "the cursor is holding something."))
+        return
+    end
+    if not SameSizes(run.sizes, BagSizes()) then
+        StopRun(StopMessage(run, "the bags changed."))
+        return
+    end
+    local todo, waiting, swaps = {}, false, 0
+    for _, pair in ipairs(run.pairs) do
+        if not pair.done then
+            local state = PairState(pair)
+            if state == "changed" then
+                StopRun(StopMessage(run, "the bags changed."))
+                return
+            elseif state == "busy" then
+                waiting = true
+            elseif state == "done" then
+                pair.done = true
+            else
+                -- Give the client a moment to show a move before trying it again; retrying a
+                -- move that is merely slow to appear would undo it.
+                if pair.issued and pair.unchanged < UNCHANGED_GRACE then
+                    pair.unchanged = pair.unchanged + 1
+                    waiting = true
+                end
+                todo[#todo + 1] = pair
+            end
+        end
+        if pair.done then swaps = swaps + 1 end
+    end
+    run.swaps = swaps
+    if waiting then
+        run.lockWait = run.lockWait + 1
+        if run.lockWait > MAX_LOCK_WAIT then StopRun(StopMessage(run, "items stayed locked.")) end
+        return
+    end
+    if #todo == 0 then
+        StopRun(string.format("Reversed (%d swaps).", swaps))
+        return
+    end
+    if run.round >= MAX_RETRIES then
+        StopRun(string.format("Reversed (%d swaps); %d could not be swapped: the client keeps refusing a move.",
+            swaps, #todo))
+        return
+    end
+    run.round = run.round + 1
+    for _, pair in ipairs(todo) do pair.issued = false end
+    run.queue, run.qi, run.phase = todo, 1, "burst"
+    BurstStep(run)
+end
+
+-- Blizzard's sort has settled: read the visible order, note every mirrored pair that needs a
+-- move, and start the first burst.
 local function StartReverse(run)
     if CursorItem() ~= nil then
         StopRun(StopMessage(run, "the cursor is holding something."))
@@ -688,25 +748,22 @@ local function StartReverse(run)
         return
     end
     local n = #slots
-    run.planned = {}
+    run.pairs, run.queue = {}, {}
     for i = 1, math.floor(n / 2) do
         local A, B = slots[i], slots[n + 1 - i]
         local a, b = ReadSlot(A.bag, A.slot), ReadSlot(B.bag, B.slot)
         if (a or b) and not SameItem(a, b) then
-            local move
-            if not a then
-                move = { from = B, to = A, expectFrom = b, expectTo = nil }
-            else
-                move = { from = A, to = B, expectFrom = a, expectTo = b }
-            end
-            run.planned[#run.planned + 1] = move
+            local pair = { A = A, B = B, a = a, b = b, unchanged = 0 }
+            run.pairs[#run.pairs + 1] = pair
+            run.queue[#run.queue + 1] = pair
         end
     end
-    run.phase = "reverse"
+    run.phase = "burst"
     run.slotCount = n
     run.sizes = BagSizes()
-    run.ticks, run.index = 0, 1
-    run.maxMoves = 2 * #run.planned + 20     -- one move per pair, plus retries
+    run.ticks, run.qi, run.round = 0, 1, 0
+    run.maxMoves = (MAX_RETRIES + 1) * #run.pairs + 20     -- one move per pair and round
+    BurstStep(run)
 end
 
 local function WaitStep(run)
@@ -724,10 +781,22 @@ local function WaitStep(run)
     end
 end
 
+local function MoveStep(run)
+    run.ticks = run.ticks + 1
+    if run.ticks > MAX_RUN_TICKS then
+        StopRun(StopMessage(run, "safety limit."))
+    elseif run.phase == "burst" then
+        BurstStep(run)
+    else
+        VerifyStep(run)
+    end
+end
+
 local RunTick
 local function ScheduleTick(run)
     local generation = run.generation
-    TimerAfter()(run.phase == "wait" and WAIT_STEP or MOVE_STEP, function() RunTick(generation) end)
+    local delay = run.phase == "wait" and WAIT_STEP or run.phase == "burst" and 0 or VERIFY_STEP
+    TimerAfter()(delay, function() RunTick(generation) end)
 end
 
 RunTick = function(generation)
@@ -737,7 +806,7 @@ RunTick = function(generation)
         StopRun(StopMessage(run, "combat."))
         return
     end
-    local ok, err = pcall(run.phase == "wait" and WaitStep or ReverseStep, run)
+    local ok, err = pcall(run.phase == "wait" and WaitStep or MoveStep, run)
     if not ok then
         StopRun(StopMessage(run, "an error: " .. tostring(err)))
         return
@@ -774,7 +843,7 @@ local function CleanUpBags()
     if reverse then
         runGeneration = runGeneration + 1
         cleanupRun = { generation = runGeneration, phase = "wait", ticks = 0, quiet = 0, activity = false,
-                       swaps = 0, moves = 0, lockWait = 0, refusals = 0, unchanged = 0 }
+                       swaps = 0, moves = 0, lockWait = 0 }
         ScheduleTick(cleanupRun)
     end
     return true

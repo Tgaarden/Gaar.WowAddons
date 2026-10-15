@@ -22,7 +22,7 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
-| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`) | `/bbf` |
+| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards | `/bbf` |
 
 ## GaarBags: sorting and junk
 
@@ -47,9 +47,12 @@ not listed in `GaarUI`. It makes the frame movable (drag the title bar, or Alt-d
 of it), saves the position in `BetterBagsForeverDB` and re-applies it whenever Blizzard re-anchors
 the bags. It also adds a **Clean Up Bags** button left of the search box, because Forever's native
 one ends up hidden under the bag slot icons. A left-click does exactly what Forever's own button
-does, in every view: the sort sound and `C_Container.SortBags()`. The addon never moves items
-itself and never changes the sort-direction setting. `/bbf` for help, `/bbf reset`, `/bbf lock`,
-`/bbf unlock`, `/bbf native hide|show` and `/bbf status`. It ships only a `_Camelot` TOC and a
+does: the sort sound and `C_Container.SortBags()`. A right-click toggles **Reverse** (off by
+default): with it on, in the Combined Backpack only, the addon waits for Blizzard's sort to
+settle and then mirrors the whole visible order, so the last slot on screen trades places with
+the first, and so on. The sort-direction setting is never read or changed. `/bbf` for help,
+`/bbf reset`, `/bbf lock`, `/bbf unlock`, `/bbf native hide|show`, `/bbf reverse [on|off]`,
+`/bbf stop` and `/bbf status`. It ships only a `_Camelot` TOC and a
 plain fallback TOC, both at 16001. Details in
 [`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
 

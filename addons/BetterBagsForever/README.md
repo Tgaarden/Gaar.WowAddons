@@ -72,6 +72,25 @@ else. It needs no other addon or library.
 | `/bbf stop` | Stop a running reversal |
 | `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position |
 
+## With BetterGaarForever (optional)
+
+[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse** and **Hide
+Blizzard's own Clean Up button**, the same settings as `/bbf lock|unlock`, `/bbf reset`,
+`/bbf reverse` and `/bbf native hide|show` (both go through the same functions). This addon has
+no minimap button or menu of its own, so nothing here changes with or without the hub: the
+settings stay in `BetterBagsForeverDB` and `/bbf` stays as it is.
+
+The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
+
+| Field | What it is |
+|---|---|
+| `version` | This addon's version, a string |
+| `StatusLine()` | One line of state, e.g. `Reverse off · unlocked · default position` |
+| `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`), for a menu drawn without `MenuUtil` |
+| `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
+| `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
+
 ## How it stays out of the way
 
 - The clean-up is Blizzard's own `C_Container.SortBags()`. Items are moved by the addon only for

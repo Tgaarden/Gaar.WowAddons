@@ -26,6 +26,12 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
   `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, login and the end of combat. A
   settings change is applied at once (after combat if you are in one).
 
+- **Backdrop.** An optional plain dark rectangle (black, 50% opacity by default) behind the
+  whole objective tracker, from just above the "All Objectives" header down to the last visible
+  block, with 4 px of padding. It follows the content as it grows and shrinks (including after
+  the order and the limit change the height) and is hidden when the tracker is hidden, collapsed
+  or empty. See [Backdrop](#backdrop).
+
 ## Commands
 
 | Command | Does |
@@ -34,6 +40,8 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 | `/bqf max <n>`, `/bqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
 | `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
+| `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
+| `/bqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
 | `/bqf minimap` | Show or hide the minimap button |
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
 | `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, and the minimap button's state |
@@ -41,8 +49,8 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 ## Minimap button
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests
-shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Completed quests** (Top, By level, Bottom) and
-**Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
+shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Completed quests** (Top, By level, Bottom),
+**Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
 to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,
 e.g. with GaarMap) it follows the square edge. The menu is Blizzard's `MenuUtil` where the
 client has it, otherwise a small menu drawn by the addon (never `UIDropDownMenu`). The placement
@@ -52,7 +60,7 @@ code is a copy of GaarVanguard's, so this addon still has no dependencies; its d
 shape.
 
 Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`,
-`minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
+`backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## How it works
 
@@ -97,6 +105,26 @@ purely visual, applied on top of Blizzard's layout:
 **Limitation.** Blizzard only lays out as many quests as fit in the tracker's height. If the
 tracker is too short for every tracked quest, the addon sorts the ones Blizzard laid out; a
 quest Blizzard did not lay out cannot be shown.
+
+## Backdrop
+
+The backdrop is the addon's own frame (`BetterQuestsForeverBackdrop`, parent `UIParent`, strata
+`BACKGROUND`, mouse disabled) with a solid black texture. It is independent of the `on`/`off`
+switch for ordering and limiting. It is placed by absolute coordinates, never anchored to a
+Blizzard frame:
+
+- **Measured, not anchored.** The addon reads `GetLeft`/`GetRight`/`GetTop`/`GetBottom` of
+  `ObjectiveTrackerFrame.Header`, of each shown tracker module and of each shown block of those
+  modules (scaled to `UIParent`'s coordinates), and covers them: the top is the header's, the
+  bottom the lowest visible block's, left and right the widest of the lot. Blocks the limit
+  hides are not shown, so they do not count.
+- **When.** `hooksecurefunc` on `ObjectiveTrackerFrame` and each module (`Update`, `UpdateHeight`,
+  `SetCollapsed`) and `HookScript` (`OnShow`, `OnHide`, `OnSizeChanged`) only set a flag; our own
+  frame measures on the next frame, and every 0.1 s anyway, so a dragged or rescaled tracker is
+  followed too. The addon's own layout pass sets the flag as well.
+- **Hidden** when the tracker frame is hidden or collapsed, or when no module has a visible block.
+- **Combat.** The backdrop only reads Blizzard's positions and writes to its own frame, so it
+  keeps following the tracker in combat. `/bqf status` shows why it is hidden, if it is.
 
 ## Taint
 

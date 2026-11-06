@@ -62,9 +62,10 @@ local DEFAULTS = {
     max = 10,
     completed = "bottom",
 }
+local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true }
+local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -154,6 +155,221 @@ local function IsAnchoringRestricted(f)
     end
     return false
 end
+
+-- ---------------------------------------------------------------------------
+-- Backdrop
+--
+-- A plain dark rectangle behind the objective tracker. It is this addon's own frame (parent
+-- UIParent, strata BACKGROUND, no mouse), positioned by absolute coordinates computed from the
+-- geometry Blizzard's frames report (GetLeft/GetRight/GetTop/GetBottom). Blizzard frames are only
+-- read: nothing is anchored to our frame, nothing is written into a Blizzard table and no
+-- tracker Lua is called. Because it only reads, it follows the tracker in combat too.
+-- ---------------------------------------------------------------------------
+
+local BACKDROP_PAD = 4      -- px around the content
+local BACKDROP_POLL = 0.1   -- seconds between measurements when no hook has fired
+-- Tracker modules to measure when ObjectiveTrackerFrame.modules is not available.
+local MODULE_NAMES = { "ScenarioObjectiveTracker", "UIWidgetObjectiveTracker", "CampaignQuestObjectiveTracker",
+    "QuestObjectiveTracker", "AdventureObjectiveTracker", "AchievementObjectiveTracker",
+    "MonthlyActivitiesObjectiveTracker", "ProfessionsRecipeTracker", "BonusObjectiveTracker",
+    "WorldQuestObjectiveTracker", "InitiativeTasksObjectiveTracker" }
+
+local backdropFrame, backdropTexture
+local backdropDirty = true  -- a measurement is wanted on the next frame
+local backdropState         -- "shown", "off", or why it is hidden; for /bqf status
+local backdropKey           -- the geometry last applied
+local backdropAlpha         -- the alpha last applied
+local backdropHooked = {}   -- frame -> true once our hooks are on it
+
+local function BackdropDB()
+    local b = db.backdrop
+    if type(b) ~= "table" then
+        b = {}
+        db.backdrop = b
+    end
+    if type(b.enabled) ~= "boolean" then b.enabled = BACKDROP_DEFAULTS.enabled end
+    local a = tonumber(b.alpha)
+    if not a or a ~= a then a = BACKDROP_DEFAULTS.alpha end
+    b.alpha = math.min(1, math.max(0, a))
+    for k in pairs(b) do
+        if k ~= "enabled" and k ~= "alpha" then b[k] = nil end
+    end
+    return b
+end
+
+local function Num(v)
+    if type(v) == "number" and not IsSecret(v) and v == v then return v end
+end
+
+local function Call(f, method)
+    if type(f) == "table" and type(f[method]) == "function" then return pcall1(f[method], f) end
+end
+
+local function IsShownFrame(f)
+    return type(f) == "table" and Call(f, "IsShown") == true
+end
+
+-- Multiplier from a frame's coordinates to UIParent's.
+local function ScaleTo(f)
+    local s, ps = Num(Call(f, "GetEffectiveScale")), Num(Call(_G.UIParent, "GetEffectiveScale"))
+    if s and ps and s > 0 and ps > 0 then return s / ps end
+    return 1
+end
+
+-- left, right, top, bottom of a frame in UIParent's coordinates; nil when not available.
+local function Edges(f)
+    local l, r = Num(Call(f, "GetLeft")), Num(Call(f, "GetRight"))
+    local t, b = Num(Call(f, "GetTop")), Num(Call(f, "GetBottom"))
+    if not (l and r and t and b) then return nil end
+    local k = ScaleTo(f)
+    return l * k, r * k, t * k, b * k
+end
+
+local function TrackerModules()
+    local otf = _G.ObjectiveTrackerFrame
+    if type(otf) == "table" and type(otf.modules) == "table" then return otf.modules end
+    local list = {}
+    for _, name in ipairs(MODULE_NAMES) do
+        if type(_G[name]) == "table" then list[#list + 1] = _G[name] end
+    end
+    return list
+end
+
+-- The rectangle the objective tracker's visible content covers: left, right, top, bottom.
+-- Returns nil and the reason when there is nothing to put a backdrop behind.
+local function MeasureTracker()
+    local otf = _G.ObjectiveTrackerFrame
+    if type(otf) ~= "table" then return nil, "no ObjectiveTrackerFrame" end
+    if not IsShownFrame(otf) then return nil, "tracker hidden" end
+    if otf.isCollapsed == true or Call(otf, "IsCollapsed") == true then return nil, "tracker collapsed" end
+
+    local left, right, top, bottom
+    local function include(f, withVertical)
+        local l, r, t, b = Edges(f)
+        if not l then return false end
+        left = left and math.min(left, l) or l
+        right = right and math.max(right, r) or r
+        if withVertical then
+            top = top and math.max(top, t) or t
+            bottom = bottom and math.min(bottom, b) or b
+        end
+        return true
+    end
+
+    -- From just above the "All Objectives" header.
+    local headerTop
+    if IsShownFrame(otf.Header) then
+        local l, r, t = Edges(otf.Header)
+        if l then
+            headerTop = t
+            include(otf.Header, false)
+        end
+    end
+
+    local blocks = 0
+    for _, module in ipairs(TrackerModules()) do
+        if IsShownFrame(module) then
+            local block, guard = module.firstBlock, 0
+            while type(block) == "table" and guard < 1000 do
+                if IsShownFrame(block) and include(block, true) then blocks = blocks + 1 end
+                block = block.nextBlock
+                guard = guard + 1
+            end
+            if IsShownFrame(module.Header) then include(module.Header, false) end
+        end
+    end
+    if blocks == 0 then return nil, "no visible objectives" end
+    if headerTop then top = headerTop end
+    if not (left and right and top and bottom) then return nil, "geometry unavailable" end
+    return left, right, top, bottom
+end
+
+local function HideBackdrop(reason)
+    backdropState = reason
+    backdropKey = nil
+    if backdropFrame then backdropFrame:Hide() end
+end
+
+local function EnsureBackdropFrame()
+    if backdropFrame then return backdropFrame end
+    if type(_G.UIParent) ~= "table" then return nil end
+    local f = CreateFrame("Frame", "BetterQuestsForeverBackdrop", _G.UIParent)
+    f:SetFrameStrata("BACKGROUND")
+    f:EnableMouse(false)
+    local tex = f:CreateTexture(nil, "BACKGROUND")
+    tex:SetAllPoints(f)
+    backdropFrame, backdropTexture = f, tex
+    return f
+end
+
+local function ApplyBackdropNow()
+    if not db then return end
+    backdropDirty = false
+    local cfg = BackdropDB()
+    if not cfg.enabled then return HideBackdrop("off") end
+    local left, right, top, bottom = MeasureTracker()
+    if not left then return HideBackdrop(right) end -- the second value is the reason
+    local f = EnsureBackdropFrame()
+    if not f then return HideBackdrop("no UIParent") end
+
+    local x, y = left - BACKDROP_PAD, top + BACKDROP_PAD
+    local w, h = (right - left) + 2 * BACKDROP_PAD, (top - bottom) + 2 * BACKDROP_PAD
+    local key = string.format("%.2f:%.2f:%.2f:%.2f", x, y, w, h)
+    if key ~= backdropKey then
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", _G.UIParent, "BOTTOMLEFT", x, y)
+        f:SetSize(w, h)
+        backdropKey = key
+    end
+    if backdropAlpha ~= cfg.alpha then
+        backdropTexture:SetColorTexture(0, 0, 0, cfg.alpha)
+        backdropAlpha = cfg.alpha
+    end
+    f:Show()
+    backdropState = "shown"
+end
+
+local function ApplyBackdrop()
+    local ok, err = pcall(ApplyBackdropNow)
+    if not ok then
+        backdropState = "error: " .. tostring(err)
+        pcall(HideBackdrop, backdropState)
+    end
+end
+
+local function MarkBackdrop() backdropDirty = true end
+
+-- Post-hooks on Blizzard's tracker: they only set our flag, the measuring happens on our frame.
+local function HookBackdropFrame(f, methods, scripts)
+    if type(f) ~= "table" or backdropHooked[f] or type(_G.hooksecurefunc) ~= "function" then return end
+    backdropHooked[f] = true
+    for _, name in ipairs(methods) do
+        if type(f[name]) == "function" then pcall(hooksecurefunc, f, name, MarkBackdrop) end
+    end
+    if type(f.HookScript) == "function" then
+        for _, name in ipairs(scripts) do pcall(f.HookScript, f, name, MarkBackdrop) end
+    end
+end
+
+local function HookBackdropTargets()
+    HookBackdropFrame(_G.ObjectiveTrackerFrame, { "Update", "UpdateHeight", "SetCollapsed" },
+        { "OnShow", "OnHide", "OnSizeChanged" })
+    for _, module in ipairs(TrackerModules()) do
+        HookBackdropFrame(module, { "Update", "UpdateHeight" }, { "OnShow", "OnHide" })
+    end
+end
+
+-- Our own frame measures on the next frame after a hook fired, and every BACKDROP_POLL seconds
+-- otherwise, so a tracker that was dragged or rescaled is followed too.
+local backdropDriver = CreateFrame("Frame")
+local backdropWait = 0
+backdropDriver:SetScript("OnUpdate", function(_, elapsed)
+    backdropWait = backdropWait + (elapsed or 0)
+    if backdropDirty or backdropWait >= BACKDROP_POLL then
+        backdropWait = 0
+        ApplyBackdrop()
+    end
+end)
 
 -- ---------------------------------------------------------------------------
 -- Quest data and the order
@@ -557,6 +773,7 @@ local function ApplyLayout()
 end
 
 local function OnTrackerLaidOut()
+    MarkBackdrop()
     local ok, err = pcall(ApplyLayout)
     if not ok then
         layoutProblem = "error: " .. tostring(err)
@@ -589,6 +806,7 @@ local function Evaluate()
         pending = true
         return
     end
+    pcall(HookBackdropTargets)
     if not HookTracker() then return end
     -- The hooks apply the layout after every Blizzard update; this pass covers a settings change
     -- or an event that needs no new Blizzard layout.
@@ -657,6 +875,23 @@ local function SetCompleted(mode)
     ApplyNow()
 end
 
+local function AlphaPercent()
+    return math.floor(BackdropDB().alpha * 100 + 0.5)
+end
+
+local function SetBackdropEnabled(on)
+    BackdropDB().enabled = on and true or false
+    Print("backdrop " .. (on and "on" or "off") .. ".")
+    ApplyBackdrop()
+end
+
+local function SetBackdropAlpha(pct)
+    pct = math.min(100, math.max(0, math.floor(pct + 0.5)))
+    BackdropDB().alpha = pct / 100
+    Print("backdrop opacity " .. pct .. "%." .. (BackdropDB().enabled and "" or " (The backdrop is off: /bqf bg on.)"))
+    ApplyBackdrop()
+end
+
 -- ---------------------------------------------------------------------------
 -- Minimap button
 --
@@ -675,6 +910,7 @@ local MINIMAP_ICONS = {
     "Interface\\Icons\\INV_Misc_QuestionMark",
 }
 local MENU_MAX = { 3, 5, 8, 10, 12, 15, 20, 25, MAX_MAX }
+local MENU_ALPHA = { 20, 35, 50, 65, 80 }
 local MENU_COMPLETED = { { "top", "Top" }, { "level", "By level" }, { "bottom", "Bottom" } }
 
 local function MinimapDB()
@@ -769,6 +1005,14 @@ local function MenuEntries()
             checked = function() return db.completed == m[1] end, func = function() SetCompleted(m[1]) end }
     end
     list[#list + 1] = { text = "Completed quests", submenu = completedItems }
+    list[#list + 1] = { text = "Backdrop", checkbox = true, checked = function() return BackdropDB().enabled end,
+        func = function() SetBackdropEnabled(not BackdropDB().enabled) end }
+    local alphaItems = {}
+    for _, n in ipairs(MENU_ALPHA) do
+        alphaItems[#alphaItems + 1] = { text = n .. "%", radio = true,
+            checked = function() return AlphaPercent() == n end, func = function() SetBackdropAlpha(n) end }
+    end
+    list[#list + 1] = { text = "Backdrop opacity", submenu = alphaItems }
     list[#list + 1] = { divider = true }
     list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
     return list
@@ -910,6 +1154,7 @@ end
 local function StateLine()
     return (db.enabled and "On" or "Off") .. " \194\183 max " .. MaxLabel(db.max)
         .. " \194\183 completed: " .. db.completed
+        .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
 end
 
 local function BuildMinimapButton()
@@ -1025,6 +1270,8 @@ local function PrintHelp()
         .. (db and db.completed or DEFAULTS.completed) .. ")")
     Print("/bqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
+    Print("/bqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
+        .. (db and (BackdropDB().enabled and (AlphaPercent() .. "%") or "off") or "?") .. ")")
     Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
     Print("/bqf status - settings, counts and what this client offers")
 end
@@ -1040,6 +1287,8 @@ local function PrintStatus()
     end
     Print(string.format("tracked: %d (Quests section: %d)   shown: %s", #watches, inSection,
         shownCount and tostring(shownCount) or "all (limit not applied)"))
+    Print("backdrop: " .. (BackdropDB().enabled and (AlphaPercent() .. "% opacity") or "off") .. " - "
+        .. (backdropState or "not measured yet"))
     Print("tracker: " .. (tracker and "QuestObjectiveTracker recognised" or ("not recognised - " .. (trackerProblem or "not checked yet"))))
     Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none"))
     local order
@@ -1094,6 +1343,17 @@ local function OnSlash(msg)
         SetEnabled(true)
     elseif msg == "off" then
         SetEnabled(false)
+    elseif msg == "bg on" then
+        SetBackdropEnabled(true)
+    elseif msg == "bg off" then
+        SetBackdropEnabled(false)
+    elseif msg:match("^bg ") then
+        local pct = tonumber(msg:match("^bg (.+)$"))
+        if not pct or pct ~= pct then
+            Print("use /bqf bg on, off or a percentage 0-100.")
+            return
+        end
+        SetBackdropAlpha(pct)
     elseif msg == "minimap" then
         SetMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
@@ -1121,6 +1381,7 @@ local function BindSavedVariables()
     db.max = math.floor(m)
     if not COMPLETED_MODES[db.completed] then db.completed = DEFAULTS.completed end
     MinimapDB()
+    BackdropDB()
 end
 
 local events = CreateFrame("Frame")
@@ -1135,6 +1396,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 == ADDON_NAME then
             BindSavedVariables()
             pcall(ApplyMinimap)
+            pcall(HookBackdropTargets)
+            MarkBackdrop()
             Schedule()
         elseif db and not hooked and arg1 == "Blizzard_ObjectiveTracker" then
             Schedule()
@@ -1142,6 +1405,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Fires before the lockdown starts: hand the section back to Blizzard for the fight.
         RestoreAll()
+        MarkBackdrop()
     elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
         if db then pcall(ApplyMinimap) end

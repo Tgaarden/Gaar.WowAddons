@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: BetterQuestsForever
+## Notes: Orders the Quests section of Forever's objective tracker by level and shows only the first N tracked quests; every quest stays tracked. /bqf
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Note_01
+## SavedVariables: BetterQuestsForeverDB
+
+BetterQuestsForever.lua

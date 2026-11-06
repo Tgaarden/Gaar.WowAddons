@@ -72,7 +72,7 @@ local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
-    hideInCombat = true }
+    hideInCombat = true, distanceProbe = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -1380,6 +1380,44 @@ end
 
 local function Yes(v) return v and "yes" or "MISSING" end
 
+-- /bqf distance: a read-only check of whether this client can tell how far away each tracked
+-- quest is (C_QuestLog.GetDistanceSqToQuest, what Blizzard's own proximity sort uses). It prints
+-- one line per tracked quest and keeps the last result in BetterQuestsForeverDB.distanceProbe so
+-- it can be read from the SavedVariables file after /reload. Nothing about the tracker changes.
+local function DistanceProbe()
+    local ql = QuestLog()
+    local fn = ql and ql.GetDistanceSqToQuest
+    local mapID = pcall1(_G.C_Map and _G.C_Map.GetBestMapForUnit, "player")
+    local okB, version, build = Try(_G.GetBuildInfo)
+    if not okB then version, build = nil, nil end
+    local result = {
+        when = type(_G.date) == "function" and _G.date("%Y-%m-%d %H:%M:%S") or nil,
+        build = build and ((version or "") .. "." .. build) or nil,
+        mapID = mapID,
+        api = type(fn) == "function",
+        quests = {},
+    }
+    Print("distance check - C_QuestLog.GetDistanceSqToQuest: " .. (result.api and "yes" or "no")
+        .. ", map " .. tostring(mapID))
+    local withDistance = 0
+    for _, questID in ipairs(GetWatches()) do
+        local d = QuestData(questID)
+        local okD, distSq, onContinent = Try(fn, questID)
+        if not okD then distSq, onContinent = nil, nil end
+        local yards = type(distSq) == "number" and distSq >= 0 and math.floor(math.sqrt(distSq) + 0.5) or nil
+        if yards then withDistance = withDistance + 1 end
+        result.quests[#result.quests + 1] = { id = questID, title = d.title, level = d.level,
+            complete = d.complete, distSq = distSq, onContinent = onContinent }
+        Print(string.format("[%d] %s%s - %s", d.level or 0, d.title ~= "" and d.title or ("quest " .. questID),
+            d.complete and " (complete)" or "",
+            yards and (yards .. " yd" .. (onContinent == false and ", other continent" or "")) or "no distance"))
+    end
+    result.withDistance = withDistance
+    db.distanceProbe = result
+    Print(string.format("%d of %d tracked quests have a distance. Saved; /reload to write it to disk.",
+        withDistance, #result.quests))
+end
+
 local function PrintHelp()
     Print("orders the Quests section of the objective tracker by level and shows only the first N.")
     Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
@@ -1394,6 +1432,7 @@ local function PrintHelp()
         .. ((db and db.hideInCombat or not db and DEFAULTS.hideInCombat) and "on" or "off") .. ")")
     Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
     Print("/bqf status - settings, counts and what this client offers")
+    Print("/bqf distance - check whether this client knows how far away each tracked quest is")
 end
 
 local function PrintStatus()
@@ -1461,6 +1500,10 @@ local function OnSlash(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
     if not db then
         Print("not loaded yet.")
+        return
+    end
+    if msg == "distance" then
+        DistanceProbe()
         return
     end
     local n = msg:match("^max (%d+)$")

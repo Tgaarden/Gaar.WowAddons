@@ -220,3 +220,7 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 does nothing and `/bqf status` says what is missing.
 
 It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

@@ -80,6 +80,29 @@ shape.
 Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
+## With BetterGaarForever (optional)
+
+[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+menu has a **Quests** submenu with exactly the options above (all but **Hide minimap button**).
+While it is loaded, this addon's own minimap button is hidden for the session; the saved
+`minimap.hide` setting is not changed, so without the hub the button is back as you left it.
+`/bqf minimap` still changes the saved setting, and `/bqf status` says when the hub is hiding the
+button. Everything else (settings, `/bqf`, behaviour) is the same with or without the hub.
+
+The hub talks to this addon only through `BetterQuestsForeverAPI` (since 1.5):
+
+| Field | What it is |
+|---|---|
+| `version` | This addon's version, a string |
+| `StatusLine()` | The one-line state the minimap tooltip shows (`On · level · max 10 · completed: bottom · bg 50%`) |
+| `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox\|radio, checked, func }`, `{ text, submenu }`, `{ divider }`), for a menu drawn without `MenuUtil` |
+| `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
+| `SetMinimapHidden(hidden)` | Hides (`true`) or shows again (`false`) this addon's own button for this session only |
+
+The addon's own menu and the API build on the same list of options, so they cannot drift apart.
+It also checks `C_AddOns.IsAddOnLoaded("BetterGaarForever")` (or the older `IsAddOnLoaded`)
+before it shows its button, so the load order does not matter.
+
 ## How it works
 
 Version 1.0 set the order in the client's watch list. Forever orders the watch list itself (a

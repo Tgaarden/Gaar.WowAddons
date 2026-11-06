@@ -14,6 +14,9 @@
       once Blizzard's sort has settled, the whole visible order is mirrored, so the slot shown
       last trades places with the slot shown first, and so on. Separate bags are never touched.
     * /bbf for help, reset, lock, unlock, native, reverse, stop and status.
+    * BetterBagsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
+      without the hub; the API only exposes the settings the slash command already changes.
 
   Names come from Blizzard's retail FrameXML (Interface/AddOns/Blizzard_UIPanels_Game/Mainline/
   ContainerFrame.xml and ContainerFrame.lua): ContainerFrameCombinedBags, BagItemSearchBox,
@@ -1082,6 +1085,33 @@ local function HookBlizzard()
 end
 
 -- ---------------------------------------------------------------------------
+-- Settings, shared by the slash command and the menu entries of the API
+-- ---------------------------------------------------------------------------
+
+local function ResetPosition()
+    if not db then return end
+    db.position = nil
+    needsRestore = true
+    ApplyPosition()
+    Print(pendingApply and "position reset; it moves back once combat ends."
+        or "position reset to Blizzard's default.")
+end
+
+local function SetLocked(on)
+    if not db then return end
+    db.locked = on and true or false
+    UpdateDragHandle()
+    Print(db.locked and "bags locked." or "bags unlocked: drag the title bar to move them.")
+end
+
+local function SetNativeHidden(hide)
+    if not db then return end
+    db.hideNativeButton = hide and true or false
+    LayoutSearchRow()
+    Print("Blizzard's own clean-up button is " .. (db.hideNativeButton and "hidden." or "shown."))
+end
+
+-- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
 
@@ -1127,23 +1157,13 @@ local function OnSlash(msg)
         return
     end
     if msg == "reset" then
-        db.position = nil
-        needsRestore = true
-        ApplyPosition()
-        Print(pendingApply and "position reset; it moves back once combat ends."
-            or "position reset to Blizzard's default.")
+        ResetPosition()
     elseif msg == "lock" then
-        db.locked = true
-        UpdateDragHandle()
-        Print("bags locked.")
+        SetLocked(true)
     elseif msg == "unlock" then
-        db.locked = false
-        UpdateDragHandle()
-        Print("bags unlocked: drag the title bar to move them.")
+        SetLocked(false)
     elseif msg == "native hide" or msg == "native show" then
-        db.hideNativeButton = (msg == "native hide")
-        LayoutSearchRow()
-        Print("Blizzard's own clean-up button is " .. (db.hideNativeButton and "hidden." or "shown."))
+        SetNativeHidden(msg == "native hide")
     elseif msg == "reverse" then
         SetReverse(nil)
     elseif msg == "reverse on" or msg == "reverse off" then
@@ -1158,6 +1178,68 @@ local function OnSlash(msg)
         PrintHelp()
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- Public API: BetterBagsForeverAPI
+--
+-- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- Everything stays here: the settings live in BetterBagsForeverDB and change only through the
+-- same functions /bbf uses, so the addon behaves the same with or without the hub.
+--
+--   version              this addon's version, a string
+--   StatusLine()         one short line of state, e.g. "Reverse off · unlocked · moved"
+--   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
+--                        { text, func }, { text, checkbox = true, checked, func } and { divider = true }
+--   AddMenuEntries(root) adds the same options to a MenuUtil root or submenu description
+--   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
+-- ---------------------------------------------------------------------------
+
+local VERSION = "1.6"
+
+local function StatusLine()
+    if not db then return "not loaded yet" end
+    return "Reverse " .. OnOff(ReverseOn()) .. " \194\183 " .. (db.locked and "locked" or "unlocked")
+        .. " \194\183 " .. (db.position and "moved" or "default position")
+end
+
+local function MenuEntries()
+    if not db then return {} end
+    return {
+        { text = "Lock position", checkbox = true, checked = function() return db.locked end,
+          func = function() SetLocked(not db.locked) end },
+        { text = "Reset position", func = ResetPosition },
+        { text = "Reverse", checkbox = true, checked = ReverseOn,
+          func = function() SetReverse(not ReverseOn()) end },
+        { text = "Hide Blizzard's own Clean Up button", checkbox = true,
+          checked = function() return db.hideNativeButton end,
+          func = function() SetNativeHidden(not db.hideNativeButton) end },
+    }
+end
+
+-- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
+local function RenderMenu(root, entries)
+    if type(root) ~= "table" then return end
+    for _, e in ipairs(entries) do
+        if e.divider then
+            if type(root.CreateDivider) == "function" then root:CreateDivider() end
+        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
+            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
+        elseif e.checkbox then
+            -- A menu without checkboxes: show the state in the label instead.
+            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
+        else
+            root:CreateButton(e.text, function() e.func() end)
+        end
+    end
+end
+
+_G.BetterBagsForeverAPI = {
+    version = VERSION,
+    StatusLine = StatusLine,
+    MenuEntries = MenuEntries,
+    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    SetMinimapHidden = function() end,
+}
 
 -- ---------------------------------------------------------------------------
 -- Events

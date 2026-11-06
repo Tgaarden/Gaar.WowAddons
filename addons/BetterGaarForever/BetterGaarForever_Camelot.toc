@@ -1,11 +1,10 @@
 ## Interface: 16001
 ## Title: BetterGaarForever
-## Notes: BetterBagsForever and BetterQuestsForever in one addon: a movable Combined Backpack with a Clean Up button, and the Quests tracker ordered by level or distance and limited to N. /bgf or the minimap button
+## Notes: Optional hub for BetterBagsForever and BetterQuestsForever: one minimap button whose menu holds both addons' options. Each addon keeps its own settings and commands. /bgf
 ## Author: Gaar
-## Version: 1.0
+## Version: 2.0
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
+## OptionalDeps: BetterBagsForever, BetterQuestsForever
 ## SavedVariables: BetterGaarForeverDB
 
 Core.lua
-Modules\Bags.lua
-Modules\Quests.lua

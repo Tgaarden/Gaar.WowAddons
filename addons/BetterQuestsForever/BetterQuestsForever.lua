@@ -54,6 +54,11 @@
 
   Options: /bqf, and a minimap button whose menu has the same settings.
 
+  BetterQuestsForeverAPI is a small global table for BetterGaarForever, the optional hub that
+  shows these options in its own minimap menu (version, StatusLine, MenuEntries, AddMenuEntries,
+  SetMinimapHidden). While the hub is loaded this addon's own minimap button is hidden for the
+  session; the saved minimap setting is never changed for that. Without the hub nothing changes.
+
   Everything is feature-checked. If the tracker is not the structure this was written against,
   the addon does nothing and says so in /bqf status.
 ]]
@@ -1256,10 +1261,11 @@ local function CursorAngle()
     return math.deg(atan2(cy - my, cx - mx)) % 360
 end
 
-local SetMinimapHidden -- defined below; the menu's "Hide" entry calls it
+local SaveMinimapHidden -- defined below; the menu's "Hide" entry calls it
 
--- The options as data, shared by Blizzard's menu and the fallback menu.
-local function MenuEntries()
+-- The options as data, shared by Blizzard's menu, the fallback menu and BetterQuestsForeverAPI
+-- (which BetterGaarForever's hub menu reads), so there is one list to keep up to date.
+local function OptionEntries()
     local list = {
         { text = "Enabled", checkbox = true, checked = function() return db.enabled end,
           func = function() SetEnabled(not db.enabled) end },
@@ -1294,18 +1300,25 @@ local function MenuEntries()
     list[#list + 1] = { text = "Backdrop opacity", submenu = alphaItems }
     list[#list + 1] = { text = "Hide in combat", checkbox = true, checked = function() return db.hideInCombat end,
         func = function() SetHideInCombat(not db.hideInCombat) end }
-    list[#list + 1] = { divider = true }
-    list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
     return list
 end
 
-local function AddMenuEntries(root, entries)
+-- This addon's own minimap menu: the options, then the entry for its own button.
+local function MenuEntries()
+    local list = OptionEntries()
+    list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Hide minimap button", func = function() SaveMinimapHidden(true) end }
+    return list
+end
+
+-- Draws the entries into a MenuUtil description (root or submenu).
+local function RenderMenu(root, entries)
     for _, e in ipairs(entries) do
         if e.divider then
             if type(root.CreateDivider) == "function" then root:CreateDivider() end
         elseif e.submenu then
             local sub = root:CreateButton(e.text)
-            if type(sub) == "table" then AddMenuEntries(sub, e.submenu) end
+            if type(sub) == "table" then RenderMenu(sub, e.submenu) end
         elseif e.checkbox and type(root.CreateCheckbox) == "function" then
             root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
         elseif e.radio and type(root.CreateRadio) == "function" then
@@ -1424,7 +1437,7 @@ local function ShowMinimapMenu(owner)
     if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
         local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
             if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
-            AddMenuEntries(root, entries)
+            RenderMenu(root, entries)
         end)
         if ok then return "MenuUtil" end
     end
@@ -1433,6 +1446,7 @@ local function ShowMinimapMenu(owner)
 end
 
 local function StateLine()
+    if not db then return "not loaded yet" end
     return (db.enabled and "On" or "Off") .. " \194\183 " .. SortMode() .. " \194\183 max " .. MaxLabel(db.max)
         .. " \194\183 completed: " .. db.completed
         .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
@@ -1506,9 +1520,32 @@ local function BuildMinimapButton()
     return b
 end
 
+-- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
+local function AddOnLoaded(name)
+    local c = _G.C_AddOns
+    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
+        local ok, loaded = pcall(c.IsAddOnLoaded, name)
+        if ok and loaded then return true end
+    end
+    if type(_G.IsAddOnLoaded) == "function" then
+        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
+        if ok and loaded then return true end
+    end
+    return false
+end
+
+-- Hidden for this session only, never saved: true while BetterGaarForever's button holds these
+-- options. nil until the hub says so (SetMinimapHidden) or is found loaded at the next apply.
+local hubHidden
+
+local function HiddenByHub()
+    if hubHidden == nil and AddOnLoaded("BetterGaarForever") then hubHidden = true end
+    return hubHidden == true
+end
+
 local function ApplyMinimap()
     if not db then return end
-    if MinimapDB().hide then
+    if MinimapDB().hide or HiddenByHub() then
         if minimapButton then minimapButton:Hide() end
         if customMenu then customMenu:Hide() end
         return
@@ -1519,11 +1556,14 @@ local function ApplyMinimap()
     end
 end
 
-SetMinimapHidden = function(hide)
+-- The player's own choice, saved in BetterQuestsForeverDB.minimap.hide.
+SaveMinimapHidden = function(hide)
     MinimapDB().hide = hide and true or false
     ApplyMinimap()
     if hide then
         Print("minimap button hidden. Type |cffffd100/bqf minimap|r to show it again.")
+    elseif HiddenByHub() then
+        Print("minimap button set to shown; it stays hidden while BetterGaarForever is loaded, whose button has these options.")
     else
         Print("minimap button shown.")
     end
@@ -1534,7 +1574,8 @@ local function ResetMinimapButton()
     m.angle = MINIMAP_DEFAULT_ANGLE
     m.hide = false
     ApplyMinimap()
-    Print("minimap button reset to its default position.")
+    Print("minimap button reset to its default position."
+        .. (HiddenByHub() and " It stays hidden while BetterGaarForever is loaded." or ""))
 end
 
 -- ---------------------------------------------------------------------------
@@ -1657,8 +1698,9 @@ local function PrintStatus()
         and type(qis.GetQuestClassification) == "function")
         .. "   MenuUtil: " .. (type(_G.MenuUtil) == "table" and "yes" or "no (own menu)"))
     local m = MinimapDB()
-    Print("minimap button: " .. (m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle))
-        .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
+    local state = m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
+    if HiddenByHub() then state = "hidden while BetterGaarForever is loaded (saved setting: " .. state .. ")" end
+    Print("minimap button: " .. state .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
 end
 
 local function OnSlash(msg)
@@ -1717,7 +1759,7 @@ local function OnSlash(msg)
     elseif msg == "combat" or msg:match("^combat ") then
         Print("use /bqf combat on or off (now: " .. (db.hideInCombat and "on" or "off") .. ").")
     elseif msg == "minimap" then
-        SetMinimapHidden(not MinimapDB().hide)
+        SaveMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
         ResetMinimapButton()
     elseif msg == "status" then
@@ -1726,6 +1768,44 @@ local function OnSlash(msg)
         PrintHelp()
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- Public API: BetterQuestsForeverAPI
+--
+-- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- Everything stays here: the settings live in BetterQuestsForeverDB and change only through the
+-- same functions /bqf and this addon's own menu use.
+--
+--   version              this addon's version, a string
+--   StatusLine()         one short line of state (the minimap button's tooltip line)
+--   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
+--                        { text, func }, { text, checkbox|radio = true, checked, func },
+--                        { text, submenu = { ... } } and { divider = true }
+--   AddMenuEntries(root) adds the same options to a MenuUtil root or submenu description
+--   SetMinimapHidden(b)  hides (true) or shows again (false) this addon's own minimap button for
+--                        this session; BetterQuestsForeverDB.minimap.hide is never changed
+-- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
+-- ---------------------------------------------------------------------------
+
+local VERSION = "1.5"
+
+local function ApiEntries()
+    if not db then return {} end
+    return OptionEntries()
+end
+
+_G.BetterQuestsForeverAPI = {
+    version = VERSION,
+    StatusLine = StateLine,
+    MenuEntries = ApiEntries,
+    AddMenuEntries = function(root)
+        if type(root) == "table" then RenderMenu(root, ApiEntries()) end
+    end,
+    SetMinimapHidden = function(hidden)
+        hubHidden = hidden and true or false
+        if db then pcall(ApplyMinimap) end
+    end,
+}
 
 -- ---------------------------------------------------------------------------
 -- Events

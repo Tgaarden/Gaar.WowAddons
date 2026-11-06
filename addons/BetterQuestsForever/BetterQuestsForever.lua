@@ -43,6 +43,11 @@
       and everything the addon hid is shown again, so for the whole fight the Quests section is
       exactly Blizzard's own. On PLAYER_REGEN_ENABLED the order and the limit are applied again.
 
+  Hide in combat (default on): the whole objective tracker (ObjectiveTrackerFrame) and the
+  backdrop are hidden for the length of a fight. The tracker is hidden and shown by Blizzard's
+  secure state driver (RegisterStateDriver), never by this addon's own code; see "Hide in combat"
+  below for why that is the only taint-safe way.
+
   Options: /bqf, and a minimap button whose menu has the same settings.
 
   Everything is feature-checked. If the tracker is not the structure this was written against,
@@ -61,11 +66,13 @@ local DEFAULTS = {
     enabled = true,
     max = 10,
     completed = "bottom",
+    hideInCombat = true,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true }
+local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
+    hideInCombat = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -163,7 +170,8 @@ end
 -- UIParent, strata BACKGROUND, no mouse), positioned by absolute coordinates computed from the
 -- geometry Blizzard's frames report (GetLeft/GetRight/GetTop/GetBottom). Blizzard frames are only
 -- read: nothing is anchored to our frame, nothing is written into a Blizzard table and no
--- tracker Lua is called. Because it only reads, it follows the tracker in combat too.
+-- tracker Lua is called. Because it only reads, it follows the tracker in combat too; with
+-- "Hide in combat" on it is hidden for the fight together with the tracker.
 -- ---------------------------------------------------------------------------
 
 local BACKDROP_PAD = 4      -- px around the content
@@ -180,6 +188,7 @@ local backdropState         -- "shown", "off", or why it is hidden; for /bqf sta
 local backdropKey           -- the geometry last applied
 local backdropAlpha         -- the alpha last applied
 local backdropHooked = {}   -- frame -> true once our hooks are on it
+local combatHidden          -- the tracker is hidden for the current fight (see Hide in combat)
 
 local function BackdropDB()
     local b = db.backdrop
@@ -307,6 +316,8 @@ local function ApplyBackdropNow()
     backdropDirty = false
     local cfg = BackdropDB()
     if not cfg.enabled then return HideBackdrop("off") end
+    -- Also while Blizzard briefly re-shows the tracker mid-fight, before the driver hides it again.
+    if combatHidden then return HideBackdrop("hidden in combat") end
     local left, right, top, bottom = MeasureTracker()
     if not left then return HideBackdrop(right) end -- the second value is the reason
     local f = EnsureBackdropFrame()
@@ -370,6 +381,101 @@ backdropDriver:SetScript("OnUpdate", function(_, elapsed)
         ApplyBackdrop()
     end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Hide in combat
+--
+-- The whole objective tracker is hidden while the player is in combat and shown again afterwards,
+-- but only if it was shown when the fight started.
+--
+-- Why Blizzard's state driver, and why nothing else is safe:
+--
+--   * ObjectiveTrackerFrame is not a protected frame (no secure template; the quest item buttons
+--     are plain Buttons whose Blizzard OnClick calls the protected UseQuestLogSpecialItem). So the
+--     client allows it to be hidden in combat, but whoever hides or shows it runs its scripts:
+--     OnHide (ManagedFrameMixin / EditModeSystemMixin:OnSystemHide) calls
+--     RightManagedFrameContainer:RemoveManagedFrame, which writes the container's showingFrames,
+--     calls ObjectiveTrackerFrame:UpdateHeight and lays out the right-hand container (it also holds
+--     the boss and arena frames, which are protected); OnShow (ObjectiveTrackerContainerMixin)
+--     calls AddManagedFrame (SetParent + Layout) and UpdateHeight, whose OnSizeChanged marks the
+--     tracker dirty. Hide() or Show() called from addon code runs all of that tainted, so the
+--     container's layout and the tracker update that sets the item buttons' questLogIndex
+--     attribute would carry our taint. Hiding it from our own PLAYER_REGEN_DISABLED handler is
+--     therefore not acceptable, and fading it (alpha) would leave the item buttons clickable.
+--   * A SecureHandlerStateTemplate frame of our own with a frame ref to the tracker does not work
+--     either: the restricted environment rejects a handle to a frame that is not protected while
+--     InCombatLockdown() is true (RestrictedFrames.lua, GetPossiblyForbiddenHandleFrame:
+--     "Invalid frame handle"), and the state driver only runs on the frame after the lockdown has
+--     started.
+--   * Blizzard's SecureStateDriverManager runs a "visibility" driver from its own secure code
+--     (an attribute change and its OnUpdate), and Hide()/Show() from secure code are allowed on
+--     this frame in combat. So OnHide/OnShow and everything they call run untainted.
+--
+-- The driver is on the tracker only from PLAYER_REGEN_DISABLED (which fires just before the
+-- lockdown starts) until PLAYER_REGEN_ENABLED (just after it ends), with the plain value "hide":
+-- out of combat Blizzard's own show/hide logic is never overridden. If Blizzard shows the tracker
+-- during the fight (a quest update does), the driver hides it again within its 0.2 s throttle.
+-- After the fight, if the tracker was shown when the fight started, the driver is set to "show"
+-- once - Blizzard's code shows it - and then removed. The addon itself never calls Hide, Show or
+-- SetAttribute on a Blizzard frame, never writes a Blizzard table and never calls tracker Lua.
+-- The driver itself sets the tracker's "statehidden" attribute (true on hide, nil on show), which
+-- nothing in the tracker reads.
+-- ---------------------------------------------------------------------------
+
+local combatWasShown        -- the tracker was shown when the current fight started
+local combatProblem         -- why the tracker could not be hidden, for /bqf status
+
+-- The tracker, or nil and why it cannot be hidden in combat on this client.
+local function CombatHideTarget()
+    local otf = _G.ObjectiveTrackerFrame
+    if not IsFrame(otf) then return nil, "no ObjectiveTrackerFrame" end
+    if type(_G.RegisterStateDriver) ~= "function" or type(_G.UnregisterStateDriver) ~= "function" then
+        return nil, "RegisterStateDriver not available"
+    end
+    if Call(otf, "IsForbidden") == true then return nil, "the tracker is forbidden" end
+    return otf
+end
+
+-- PLAYER_REGEN_DISABLED: the lockdown has not started yet.
+local function StartCombatHide()
+    combatProblem = nil
+    if not db or not db.hideInCombat or combatHidden then return end
+    if InCombat() then
+        combatProblem = "the combat lockdown had already started"
+        return
+    end
+    local otf, why = CombatHideTarget()
+    if not otf then
+        combatProblem = why
+        return
+    end
+    combatWasShown = IsShownFrame(otf)
+    local ok, err = pcall(_G.RegisterStateDriver, otf, "visibility", "hide")
+    if not ok then
+        combatProblem = "error: " .. tostring(err)
+        pcall(_G.UnregisterStateDriver, otf, "visibility")
+        combatWasShown = nil
+        return
+    end
+    combatHidden = true
+    ApplyBackdrop()
+end
+
+-- PLAYER_REGEN_ENABLED: the lockdown is over. Runs whatever the setting is now, so turning the
+-- option off during a fight still brings the tracker back.
+local function EndCombatHide()
+    if not combatHidden or InCombat() then return end
+    local otf = _G.ObjectiveTrackerFrame
+    if combatWasShown then
+        -- Replaces "hide"; the driver resolves it at once and shows the tracker from secure code.
+        local ok, err = pcall(_G.RegisterStateDriver, otf, "visibility", "show")
+        if not ok then combatProblem = "could not show the tracker again: " .. tostring(err) end
+    end
+    local ok, err = pcall(_G.UnregisterStateDriver, otf, "visibility")
+    if not ok then combatProblem = "could not remove the combat driver: " .. tostring(err) end
+    combatHidden, combatWasShown = false, nil
+    MarkBackdrop()
+end
 
 -- ---------------------------------------------------------------------------
 -- Quest data and the order
@@ -875,6 +981,16 @@ local function SetCompleted(mode)
     ApplyNow()
 end
 
+local function SetHideInCombat(on)
+    db.hideInCombat = on and true or false
+    local note = ""
+    if InCombat() then
+        if on and not combatHidden then note = " Applies from the next fight." end
+        if not on and combatHidden then note = " The tracker comes back when this fight ends." end
+    end
+    Print("hide in combat " .. (on and "on" or "off") .. "." .. note)
+end
+
 local function AlphaPercent()
     return math.floor(BackdropDB().alpha * 100 + 0.5)
 end
@@ -1013,6 +1129,8 @@ local function MenuEntries()
             checked = function() return AlphaPercent() == n end, func = function() SetBackdropAlpha(n) end }
     end
     list[#list + 1] = { text = "Backdrop opacity", submenu = alphaItems }
+    list[#list + 1] = { text = "Hide in combat", checkbox = true, checked = function() return db.hideInCombat end,
+        func = function() SetHideInCombat(not db.hideInCombat) end }
     list[#list + 1] = { divider = true }
     list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
     return list
@@ -1272,6 +1390,8 @@ local function PrintHelp()
         .. ((db and db.enabled) and "on" or "off") .. ")")
     Print("/bqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
         .. (db and (BackdropDB().enabled and (AlphaPercent() .. "%") or "off") or "?") .. ")")
+    Print("/bqf combat on | off - hide the whole objective tracker during combat (now: "
+        .. ((db and db.hideInCombat or not db and DEFAULTS.hideInCombat) and "on" or "off") .. ")")
     Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
     Print("/bqf status - settings, counts and what this client offers")
 end
@@ -1289,6 +1409,27 @@ local function PrintStatus()
         shownCount and tostring(shownCount) or "all (limit not applied)"))
     Print("backdrop: " .. (BackdropDB().enabled and (AlphaPercent() .. "% opacity") or "off") .. " - "
         .. (backdropState or "not measured yet"))
+    local hide
+    if combatHidden then
+        hide = (db.hideInCombat and "on" or "off (after this fight)") .. " - hidden for this fight"
+    elseif not db.hideInCombat then
+        hide = "off - the tracker stays visible in combat"
+    else
+        local otf, why = CombatHideTarget()
+        if not otf then
+            hide = "on - not available: " .. why
+        elseif combatProblem then
+            hide = "on - last fight: " .. combatProblem
+        else
+            hide = "on - ready (Blizzard's secure state driver, during combat only)"
+        end
+    end
+    Print("hide in combat: " .. hide)
+    local otf = _G.ObjectiveTrackerFrame
+    if IsFrame(otf) then
+        Print("ObjectiveTrackerFrame: " .. (IsShownFrame(otf) and "shown" or "hidden")
+            .. "   protected: " .. (IsProtectedFrame(otf) and "yes" or "no"))
+    end
     Print("tracker: " .. (tracker and "QuestObjectiveTracker recognised" or ("not recognised - " .. (trackerProblem or "not checked yet"))))
     Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none"))
     local order
@@ -1354,6 +1495,12 @@ local function OnSlash(msg)
             return
         end
         SetBackdropAlpha(pct)
+    elseif msg == "combat on" then
+        SetHideInCombat(true)
+    elseif msg == "combat off" then
+        SetHideInCombat(false)
+    elseif msg == "combat" or msg:match("^combat ") then
+        Print("use /bqf combat on or off (now: " .. (db.hideInCombat and "on" or "off") .. ").")
     elseif msg == "minimap" then
         SetMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
@@ -1380,6 +1527,7 @@ local function BindSavedVariables()
     if not m or m < MIN_MAX or m > MAX_MAX then m = DEFAULTS.max end
     db.max = math.floor(m)
     if not COMPLETED_MODES[db.completed] then db.completed = DEFAULTS.completed end
+    if type(db.hideInCombat) ~= "boolean" then db.hideInCombat = DEFAULTS.hideInCombat end
     MinimapDB()
     BackdropDB()
 end
@@ -1403,9 +1551,15 @@ events:SetScript("OnEvent", function(_, event, arg1)
             Schedule()
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
-        -- Fires before the lockdown starts: hand the section back to Blizzard for the fight.
+        -- Fires before the lockdown starts: hand the section back to Blizzard for the fight, then
+        -- hide the whole tracker if that is wanted.
         RestoreAll()
+        pcall(StartCombatHide)
         MarkBackdrop()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Fires after the lockdown ends: the tracker back first, then order, limit and backdrop.
+        pcall(EndCombatHide)
+        Schedule()
     elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
         if db then pcall(ApplyMinimap) end

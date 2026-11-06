@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: BetterQuestsForever
-## Notes: Orders the Quests section of Forever's objective tracker by level and shows only the first N tracked quests; every quest stays tracked. /bqf
+## Notes: Orders the Quests section of Forever's objective tracker by level and shows only the first N tracked quests; every quest stays tracked and the watch list is never changed. /bqf or the minimap button
 ## Author: Gaar
-## Version: 1.0
+## Version: 1.1
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## SavedVariables: BetterQuestsForeverDB
 

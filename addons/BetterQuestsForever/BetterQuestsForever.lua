@@ -3,38 +3,47 @@
   WoW Forever.
 
   Forever ships the retail objective tracker (Blizzard_ObjectiveTracker). Its Quests section,
-  QuestObjectiveTracker, shows the tracked (watched) quests in watch-list order. This addon
-  changes two things about that section and nothing else:
+  QuestObjectiveTracker, shows the tracked (watched) quests in an order the client decides. This
+  addon changes two things about that section and nothing else:
 
     * Order: by quest level, lowest first, ties by title. Quests that are ready to turn in go to
       the bottom (default), to the top, or are sorted among the others by level.
     * Limit: only the first N quests of that order are shown (default 10). The rest stay tracked;
       they are only not drawn.
 
-  Every tracked quest stays tracked. The addon never untracks a quest to satisfy the limit.
+  Every tracked quest stays tracked, and the watch list is never touched: the addon does not call
+  AddQuestWatch, RemoveQuestWatch or SortQuestWatches at all.
 
   How, and why it is taint-safe (the Quests section carries quest item buttons, and the click
   on one calls the protected UseQuestLogSpecialItem):
 
-    * The order is set in the watch list itself. Blizzard's tracker reads the watch list through
-      C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex and keeps that
-      order (QuestObjectiveTrackerMixin:BuildQuestWatchInfos). A quest that is out of place is
-      moved to the end with C_QuestLog.RemoveQuestWatch immediately followed by
-      C_QuestLog.AddQuestWatch with the same watch type, so it is tracked again before the
-      next line of code runs. The values Blizzard reads come from the client, not from addon
-      code, so its layout code never reads anything this addon wrote. Only out of combat.
-    * The limit is applied after Blizzard's own layout, from hooksecurefunc hooks on the
-      QuestObjectiveTracker instance's Update and UpdateHeight. Quest blocks past the N-th are
-      hidden with the widget method Hide(), together with the frames Blizzard parks next to
-      them (the item button, the find-group button, progress and timer bars), and the section's
-      frame is made shorter so the next section moves up. Only out of combat, and only frames
-      that are not protected. The addon never writes a field into a Blizzard table, never calls
-      a Blizzard Lua function of the tracker and never sets an attribute, so the code path that
-      sets up the quest item buttons (SetAttribute("questLogIndex", ...)) always runs untainted.
+    * Everything happens after Blizzard's own layout, from hooksecurefunc hooks on the
+      QuestObjectiveTracker instance's Update and UpdateHeight, and only out of combat.
+    * Blizzard lays the quest blocks out as a chain (ObjectiveTrackerModuleMixin:AnchorBlock): the
+      first block's TOP sits on the section's ContentsFrame TOP at fromHeaderOffsetY, every next
+      block's TOP on the previous block's BOTTOM at fromBlockOffsetY. The addon reads that layout
+      back with GetPoint (so the spacing is Blizzard's, measured, not assumed), sorts the blocks,
+      and moves the TOP point of each of the first N blocks onto the one before it in the sorted
+      order with the same offsets. Blocks past the N-th are hidden with Hide(), together with the
+      frames Blizzard parks next to them (the block's addedRegions: item button, find-group
+      button, progress and timer bars; they are parented to the section, not to the block). The
+      section's frame gets exactly the height of the shown blocks, so the next section moves up.
+    * The item and find-group buttons are anchored to their own block (AddRightEdgeFrame:
+      TOPRIGHT on the block, or RIGHT on the block's previous right-edge frame), and progress and
+      timer bars to the block's lines, so they follow their block when it moves. Nothing of
+      theirs is re-anchored.
+    * Only widget methods are used on Blizzard frames (GetPoint, SetPoint, Hide, Show, SetHeight),
+      and only on frames that are not protected and not anchoring-restricted; otherwise that
+      update is skipped and /bqf status says why. The addon never writes a field into a Blizzard
+      table, never calls a Blizzard Lua function of the tracker and never sets an attribute, so
+      the code path that sets up the quest item buttons (SetAttribute("questLogIndex", ...))
+      always runs untainted.
     * Combat: nothing is changed while InCombatLockdown() is true. On PLAYER_REGEN_DISABLED,
-      which fires just before the lockdown starts, everything the addon hid is shown again, so
-      for the whole fight the Quests section is exactly Blizzard's own. On PLAYER_REGEN_ENABLED
-      the order and the limit are applied again.
+      which fires just before the lockdown starts, every block is put back where Blizzard put it
+      and everything the addon hid is shown again, so for the whole fight the Quests section is
+      exactly Blizzard's own. On PLAYER_REGEN_ENABLED the order and the limit are applied again.
+
+  Options: /bqf, and a minimap button whose menu has the same settings.
 
   Everything is feature-checked. If the tracker is not the structure this was written against,
   the addon does nothing and says so in /bqf status.
@@ -42,9 +51,10 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterQuestsForever"
+local TITLE = "BetterQuestsForever"
 local PREFIX = "|cff33ff99BetterQuestsForever|r: "
 
-local MIN_MAX, MAX_MAX = 1, 50
+local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
 
 local DEFAULTS = {
@@ -54,31 +64,25 @@ local DEFAULTS = {
 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { enabled = true, max = true, completed = true }
+local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true }
 
--- How long events are collected before the order and the limit are re-evaluated.
+-- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
-
--- If the client keeps undoing the order (it re-sorts the watch list on its own), the addon
--- stops reordering instead of fighting it: more than this many reorders inside the window.
-local LOOP_LIMIT, LOOP_WINDOW = 15, 10
 
 local db                -- BetterQuestsForeverDB, bound at ADDON_LOADED (never at file scope)
 local tracker           -- the QuestObjectiveTracker module once recognised
 local trackerProblem    -- why the tracker was not recognised, for /bqf status
 local hooked            -- our hooksecurefunc hooks are in place
-local limitProblem      -- why the limit is switched off, for /bqf status
-local sortProblem       -- why sorting is switched off, for /bqf status
-local lastWarning       -- the last thing that went wrong while reordering
+local layoutProblem     -- why the last pass could not order/limit the section, for /bqf status
 local pending           -- an evaluation is waiting (throttle or combat)
-local trimmedHeight     -- we shortened the section's frame
-local shownCount        -- quest blocks visible after the last limit pass
-local reorderTimes = {} -- GetTime() of recent reorders, for the loop guard
-local reorderCount = 0
+local heightSet         -- the section's frame has a height other than Blizzard's
+local shownCount        -- quest blocks visible after the last pass
+local orderedCount      -- quest blocks sorted in the last pass
 
--- Frames we hid, so they can be shown again. Weak keys: a frame Blizzard drops is forgotten.
+-- Frames we changed, so they can be put back. Weak keys: a frame Blizzard drops is forgotten.
 local hiddenBlocks = setmetatable({}, { __mode = "k" })
 local hiddenRegions = setmetatable({}, { __mode = "k" }) -- region -> the block it belonged to
+local moved = setmetatable({}, { __mode = "k" })         -- block -> Blizzard's TOP anchor for it
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -93,14 +97,22 @@ local function InCombat()
     return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
 end
 
-local function Now()
-    return type(_G.GetTime) == "function" and _G.GetTime() or 0
-end
-
 -- Calls a client function without letting an unexpected error escape.
 local function Try(fn, ...)
     if type(fn) ~= "function" then return false end
     return pcall(fn, ...)
+end
+
+local function pcall1(fn, ...) -- first return value of fn, or nil if it errors or is missing
+    if type(fn) ~= "function" then return nil end
+    local ok, a = pcall(fn, ...)
+    if ok then return a end
+end
+
+-- Geometry read off a frame can be a secret value on newer clients; a secret cannot be compared.
+local function IsSecret(v)
+    if type(_G.issecretvalue) ~= "function" then return false end
+    return _G.issecretvalue(v) and true or false
 end
 
 local function QuestLog()
@@ -108,14 +120,13 @@ local function QuestLog()
     if type(ql) == "table" then return ql end
 end
 
--- The watch-list functions sorting needs. Returns the missing name, or nil when all are there.
-local WATCH_API = { "GetNumQuestWatches", "GetQuestIDForQuestWatchIndex", "AddQuestWatch", "RemoveQuestWatch",
-    "GetLogIndexForQuestID" }
+-- The quest-log functions ordering needs (read-only). Returns the missing name, or nil.
+local READ_API = { "GetNumQuestWatches", "GetQuestIDForQuestWatchIndex", "GetLogIndexForQuestID" }
 
-local function MissingWatchApi()
+local function MissingQuestApi()
     local ql = QuestLog()
     if not ql then return "C_QuestLog" end
-    for _, name in ipairs(WATCH_API) do
+    for _, name in ipairs(READ_API) do
         if type(ql[name]) ~= "function" then return "C_QuestLog." .. name end
     end
     if type(ql.GetInfo) ~= "function" and type(_G.GetQuestLogTitle) ~= "function" then
@@ -136,8 +147,16 @@ local function IsProtectedFrame(f)
     return false
 end
 
+local function IsAnchoringRestricted(f)
+    if type(f) == "table" and type(f.IsAnchoringRestricted) == "function" then
+        local ok, restricted = pcall(f.IsAnchoringRestricted, f)
+        return ok and restricted and true or false
+    end
+    return false
+end
+
 -- ---------------------------------------------------------------------------
--- The watch list
+-- Quest data and the order
 -- ---------------------------------------------------------------------------
 
 local function GetWatches()
@@ -152,34 +171,6 @@ local function GetWatches()
     end
     return list
 end
-
-local function IsWatched(questID)
-    for _, id in ipairs(GetWatches()) do
-        if id == questID then return true end
-    end
-    return false
-end
-
-local function GetWatchType(questID)
-    local ql = QuestLog()
-    if ql and type(ql.GetQuestWatchType) == "function" then
-        local ok, watchType = pcall(ql.GetQuestWatchType, questID)
-        if ok then return watchType end
-    end
-end
-
--- Tracks the quest again, with its old watch type when the client has watch types.
-local function ReAdd(questID, watchType)
-    local ql = QuestLog()
-    if watchType ~= nil then Try(ql.AddQuestWatch, questID, watchType) end
-    if not IsWatched(questID) then Try(ql.AddQuestWatch, questID) end
-    if not IsWatched(questID) then Try(ql.AddQuestWatch, questID) end
-    return IsWatched(questID)
-end
-
--- ---------------------------------------------------------------------------
--- Quest data and the order
--- ---------------------------------------------------------------------------
 
 local function Classification(questID)
     local qis = _G.C_QuestInfoSystem
@@ -204,7 +195,8 @@ local function IsComplete(questID, info)
     return info and info.isComplete and true or false
 end
 
--- Level, title, completion and whether the Quests section shows it at all.
+-- Level, title, completion, whether it is in the quest log, and whether the Quests section
+-- shows it at all.
 local function QuestData(questID)
     local ql = QuestLog()
     local okIndex, index = Try(ql and ql.GetLogIndexForQuestID, questID)
@@ -224,6 +216,7 @@ local function QuestData(questID)
     end
     local d = {
         id = questID,
+        inLog = index ~= nil,
         level = type(level) == "number" and level or 0,
         title = type(title) == "string" and title or "",
         complete = IsComplete(questID, info),
@@ -257,113 +250,8 @@ local function Compare(a, b)
     return a.id < b.id
 end
 
--- The Quests-section quests in the wanted order, plus their current watch order.
-local function DesiredOrder()
-    local current, data = {}, {}
-    for _, questID in ipairs(GetWatches()) do
-        local d = QuestData(questID)
-        if d.inQuestsSection then
-            current[#current + 1] = questID
-            data[#data + 1] = d
-        end
-    end
-    table.sort(data, Compare)
-    local sorted = {}
-    for i, d in ipairs(data) do sorted[i] = d.id end
-    return sorted, current
-end
-
--- The quests that have to move to the end of the watch list. The longest run of the wanted
--- order that already stands in the right relative order stays put; everything after it is
--- moved, in order. Other watches (campaign, tasks) are never moved.
-local function QuestsToMove(sorted, current)
-    local p = 1
-    for _, questID in ipairs(current) do
-        if sorted[p] == questID then p = p + 1 end
-    end
-    local moves = {}
-    for i = p, #sorted do moves[#moves + 1] = sorted[i] end
-    return moves
-end
-
-local function LoopGuardTripped()
-    local now = Now()
-    local kept = {}
-    for _, t in ipairs(reorderTimes) do
-        if now - t <= LOOP_WINDOW then kept[#kept + 1] = t end
-    end
-    kept[#kept + 1] = now
-    reorderTimes = kept
-    return #kept > LOOP_LIMIT
-end
-
--- Puts the watch list in the wanted order. Out of combat only. Every quest that is taken off
--- the list is put back immediately, and at the end every quest that was tracked before is
--- checked and re-tracked if the client dropped it.
-local function ReorderWatches()
-    if sortProblem or InCombat() then return end
-    local missing = MissingWatchApi()
-    if missing then
-        sortProblem = missing .. " missing"
-        return
-    end
-
-    local sorted, current = DesiredOrder()
-    local moves = QuestsToMove(sorted, current)
-    if #moves == 0 then return end
-    if LoopGuardTripped() then
-        sortProblem = "paused: the client keeps changing the watch order back (/bqf on to try again)"
-        Print("sorting paused - the client keeps re-sorting the watch list. /bqf on tries again.")
-        return
-    end
-
-    local ql = QuestLog()
-    local before = GetWatches()
-    local watchTypes = {}
-    for _, questID in ipairs(before) do watchTypes[questID] = GetWatchType(questID) end
-    local superTrack = _G.C_SuperTrack
-    local superTracked
-    if type(superTrack) == "table" and type(superTrack.GetSuperTrackedQuestID) == "function" then
-        local ok, id = pcall(superTrack.GetSuperTrackedQuestID)
-        if ok then superTracked = id end
-    end
-
-    for i, questID in ipairs(moves) do
-        Try(ql.RemoveQuestWatch, questID)
-        if not ReAdd(questID, watchTypes[questID]) then
-            lastWarning = "could not re-track quest " .. questID
-            break
-        end
-        if i == 1 then
-            local list = GetWatches()
-            if list[#list] ~= questID then
-                -- This client does not append a re-added watch at the end, so the order cannot
-                -- be set this way. Stop for good rather than shuffle the list again.
-                sortProblem = "the client does not append re-added watches; order left to Blizzard"
-                break
-            end
-        end
-    end
-
-    -- Nothing tracked before may end up untracked.
-    for _, questID in ipairs(before) do
-        if not IsWatched(questID) and not ReAdd(questID, watchTypes[questID]) then
-            lastWarning = "quest " .. questID .. " could not be re-tracked"
-            Print("|cffff6666could not re-track quest " .. questID .. "; track it again from the quest log.|r")
-        end
-    end
-
-    if superTracked and superTracked ~= 0 and type(superTrack.SetSuperTrackedQuestID) == "function" then
-        local ok, now = pcall(superTrack.GetSuperTrackedQuestID)
-        if ok and now ~= superTracked and IsWatched(superTracked) then
-            Try(superTrack.SetSuperTrackedQuestID, superTracked)
-        end
-    end
-    reorderCount = reorderCount + 1
-end
-
 -- ---------------------------------------------------------------------------
--- The tracker and the limit
+-- The tracker
 -- ---------------------------------------------------------------------------
 
 -- Checks that QuestObjectiveTracker is the module structure this addon was written against.
@@ -376,10 +264,6 @@ local function RecogniseTracker()
     end
     if type(t.Update) ~= "function" or type(t.UpdateHeight) ~= "function" then
         trackerProblem = "QuestObjectiveTracker:Update/UpdateHeight not found"
-        return
-    end
-    if type(t.BuildQuestWatchInfos) ~= "function" and type(t.EnumQuestWatchData) ~= "function" then
-        trackerProblem = "QuestObjectiveTracker does not list quests by watch index"
         return
     end
     if type(t.usedBlocks) ~= "table" or type(t.blockTemplate) ~= "string" then
@@ -417,6 +301,13 @@ local function Regions(block)
     return type(regions) == "table" and regions or {}
 end
 
+local function BlockHeight(block)
+    if type(block.height) == "number" then return block.height end
+    local h = pcall1(block.GetHeight, block)
+    if type(h) == "number" and not IsSecret(h) then return h end
+    return 0
+end
+
 -- Blizzard's own section height (ObjectiveTrackerModuleMixin:UpdateHeight), read, not called.
 local function FullHeight()
     local contents = tracker.contentsHeight
@@ -430,19 +321,100 @@ local function FullHeight()
     return h
 end
 
-local function SetSectionHeight(trim)
+-- The frame's TOP anchor as { rel, relPoint, x, y }, or nil when it cannot be read.
+local function GetTop(frame)
+    if type(frame) ~= "table" or type(frame.GetNumPoints) ~= "function" or type(frame.GetPoint) ~= "function" then
+        return nil
+    end
+    local n = pcall1(frame.GetNumPoints, frame)
+    if type(n) ~= "number" or IsSecret(n) then return nil end
+    for i = 1, n do
+        local ok, point, rel, relPoint, x, y = pcall(frame.GetPoint, frame, i)
+        if ok and point == "TOP" then
+            if IsSecret(x) or IsSecret(y) then return nil end
+            return { rel = rel, relPoint = relPoint, x = tonumber(x) or 0, y = tonumber(y) or 0 }
+        end
+    end
+end
+
+local function SameAnchor(a, rel, relPoint, x, y)
+    return a ~= nil and a.rel == rel and a.relPoint == relPoint and a.x == x and a.y == y
+end
+
+-- Blizzard's TOP anchor for every block of the chain, by position. A block whose current anchor
+-- is Blizzard's (the first on something outside the chain, every other on its predecessor in the
+-- chain) is read as it is. A block that still carries our anchor - no Blizzard layout since we
+-- moved it - gets the anchor we recorded before moving it. Blizzard re-anchors every block on
+-- each full layout, so a recorded anchor is never older than the current chain.
+local function ReadBlizzardLayout(chain)
+    local inChain = {}
+    for k, b in ipairs(chain) do inChain[b] = k end
+    local anchors = {}
+    for k, b in ipairs(chain) do
+        local top = GetTop(b)
+        local blizzards
+        if top then
+            if k == 1 then
+                blizzards = top.rel == nil or not inChain[top.rel]
+            else
+                blizzards = top.rel == chain[k - 1]
+            end
+        end
+        if blizzards then
+            anchors[k] = top
+            moved[b] = nil
+        elseif moved[b] then
+            anchors[k] = moved[b]
+        elseif k == 1 and type(tracker.fromHeaderOffsetY) == "number" and type(tracker.ContentsFrame) == "table" then
+            anchors[k] = { rel = tracker.ContentsFrame, relPoint = "TOP", x = 0, y = tracker.fromHeaderOffsetY }
+        elseif k > 1 and type(tracker.fromBlockOffsetY) == "number" then
+            anchors[k] = { rel = chain[k - 1], relPoint = "BOTTOM", x = 0, y = tracker.fromBlockOffsetY }
+        else
+            return nil, "could not read where Blizzard placed quest block " .. k
+        end
+    end
+    return anchors
+end
+
+local function SetTop(block, rel, relPoint, x, y)
+    if not SameAnchor(GetTop(block), rel, relPoint, x, y) then
+        block:SetPoint("TOP", rel, relPoint, x, y)
+    end
+end
+
+-- Puts every block we moved back on Blizzard's anchor, in chain order so no anchor loop can form.
+local function RestoreAnchors()
+    local chain = BlockChain()
+    local inChain = {}
+    for _, b in ipairs(chain) do inChain[b] = true end
+    for k, b in ipairs(chain) do
+        local orig = moved[b]
+        if orig then
+            local top = GetTop(b)
+            local blizzards = top and ((k == 1 and (top.rel == nil or not inChain[top.rel]))
+                or (k > 1 and top.rel == chain[k - 1]))
+            if not blizzards and not IsProtectedFrame(b) and not IsAnchoringRestricted(b) then
+                local rel = k == 1 and orig.rel or chain[k - 1]
+                pcall(SetTop, b, rel, orig.relPoint, orig.x, orig.y)
+            end
+        end
+    end
+    for b in pairs(moved) do moved[b] = nil end
+end
+
+local function SetSectionHeight(h)
     if not tracker:IsShown() then
-        trimmedHeight = false
+        heightSet = false
         return
     end
     local full = FullHeight()
     if not full then return end
-    if trim > 0 then
-        tracker:SetHeight(math.max(full - trim, 1))
-        trimmedHeight = true
-    elseif trimmedHeight then
+    if h and math.abs(h - full) > 0.001 then
+        tracker:SetHeight(math.max(h, 1))
+        heightSet = true
+    elseif heightSet then
         tracker:SetHeight(full)
-        trimmedHeight = false
+        heightSet = false
     end
 end
 
@@ -463,47 +435,86 @@ local function Restore(keep)
     end
 end
 
+-- Hands the section back to Blizzard exactly as it laid it out.
 local function RestoreAll()
     if not tracker then return end
+    pcall(RestoreAnchors)
     Restore({})
-    if trimmedHeight then SetSectionHeight(0) end
-    shownCount = nil
+    if heightSet then SetSectionHeight(nil) end
+    shownCount, orderedCount = nil, nil
 end
 
--- Hides the quest blocks past the N-th and shortens the section. Runs after Blizzard's layout.
-local function ApplyLimit()
+local function Skip(reason)
+    layoutProblem = reason
+    RestoreAll()
+end
+
+local function CanMove(f)
+    return IsFrame(f) and type(f.SetPoint) == "function" and not IsProtectedFrame(f) and not IsAnchoringRestricted(f)
+end
+
+local function CanHide(f)
+    return IsFrame(f) and not IsProtectedFrame(f)
+end
+
+-- Orders and limits the Quests section. Runs after Blizzard's layout, out of combat.
+local function ApplyLayout()
     if not tracker or not db or InCombat() then return end
-    if not db.enabled or limitProblem then
+    if not db.enabled then
+        layoutProblem = nil
         RestoreAll()
         return
     end
+    local missing = MissingQuestApi()
+    if missing then return Skip(missing .. " missing") end
 
     local chain = BlockChain()
-    local hide, count, visible = {}, 0, 0
-    for _, block in ipairs(chain) do
-        if IsQuestBlock(block) then
-            count = count + 1
-            if count > db.max then
-                hide[block] = true
-            else
-                visible = visible + 1
+    if #chain == 0 then
+        layoutProblem = nil
+        Restore({})
+        if heightSet then SetSectionHeight(nil) end
+        shownCount, orderedCount = 0, 0
+        return
+    end
+    for _, b in ipairs(chain) do
+        if not CanMove(b) then
+            return Skip("a quest block is protected, anchoring-restricted or not a frame; left to Blizzard")
+        end
+    end
+    if IsProtectedFrame(tracker) then return Skip("the Quests section is protected; left to Blizzard") end
+    local anchors, err = ReadBlizzardLayout(chain)
+    if not anchors then return Skip(err) end
+
+    -- Quest blocks of watched quests are sorted; anything else (quest pop-ups, a block Blizzard
+    -- keeps for a moment after a turn-in) stays on top in Blizzard's order and is never hidden.
+    local watched = {}
+    for _, questID in ipairs(GetWatches()) do watched[questID] = true end
+    local fixed, sortable = {}, {}
+    for _, b in ipairs(chain) do
+        local d = IsQuestBlock(b) and watched[b.id] and QuestData(b.id)
+        if d and d.inLog then
+            d.block = b
+            sortable[#sortable + 1] = d
+        else
+            fixed[#fixed + 1] = b
+        end
+    end
+    table.sort(sortable, Compare)
+
+    local visible, hide = {}, {}
+    for _, b in ipairs(fixed) do visible[#visible + 1] = b end
+    for i, d in ipairs(sortable) do
+        if i <= db.max then visible[#visible + 1] = d.block else hide[d.block] = true end
+    end
+    for block in pairs(hide) do
+        for region in pairs(Regions(block)) do
+            if not CanHide(region) then
+                return Skip("a quest item button or bar is protected or not a frame; left to Blizzard")
             end
         end
     end
 
-    -- A protected frame cannot be hidden safely; then the limit stays off on this client.
-    for block in pairs(hide) do
-        local bad = not IsFrame(block) or IsProtectedFrame(block)
-        for region in pairs(Regions(block)) do
-            if not IsFrame(region) or IsProtectedFrame(region) then bad = true end
-        end
-        if bad then
-            limitProblem = "a quest block or its item button is protected or not a frame; limit off"
-            RestoreAll()
-            return
-        end
-    end
-
+    -- Hide first, then move: nothing shown is ever anchored to a hidden block.
     Restore(hide)
     for block in pairs(hide) do
         if block:IsShown() then block:Hide() end
@@ -514,21 +525,43 @@ local function ApplyLimit()
         end
     end
 
-    -- Hidden blocks are at the end of the chain; take their share off the section's height,
-    -- the same share Blizzard added for them (ObjectiveTrackerModuleMixin:InternalAddBlock).
-    local trim = 0
-    local offset = type(tracker.fromBlockOffsetY) == "number" and tracker.fromBlockOffsetY or 0
-    for i = #chain, 1, -1 do
-        local block = chain[i]
-        if not hide[block] then break end
-        trim = trim + (type(block.height) == "number" and block.height or 0) - offset
+    -- Top to bottom: slot k gets the offset Blizzard used at position k, on the block above it in
+    -- our order. Each block is anchored to one already placed, so no anchor loop can form.
+    local position = {}
+    for k, b in ipairs(chain) do position[b] = k end
+    for k, b in ipairs(visible) do
+        local slot = anchors[k]
+        local rel = k == 1 and slot.rel or visible[k - 1]
+        local own = anchors[position[b]]
+        if SameAnchor(own, rel, slot.relPoint, slot.x, slot.y) then
+            moved[b] = nil
+        else
+            moved[b] = own
+        end
+        SetTop(b, rel, slot.relPoint, slot.x, slot.y)
     end
-    SetSectionHeight(trim)
-    shownCount = visible
+
+    -- Blizzard's height minus what it added for its blocks plus what our shown blocks take, with
+    -- the same per-position offsets (ObjectiveTrackerModuleMixin:InternalAddBlock).
+    local full = FullHeight()
+    if full then
+        local h = full
+        for k, b in ipairs(chain) do h = h - (BlockHeight(b) - anchors[k].y) end
+        for k, b in ipairs(visible) do h = h + (BlockHeight(b) - anchors[k].y) end
+        SetSectionHeight(h)
+    end
+
+    layoutProblem = nil
+    shownCount = math.min(#sortable, db.max)
+    orderedCount = #sortable
 end
 
 local function OnTrackerLaidOut()
-    ApplyLimit()
+    local ok, err = pcall(ApplyLayout)
+    if not ok then
+        layoutProblem = "error: " .. tostring(err)
+        pcall(RestoreAll)
+    end
 end
 
 local function HookTracker()
@@ -546,7 +579,7 @@ local function HookTracker()
 end
 
 -- ---------------------------------------------------------------------------
--- Evaluation: order first, then the limit
+-- Evaluation
 -- ---------------------------------------------------------------------------
 
 local function Evaluate()
@@ -557,14 +590,9 @@ local function Evaluate()
         return
     end
     if not HookTracker() then return end
-    if not db.enabled then
-        RestoreAll()
-        return
-    end
-    ReorderWatches()
-    -- A reorder makes Blizzard lay the section out again, and the hook applies the limit then.
-    -- This pass covers a settings change that needs no new layout.
-    ApplyLimit()
+    -- The hooks apply the layout after every Blizzard update; this pass covers a settings change
+    -- or an event that needs no new Blizzard layout.
+    OnTrackerLaidOut()
 end
 
 local throttle = CreateFrame("Frame")
@@ -586,6 +614,403 @@ local function Schedule()
     throttle:Show()
 end
 
+-- A settings change: applied at once out of combat, after combat otherwise.
+local function ApplyNow()
+    if not db then return end
+    if InCombat() then
+        pending = true
+        return
+    end
+    Evaluate()
+end
+
+-- ---------------------------------------------------------------------------
+-- Settings
+-- ---------------------------------------------------------------------------
+
+local function MaxLabel(n)
+    return n >= MAX_MAX and "All" or tostring(n)
+end
+
+local function SetEnabled(on)
+    db.enabled = on and true or false
+    if on then
+        layoutProblem = nil
+        Print("on." .. (InCombat() and " Applied after combat." or ""))
+        ApplyNow()
+        return
+    end
+    -- Off: Blizzard's own tracker again. In combat it already is (see PLAYER_REGEN_DISABLED).
+    if not InCombat() then RestoreAll() end
+    Print("off - Blizzard's own tracker.")
+end
+
+local function SetMax(n)
+    db.max = n
+    Print("showing at most " .. MaxLabel(n) .. " quests." .. (InCombat() and " Applied after combat." or ""))
+    ApplyNow()
+end
+
+local function SetCompleted(mode)
+    db.completed = mode
+    Print("quests ready to turn in: " .. mode .. "." .. (InCombat() and " Applied after combat." or ""))
+    ApplyNow()
+end
+
+-- ---------------------------------------------------------------------------
+-- Minimap button
+--
+-- The placement mirrors GaarVanguard's button, copied rather than shared: this addon has no
+-- dependencies. Settings live in BetterQuestsForeverDB.minimap = { hide = <bool>, angle = <deg> }
+-- and are read only after ADDON_LOADED.
+-- ---------------------------------------------------------------------------
+
+-- GaarOptions sits at 205 degrees and GaarVanguard at 245; 285 keeps clear of both.
+local MINIMAP_DEFAULT_ANGLE = 285
+local FLAT = "Interface\\Buttons\\WHITE8x8"
+-- Built-in icons, best first; the first one the client resolves is used.
+local MINIMAP_ICONS = {
+    "Interface\\Icons\\INV_Scroll_03",
+    "Interface\\Icons\\INV_Misc_Note_01",
+    "Interface\\Icons\\INV_Misc_QuestionMark",
+}
+local MENU_MAX = { 3, 5, 8, 10, 12, 15, 20, 25, MAX_MAX }
+local MENU_COMPLETED = { { "top", "Top" }, { "level", "By level" }, { "bottom", "Bottom" } }
+
+local function MinimapDB()
+    local m = db.minimap
+    if type(m) ~= "table" then
+        m = {}
+        db.minimap = m
+    end
+    if type(m.hide) ~= "boolean" then m.hide = false end
+    local a = tonumber(m.angle)
+    if not a or a ~= a or a == math.huge or a == -math.huge then a = MINIMAP_DEFAULT_ANGLE end
+    m.angle = a % 360
+    for k in pairs(m) do
+        if k ~= "hide" and k ~= "angle" then m[k] = nil end
+    end
+    return m
+end
+
+local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+
+local function PickMinimapIcon()
+    local getID = _G.GetFileIDFromPath
+    if type(getID) ~= "function" then return MINIMAP_ICONS[1] end
+    for _, path in ipairs(MINIMAP_ICONS) do
+        if pcall1(getID, path) then return path end
+    end
+    return MINIMAP_ICONS[1]
+end
+
+local minimapButton
+
+local function PlaceMinimapButton()
+    local b, mm = minimapButton, _G.Minimap
+    if not b or not mm or not db then return end
+    local angle = math.rad(MinimapDB().angle)
+    local cos, sin = math.cos(angle), math.sin(angle)
+    local x, y
+    -- GetMinimapShape is the convention minimap-button addons read (GaarMap defines it when it
+    -- squares the minimap). On a square minimap the direction is stretched to the edge.
+    local shape = pcall1(_G.GetMinimapShape) or "ROUND"
+    local mw = type(mm.GetWidth) == "function" and pcall1(mm.GetWidth, mm)
+    if IsSecret(mw) or type(mw) ~= "number" or mw <= 0 then mw = 140 end
+    if shape == "SQUARE" then
+        local half = mw / 2 + 8
+        local reach = math.max(math.abs(cos), math.abs(sin))
+        if reach < 0.0001 then reach = 1 end
+        x, y = half * cos / reach, half * sin / reach
+    else
+        -- On the rim: half the minimap's width plus 5, the ring LibDBIcon buttons sit on.
+        local r = mw / 2 + 5
+        x, y = r * cos, r * sin
+    end
+    b:ClearAllPoints()
+    b:SetPoint("CENTER", mm, "CENTER", x, y)
+end
+-- For an addon that changes the minimap's shape and wants the button re-placed at once.
+_G.BetterQuestsForever_PlaceMinimapButton = PlaceMinimapButton
+
+-- The cursor's angle around the minimap's centre, in degrees; nil when it cannot be read.
+local function CursorAngle()
+    local mm = _G.Minimap
+    if not mm or type(_G.GetCursorPosition) ~= "function" then return nil end
+    local mx, my = mm:GetCenter()
+    local scale = mm:GetEffectiveScale()
+    if IsSecret(mx) or IsSecret(my) or IsSecret(scale) then return nil end
+    local cx, cy = _G.GetCursorPosition()
+    if type(mx) ~= "number" or type(my) ~= "number" or type(cx) ~= "number" or type(cy) ~= "number"
+        or type(scale) ~= "number" or scale == 0 then
+        return nil
+    end
+    cx, cy = cx / scale, cy / scale
+    return math.deg(atan2(cy - my, cx - mx)) % 360
+end
+
+local SetMinimapHidden -- defined below; the menu's "Hide" entry calls it
+
+-- The options as data, shared by Blizzard's menu and the fallback menu.
+local function MenuEntries()
+    local list = {
+        { text = "Enabled", checkbox = true, checked = function() return db.enabled end,
+          func = function() SetEnabled(not db.enabled) end },
+    }
+    local maxItems = {}
+    for _, n in ipairs(MENU_MAX) do
+        maxItems[#maxItems + 1] = { text = MaxLabel(n), radio = true,
+            checked = function() return db.max == n end, func = function() SetMax(n) end }
+    end
+    list[#list + 1] = { text = "Max quests shown", submenu = maxItems }
+    local completedItems = {}
+    for _, m in ipairs(MENU_COMPLETED) do
+        completedItems[#completedItems + 1] = { text = m[2], radio = true,
+            checked = function() return db.completed == m[1] end, func = function() SetCompleted(m[1]) end }
+    end
+    list[#list + 1] = { text = "Completed quests", submenu = completedItems }
+    list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
+    return list
+end
+
+local function AddMenuEntries(root, entries)
+    for _, e in ipairs(entries) do
+        if e.divider then
+            if type(root.CreateDivider) == "function" then root:CreateDivider() end
+        elseif e.submenu then
+            local sub = root:CreateButton(e.text)
+            if type(sub) == "table" then AddMenuEntries(sub, e.submenu) end
+        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
+            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
+        elseif e.radio and type(root.CreateRadio) == "function" then
+            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
+        elseif e.checkbox or e.radio then
+            -- A menu without checkboxes or radios: show the state in the label instead.
+            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
+        else
+            root:CreateButton(e.text, function() e.func() end)
+        end
+    end
+end
+
+-- A small menu drawn here for clients without MenuUtil (not UIDropDownMenu, whose shared state
+-- is prone to taint). Submenus are shown inline under their heading.
+local customMenu
+local function ShowCustomMenu(owner, entries)
+    local m = customMenu
+    if not m then
+        m = CreateFrame("Frame", "BetterQuestsForeverMinimapMenu", _G.UIParent, "BackdropTemplate")
+        m:SetFrameStrata("DIALOG")
+        if type(m.SetBackdrop) == "function" then
+            m:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+                insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+            m:SetBackdropColor(0.07, 0.08, 0.10, 0.97)
+            m:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+        end
+        m:EnableMouse(true)
+        m:SetClampedToScreen(true)
+        m.rows = {}
+        m:Hide()
+        if type(_G.UISpecialFrames) == "table" then table.insert(_G.UISpecialFrames, "BetterQuestsForeverMinimapMenu") end
+        -- Close once the mouse has been away from both the menu and the button for a moment.
+        m:SetScript("OnUpdate", function(self, elapsed)
+            local over = self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())
+            if over then
+                self.idle = 0
+            else
+                self.idle = (self.idle or 0) + (elapsed or 0)
+                if self.idle > 2 then self:Hide() end
+            end
+        end)
+        customMenu = m
+    end
+    if m:IsShown() and m.owner == owner then
+        m:Hide()
+        return m
+    end
+
+    local rows = { { title = TITLE } }
+    for _, e in ipairs(entries) do
+        if e.submenu then
+            rows[#rows + 1] = { heading = e.text }
+            for _, s in ipairs(e.submenu) do rows[#rows + 1] = s end
+        else
+            rows[#rows + 1] = e
+        end
+    end
+    local w, y = 170, -6
+    for i, it in ipairs(rows) do
+        local r = m.rows[i]
+        if not r then
+            r = CreateFrame("Button", nil, m)
+            r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            r.text:SetPoint("LEFT", 8, 0)
+            r.text:SetJustifyH("LEFT")
+            r:SetHighlightTexture(FLAT, "ADD")
+            local hl = r:GetHighlightTexture()
+            if hl then hl:SetVertexColor(1, 1, 1, 0.10) end
+            m.rows[i] = r
+        end
+        local h = it.divider and 8 or 18
+        r:SetHeight(h)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", 4, y)
+        r:SetPoint("TOPRIGHT", -4, y)
+        if it.title or it.heading or it.divider then
+            local label = it.title and ("|cffffd100" .. it.title .. "|r")
+                or it.heading and ("|cffaaaaaa" .. it.heading .. "|r") or ""
+            r.text:SetText(label)
+            r:EnableMouse(false)
+            r:SetScript("OnClick", nil)
+        else
+            local label = it.text
+            if it.checkbox then
+                label = (it.checked() and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t "
+                    or "|TInterface\\Buttons\\UI-CheckBox-Up:14:14|t ") .. label
+            elseif it.radio then
+                label = "   " .. (it.checked() and "|cff33ff99(o)|r " or "( ) ") .. label
+            end
+            r.text:SetText(label)
+            r:EnableMouse(true)
+            r:SetScript("OnClick", function()
+                m:Hide()
+                it.func()
+            end)
+        end
+        w = math.max(w, (pcall1(r.text.GetStringWidth, r.text) or 0) + 24)
+        r:Show()
+        y = y - h
+    end
+    for i = #rows + 1, #m.rows do m.rows[i]:Hide() end
+    m:SetSize(w, -y + 6)
+    m:ClearAllPoints()
+    m:SetPoint("TOPRIGHT", owner, "BOTTOMLEFT", 0, 0)
+    m.owner = owner
+    m.idle = 0
+    m:Show()
+    return m
+end
+
+-- Returns which menu was used ("MenuUtil" or "custom").
+local function ShowMinimapMenu(owner)
+    local entries = MenuEntries()
+    local MU = _G.MenuUtil
+    if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
+        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+            if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
+            AddMenuEntries(root, entries)
+        end)
+        if ok then return "MenuUtil" end
+    end
+    ShowCustomMenu(owner, entries)
+    return "custom"
+end
+
+local function StateLine()
+    return (db.enabled and "On" or "Off") .. " \194\183 max " .. MaxLabel(db.max)
+        .. " \194\183 completed: " .. db.completed
+end
+
+local function BuildMinimapButton()
+    if minimapButton then return minimapButton end
+    local mm = _G.Minimap
+    if type(mm) ~= "table" then return nil end
+
+    local b = CreateFrame("Button", "BetterQuestsForeverMinimapButton", mm)
+    b:SetSize(31, 31)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel((pcall1(mm.GetFrameLevel, mm) or 0) + 8)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetMovable(true)
+
+    -- The standard minimap-button look: dark disc, the icon, the gold tracking ring on top.
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    bg:SetSize(20, 20)
+    bg:SetPoint("TOPLEFT", 7, -5)
+
+    local icon = b:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture(PickMinimapIcon())
+    icon:SetSize(17, 17)
+    icon:SetPoint("TOPLEFT", 7, -6)
+    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    b.icon = icon
+
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT", 0, 0)
+
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+
+    local tip = _G.GameTooltip
+    b:SetScript("OnDragStart", function(self)
+        if tip then tip:Hide() end
+        self:SetScript("OnUpdate", function()
+            local a = CursorAngle()
+            if a then
+                MinimapDB().angle = a
+                PlaceMinimapButton()
+            end
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+    b:SetScript("OnEnter", function(self)
+        if not tip then return end
+        tip:SetOwner(self, "ANCHOR_LEFT")
+        tip:AddLine(TITLE)
+        tip:AddLine(StateLine(), 1, 1, 1)
+        tip:AddLine("Click: options", 1, 1, 1)
+        tip:AddLine("Drag: move", 0.6, 0.6, 0.6)
+        tip:Show()
+    end)
+    b:SetScript("OnLeave", function()
+        if tip then tip:Hide() end
+    end)
+    b:SetScript("OnClick", function(self)
+        if tip then tip:Hide() end
+        ShowMinimapMenu(self)
+    end)
+
+    minimapButton = b
+    return b
+end
+
+local function ApplyMinimap()
+    if not db then return end
+    if MinimapDB().hide then
+        if minimapButton then minimapButton:Hide() end
+        if customMenu then customMenu:Hide() end
+        return
+    end
+    if BuildMinimapButton() then
+        PlaceMinimapButton()
+        minimapButton:Show()
+    end
+end
+
+SetMinimapHidden = function(hide)
+    MinimapDB().hide = hide and true or false
+    ApplyMinimap()
+    if hide then
+        Print("minimap button hidden. Type |cffffd100/bqf minimap|r to show it again.")
+    else
+        Print("minimap button shown.")
+    end
+end
+
+local function ResetMinimapButton()
+    local m = MinimapDB()
+    m.angle = MINIMAP_DEFAULT_ANGLE
+    m.hide = false
+    ApplyMinimap()
+    Print("minimap button reset to its default position.")
+end
+
 -- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
@@ -594,17 +1019,19 @@ local function Yes(v) return v and "yes" or "MISSING" end
 
 local function PrintHelp()
     Print("orders the Quests section of the objective tracker by level and shows only the first N.")
-    Print("/bqf max <n> - show at most n quests, 1-50 (now: " .. (db and db.max or DEFAULTS.max) .. ")")
+    Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
+        .. MaxLabel(db and db.max or DEFAULTS.max) .. ")")
     Print("/bqf completed top | level | bottom - where quests ready to turn in go (now: "
         .. (db and db.completed or DEFAULTS.completed) .. ")")
     Print("/bqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
+    Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
     Print("/bqf status - settings, counts and what this client offers")
 end
 
 local function PrintStatus()
     local ql = QuestLog()
-    Print("enabled: " .. ((db and db.enabled) and "yes" or "no") .. "   max: " .. db.max
+    Print("enabled: " .. (db.enabled and "yes" or "no") .. "   max: " .. MaxLabel(db.max)
         .. "   completed: " .. db.completed)
     local watches = GetWatches()
     local inSection = 0
@@ -615,47 +1042,30 @@ local function PrintStatus()
         shownCount and tostring(shownCount) or "all (limit not applied)"))
     Print("tracker: " .. (tracker and "QuestObjectiveTracker recognised" or ("not recognised - " .. (trackerProblem or "not checked yet"))))
     Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none"))
-    Print("sorting: " .. (sortProblem and ("off - " .. sortProblem) or "on") .. "   reorders this session: " .. reorderCount)
-    Print("limit: " .. (limitProblem and ("off - " .. limitProblem) or "on"))
-    Print("C_QuestLog watches (GetNumQuestWatches, GetQuestIDForQuestWatchIndex, Add/RemoveQuestWatch): "
-        .. Yes(not MissingWatchApi()))
-    Print("C_QuestLog.GetQuestWatchType: " .. Yes(ql and type(ql.GetQuestWatchType) == "function")
-        .. "   C_QuestLog.IsComplete: " .. Yes(ql and type(ql.IsComplete) == "function")
-        .. "   C_QuestLog.SortQuestWatches: " .. Yes(ql and type(ql.SortQuestWatches) == "function"))
+    local order
+    if not db.enabled then
+        order = "off (Blizzard's own)"
+    elseif layoutProblem then
+        order = "not applied - " .. layoutProblem
+    elseif InCombat() then
+        order = "Blizzard's own during combat" .. (pending and "; applied after combat" or "")
+    elseif orderedCount then
+        order = "visual (applied to " .. orderedCount .. " blocks)"
+    else
+        order = "visual (waiting for the tracker's next layout)"
+    end
+    Print("order: " .. order)
+    Print("watch list: never changed by this addon")
+    Print("C_QuestLog (GetNumQuestWatches, GetQuestIDForQuestWatchIndex, GetLogIndexForQuestID, GetInfo): "
+        .. Yes(not MissingQuestApi()) .. "   IsComplete: " .. Yes(ql and type(ql.IsComplete) == "function"))
     local qis = _G.C_QuestInfoSystem
     Print("C_QuestInfoSystem.GetQuestClassification: " .. Yes(type(qis) == "table"
         and type(qis.GetQuestClassification) == "function")
-        .. "   C_SuperTrack: " .. Yes(type(_G.C_SuperTrack) == "table"))
-    if InCombat() then
-        Print("in combat: the tracker is Blizzard's own until combat ends" .. (pending and "; an update is waiting" or ""))
-    end
-    if lastWarning then Print("last warning: " .. lastWarning) end
+        .. "   MenuUtil: " .. (type(_G.MenuUtil) == "table" and "yes" or "no (own menu)"))
+    local m = MinimapDB()
+    Print("minimap button: " .. (m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle))
+        .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
 end
-
-local function SetEnabled(on)
-    db.enabled = on
-    if on then
-        if sortProblem and sortProblem:find("^paused") then sortProblem = nil end
-        reorderTimes = {}
-        limitProblem = nil
-        Print("on.")
-        Schedule()
-        return
-    end
-    -- Off: show everything again and hand the order back to Blizzard's own sort, the one the
-    -- tracker itself runs on zone changes (ObjectiveTrackerFrameMixin:OnEvent).
-    if InCombat() then
-        Print("off. The tracker is already Blizzard's own during combat; the order is handed back after combat.")
-        pending = true
-        return
-    end
-    RestoreAll()
-    local ql = QuestLog()
-    if ql and type(ql.SortQuestWatches) == "function" then Try(ql.SortQuestWatches) end
-    Print("off - Blizzard's own tracker.")
-end
-
-local offSortPending -- /bqf off in combat: Blizzard's sort runs after combat
 
 local function OnSlash(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
@@ -665,28 +1075,29 @@ local function OnSlash(msg)
     end
     local n = msg:match("^max (%d+)$")
     local mode = msg:match("^completed (%a+)$")
-    if n then
+    if msg == "max all" then
+        SetMax(MAX_MAX)
+    elseif n then
         n = tonumber(n)
         if n < MIN_MAX or n > MAX_MAX then
-            Print("max must be between " .. MIN_MAX .. " and " .. MAX_MAX .. ".")
+            Print("max must be between " .. MIN_MAX .. " and " .. MAX_MAX .. ", or all.")
             return
         end
-        db.max = n
-        Print("showing at most " .. n .. " quests." .. (InCombat() and " Applied after combat." or ""))
-        Schedule()
+        SetMax(n)
     elseif mode then
         if not COMPLETED_MODES[mode] then
             Print("use /bqf completed top, level or bottom.")
             return
         end
-        db.completed = mode
-        Print("quests ready to turn in: " .. mode .. "." .. (InCombat() and " Applied after combat." or ""))
-        Schedule()
+        SetCompleted(mode)
     elseif msg == "on" then
         SetEnabled(true)
     elseif msg == "off" then
-        if InCombat() then offSortPending = true end
         SetEnabled(false)
+    elseif msg == "minimap" then
+        SetMinimapHidden(not MinimapDB().hide)
+    elseif msg == "minimap reset" then
+        ResetMinimapButton()
     elseif msg == "status" then
         PrintStatus()
     else
@@ -709,6 +1120,7 @@ local function BindSavedVariables()
     if not m or m < MIN_MAX or m > MAX_MAX then m = DEFAULTS.max end
     db.max = math.floor(m)
     if not COMPLETED_MODES[db.completed] then db.completed = DEFAULTS.completed end
+    MinimapDB()
 end
 
 local events = CreateFrame("Frame")
@@ -722,6 +1134,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
+            pcall(ApplyMinimap)
             Schedule()
         elseif db and not hooked and arg1 == "Blizzard_ObjectiveTracker" then
             Schedule()
@@ -729,12 +1142,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Fires before the lockdown starts: hand the section back to Blizzard for the fight.
         RestoreAll()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if offSortPending and db and not db.enabled then
-            offSortPending = false
-            local ql = QuestLog()
-            if ql and type(ql.SortQuestWatches) == "function" then Try(ql.SortQuestWatches) end
-        end
+    elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
+        if db then pcall(ApplyMinimap) end
         Schedule()
     else
         Schedule()

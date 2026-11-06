@@ -8,6 +8,10 @@
 
     * Order: by quest level, lowest first, ties by title. Quests that are ready to turn in go to
       the bottom (default), to the top, or are sorted among the others by level.
+    * Sort by distance (optional, /bqf sort distance): nearest first, from
+      C_QuestLog.GetDistanceSqToQuest; quests without a distance go last. The order is worked
+      out again every few seconds out of combat, with hysteresis so near-equal quests do not
+      jump around, and applied through the same hook-time code as the level order.
     * Limit: only the first N quests of that order are shown (default 10). The rest stay tracked;
       they are only not drawn.
 
@@ -61,18 +65,24 @@ local PREFIX = "|cff33ff99BetterQuestsForever|r: "
 
 local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
+local SORT_MODES = { level = true, distance = true }
+-- Distance mode: re-evaluate the order this often (seconds), and only reorder two quests when the
+-- one behind is closer by at least this many yards AND this fraction of the other's distance.
+local DISTANCE_TICK = 3
+local HYST_YARDS, HYST_FRACTION = 50, 0.10
 
 local DEFAULTS = {
     enabled = true,
     max = 10,
     completed = "bottom",
+    sort = "level",
     hideInCombat = true,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
-    hideInCombat = true, distanceProbe = true }
+    hideInCombat = true, distanceProbe = true, sort = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -86,6 +96,8 @@ local pending           -- an evaluation is waiting (throttle or combat)
 local heightSet         -- the section's frame has a height other than Blizzard's
 local shownCount        -- quest blocks visible after the last pass
 local orderedCount      -- quest blocks sorted in the last pass
+local prevOrder         -- quest IDs in the order of the last distance-mode pass (for hysteresis)
+local distanceTicker    -- the C_Timer ticker that re-evaluates the order in distance mode
 
 -- Frames we changed, so they can be put back. Weak keys: a frame Blizzard drops is forgotten.
 local hiddenBlocks = setmetatable({}, { __mode = "k" })
@@ -572,6 +584,99 @@ local function Compare(a, b)
     return a.id < b.id
 end
 
+local function SortMode()
+    return db and db.sort == "distance" and "distance" or "level"
+end
+
+-- Distance to the quest in yards, or nil when the client has none (missing API, no distance,
+-- not a number, negative). C_QuestLog.GetDistanceSqToQuest returns squared yards.
+local function QuestDistance(questID)
+    local ql = QuestLog()
+    local fn = ql and ql.GetDistanceSqToQuest
+    if type(fn) ~= "function" then return nil end
+    local ok, sq = pcall(fn, questID)
+    if not ok or IsSecret(sq) or type(sq) ~= "number" or sq ~= sq or sq < 0 or sq == math.huge then return nil end
+    return math.sqrt(sq)
+end
+
+-- Distance mode, plain order: completed quests first or last unless the mode is "level" (then
+-- "with the others"), nearest first, quests without a distance after those with one (by level,
+-- then title, then quest ID).
+local function DistanceCompare(a, b)
+    local mode = db and db.completed or DEFAULTS.completed
+    if a.complete ~= b.complete and mode ~= "level" then
+        if mode == "top" then return a.complete end
+        return b.complete
+    end
+    if a.dist and b.dist then
+        if a.dist ~= b.dist then return a.dist < b.dist end
+    elseif a.dist or b.dist then
+        return a.dist ~= nil
+    end
+    if a.level ~= b.level then return a.level < b.level end
+    if a.titleKey ~= b.titleKey then return a.titleKey < b.titleKey end
+    if a.title ~= b.title then return a.title < b.title end
+    return a.id < b.id
+end
+
+-- Should x go in front of y, which is directly ahead of it now? Like DistanceCompare, except two
+-- quests with distances only swap when x is clearly closer: by HYST_YARDS and HYST_FRACTION of y's.
+local function ClearlyBefore(x, y)
+    if x.dist and y.dist then
+        local mode = db and db.completed or DEFAULTS.completed
+        if x.complete == y.complete or mode == "level" then
+            local gap = y.dist - x.dist
+            return gap >= HYST_YARDS and gap >= HYST_FRACTION * y.dist
+        end
+    end
+    return DistanceCompare(x, y)
+end
+
+-- Sorts items (each with .id and .dist) in place by distance. With a previous order, quests
+-- that were there keep their relative order unless the one behind is clearly closer (an
+-- insertion pass seeded with that order); new quests take their plain sorted place.
+local function SortByDistance(items, previous)
+    if not previous then
+        table.sort(items, DistanceCompare)
+        return
+    end
+    local rank = {}
+    for i, id in ipairs(previous) do rank[id] = i end
+    local kept, fresh = {}, {}
+    for _, d in ipairs(items) do
+        if rank[d.id] then kept[#kept + 1] = d else fresh[#fresh + 1] = d end
+    end
+    table.sort(kept, function(a, b) return rank[a.id] < rank[b.id] end)
+    table.sort(fresh, DistanceCompare)
+    for _, d in ipairs(fresh) do
+        local at = #kept + 1
+        for i, k in ipairs(kept) do
+            if DistanceCompare(d, k) then at = i; break end
+        end
+        table.insert(kept, at, d)
+    end
+    for i = 2, #kept do
+        local j = i
+        while j > 1 and ClearlyBefore(kept[j], kept[j - 1]) do
+            kept[j], kept[j - 1] = kept[j - 1], kept[j]
+            j = j - 1
+        end
+    end
+    for i, d in ipairs(kept) do items[i] = d end
+end
+
+-- Orders items (quest data) for the current sort mode and remembers the distance order.
+local function OrderQuests(items)
+    if SortMode() == "distance" then
+        for _, d in ipairs(items) do d.dist = QuestDistance(d.id) end
+        SortByDistance(items, prevOrder)
+        prevOrder = {}
+        for i, d in ipairs(items) do prevOrder[i] = d.id end
+    else
+        table.sort(items, Compare)
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- The tracker
 -- ---------------------------------------------------------------------------
@@ -821,7 +926,7 @@ local function ApplyLayout()
             fixed[#fixed + 1] = b
         end
     end
-    table.sort(sortable, Compare)
+    OrderQuests(sortable)
 
     local visible, hide = {}, {}
     for _, b in ipairs(fixed) do visible[#visible + 1] = b end
@@ -919,6 +1024,46 @@ local function Evaluate()
     OnTrackerLaidOut()
 end
 
+-- Distance mode: the quests' distances change as the player moves, so every DISTANCE_TICK
+-- seconds the order is worked out again (with hysteresis); the layout is re-applied, through the
+-- same OnTrackerLaidOut the hooks use, only when it would change. Never in combat, and nothing
+-- is done while the tracker is hidden.
+local function DistanceTick()
+    if not db or not db.enabled or SortMode() ~= "distance" or InCombat() then return end
+    if not tracker or not hooked then return end
+    local otf = _G.ObjectiveTrackerFrame
+    if IsFrame(otf) and not IsShownFrame(otf) then return end
+    local items = {}
+    for _, questID in ipairs(GetWatches()) do
+        local d = QuestData(questID)
+        if d.inLog and d.inQuestsSection then
+            d.dist = QuestDistance(questID)
+            items[#items + 1] = d
+        end
+    end
+    SortByDistance(items, prevOrder)
+    local same = prevOrder ~= nil and #prevOrder == #items
+    if same then
+        for i, d in ipairs(items) do
+            if prevOrder[i] ~= d.id then same = false; break end
+        end
+    end
+    if not same then OnTrackerLaidOut() end
+end
+
+-- One ticker, running only while the addon is on and sorts by distance.
+local function UpdateDistanceTicker()
+    local want = db and db.enabled and SortMode() == "distance"
+        and type(_G.C_Timer) == "table" and type(_G.C_Timer.NewTicker) == "function"
+    if want and not distanceTicker then
+        distanceTicker = _G.C_Timer.NewTicker(DISTANCE_TICK, function() pcall(DistanceTick) end)
+    elseif not want and distanceTicker then
+        pcall(distanceTicker.Cancel, distanceTicker)
+        distanceTicker = nil
+    end
+    if SortMode() ~= "distance" or not (db and db.enabled) then prevOrder = nil end
+end
+
 local throttle = CreateFrame("Frame")
 throttle:Hide()
 local throttleLeft = 0
@@ -958,6 +1103,7 @@ end
 
 local function SetEnabled(on)
     db.enabled = on and true or false
+    UpdateDistanceTicker()
     if on then
         layoutProblem = nil
         Print("on." .. (InCombat() and " Applied after combat." or ""))
@@ -978,6 +1124,14 @@ end
 local function SetCompleted(mode)
     db.completed = mode
     Print("quests ready to turn in: " .. mode .. "." .. (InCombat() and " Applied after combat." or ""))
+    ApplyNow()
+end
+
+local function SetSort(mode)
+    db.sort = mode
+    prevOrder = nil
+    UpdateDistanceTicker()
+    Print("sort by " .. mode .. "." .. (InCombat() and " Applied after combat." or ""))
     ApplyNow()
 end
 
@@ -1028,6 +1182,7 @@ local MINIMAP_ICONS = {
 local MENU_MAX = { 3, 5, 8, 10, 12, 15, 20, 25, MAX_MAX }
 local MENU_ALPHA = { 20, 35, 50, 65, 80 }
 local MENU_COMPLETED = { { "top", "Top" }, { "level", "By level" }, { "bottom", "Bottom" } }
+local MENU_SORT = { { "level", "Level" }, { "distance", "Distance" } }
 
 local function MinimapDB()
     local m = db.minimap
@@ -1115,9 +1270,17 @@ local function MenuEntries()
             checked = function() return db.max == n end, func = function() SetMax(n) end }
     end
     list[#list + 1] = { text = "Max quests shown", submenu = maxItems }
+    local sortItems = {}
+    for _, m in ipairs(MENU_SORT) do
+        sortItems[#sortItems + 1] = { text = m[2], radio = true,
+            checked = function() return db.sort == m[1] end, func = function() SetSort(m[1]) end }
+    end
+    list[#list + 1] = { text = "Sort by", submenu = sortItems }
     local completedItems = {}
     for _, m in ipairs(MENU_COMPLETED) do
-        completedItems[#completedItems + 1] = { text = m[2], radio = true,
+        local text = m[2]
+        if m[1] == "level" and db.sort == "distance" then text = "With the others" end
+        completedItems[#completedItems + 1] = { text = text, radio = true,
             checked = function() return db.completed == m[1] end, func = function() SetCompleted(m[1]) end }
     end
     list[#list + 1] = { text = "Completed quests", submenu = completedItems }
@@ -1270,7 +1433,7 @@ local function ShowMinimapMenu(owner)
 end
 
 local function StateLine()
-    return (db.enabled and "On" or "Off") .. " \194\183 max " .. MaxLabel(db.max)
+    return (db.enabled and "On" or "Off") .. " \194\183 " .. SortMode() .. " \194\183 max " .. MaxLabel(db.max)
         .. " \194\183 completed: " .. db.completed
         .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
 end
@@ -1419,7 +1582,9 @@ local function DistanceProbe()
 end
 
 local function PrintHelp()
-    Print("orders the Quests section of the objective tracker by level and shows only the first N.")
+    Print("orders the Quests section of the objective tracker by level or distance and shows only the first N.")
+    Print("/bqf sort level | distance - order by quest level or by how near the quest is (now: "
+        .. (db and db.sort or DEFAULTS.sort) .. ")")
     Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
         .. MaxLabel(db and db.max or DEFAULTS.max) .. ")")
     Print("/bqf completed top | level | bottom - where quests ready to turn in go (now: "
@@ -1437,7 +1602,7 @@ end
 
 local function PrintStatus()
     local ql = QuestLog()
-    Print("enabled: " .. (db.enabled and "yes" or "no") .. "   max: " .. MaxLabel(db.max)
+    Print("enabled: " .. (db.enabled and "yes" or "no") .. "   sort: " .. db.sort .. "   max: " .. MaxLabel(db.max)
         .. "   completed: " .. db.completed)
     local watches = GetWatches()
     local inSection = 0
@@ -1508,6 +1673,7 @@ local function OnSlash(msg)
     end
     local n = msg:match("^max (%d+)$")
     local mode = msg:match("^completed (%a+)$")
+    local sortMode = msg:match("^sort (%a+)$")
     if msg == "max all" then
         SetMax(MAX_MAX)
     elseif n then
@@ -1523,6 +1689,12 @@ local function OnSlash(msg)
             return
         end
         SetCompleted(mode)
+    elseif sortMode or msg == "sort" then
+        if not SORT_MODES[sortMode] then
+            Print("use /bqf sort level or distance (now: " .. db.sort .. ").")
+            return
+        end
+        SetSort(sortMode)
     elseif msg == "on" then
         SetEnabled(true)
     elseif msg == "off" then
@@ -1570,6 +1742,7 @@ local function BindSavedVariables()
     if not m or m < MIN_MAX or m > MAX_MAX then m = DEFAULTS.max end
     db.max = math.floor(m)
     if not COMPLETED_MODES[db.completed] then db.completed = DEFAULTS.completed end
+    if not SORT_MODES[db.sort] then db.sort = DEFAULTS.sort end
     if type(db.hideInCombat) ~= "boolean" then db.hideInCombat = DEFAULTS.hideInCombat end
     MinimapDB()
     BackdropDB()
@@ -1586,6 +1759,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
+            UpdateDistanceTicker()
             pcall(ApplyMinimap)
             pcall(HookBackdropTargets)
             MarkBackdrop()

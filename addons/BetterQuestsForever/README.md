@@ -31,6 +31,12 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
   block, with 4 px of padding. It follows the content as it grows and shrinks (including after
   the order and the limit change the height) and is hidden when the tracker is hidden, collapsed
   or empty. See [Backdrop](#backdrop).
+- **Hide in combat** (default on). When a fight starts the whole objective tracker ("All
+  Objectives", every section) and the backdrop are hidden; when it ends the tracker comes back,
+  sorted and limited as before, with its backdrop. It only comes back if it was shown when the
+  fight started, so a tracker Blizzard had hidden (no quests, a cinematic) stays hidden. Off, the
+  tracker stays visible in combat with Blizzard's own order, as in 1.2. See
+  [Hide in combat](#hide-in-combat).
 
 ## Commands
 
@@ -42,15 +48,17 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 | `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
 | `/bqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
+| `/bqf combat on`, `/bqf combat off` | Hide the whole objective tracker during combat (default on) |
 | `/bqf minimap` | Show or hide the minimap button |
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
-| `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, and the minimap button's state |
+| `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
 ## Minimap button
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests
 shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Completed quests** (Top, By level, Bottom),
-**Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
+**Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
+(checkbox) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
 to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,
 e.g. with GaarMap) it follows the square edge. The menu is Blizzard's `MenuUtil` where the
 client has it, otherwise a small menu drawn by the addon (never `UIDropDownMenu`). The placement
@@ -59,7 +67,7 @@ code is a copy of GaarVanguard's, so this addon still has no dependencies; its d
 `BetterQuestsForever_PlaceMinimapButton()` re-places it, for an addon that changes the minimap's
 shape.
 
-Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`,
+Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `hideInCombat`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## How it works
@@ -123,8 +131,55 @@ Blizzard frame:
   frame measures on the next frame, and every 0.1 s anyway, so a dragged or rescaled tracker is
   followed too. The addon's own layout pass sets the flag as well.
 - **Hidden** when the tracker frame is hidden or collapsed, or when no module has a visible block.
-- **Combat.** The backdrop only reads Blizzard's positions and writes to its own frame, so it
-  keeps following the tracker in combat. `/bqf status` shows why it is hidden, if it is.
+- **Combat.** With hide in combat on, the backdrop is hidden for the fight together with the
+  tracker. With it off, the backdrop only reads Blizzard's positions and writes to its own frame,
+  so it keeps following the tracker in combat. `/bqf status` shows why it is hidden, if it is.
+- **Moving the tracker** is Blizzard's Edit Mode. A move fires none of the hooks, but the 0.1 s
+  measurement picks up the new position, so the backdrop follows.
+
+## Hide in combat
+
+`ObjectiveTrackerFrame` is not a protected frame, so the client lets it be hidden in combat. The
+catch is what runs when it is hidden or shown: its `OnHide` (`ManagedFrameMixin`,
+`EditModeSystemMixin:OnSystemHide`) calls `RightManagedFrameContainer:RemoveManagedFrame`, which
+writes the container's `showingFrames`, calls `ObjectiveTrackerFrame:UpdateHeight` and lays out
+the right-hand container (which also holds the boss and arena frames, which are protected); its
+`OnShow` calls `AddManagedFrame` (`SetParent` and `Layout`) and `UpdateHeight`, whose
+`OnSizeChanged` marks the tracker dirty. Whoever calls `Hide()` or `Show()` runs all of that. From
+addon code it would run tainted, and the tracker update that sets the quest item buttons'
+`questLogIndex` attribute would carry the taint, so a click on a quest item would be blocked.
+Fading it instead (alpha) would leave the item buttons clickable. So the addon never calls
+`Hide()` or `Show()` on it.
+
+A secure handler of the addon's own with a frame reference to the tracker does not work either:
+the restricted environment refuses a handle to a frame that is not protected while
+`InCombatLockdown()` is true (`RestrictedFrames.lua`, "Invalid frame handle"), and a state driver
+only reaches that handler after the lockdown has started.
+
+What it does instead:
+
+- On `PLAYER_REGEN_DISABLED` (which fires just before the lockdown starts) it notes whether the
+  tracker is shown and registers Blizzard's state driver on it:
+  `RegisterStateDriver(ObjectiveTrackerFrame, "visibility", "hide")`. `SecureStateDriverManager`
+  hides it at once from its own secure code, so `OnHide` and everything it calls run untainted.
+- If Blizzard shows the tracker during the fight (its update does, on a quest update), the driver
+  hides it again within its 0.2 s throttle, so it can blink for a moment. The backdrop stays
+  hidden throughout.
+- On `PLAYER_REGEN_ENABLED` (just after the lockdown ends), if the tracker was shown when the
+  fight started, the driver is set to `show` once (Blizzard's code shows it, untainted) and then
+  removed with `UnregisterStateDriver`. After that the order, the limit and the backdrop are
+  applied again as after any fight.
+- The driver is on the tracker only between those two events. Out of combat Blizzard's own
+  show/hide logic is never overridden. The driver itself sets the tracker's `statehidden`
+  attribute (`true` when it hides, `nil` when it shows), which nothing in the tracker reads; it
+  stays `true` after a fight where the tracker was hidden to begin with.
+- It is independent of `/bqf on`/`off` (which only switches the order and the limit) and of the
+  backdrop setting.
+- A change of the setting during a fight applies from the next fight; turning it off during a
+  fight still brings the tracker back when the fight ends.
+- If the client has no `RegisterStateDriver`, if there is no `ObjectiveTrackerFrame`, or if the
+  lockdown had already started when the event arrived, nothing is hidden (there is no insecure
+  fallback) and `/bqf status` says why.
 
 ## Taint
 
@@ -139,7 +194,9 @@ tainted code and the click would be blocked (`ADDON_ACTION_BLOCKED`). So:
   no client event is raised from addon code.
 - The addon never writes a field into a Blizzard table, never calls a Blizzard Lua function of
   the tracker (`MarkDirty`, `Update`, `UpdateHeight`, ...), never sets an attribute and never
-  calls a protected function. Its only effect on the tracker is the widget methods `GetPoint`,
+  calls a protected function. Hide in combat goes through Blizzard's public
+  `RegisterStateDriver`/`UnregisterStateDriver`, out of the lockdown only; see
+  [Hide in combat](#hide-in-combat). Its only effect on the tracker is the widget methods `GetPoint`,
   `SetPoint`, `Hide`, `Show` and `SetHeight`, from inside `hooksecurefunc` hooks (which do not
   taint the caller), out of combat.
 - Before each pass it checks every frame it would touch. If a quest block is protected or
@@ -158,8 +215,8 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `parentModule`, `addedRegions`; `C_QuestLog.GetNumQuestWatches`,
 `GetQuestIDForQuestWatchIndex`, `GetLogIndexForQuestID`, `GetInfo`, `IsComplete`,
 `IsQuestDisabledForSession`; `C_QuestInfoSystem.GetQuestClassification` with
-`Enum.QuestClassification.Campaign`; `MenuUtil.CreateContextMenu`, `Minimap`,
-`GetMinimapShape`. Every one is checked before use. If the tracker is not recognised the addon
+`Enum.QuestClassification.Campaign`; `ObjectiveTrackerFrame`, `RegisterStateDriver`,
+`UnregisterStateDriver`; `MenuUtil.CreateContextMenu`, `Minimap`, `GetMinimapShape`. Every one is checked before use. If the tracker is not recognised the addon
 does nothing and `/bqf status` says what is missing.
 
 It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.

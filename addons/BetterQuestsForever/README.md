@@ -9,9 +9,18 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 - **Order.** Tracked quests are shown by quest level, lowest first (the `[n]` the tracker shows,
   `C_QuestLog.GetInfo(logIndex).level`, falling back to `difficultyLevel`). Quests of the same
   level are ordered by title, ignoring case.
+- **Sort by distance (optional).** `/bqf sort distance` (or **Sort by** in the minimap menu)
+  shows the nearest quest first, using `C_QuestLog.GetDistanceSqToQuest` (what Blizzard's own
+  proximity sort uses; check your client with `/bqf distance`). Quests without a distance (no
+  value, not a number, negative) go after those with one, ordered by level then title. The order
+  is worked out again about every 3 seconds, out of combat only and only while the tracker is
+  shown, and the layout is only touched when the order changes. To stop quests from jumping
+  around, two quests keep their order unless the one behind is closer by at least 50 yards and at
+  least 10 %. The limit then shows the N nearest quests. `/bqf sort level` (the default) is the
+  level order described above, with no timer.
 - **Completed quests.** Quests that are ready to turn in (`C_QuestLog.IsComplete`) go to the
   **bottom** by default. `/bqf completed top` puts them first; `/bqf completed level` sorts
-  them among the others by level.
+  them among the others (by level, or by distance in distance mode; the menu calls it "By level" or "With the others").
 - **Limit.** Only the first **N** quests of that order are shown (default **10**, 1-49, or all).
   With 30 tracked quests and N = 10, you see the 10 lowest-level quests that are not complete.
   When one of them completes it moves to the bottom, out of the 10, and the next tracked quest
@@ -44,6 +53,7 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 |---|---|
 | `/bqf` | Help |
 | `/bqf max <n>`, `/bqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
+| `/bqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
 | `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
@@ -51,12 +61,12 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 | `/bqf combat on`, `/bqf combat off` | Hide the whole objective tracker during combat (default on) |
 | `/bqf minimap` | Show or hide the minimap button |
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
-| `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
+| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
 ## Minimap button
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests
-shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Completed quests** (Top, By level, Bottom),
+shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
 (checkbox) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
 to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,
@@ -67,7 +77,7 @@ code is a copy of GaarVanguard's, so this addon still has no dependencies; its d
 `BetterQuestsForever_PlaceMinimapButton()` re-places it, for an addon that changes the minimap's
 shape.
 
-Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `hideInCombat`,
+Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## How it works

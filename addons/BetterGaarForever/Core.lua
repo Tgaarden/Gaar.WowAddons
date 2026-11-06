@@ -1,49 +1,50 @@
 --[[
-  BetterGaarForever - BetterBagsForever and BetterQuestsForever in one addon, for WoW Forever.
+  BetterGaarForever - an optional hub for BetterBagsForever and BetterQuestsForever, for WoW Forever.
 
-  This file is the shell the two modules plug into. It owns:
+  It carries no bag or quest code of its own. Both addons stay fully independent: their logic, their
+  settings (BetterBagsForeverDB, BetterQuestsForeverDB) and their slash commands (/bbf, /bqf) stay
+  in their own addon, and without this hub they behave exactly as they do on their own. What the
+  hub adds is one minimap button whose menu has a "Bags" and a "Quests" submenu, filled by each
+  addon through the small API table it exports:
 
-    * the saved variables (BetterGaarForeverDB), bound at ADDON_LOADED, never at file scope:
-        modules  = { bags = <bool>, quests = <bool> }    per-module on/off, default on
-        migrated = { bags = true, quests = true }        settings imported from the standalone addon
-        minimap  = { hide = <bool>, angle = <deg> }      the one minimap button
-        bags     = { ... }                               the Bags module's settings
-        quests   = { ... }                               the Quests module's settings
-    * the module registry: Modules/Bags.lua and Modules/Quests.lua register themselves through
-      the addon's private namespace (the second value of ...), so no global is shared;
-    * conflict handling: a module whose standalone addon is also loaded never starts, so the two
-      never run side by side;
-    * a one-time import of the standalone addon's settings;
-    * /bgf, the /bbf and /bqf aliases, and one minimap button with one menu.
+    BetterBagsForeverAPI, BetterQuestsForeverAPI = {
+        version,              the addon's version, a string
+        StatusLine(),         one short line of state, shown in the tooltip and /bgf status
+        MenuEntries(),        the options as plain data, for the menu drawn without MenuUtil
+        AddMenuEntries(root), adds the same options to a MenuUtil description
+        SetMinimapHidden(b),  hides the addon's own minimap button for this session only
+    }
 
-  Modules are started at PLAYER_LOGIN rather than ADDON_LOADED. The client loads addons in
-  folder order, so at our own ADDON_LOADED BetterQuestsForever (which sorts after us) has not
-  loaded yet; by PLAYER_LOGIN every addon that is going to load at startup has, together with
-  its saved variables.
+  While the hub is loaded, the addons' own minimap buttons are hidden, so there is one button: the
+  TOC lists both as OptionalDeps, so they load first and their API is there at our PLAYER_LOGIN,
+  where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
+  itself before it shows its button, so the order does not matter. Their saved minimap settings
+  are never changed.
 
-  Each module has the same shape: key, title, standalone (the addon it replaces), standaloneDB
-  (that addon's SavedVariables global), standaloneSlash (its SlashCmdList key), alias (its slash
-  command), importKeys, Bind(settings), Sanitise(settings), Enable(), Disable(), IsActive(),
-  StateLine(), Slash(msg) and MenuEntries(). Enable(true) means "switched on by the player", so
-  the module applies itself at once instead of waiting for its next event.
+  Saved variables: BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope), holds only
+    minimap = { hide = <bool>, angle = <deg> }
+  Anything else (1.0's bags, quests, modules and migrated keys) is dropped on load.
+
+  Taint: the hub creates its own button and menu and calls only the two addons' API; it hooks no
+  Blizzard function and touches no Blizzard frame.
 ]]
 
 local _G = _G
-local ADDON_NAME, ns = ...
-ADDON_NAME = ADDON_NAME or "BetterGaarForever"
-if type(ns) ~= "table" then ns = {} end
+local ADDON_NAME = ... or "BetterGaarForever"
 
 local TITLE = "BetterGaarForever"
-local VERSION = "1.0"
+local VERSION = "2.0"
 local PREFIX = "|cff33ff99BetterGaarForever|r: "
-local EM_DASH = "\226\128\148"
-local DOT = " \194\183 "
+local EN_DASH = "\226\128\147"
 
-ns.TITLE = TITLE
-ns.modules = ns.modules or {}
+-- The addons the hub has a submenu for, in menu order.
+local ADDONS = {
+    { key = "bags", label = "Bags", name = "BetterBagsForever", api = "BetterBagsForeverAPI", slash = "/bbf" },
+    { key = "quests", label = "Quests", name = "BetterQuestsForever", api = "BetterQuestsForeverAPI", slash = "/bqf" },
+}
 
 local db          -- BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope)
-local started     -- PLAYER_LOGIN work done: imports, conflict checks, modules started
+local started     -- PLAYER_LOGIN work done
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -53,7 +54,6 @@ local function Print(msg)
     local chat = _G.DEFAULT_CHAT_FRAME
     if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
 end
-ns.Print = Print
 
 local function pcall1(fn, ...) -- first return value of fn, or nil if it errors or is missing
     if type(fn) ~= "function" then return nil end
@@ -65,28 +65,6 @@ local function IsSecret(v)
     if type(_G.issecretvalue) ~= "function" then return false end
     return _G.issecretvalue(v) and true or false
 end
-
-local function DeepCopy(v, depth)
-    if type(v) ~= "table" then return v end
-    depth = depth or 0
-    if depth > 10 then return nil end
-    local out = {}
-    for k, x in pairs(v) do out[k] = DeepCopy(x, depth + 1) end
-    return out
-end
-
--- Called by each module file when it loads.
-function ns.RegisterModule(m)
-    if type(m) ~= "table" or type(m.key) ~= "string" then return end
-    for _, other in ipairs(ns.modules) do
-        if other.key == m.key then return end
-    end
-    ns.modules[#ns.modules + 1] = m
-end
-
--- ---------------------------------------------------------------------------
--- Conflict detection
--- ---------------------------------------------------------------------------
 
 -- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
 local function AddOnLoaded(name)
@@ -102,16 +80,31 @@ local function AddOnLoaded(name)
     return false
 end
 
--- The standalone addon is running: the client says so, or its slash command is registered.
-local function StandaloneLoaded(m)
-    if AddOnLoaded(m.standalone) then return true end
-    local list = _G.SlashCmdList
-    return type(list) == "table" and m.standaloneSlash ~= nil and list[m.standaloneSlash] ~= nil
+-- The addon's API table, or nil when the addon is not loaded (or too old to have one).
+local function API(a)
+    local t = _G[a.api]
+    if type(t) == "table" then return t end
 end
 
-local function PausedLine(m)
-    return m.standalone .. " is also enabled " .. EM_DASH .. " the " .. m.title .. " module is paused. Disable "
-        .. m.standalone .. " and /reload to use the module."
+-- Why an addon has no submenu: not loaded at all, or loaded but older than its API.
+local function MissingText(a)
+    if AddOnLoaded(a.name) then return a.name .. " " .. EN_DASH .. " update it for this menu" end
+    return a.name .. " " .. EN_DASH .. " not installed"
+end
+
+local function StatusOf(a)
+    local api = API(a)
+    if not api then return nil end
+    local line = pcall1(api.StatusLine)
+    return line ~= nil and tostring(line) or "?"
+end
+
+-- Each addon's own minimap button is hidden for this session; their saved setting is untouched.
+local function HideStandaloneButtons()
+    for _, a in ipairs(ADDONS) do
+        local api = API(a)
+        if api and type(api.SetMinimapHidden) == "function" then pcall(api.SetMinimapHidden, true) end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -140,87 +133,11 @@ end
 local function BindSavedVariables()
     if type(_G.BetterGaarForeverDB) ~= "table" then _G.BetterGaarForeverDB = {} end
     db = _G.BetterGaarForeverDB
-    local keep = { modules = true, migrated = true, minimap = true }
-    for _, m in ipairs(ns.modules) do keep[m.key] = true end
+    -- Only the minimap button is kept; 1.0's bags, quests, modules and migrated go.
     for k in pairs(db) do
-        if not keep[k] then db[k] = nil end
-    end
-    if type(db.modules) ~= "table" then db.modules = {} end
-    if type(db.migrated) ~= "table" then db.migrated = {} end
-    local known = {}
-    for _, m in ipairs(ns.modules) do
-        known[m.key] = true
-        if type(db.modules[m.key]) ~= "boolean" then db.modules[m.key] = true end
-        if db.migrated[m.key] ~= true then db.migrated[m.key] = nil end
-        if type(db[m.key]) ~= "table" then db[m.key] = {} end
-        m.Bind(db[m.key])
-    end
-    for k in pairs(db.modules) do
-        if not known[k] then db.modules[k] = nil end
-    end
-    for k in pairs(db.migrated) do
-        if not known[k] then db.migrated[k] = nil end
+        if k ~= "minimap" then db[k] = nil end
     end
     MinimapDB()
-end
-
--- First run next to the standalone addon: its settings are copied once, sanitised with the
--- module's own rules, and the flag is set so a later run never overwrites what was set here.
--- The standalone's SavedVariables global only exists while that addon is loaded.
-local function Import(m)
-    if db.migrated[m.key] then return end
-    local src = _G[m.standaloneDB]
-    if type(src) ~= "table" then return end
-    local dst = db[m.key]
-    for _, k in ipairs(m.importKeys or {}) do
-        if src[k] ~= nil then dst[k] = DeepCopy(src[k]) end
-    end
-    m.Sanitise(dst)
-    -- The standalone's minimap button position carries over to the combined button.
-    if m.importMinimap and type(src.minimap) == "table" then
-        local a = tonumber(src.minimap.angle)
-        if a and a == a and a ~= math.huge and a ~= -math.huge then MinimapDB().angle = a % 360 end
-    end
-    db.migrated[m.key] = true
-    Print("Imported your " .. m.standalone .. " settings.")
-end
-
--- ---------------------------------------------------------------------------
--- Modules on and off
--- ---------------------------------------------------------------------------
-
-local function StartModule(m, atOnce)
-    local ok, err = pcall(m.Enable, atOnce)
-    if not ok then Print(m.title .. " module could not start: " .. tostring(err)) end
-end
-
-local function StopModule(m)
-    local ok, err = pcall(m.Disable)
-    if not ok then Print(m.title .. " module could not stop cleanly: " .. tostring(err)) end
-end
-
-local function ModuleState(m)
-    if m.paused then return "paused (" .. m.standalone .. " is enabled)" end
-    if not (db and db.modules[m.key]) then return "Off" end
-    local ok, line = pcall(m.StateLine)
-    return ok and tostring(line) or "On"
-end
-
-local function SetModuleEnabled(m, on)
-    if not db then return end
-    db.modules[m.key] = on and true or false
-    if m.paused then
-        Print(PausedLine(m))
-        return
-    end
-    if not started then return end
-    if on then
-        StartModule(m, true)
-        Print(m.title .. " module on.")
-    else
-        StopModule(m)
-        Print(m.title .. " module off " .. EM_DASH .. " Blizzard's own " .. (m.blizzardName or m.title:lower()) .. ".")
-    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -297,47 +214,53 @@ end
 
 local SetMinimapHidden -- defined below; the menu's "Hide" entry calls it
 
--- The options as data, shared by Blizzard's menu and the fallback menu. Entries are
--- { text, func } buttons, { text, checkbox|radio, checked, func }, { text, submenu },
--- { label } (a title line) and { divider }.
+-- ---------------------------------------------------------------------------
+-- Menu
+-- ---------------------------------------------------------------------------
+
+-- A MenuUtil entry that cannot be clicked: a button switched off where the client allows that,
+-- otherwise a button without a callback.
+local function AddDisabled(root, text)
+    if type(root.CreateButton) ~= "function" then return end
+    local d = root:CreateButton("|cff808080" .. text .. "|r")
+    if type(d) == "table" and type(d.SetEnabled) == "function" then pcall(d.SetEnabled, d, false) end
+end
+
+-- Blizzard's menu: each addon fills its own submenu through its API.
+local function BuildMenuUtil(root)
+    if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
+    for _, a in ipairs(ADDONS) do
+        local api = API(a)
+        if api and type(api.AddMenuEntries) == "function" then
+            local sub = root:CreateButton(a.label)
+            if type(sub) == "table" then
+                local ok, err = pcall(api.AddMenuEntries, sub)
+                if not ok then Print(a.name .. "'s menu entries failed: " .. tostring(err)) end
+            end
+        else
+            AddDisabled(root, MissingText(a))
+        end
+    end
+    if type(root.CreateDivider) == "function" then root:CreateDivider() end
+    root:CreateButton("Hide minimap button", function() SetMinimapHidden(true) end)
+end
+
+-- The same menu as data, for the fallback menu: { text, func }, { text, checkbox|radio, checked,
+-- func }, { text, submenu }, { label } (a line that cannot be clicked) and { divider }.
 local function MenuEntries()
     local list = {}
-    for _, m in ipairs(ns.modules) do
-        local items = {}
-        if m.paused then items[#items + 1] = { label = "Paused: " .. m.standalone .. " is enabled" } end
-        items[#items + 1] = { text = "Enabled", checkbox = true, checked = function() return db.modules[m.key] end,
-            func = function() SetModuleEnabled(m, not db.modules[m.key]) end }
-        local ok, extra = pcall(m.MenuEntries)
-        if ok and type(extra) == "table" then
-            for _, e in ipairs(extra) do items[#items + 1] = e end
+    for _, a in ipairs(ADDONS) do
+        local api = API(a)
+        local items = api and pcall1(api.MenuEntries)
+        if type(items) == "table" then
+            list[#list + 1] = { text = a.label, submenu = items }
+        else
+            list[#list + 1] = { label = MissingText(a) }
         end
-        list[#list + 1] = { text = m.title, submenu = items }
     end
     list[#list + 1] = { divider = true }
     list[#list + 1] = { text = "Hide minimap button", func = function() SetMinimapHidden(true) end }
     return list
-end
-
-local function AddMenuEntries(root, entries)
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.label then
-            if type(root.CreateTitle) == "function" then root:CreateTitle(e.label) end
-        elseif e.submenu then
-            local sub = root:CreateButton(e.text)
-            if type(sub) == "table" then AddMenuEntries(sub, e.submenu) end
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
-        else
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
 end
 
 -- Submenus become indented headings in the fallback menu.
@@ -413,7 +336,7 @@ local function ShowCustomMenu(owner, entries)
         if it.title or it.heading or it.label or it.divider then
             local label = it.title and ("|cffffd100" .. it.title .. "|r")
                 or it.heading and (indent .. "|cffaaaaaa" .. it.heading .. "|r")
-                or it.label and (indent .. "|cffff8040" .. it.label .. "|r") or ""
+                or it.label and (indent .. "|cff808080" .. it.label .. "|r") or ""
             r.text:SetText(label)
             r:EnableMouse(false)
             r:SetScript("OnClick", nil)
@@ -450,16 +373,12 @@ end
 
 -- Returns which menu was used ("MenuUtil" or "custom").
 local function ShowMinimapMenu(owner)
-    local entries = MenuEntries()
     local MU = _G.MenuUtil
     if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
-        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
-            if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
-            AddMenuEntries(root, entries)
-        end)
+        local ok = pcall(MU.CreateContextMenu, owner, function(_, root) BuildMenuUtil(root) end)
         if ok then return "MenuUtil" end
     end
-    ShowCustomMenu(owner, entries)
+    ShowCustomMenu(owner, MenuEntries())
     return "custom"
 end
 
@@ -514,7 +433,14 @@ local function BuildMinimapButton()
         if not tip then return end
         tip:SetOwner(self, "ANCHOR_LEFT")
         tip:AddLine(TITLE)
-        for _, m in ipairs(ns.modules) do tip:AddLine(m.title .. ": " .. ModuleState(m), 1, 1, 1) end
+        for _, a in ipairs(ADDONS) do
+            local line = StatusOf(a)
+            if line then
+                tip:AddLine(a.label .. ": " .. line, 1, 1, 1)
+            else
+                tip:AddLine(a.label .. ": " .. a.name .. " not installed", 0.6, 0.6, 0.6)
+            end
+        end
         tip:AddLine("Click: options", 1, 1, 1)
         tip:AddLine("Drag: move", 0.6, 0.6, 0.6)
         tip:Show()
@@ -563,80 +489,28 @@ local function ResetMinimapButton()
 end
 
 -- ---------------------------------------------------------------------------
--- Slash commands
+-- Slash command
 -- ---------------------------------------------------------------------------
 
-local function Normalise(msg)
-    return (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
-end
-
-local function MinimapSlash(rest)
-    if rest == "reset" then
-        ResetMinimapButton()
-    else
-        SetMinimapHidden(not MinimapDB().hide)
-    end
-end
-
-local function FindModule(key)
-    for _, m in ipairs(ns.modules) do
-        if m.key == key then return m end
-    end
-end
-
--- One module's commands: enable/disable here, minimap for the shell, the rest to the module.
-local function ModuleSlash(m, msg, command)
-    msg = Normalise(msg)
-    if not db then
-        Print("not loaded yet.")
-        return
-    end
-    if msg == "enable" or msg == "disable" then
-        SetModuleEnabled(m, msg == "enable")
-        return
-    end
-    local mini = msg:match("^minimap ?(.*)$")
-    if mini then
-        MinimapSlash(mini)
-        return
-    end
-    if m.paused then
-        Print(PausedLine(m))
-        return
-    end
-    m.Slash(msg)
-    if msg == "" or msg == "help" then
-        Print(command .. " enable | disable - switch the whole " .. m.title .. " module on or off (now: "
-            .. (db.modules[m.key] and "on" or "off") .. ")")
-    end
-end
-
 local function PrintHelp()
-    Print("version " .. VERSION .. ": the Bags and Quests modules for Forever's own bags and quest tracker.")
-    Print("/bgf status - both modules and the minimap button")
-    Print("/bgf bags <command> - the Bags module; /bgf bags on its own lists its commands")
-    Print("/bgf quests <command> - the Quests module; /bgf quests on its own lists its commands")
-    Print("/bgf bags enable | disable, /bgf quests enable | disable - switch a whole module on or off")
+    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever and BetterQuestsForever.")
+    Print("/bgf status - this version and each addon's state")
     Print("/bgf minimap - show or hide the minimap button; /bgf minimap reset - default place, shown")
-    local aliases = {}
-    for _, m in ipairs(ns.modules) do
-        if m.aliasRegistered then aliases[#aliases + 1] = m.alias .. " = /bgf " .. m.key end
-    end
-    if #aliases > 0 then Print("shortcuts: " .. table.concat(aliases, ", ")) end
+    Print("Each addon keeps its own commands: /bbf (BetterBagsForever) and /bqf (BetterQuestsForever).")
 end
 
 local function PrintStatus()
     Print("version " .. VERSION)
-    for _, m in ipairs(ns.modules) do
-        local state
-        if m.paused then
-            state = "paused " .. EM_DASH .. " " .. m.standalone .. " is enabled"
-        elseif not db.modules[m.key] then
-            state = "off " .. EM_DASH .. " Blizzard's own"
+    for _, a in ipairs(ADDONS) do
+        local api = API(a)
+        if api then
+            Print(a.name .. " " .. tostring(api.version or "?") .. ": " .. (StatusOf(a) or "?")
+                .. "   (details: " .. a.slash .. " status)")
+        elseif AddOnLoaded(a.name) then
+            Print(a.name .. ": loaded, but too old for the hub (no " .. a.api .. ")")
         else
-            state = (m.IsActive() and "on" or "starting") .. DOT .. ModuleState(m)
+            Print(a.name .. ": not installed")
         end
-        Print(m.title .. ": " .. state .. "   (details: /bgf " .. m.key .. " status)")
     end
     local mm = MinimapDB()
     Print("minimap button: " .. (mm.hide and "hidden (/bgf minimap shows it)" or string.format("shown at %d degrees", mm.angle))
@@ -645,31 +519,20 @@ local function PrintStatus()
 end
 
 local function OnSlash(msg)
-    msg = Normalise(msg)
+    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
     if not db then
         Print("not loaded yet.")
         return
     end
-    local word, rest = msg:match("^(%S+) ?(.*)$")
-    local m = word and FindModule(word)
-    if m then
-        ModuleSlash(m, rest, "/bgf " .. m.key)
-    elseif word == "minimap" then
-        MinimapSlash(rest)
-    elseif msg == "status" then
+    if msg == "status" then
         PrintStatus()
+    elseif msg == "minimap" then
+        SetMinimapHidden(not MinimapDB().hide)
+    elseif msg == "minimap reset" then
+        ResetMinimapButton()
     else
         PrintHelp()
     end
-end
-
--- /bbf and /bqf, only when the standalone addon that owns them is not loaded.
-local function RegisterAlias(m)
-    if not m.alias or type(_G.SlashCmdList) ~= "table" then return end
-    local key = "BETTERGAARFOREVER_" .. m.key:upper()
-    _G["SLASH_" .. key .. "1"] = m.alias
-    _G.SlashCmdList[key] = function(msg) ModuleSlash(m, msg, m.alias) end
-    m.aliasRegistered = true
 end
 
 -- ---------------------------------------------------------------------------
@@ -679,29 +542,8 @@ end
 local function Start()
     if started or not db then return end
     started = true
-    for _, m in ipairs(ns.modules) do
-        local ok, err = pcall(Import, m)
-        if not ok then Print("could not import the " .. m.standalone .. " settings: " .. tostring(err)) end
-        if StandaloneLoaded(m) then
-            m.paused = true
-            Print(PausedLine(m))
-        else
-            RegisterAlias(m)
-            if db.modules[m.key] then StartModule(m) end
-        end
-    end
+    HideStandaloneButtons()
     pcall(ApplyMinimap)
-end
-
--- A standalone addon loading after the modules started: its module steps aside.
-local function OnLateAddOn(name)
-    for _, m in ipairs(ns.modules) do
-        if name == m.standalone and not m.paused then
-            m.paused = true
-            if m.IsActive() then StopModule(m) end
-            Print(PausedLine(m))
-        end
-    end
 end
 
 local events = CreateFrame("Frame")
@@ -712,10 +554,13 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
-            -- Loaded after login (LoadAddOn): nothing else is coming, so start now.
+            -- Loaded after login (LoadAddOn): no PLAYER_LOGIN is coming, so start now.
             if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then Start() end
         elseif started then
-            OnLateAddOn(arg1)
+            -- One of the two loaded after us (LoadAddOn): its button goes too.
+            for _, a in ipairs(ADDONS) do
+                if arg1 == a.name then HideStandaloneButtons() end
+            end
         end
     elseif event == "PLAYER_LOGIN" then
         Start()

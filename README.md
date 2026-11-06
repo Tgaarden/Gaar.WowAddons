@@ -24,7 +24,7 @@ of the code.
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards | `/bbf` |
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
-| `BetterGaarForever` | Standalone, not part of the suite, Forever only: `BetterBagsForever` and `BetterQuestsForever` in one addon, as two modules that can each be switched off, with one settings store and one minimap button; supersedes the two for anyone who wants a single install | `/bgf`, minimap button |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever` and `BetterQuestsForever` through their small API; no bag or quest code of its own, and both addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -72,21 +72,18 @@ help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bq
 `_Camelot` TOC and a plain fallback TOC, both at 16001. Details, including the taint analysis, in
 [`addons/BetterQuestsForever/README.md`](addons/BetterQuestsForever/README.md).
 
-## BetterGaarForever: both of them in one install
+## BetterGaarForever: an optional hub for both
 
-A standalone addon that carries `BetterBagsForever` and `BetterQuestsForever` as two modules -
-the same code, ported with as few changes as possible, so they behave exactly as described above -
-for anyone who would rather have one entry in the AddOns list. It is not part of the Gaar suite
-and is not listed in `GaarUI`. Each module can be switched off on its own (`/bgf bags disable`,
-`/bgf quests disable`, or **Enabled** in the minimap menu), which gives that part of the UI back
-to Blizzard as if the addon were not there. One minimap button holds both modules' options.
-`/bgf` for help, `/bgf status`, `/bgf bags ...` and `/bgf quests ...` for the modules' own
-commands; `/bbf` and `/bqf` keep working while the standalone addons are not loaded.
-
-It never runs a module next to its standalone addon: with `BetterBagsForever` or
-`BetterQuestsForever` also enabled, the matching module stays paused and says so once at login.
-Enabling it once next to the standalone addons imports their settings; then disable the two and
-`/reload`. The standalone addons stay in the repo unchanged. Details in
+An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
+menu has a **Bags** and a **Quests** submenu with `BetterBagsForever`'s and
+`BetterQuestsForever`'s options. It carries no bag or quest code of its own: both addons keep their
+logic, their saved variables and `/bbf` / `/bqf`, and behave exactly the same without the hub. Each
+exports a small global API (`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`: `version`,
+`StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
+its submenu from the same option list as the addon's own menu. While the hub is loaded,
+`BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not
+changed). An addon that is not installed shows as a disabled `– not installed` line. `/bgf` for
+help, `/bgf status` for each addon's version and state, `/bgf minimap [reset]`. Details in
 [`addons/BetterGaarForever/README.md`](addons/BetterGaarForever/README.md).
 
 ## One switch, eleven standalone addons

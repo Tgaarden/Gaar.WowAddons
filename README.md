@@ -23,7 +23,7 @@ of the code.
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards | `/bbf` |
-| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked | `/bqf` |
+| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -62,11 +62,12 @@ plain fallback TOC, both at 16001. Details in
 A standalone addon for the **Quests** section of Forever's own objective tracker - no Gaar addon
 or library needed, and not listed in `GaarUI`. It orders the tracked quests by quest level,
 lowest first, ties by title, with quests that are ready to turn in at the bottom (or `top`, or
-sorted by `level`), and shows only the first N of them (default 10). Every quest stays tracked:
-the order is set in the client's watch list (a quest is re-tracked the moment it is taken off),
-and the quests past N are only hidden after Blizzard's own layout, out of combat. During combat
-the section is Blizzard's own. Other tracker sections are not touched. `/bqf` for help,
-`/bqf max <n>`, `/bqf completed top|level|bottom`, `/bqf on|off` and `/bqf status`. It ships a
+sorted by `level`), and shows only the first N of them (default 10). Every quest stays tracked
+and the watch list is never changed: after Blizzard's own layout, out of combat, the quest blocks
+are re-anchored in the sorted order with Blizzard's own spacing and the ones past N are hidden.
+During combat the section is Blizzard's own. Other tracker sections are not touched. `/bqf` for
+help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bqf minimap
+[reset]` and `/bqf status`; a minimap button opens the same options as a menu. It ships a
 `_Camelot` TOC and a plain fallback TOC, both at 16001. Details, including the taint analysis, in
 [`addons/BetterQuestsForever/README.md`](addons/BetterQuestsForever/README.md).
 

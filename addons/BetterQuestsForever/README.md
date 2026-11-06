@@ -1,6 +1,6 @@
 # BetterQuestsForever
 
-A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
+A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It
 changes how the **Quests** section of Blizzard's own objective tracker (`QuestObjectiveTracker`)
 orders and limits the tracked quests, and does nothing else. It needs no other addon or library.
 
@@ -12,55 +12,91 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 - **Completed quests.** Quests that are ready to turn in (`C_QuestLog.IsComplete`) go to the
   **bottom** by default. `/bqf completed top` puts them first; `/bqf completed level` sorts
   them among the others by level.
-- **Limit.** Only the first **N** quests of that order are shown (default **10**, 1-50). With
-  30 tracked quests and N = 10, you see the 10 lowest-level quests that are not complete. When
-  one of them completes it moves to the bottom, out of the 10, and the next tracked quest takes
-  its place.
-- **Every tracked quest stays tracked.** The limit only changes what the tracker draws. The
-  quest log, the map and the watch count still see all of them.
+- **Limit.** Only the first **N** quests of that order are shown (default **10**, 1-49, or all).
+  With 30 tracked quests and N = 10, you see the 10 lowest-level quests that are not complete.
+  When one of them completes it moves to the bottom, out of the 10, and the next tracked quest
+  takes its place.
+- **Every tracked quest stays tracked, and the watch list is never touched.** The addon does not
+  call `AddQuestWatch`, `RemoveQuestWatch` or `SortQuestWatches`. The order and the limit only
+  change what the tracker draws. The quest log, the map and the watch count still see all of them.
 - **Only the Quests section.** Campaign quests, world quests, bonus objectives, achievements,
   professions and every other section are left alone.
-- It re-evaluates on its own (throttled to once per 0.3 s) after `QUEST_LOG_UPDATE`,
-  `QUEST_WATCH_LIST_CHANGED`, `QUEST_ACCEPTED`, `QUEST_REMOVED`, `QUEST_TURNED_IN`,
-  `PLAYER_LEVEL_UP`, login and the end of combat.
+- It re-evaluates after every layout of the Quests section, and also (throttled to once per
+  0.3 s) after `QUEST_LOG_UPDATE`, `QUEST_WATCH_LIST_CHANGED`, `QUEST_ACCEPTED`,
+  `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, login and the end of combat. A
+  settings change is applied at once (after combat if you are in one).
 
 ## Commands
 
 | Command | Does |
 |---|---|
 | `/bqf` | Help |
-| `/bqf max <n>` | Show at most n quests, 1-50 (default 10) |
+| `/bqf max <n>`, `/bqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
 | `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
-| `/bqf on`, `/bqf off` | Switch on or off. Off shows every tracked quest again and hands the order back to Blizzard's own sort (`C_QuestLog.SortQuestWatches`, the one the tracker runs on zone changes) |
-| `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, which client functions exist, and why sorting or the limit is off if it is |
+| `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
+| `/bqf minimap` | Show or hide the minimap button |
+| `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
+| `/bqf status` | On/off, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place, `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, and the minimap button's state |
 
-Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`), read at
-`ADDON_LOADED`, never at file scope.
+## Minimap button
+
+Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests
+shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Completed quests** (Top, By level, Bottom) and
+**Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
+to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,
+e.g. with GaarMap) it follows the square edge. The menu is Blizzard's `MenuUtil` where the
+client has it, otherwise a small menu drawn by the addon (never `UIDropDownMenu`). The placement
+code is a copy of GaarVanguard's, so this addon still has no dependencies; its default angle
+(285 degrees) keeps it clear of GaarOptions (205) and GaarVanguard (245).
+`BetterQuestsForever_PlaceMinimapButton()` re-places it, for an addon that changes the minimap's
+shape.
+
+Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`,
+`minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## How it works
 
-- **Order: the watch list itself.** Blizzard's tracker lists the Quests section in watch-list
-  order (`QuestObjectiveTrackerMixin:BuildQuestWatchInfos` walks
-  `C_QuestLog.GetQuestIDForQuestWatchIndex` and keeps that order). The addon moves quests that
-  are out of place to the end of the list: `C_QuestLog.RemoveQuestWatch` immediately followed by
-  `C_QuestLog.AddQuestWatch` with the quest's old watch type (`C_QuestLog.GetQuestWatchType`),
-  so every quest is tracked again before the next line of code runs. Only the quests that have
-  to move are touched; campaign quests, tasks and bounties never are. At the end it checks that
-  every quest tracked before is still tracked (and re-tracks it if the client dropped it), and
-  puts the super-tracked quest back if that changed. If the client does not append a re-added
-  watch at the end, or keeps putting its own order back (more than 15 reorders in 10 s), sorting
-  switches off and `/bqf status` says why; `/bqf on` tries again.
-- **Limit: hidden after Blizzard's layout.** `hooksecurefunc` on the `QuestObjectiveTracker`
-  instance's `Update` and `UpdateHeight` runs after Blizzard has laid the section out. The addon
-  hides the quest blocks after the N-th with `Hide()`, along with the frames Blizzard places next
-  to them (item button, find-group button, progress and timer bars: the block's
-  `addedRegions`), and shortens the section's frame by exactly the height Blizzard added for
-  those blocks, so the sections below move up. Frames are shown again only while Blizzard still
-  uses them for the same block.
+Version 1.0 set the order in the client's watch list. Forever orders the watch list itself (a
+re-added watch is not appended at the end), so that cannot work there. Since 1.1 the order is
+purely visual, applied on top of Blizzard's layout:
+
+- **Hooks.** `hooksecurefunc` on the `QuestObjectiveTracker` instance's `Update` and
+  `UpdateHeight` runs after Blizzard has laid the section out, out of combat only.
+- **Blizzard's layout, measured.** Blizzard lays the quest blocks out as a chain
+  (`ObjectiveTrackerModuleMixin:AnchorBlock`): the first block's `TOP` on the section's
+  `ContentsFrame` `TOP` at `fromHeaderOffsetY`, every next block's `TOP` on the previous
+  block's `BOTTOM` at `fromBlockOffsetY`, and `contentsHeight` grows by each block's height
+  minus that offset. The addon reads those anchors back with `GetPoint`, so the spacing it uses is
+  Blizzard's own, measured from the layout (the module's offset fields are only a fallback).
+- **Re-anchored in sorted order.** The quest blocks are sorted with the order above and the
+  first N are re-anchored top to bottom: the first on the same point Blizzard used for its first
+  block, each next one on the `BOTTOM` of the one above it in the new order, with the offset
+  Blizzard used at that position. Only the `TOP` point is replaced; the block's `LEFT`/`RIGHT`
+  points stay Blizzard's. Blocks that are not tracked quests (a quest pop-up, or a block
+  Blizzard keeps for a moment after a turn-in) stay on top in Blizzard's order and are not
+  counted toward N.
+- **The rest hidden.** Blocks after the N-th are hidden with `Hide()`, along with their
+  `addedRegions` (item button, find-group button, progress and timer bars). Those frames are
+  parented to the section, not to the block, so they are hidden one by one.
+- **Buttons follow their block.** Blizzard anchors the item and find-group buttons to their
+  own block (`AddRightEdgeFrame`: `TOPRIGHT` on the block, or `RIGHT` on the block's previous
+  right-edge frame) and progress and timer bars to the block's lines, so they move with their
+  block. Nothing of theirs is re-anchored.
+- **Height.** The section's frame gets Blizzard's height minus what Blizzard added for its
+  blocks plus what the shown blocks take with the same offsets, so the sections below move up
+  with no gap.
+- **Put back exactly.** Before moving a block the addon records Blizzard's anchor for it. Off,
+  combat, or a problem: every moved block goes back on Blizzard's anchor (in chain order, so no
+  anchor loop can form), every hidden frame is shown again (only while Blizzard still uses it for
+  the same block), and the section gets Blizzard's height again.
 - **Combat.** Nothing changes while `InCombatLockdown()` is true. On `PLAYER_REGEN_DISABLED`,
-  which fires just before the lockdown starts, everything the addon hid is shown again, so during
-  a fight the Quests section is exactly Blizzard's own (every tracked quest is visible). On
-  `PLAYER_REGEN_ENABLED` the order and the limit are applied again.
+  which fires just before the lockdown starts, the layout is put back as above, so during a fight
+  the Quests section is exactly Blizzard's own (every tracked quest is visible, in Blizzard's
+  order). On `PLAYER_REGEN_ENABLED` the order and the limit are applied again.
+
+**Limitation.** Blizzard only lays out as many quests as fit in the tracker's height. If the
+tracker is too short for every tracked quest, the addon sorts the ones Blizzard laid out; a
+quest Blizzard did not lay out cannot be shown.
 
 ## Taint
 
@@ -71,35 +107,31 @@ calls the protected `UseQuestLogSpecialItem`. That attribute is set by Blizzard'
 inside that layout, or left a value Blizzard's layout reads, the attribute would be set from
 tainted code and the click would be blocked (`ADDON_ACTION_BLOCKED`). So:
 
-- No Blizzard function is replaced, global or method. `ShouldDisplayQuest` is not touched.
+- No Blizzard function is replaced, global or method, and the watch list is never changed, so
+  no client event is raised from addon code.
 - The addon never writes a field into a Blizzard table, never calls a Blizzard Lua function of
   the tracker (`MarkDirty`, `Update`, `UpdateHeight`, ...), never sets an attribute and never
-  calls a protected function. Its only effect on the tracker is the widget methods `Hide`,
-  `Show` and `SetHeight`, from inside `hooksecurefunc` hooks (which do not taint the caller),
-  out of combat, on frames that are not protected. If a quest block or one of its frames reports
-  `IsProtected()`, the limit switches off on that client.
-- The order reaches Blizzard only through the client's watch list, so Blizzard's layout reads
-  client values, not addon values.
-
-**Residual risk.** `RemoveQuestWatch` / `AddQuestWatch` raise `QUEST_WATCH_LIST_CHANGED`. If the
-client dispatches that event synchronously, inside the addon's call, Blizzard's tracker handler
-would run in the addon's execution and its dirty flag would be written by tainted code; the
-next tracker update could then set up the item buttons tainted, until a later clean update.
-Whether Forever dispatches it that way can only be checked in game (`/console taintLog 1`, see
-the test steps in the PR). It only happens when the order actually changes, never in combat.
+  calls a protected function. Its only effect on the tracker is the widget methods `GetPoint`,
+  `SetPoint`, `Hide`, `Show` and `SetHeight`, from inside `hooksecurefunc` hooks (which do not
+  taint the caller), out of combat.
+- Before each pass it checks every frame it would touch. If a quest block is protected or
+  anchoring-restricted (`IsProtected()`, `IsAnchoringRestricted()`), or an item button or bar it
+  would hide is protected, or the section itself is, that pass changes nothing (Blizzard's layout
+  is put back) and `/bqf status` says why.
 
 ## Names it relies on
 
 From Blizzard's retail FrameXML, which Forever's UI follows
 ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source),
 `Interface/AddOns/Blizzard_ObjectiveTracker`): `QuestObjectiveTracker` (its `Update`,
-`UpdateHeight`, `BuildQuestWatchInfos`/`EnumQuestWatchData`, `usedBlocks`, `blockTemplate`,
-`firstBlock`, `contentsHeight`, `bottomSpacing`, `heightModifiers`, `fromBlockOffsetY`), the
-blocks' `nextBlock`, `template`, `id`, `height`, `used`, `parentModule`, `addedRegions`;
-`C_QuestLog.GetNumQuestWatches`, `GetQuestIDForQuestWatchIndex`, `AddQuestWatch`,
-`RemoveQuestWatch`, `GetQuestWatchType`, `GetLogIndexForQuestID`, `GetInfo`, `IsComplete`,
-`IsQuestDisabledForSession`, `SortQuestWatches`; `C_QuestInfoSystem.GetQuestClassification`
-with `Enum.QuestClassification.Campaign`; `C_SuperTrack`. Every one is checked before use. If
-the tracker is not recognised the addon does nothing and `/bqf status` says what is missing.
+`UpdateHeight`, `usedBlocks`, `blockTemplate`, `firstBlock`, `ContentsFrame`,
+`contentsHeight`, `bottomSpacing`, `heightModifiers`, `fromHeaderOffsetY`,
+`fromBlockOffsetY`), the blocks' `nextBlock`, `template`, `id`, `height`, `used`,
+`parentModule`, `addedRegions`; `C_QuestLog.GetNumQuestWatches`,
+`GetQuestIDForQuestWatchIndex`, `GetLogIndexForQuestID`, `GetInfo`, `IsComplete`,
+`IsQuestDisabledForSession`; `C_QuestInfoSystem.GetQuestClassification` with
+`Enum.QuestClassification.Campaign`; `MenuUtil.CreateContextMenu`, `Minimap`,
+`GetMinimapShape`. Every one is checked before use. If the tracker is not recognised the addon
+does nothing and `/bqf status` says what is missing.
 
 It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.

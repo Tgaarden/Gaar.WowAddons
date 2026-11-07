@@ -3,6 +3,7 @@
 ## Notes: Optional hub for BetterBagsForever, BetterQuestsForever and BetterMapsForever: one minimap button whose menu holds their options. Each addon keeps its own settings and commands. /bgf
 ## Author: Gaar
 ## Version: 2.1
+## X-Curse-Project-ID: 1790363
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## OptionalDeps: BetterBagsForever, BetterQuestsForever, BetterMapsForever
 ## SavedVariables: BetterGaarForeverDB

@@ -1,14 +1,15 @@
 --[[
-  BetterGaarForever - an optional hub for BetterBagsForever, BetterQuestsForever and
-  BetterMapsForever, for WoW Forever.
+  BetterGaarForever - an optional hub for BetterBagsForever, BetterQuestsForever,
+  BetterMapsForever, BetterCastbarsForever and BetterPlatesForever, for WoW Forever.
 
   It carries no bag, quest or map code of its own. The addons stay fully independent: their logic,
-  their settings (BetterBagsForeverDB, BetterQuestsForeverDB, BetterMapsForeverDB) and their slash
-  commands (/bbf, /bqf, /bmf) stay in their own addon, and without this hub they behave exactly as
+  their settings (BetterBagsForeverDB, BetterQuestsForeverDB, BetterMapsForeverDB, ...) and their slash
+  commands (/bbf, /bqf, /bmf, /bcf, /bpf) stay in their own addon, and without this hub they behave exactly as
   they do on their own. What the hub adds is one minimap button whose menu has a "Bags", a
-  "Quests" and a "Maps" submenu, filled by each addon through the small API table it exports:
+  "Quests", a "Maps", a "Castbars" and a "Plates" submenu, filled by each addon through the small API table it exports:
 
-    BetterBagsForeverAPI, BetterQuestsForeverAPI, BetterMapsForeverAPI = {
+    BetterBagsForeverAPI, BetterQuestsForeverAPI, BetterMapsForeverAPI,
+    BetterCastbarsForeverAPI, BetterPlatesForeverAPI = {
         version,              the addon's version, a string
         StatusLine(),         one short line of state, shown in the tooltip and /bgf status
         MenuEntries(),        the options as plain data, for the menu drawn without MenuUtil
@@ -17,7 +18,7 @@
     }
 
   While the hub is loaded, the addons' own minimap buttons are hidden, so there is one button: the
-  TOC lists all three as OptionalDeps, so they load first and their API is there at our
+  TOC lists all five as OptionalDeps, so they load first and their API is there at our
   PLAYER_LOGIN, where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
   itself before it shows its button, so the order does not matter. Their saved minimap settings
   are never changed.
@@ -34,7 +35,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterGaarForever"
 
 local TITLE = "BetterGaarForever"
-local VERSION = "2.1"
+local VERSION = "2.2"
 local PREFIX = "|cff33ff99BetterGaarForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -43,6 +44,8 @@ local ADDONS = {
     { key = "bags", label = "Bags", name = "BetterBagsForever", api = "BetterBagsForeverAPI", slash = "/bbf" },
     { key = "quests", label = "Quests", name = "BetterQuestsForever", api = "BetterQuestsForeverAPI", slash = "/bqf" },
     { key = "maps", label = "Maps", name = "BetterMapsForever", api = "BetterMapsForeverAPI", slash = "/bmf" },
+    { key = "castbars", label = "Castbars", name = "BetterCastbarsForever", api = "BetterCastbarsForeverAPI", slash = "/bcf" },
+    { key = "plates", label = "Plates", name = "BetterPlatesForever", api = "BetterPlatesForeverAPI", slash = "/bpf" },
 }
 
 local db          -- BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -495,10 +498,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function PrintHelp()
-    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever and BetterMapsForever.")
+    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever and BetterPlatesForever.")
     Print("/bgf status - this version and each addon's state")
     Print("/bgf minimap - show or hide the minimap button; /bgf minimap reset - default place, shown")
-    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever) and /bmf (BetterMapsForever).")
+    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever), /bmf (BetterMapsForever), /bcf (BetterCastbarsForever) and /bpf (BetterPlatesForever).")
 end
 
 local function PrintStatus()

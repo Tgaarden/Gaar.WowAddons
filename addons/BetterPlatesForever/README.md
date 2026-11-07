@@ -61,8 +61,8 @@ A switch without `on` or `off` toggles it. `/betterplatesforever` is the long fo
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
-menu holds the options of the Better...Forever addons. Its **Plates** submenu comes with
-BetterGaarForever 2.2. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
+menu holds the options of the Better...Forever addons. Its **Plates** submenu is in
+BetterGaarForever 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
 **Health text** (Off / Percent / Current), **Size** (Small 100x10 / Medium 120x12 / Large 140x16),
 a checkbox for each of friendly, threat, threat text, execute, debuffs, target of target, dim and
 target scale, and **Reset to defaults**: the same settings as `/bpf`, through the same functions.

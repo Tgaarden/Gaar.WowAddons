@@ -64,8 +64,8 @@ Not in 1.0: channel ticks, a GCD bar, nameplate cast bars, an options panel and 
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
-menu has a submenu per Better...Forever addon. The **Cast bars** row for this addon comes in
-BetterGaarForever 2.2; older versions of the hub do not list it. The submenu has **Lock position &
+menu has a submenu per Better...Forever addon. Its **Castbars** row is in
+BetterGaarForever 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
 size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Follow Blizzard (Edit Mode)**,
 **Latency safe-zone**, **Texture**, **Font size**, the two **Timer** styles and **Reset positions
 & sizes**, the same settings as `/bcf` (both go through the same functions). This addon has no

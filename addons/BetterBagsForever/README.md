@@ -1,8 +1,9 @@
 # BetterBagsForever
 
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
-improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and does nothing
-else. It needs no other addon or library.
+improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
+shows how many of an item and how much gold your other characters on the same realm have. It
+needs no other addon or library.
 
 ## What it does
 
@@ -56,6 +57,46 @@ else. It needs no other addon or library.
   - *Stops* on combat (checked before every pair), `/bbf stop`, something on the cursor that the addon did not pick up, the
     client refusing a move repeatedly, the bags changing underneath, or a safety limit. The
     cursor is cleared only when it holds the addon's own item.
+- **Item counts in tooltips (since 1.7, on by default).** Every item tooltip - bags, bank, chat
+  links, vendor, auction house and so on - gets one line per character on this realm that has the
+  item, the character you are playing first and the rest alphabetically, the name in its class
+  colour:
+
+      Dru: 12 (bags 10 · bank 2)
+      Alt: 3 (mail 3)
+      Total: 15
+
+  Sources with nothing in them are left out. `Total` appears when more than one character has the
+  item, or when the one character has it in more than one place. Turn it off with `/bbf counts off`
+  or the **Item counts in tooltip** checkbox in the BetterGaarForever hub.
+- **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
+  Backpack, or the backpack when the bags are separate) for every character's gold on this realm
+  and the total. `/bbf gold` prints the same to chat. Clicking the coins still does what it always
+  did.
+- **What is counted, and when it is read.** Only the character you are logged in as is ever read,
+  so a character shows up once it has logged in with 1.7. Each character's record is kept
+  account-wide, per realm, and only the current realm is ever shown (both factions).
+
+  | Source | What | Read |
+  |---|---|---|
+  | bags | Backpack and the bag slots, plus the keyring on a client that has one | At login and after bag changes (`BAG_UPDATE_DELAYED`, coalesced over 0.5 s) |
+  | bank | The character bank: its bank tabs on Forever, or the bank and bank bags on an older client | Only while the bank is open (`BANKFRAME_OPENED`, `PLAYERBANKSLOTS_CHANGED`, `BAG_UPDATE`). Otherwise the last scan is kept |
+  | equipped | The 19 equipment slots, ranged included | At login and on `PLAYER_EQUIPMENT_CHANGED` |
+  | mail | Every attachment in the inbox, stacks counted | Only while the mailbox is open (`MAIL_SHOW`, `MAIL_INBOX_UPDATE`). Otherwise the last scan is kept |
+  | gold | The character's money | At login and on `PLAYER_MONEY` |
+
+  Not counted: the warband/account bank (it belongs to every character, not one), the bags sitting
+  in the bag slots themselves, the classic ammo slot (it only points at ammo that is already in a
+  bag, so counting it would count the ammo twice), the guild bank, and items on the auction house.
+  So the bank and mail lines are as fresh as that character's last visit to the bank or the
+  mailbox. While either is open, every change is read again. Mail sent to a character shows up in
+  the counts only once that character has opened its mailbox, and letters beyond what the inbox
+  shows at once (more than 50) are not seen until they are shown.
+
+  The scans are plain reads, never in combat: one that falls in combat waits for it to end.
+  Everything is stored by item id, so the saved file stays small:
+  `BetterBagsForeverDB.inventory[realm][name] = { class, faction, gold, bags = { [itemID] = count },
+  bank, equipped, mail, bankScanned, mailScanned }` (the two `...Scanned` values are `time()`).
 - **The sort direction is left alone.** The addon never calls `C_Container.SetSortBagsRightToLeft`
   and does not read it either. Version 1.2 could switch it; if you changed it there and want
   Forever's default back, run `/run C_Container.SetSortBagsRightToLeft(true)` once.
@@ -70,14 +111,18 @@ else. It needs no other addon or library.
 | `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
 | `/bbf reverse`, `/bbf reverse on`, `/bbf reverse off` | Toggle or set Reverse (same as right-clicking the button) |
 | `/bbf stop` | Stop a running reversal |
-| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position |
+| `/bbf counts`, `/bbf counts on`, `/bbf counts off` | Toggle or set the item counts in tooltips (on by default) |
+| `/bbf gold` | Print every character's gold on this realm, and the total |
+| `/bbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
+| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip |
 
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
-menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse** and **Hide
-Blizzard's own Clean Up button**, the same settings as `/bbf lock|unlock`, `/bbf reset`,
-`/bbf reverse` and `/bbf native hide|show` (both go through the same functions). This addon has
+menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Hide
+Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as
+`/bbf lock|unlock`, `/bbf reset`, `/bbf reverse`, `/bbf native hide|show` and `/bbf counts on|off`
+(both go through the same functions). This addon has
 no minimap button or menu of its own, so nothing here changes with or without the hub: the
 settings stay in `BetterBagsForeverDB` and `/bbf` stays as it is.
 
@@ -86,7 +131,7 @@ The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
 | Field | What it is |
 |---|---|
 | `version` | This addon's version, a string |
-| `StatusLine()` | One line of state, e.g. `Reverse off · unlocked · default position` |
+| `StatusLine()` | One line of state, e.g. `Reverse off · unlocked · default position · counts on` |
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
@@ -99,12 +144,21 @@ The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
 - Blizzard code is only followed, never replaced: `hooksecurefunc("UpdateContainerFrameAnchors")`,
   `hooksecurefunc(ContainerFrameCombinedBags, "UpdateSearchBox")` and `HookScript` on the frame's
   `OnShow`, `OnHide` and drag scripts. No Blizzard function is called from addon code.
+- The item counts come from `TooltipDataProcessor.AddTooltipPostCall` for item tooltips (or
+  `HookScript("OnTooltipSetItem")` on a client without it), and only add lines. A tooltip gets
+  them once per display: the guard is a weak table of the addon's own, released on the
+  tooltip's `OnTooltipCleared`, so nothing is written into Blizzard's tooltip tables. Secret
+  values are skipped, and every read is behind `pcall` and a type check.
+- The gold tooltip is `HookScript("OnEnter")` / `HookScript("OnLeave")` on the bag money frame
+  (`ContainerFrameCombinedBags.MoneyFrame`, `ContainerFrame1MoneyFrame` and the like) and its
+  coin buttons. Their clicks are never touched. If Blizzard showed a tooltip there first, the
+  gold lines are added below it.
 - Every name is checked before use. A missing frame or function switches the matching feature
   off instead of raising an error.
 - If the bag frame is protected and a move falls in combat, it waits for `PLAYER_REGEN_ENABLED`.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`,
-  `hideNativeButton`, `position` and `reverse` are kept; anything older versions saved is cleared
-  on load.
+  `hideNativeButton`, `position`, `reverse`, `showCounts` and `inventory` are kept; anything older
+  versions saved is cleared on load.
 
 ## Names it relies on
 
@@ -117,3 +171,11 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `C_Container.GetContainerNumSlots`, `C_Container.GetContainerNumFreeSlots` (bag family), the item
 buttons' `GetBagID` / `GetID` (`ContainerFrameItemButtonMixin`), the atlases `bags-button-autosort-up` / `-down`, `BAG_CLEANUP_BAGS`,
 `BAG_CLEANUP_BAGS_DESCRIPTION` and `SOUNDKIT.UI_BAG_SORTING_01`.
+
+For the item counts and gold (1.7): `Enum.BagIndex` (`Backpack`, `Bag_1`-`Bag_4`,
+`CharacterBankTab_1`-`_9` on Forever, read off the client binary; `Bank`, `BankBag_n`,
+`Keyring`, `ReagentBag` where a client has them, else `BANK_CONTAINER`, `NUM_BAG_SLOTS`,
+`NUM_BANKBAGSLOTS`, `KEYRING_CONTAINER`), `GetInventoryItemID`, `GetInventoryItemCount`,
+`GetInboxNumItems`, `GetInboxItem`, `GetInboxItemLink`, `GetMoney`, `GetRealmName`,
+`RAID_CLASS_COLORS`, `C_CurrencyInfo.GetCoinTextureString`, `TooltipDataProcessor`,
+`Enum.TooltipDataType.Item` and the money frames' `GoldButton` / `SilverButton` / `CopperButton`.

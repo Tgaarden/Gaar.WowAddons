@@ -13,7 +13,12 @@
     * Reverse (right-click the button, or /bbf reverse; off by default): in the Combined Backpack,
       once Blizzard's sort has settled, the whole visible order is mirrored, so the slot shown
       last trades places with the slot shown first, and so on. Separate bags are never touched.
-    * /bbf for help, reset, lock, unlock, native, reverse, stop and status.
+    * Item counts and gold across this realm's characters (since 1.7): every character that logs
+      in keeps a compact record of its bags, bank, equipped items, mail and gold in
+      BetterBagsForeverDB.inventory. Item tooltips list each character that has the item, and
+      hovering the gold in the bag window lists every character's gold. /bbf counts on|off,
+      /bbf gold, /bbf forget <name>.
+    * /bbf for help, reset, lock, unlock, native, reverse, counts, gold, forget, stop and status.
     * BetterBagsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -51,10 +56,12 @@ local DEFAULTS = {
     locked = false,
     hideNativeButton = false,
     reverse = false,
+    showCounts = true,
 }
 
 -- Every key BetterBagsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true }
+local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
+                     showCounts = true, inventory = true }
 
 local db                -- BetterBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -1020,6 +1027,636 @@ local function LayoutSearchRow()
 end
 
 -- ---------------------------------------------------------------------------
+-- Inventory: item counts and gold across this realm's characters (since 1.7)
+--
+-- Every character that logs in with 1.7 keeps a compact record in the account-wide
+-- BetterBagsForeverDB.inventory[realm][name]:
+--
+--   { class, faction, gold, bags = { [itemID] = count }, bank = {...}, equipped = {...},
+--     mail = {...}, bankScanned = time(), mailScanned = time() }
+--
+-- Only the logged-in character's record is ever written, and only from what the client shows:
+--   bags      backpack, bag slots and the keyring where the client has one; BAG_UPDATE_DELAYED
+--             (coalesced) and login
+--   bank      the character bank (bank tabs, or the bank container and bank bags) while the bank
+--             is open; BANKFRAME_OPENED, PLAYERBANKSLOTS_CHANGED, BAG_UPDATE while open. The
+--             warband/account bank is never counted. Otherwise the last scan is kept.
+--   equipped  inventory slots 1-19, ranged included; PLAYER_EQUIPMENT_CHANGED and login. The
+--             classic ammo slot is skipped: it only points at ammo that already sits in a bag.
+--   mail      inbox attachments while the mailbox is open; MAIL_SHOW, MAIL_INBOX_UPDATE.
+--             Otherwise the last scan is kept.
+--   gold      PLAYER_MONEY and login
+--
+-- Scans are plain reads, each one behind pcall and type checks, and never run in combat: a scan
+-- that falls in combat waits for PLAYER_REGEN_ENABLED. Item tooltips get their lines from
+-- TooltipDataProcessor.AddTooltipPostCall (OnTooltipSetItem on a client without it); the gold
+-- tooltip hooks OnEnter/OnLeave of the bag money frames with HookScript. No Blizzard table is
+-- written: the "already added" guard lives in a weak table of our own.
+-- ---------------------------------------------------------------------------
+
+local SCAN_DELAY = 0.5          -- seconds that bag, bank and equipment events are coalesced over
+local LOGIN_SCAN_DELAY = 1.5    -- the first scan after login, once the bags have arrived
+local DOT = " \194\183 "        -- " · "
+
+local issecretvalue = _G.issecretvalue
+
+-- A value the client hides comes back secret; it can be neither compared nor counted.
+local function Plain(v)
+    if issecretvalue and issecretvalue(v) then return nil end
+    return v
+end
+
+local function PlainNumber(v)
+    v = Plain(v)
+    if type(v) == "number" then return v end
+    if type(v) == "string" then return tonumber(v) end
+    return nil
+end
+
+local function PlainString(v)
+    v = Plain(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+end
+
+local playerName, playerRealm   -- known from PLAYER_LOGIN on
+local bankOpen, mailOpen = false, false
+local pendingScan = {}          -- sources waiting for the next scan: bags, bank, equipped
+local scanScheduled = false
+local moneyHooked = setmetatable({}, { __mode = "k" })    -- money frames already hooked
+local tooltipGuard = setmetatable({}, { __mode = "k" })   -- tooltip -> itemID it already has lines for
+local clearHooked = setmetatable({}, { __mode = "k" })    -- tooltips whose OnTooltipCleared we follow
+local tooltipsHooked = false
+
+local function CountsOn()
+    return db ~= nil and db.showCounts ~= false
+end
+
+-- ---- where things are -----------------------------------------------------
+
+local function BagIndexEnum()
+    local enum = _G.Enum
+    local bi = type(enum) == "table" and enum.BagIndex
+    if type(bi) == "table" then return bi end
+end
+
+local function AddID(list, seen, id)
+    id = PlainNumber(id)
+    if id and not seen[id] then
+        seen[id] = true
+        list[#list + 1] = id
+    end
+end
+
+-- The character bank: bank tabs where the client has them (Forever and current retail), else the
+-- classic bank container plus bank bags. The warband (account) bank is shared by every
+-- character, so it is left out.
+local function BankContainers()
+    local list, seen = {}, {}
+    local bi = BagIndexEnum()
+    if bi and bi.CharacterBankTab_1 ~= nil then
+        for i = 1, 20 do
+            local id = bi["CharacterBankTab_" .. i]
+            if id == nil then break end
+            AddID(list, seen, id)
+        end
+        return list
+    end
+    AddID(list, seen, (bi and bi.Bank) or _G.BANK_CONTAINER or -1)
+    if bi and bi.BankBag_1 ~= nil then
+        for i = 1, 20 do
+            local id = bi["BankBag_" .. i]
+            if id == nil then break end
+            AddID(list, seen, id)
+        end
+    else
+        local first = (PlainNumber(_G.NUM_BAG_SLOTS) or 4) + 1
+        local n = PlainNumber(_G.NUM_BANKBAGSLOTS) or 7
+        for i = 0, n - 1 do AddID(list, seen, first + i) end
+    end
+    return list
+end
+
+-- Everything the character carries: backpack, the four bag slots, a reagent bag and the keyring
+-- where the client has them. No id that belongs to any kind of bank is ever counted here.
+local function CarriedContainers()
+    local banked = {}
+    for _, id in ipairs(BankContainers()) do banked[id] = true end
+    local bi = BagIndexEnum()
+    if bi then
+        for _, key in ipairs({ "Bank", "Bankbag", "Reagentbank", "Characterbanktab", "Accountbanktab" }) do
+            local id = PlainNumber(bi[key])
+            if id then banked[id] = true end
+        end
+        for i = 1, 20 do
+            local id = PlainNumber(bi["AccountBankTab_" .. i])
+            if not id then break end
+            banked[id] = true
+        end
+    end
+
+    local list, seen = {}, {}
+    if bi and bi.Backpack ~= nil then
+        AddID(list, seen, bi.Backpack)
+        for i = 1, 4 do AddID(list, seen, bi["Bag_" .. i]) end
+        AddID(list, seen, bi.ReagentBag)
+    else
+        for i = 0, PlainNumber(_G.NUM_BAG_SLOTS) or 4 do AddID(list, seen, i) end
+    end
+    AddID(list, seen, (bi and bi.Keyring) or _G.KEYRING_CONTAINER)
+
+    local out = {}
+    for _, id in ipairs(list) do
+        if not banked[id] then out[#out + 1] = id end
+    end
+    return out
+end
+
+local function ContainerSize(bag)
+    local fn = ContainerFunction("GetContainerNumSlots")
+    if not fn then return 0 end
+    local ok, n = pcall(fn, bag)
+    return ok and PlainNumber(n) or 0
+end
+
+-- The item id and stack size in one slot, or nil.
+local function SlotItem(bag, slot)
+    local c = ContainerAPI()
+    if c and type(c.GetContainerItemInfo) == "function" then
+        local ok, info = pcall(c.GetContainerItemInfo, bag, slot)
+        if not ok or type(info) ~= "table" then return nil end
+        local id = PlainNumber(info.itemID)
+        if not id then
+            local link = PlainString(info.hyperlink)
+            id = link and tonumber(link:match("item:(%d+)"))
+        end
+        if id then return id, PlainNumber(info.stackCount) or 1 end
+    elseif type(_G.GetContainerItemInfo) == "function" then
+        local ok, tex, count, _, _, _, _, link, _, _, id = pcall(_G.GetContainerItemInfo, bag, slot)
+        if not ok or not Plain(tex) then return nil end
+        id = PlainNumber(id)
+        if not id then
+            link = PlainString(link)
+            id = link and tonumber(link:match("item:(%d+)"))
+        end
+        if id then return id, PlainNumber(count) or 1 end
+    end
+    return nil
+end
+
+-- Counts by itemID over the given containers, and how many slots they have in all.
+local function ReadContainers(list)
+    local counts, slots = {}, 0
+    for _, bag in ipairs(list) do
+        local n = ContainerSize(bag)
+        slots = slots + n
+        for slot = 1, n do
+            local id, count = SlotItem(bag, slot)
+            if id then counts[id] = (counts[id] or 0) + count end
+        end
+    end
+    return counts, slots
+end
+
+local function ReadEquipped()
+    local getID = _G.GetInventoryItemID
+    if type(getID) ~= "function" then return nil end
+    local getCount = _G.GetInventoryItemCount
+    local ranged = PlainNumber(_G.INVSLOT_RANGED) or 18
+    local last = PlainNumber(_G.INVSLOT_LAST_EQUIPPED) or 19
+    local counts = {}
+    -- From slot 1: slot 0 is the classic ammo slot, which only points at ammo in a bag.
+    for slot = 1, last do
+        local ok, id = pcall(getID, "player", slot)
+        id = ok and PlainNumber(id) or nil
+        if id then
+            local n = 1
+            -- A thrown-weapon stack sits in the ranged slot itself, not in a bag.
+            if slot == ranged and type(getCount) == "function" then
+                local okCount, c = pcall(getCount, "player", slot)
+                c = okCount and PlainNumber(c) or nil
+                if c and c > 1 then n = c end
+            end
+            counts[id] = (counts[id] or 0) + n
+        end
+    end
+    return counts
+end
+
+local function ReadMail()
+    local numItems, getItem = _G.GetInboxNumItems, _G.GetInboxItem
+    if type(numItems) ~= "function" or type(getItem) ~= "function" then return nil end
+    local getLink = _G.GetInboxItemLink
+    local ok, n = pcall(numItems)
+    n = ok and PlainNumber(n) or 0
+    local attachments = PlainNumber(_G.ATTACHMENTS_MAX_RECEIVE) or 16
+    local counts = {}
+    for i = 1, n do
+        for a = 1, attachments do
+            local okItem, name, id, _, count = pcall(getItem, i, a)
+            if okItem and Plain(name) then
+                id = PlainNumber(id)
+                if not id and type(getLink) == "function" then
+                    local okLink, link = pcall(getLink, i, a)
+                    link = okLink and PlainString(link) or nil
+                    id = link and tonumber(link:match("item:(%d+)"))
+                end
+                if id then counts[id] = (counts[id] or 0) + (PlainNumber(count) or 1) end
+            end
+        end
+    end
+    return counts
+end
+
+-- ---- the saved records ----------------------------------------------------
+
+local function RealmData(create)
+    if not db or not playerRealm then return nil end
+    if type(db.inventory) ~= "table" then
+        if not create then return nil end
+        db.inventory = {}
+    end
+    local realm = db.inventory[playerRealm]
+    if type(realm) ~= "table" then
+        if not create then return nil end
+        realm = {}
+        db.inventory[playerRealm] = realm
+    end
+    return realm
+end
+
+local function PlayerRecord()
+    if not playerName then return nil end
+    local realm = RealmData(true)
+    if not realm then return nil end
+    local rec = realm[playerName]
+    if type(rec) ~= "table" then
+        rec = {}
+        realm[playerName] = rec
+    end
+    return rec
+end
+
+local function UpdateGold()
+    local rec = PlayerRecord()
+    if not rec or type(_G.GetMoney) ~= "function" then return end
+    local ok, money = pcall(_G.GetMoney)
+    money = ok and PlainNumber(money) or nil
+    if money then rec.gold = money end
+end
+
+local function ScanBags(rec)
+    local counts, slots = ReadContainers(CarriedContainers())
+    if slots > 0 then rec.bags = counts end      -- no slots at all: the bags have not arrived yet
+end
+
+local function ScanBank(rec)
+    if not bankOpen then return end
+    local counts, slots = ReadContainers(BankContainers())
+    if slots > 0 then
+        rec.bank = counts
+        rec.bankScanned = time()
+    end
+end
+
+local function ScanEquipped(rec)
+    local counts = ReadEquipped()
+    if counts then rec.equipped = counts end
+end
+
+local function ScanMail()
+    if not mailOpen or InCombat() then return end
+    local rec = PlayerRecord()
+    if not rec then return end
+    local counts = ReadMail()
+    if counts then
+        rec.mail = counts
+        rec.mailScanned = time()
+    end
+end
+
+local SCANNERS = { bags = ScanBags, bank = ScanBank, equipped = ScanEquipped }
+
+-- Runs every source that is waiting. In combat they keep waiting for PLAYER_REGEN_ENABLED.
+local function RunScans()
+    scanScheduled = false
+    if InCombat() then return end
+    local rec = PlayerRecord()
+    if not rec then return end
+    for source, scan in pairs(SCANNERS) do
+        if pendingScan[source] then
+            pendingScan[source] = nil
+            pcall(scan, rec)
+        end
+    end
+end
+
+local function ScheduleScans(delay)
+    if scanScheduled or not next(pendingScan) then return end
+    local after = TimerAfter()
+    if not after then
+        RunScans()
+        return
+    end
+    scanScheduled = true
+    after(delay or SCAN_DELAY, function()
+        local ok = pcall(RunScans)
+        if not ok then scanScheduled = false end
+    end)
+end
+
+local function QueueScan(source, delay)
+    pendingScan[source] = true
+    ScheduleScans(delay)
+end
+
+-- PLAYER_LOGIN: who and where this is, then the first scans.
+local function InitInventory()
+    local okName, name = pcall(_G.UnitName, "player")
+    local okRealm, realm = pcall(_G.GetRealmName)
+    playerName = okName and PlainString(name) or nil
+    playerRealm = okRealm and PlainString(realm) or nil
+    local rec = PlayerRecord()
+    if not rec then return end
+    local okClass, _, class = pcall(_G.UnitClass, "player")
+    class = okClass and PlainString(class) or nil
+    if class then rec.class = class end
+    local okFaction, faction = pcall(_G.UnitFactionGroup, "player")
+    faction = okFaction and PlainString(faction) or nil
+    if faction then rec.faction = faction end
+    UpdateGold()
+    pendingScan.bags, pendingScan.equipped = true, true
+    ScheduleScans(LOGIN_SCAN_DELAY)
+end
+
+-- ---- reading the records --------------------------------------------------
+
+local function ClassColored(name, class)
+    local colors = _G.RAID_CLASS_COLORS
+    local c = type(class) == "string" and type(colors) == "table" and colors[class]
+    if type(c) == "table" then
+        if type(c.colorStr) == "string" then return "|c" .. c.colorStr .. name .. "|r" end
+        if type(c.r) == "number" and type(c.g) == "number" and type(c.b) == "number" then
+            return string.format("|cff%02x%02x%02x%s|r", c.r * 255, c.g * 255, c.b * 255, name)
+        end
+    end
+    return name
+end
+
+-- This realm's records, the logged-in character first, then by name.
+local function RealmCharacters()
+    local realm = RealmData(false)
+    local list = {}
+    if not realm then return list end
+    for name, rec in pairs(realm) do
+        if type(name) == "string" and type(rec) == "table" then
+            list[#list + 1] = { name = name, rec = rec, me = name == playerName }
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.me ~= b.me then return a.me end
+        return a.name < b.name
+    end)
+    return list
+end
+
+local function CountIn(t, itemID)
+    local n = type(t) == "table" and t[itemID]
+    return type(n) == "number" and n or 0
+end
+
+local SOURCES = { "bags", "bank", "equipped", "mail" }
+
+local function CoinText(copper)
+    local ci = _G.C_CurrencyInfo
+    local fn = (type(ci) == "table" and type(ci.GetCoinTextureString) == "function" and ci.GetCoinTextureString)
+        or (type(_G.GetCoinTextureString) == "function" and _G.GetCoinTextureString)
+    if fn then
+        local ok, s = pcall(fn, copper)
+        if ok and type(s) == "string" then return s end
+    end
+    local g = math.floor(copper / 10000)
+    local s = math.floor((copper % 10000) / 100)
+    return string.format("%dg %ds %dc", g, s, copper % 100)
+end
+
+-- ---- item tooltip -----------------------------------------------------------
+
+local function FollowClears(tooltip)
+    if clearHooked[tooltip] then return true end
+    if type(tooltip.HookScript) ~= "function" then return false end
+    if type(tooltip.HasScript) == "function" and not tooltip:HasScript("OnTooltipCleared") then return false end
+    local ok = pcall(tooltip.HookScript, tooltip, "OnTooltipCleared", function(tt) tooltipGuard[tt] = nil end)
+    if ok then clearHooked[tooltip] = true end
+    return ok
+end
+
+local function AddCountLines(tooltip, itemID)
+    if not CountsOn() or type(tooltip) ~= "table" or type(tooltip.AddLine) ~= "function" then return end
+    itemID = PlainNumber(itemID)
+    if not itemID then return end
+    -- Once per display: the guard is released when the tooltip is cleared for the next one.
+    if tooltipGuard[tooltip] == itemID then return end
+    if FollowClears(tooltip) then tooltipGuard[tooltip] = itemID end
+
+    local rows, total, sourceCount = {}, 0, 0
+    for _, ch in ipairs(RealmCharacters()) do
+        local parts, sum = {}, 0
+        for _, source in ipairs(SOURCES) do
+            local n = CountIn(ch.rec[source], itemID)
+            if n > 0 then
+                parts[#parts + 1] = source .. " " .. n
+                sum = sum + n
+            end
+        end
+        if sum > 0 then
+            rows[#rows + 1] = ClassColored(ch.name, ch.rec.class) .. ": " .. sum .. " (" .. table.concat(parts, DOT) .. ")"
+            total = total + sum
+            sourceCount = #parts
+        end
+    end
+    if #rows == 0 then return end
+    for _, line in ipairs(rows) do tooltip:AddLine(line, 1, 1, 1) end
+    if #rows > 1 or sourceCount > 1 then
+        tooltip:AddLine("Total: " .. total, 1, 0.82, 0)
+    end
+    -- An older tooltip does not grow to fit lines added after it was sized.
+    if type(tooltip.IsShown) == "function" and tooltip:IsShown() and type(tooltip.Show) == "function" then
+        tooltip:Show()
+    end
+end
+
+local function OnTooltipItemData(tooltip, data)
+    if type(data) ~= "table" then return end
+    pcall(AddCountLines, tooltip, data.id)
+end
+
+-- Fallback for a client without TooltipDataProcessor.
+local function OnTooltipSetItem(tooltip)
+    if type(tooltip.GetItem) ~= "function" then return end
+    local ok, _, link = pcall(tooltip.GetItem, tooltip)
+    link = ok and PlainString(link) or nil
+    local id = link and tonumber(link:match("item:(%d+)"))
+    if id then pcall(AddCountLines, tooltip, id) end
+end
+
+local function HookTooltips()
+    if tooltipsHooked then return end
+    tooltipsHooked = true
+    local tdp, enum = _G.TooltipDataProcessor, _G.Enum
+    local item = type(enum) == "table" and type(enum.TooltipDataType) == "table" and enum.TooltipDataType.Item
+    if type(tdp) == "table" and type(tdp.AddTooltipPostCall) == "function" and item ~= nil then
+        tdp.AddTooltipPostCall(item, OnTooltipItemData)
+        return
+    end
+    for _, tip in ipairs({ _G.GameTooltip, _G.ItemRefTooltip }) do
+        if type(tip) == "table" and type(tip.HookScript) == "function"
+            and (type(tip.HasScript) ~= "function" or tip:HasScript("OnTooltipSetItem")) then
+            tip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
+        end
+    end
+end
+
+-- ---- gold -------------------------------------------------------------------
+
+-- This realm's gold: rows of { name, class, gold } in the usual order, and the total.
+local function GoldRows()
+    UpdateGold()
+    local rows, total = {}, 0
+    for _, ch in ipairs(RealmCharacters()) do
+        local gold = ch.rec.gold
+        if type(gold) == "number" then
+            rows[#rows + 1] = { name = ch.name, class = ch.rec.class, gold = gold }
+            total = total + gold
+        end
+    end
+    return rows, total
+end
+
+local function OnMoneyEnter(self)
+    local tip = _G.GameTooltip
+    if not tip or not db then return end
+    local rows, total = GoldRows()
+    if #rows == 0 then return end
+    -- Blizzard's own tooltip, if it showed one for this frame, keeps its lines; ours follow.
+    if tip.GetOwner and tip:GetOwner() == self and tip:IsShown() then
+        tip:AddLine(" ")
+    else
+        tip:SetOwner(self, "ANCHOR_TOPLEFT")
+    end
+    tip:AddLine("Gold on " .. (playerRealm or "this realm"))
+    for _, r in ipairs(rows) do
+        tip:AddDoubleLine(ClassColored(r.name, r.class), CoinText(r.gold), 1, 1, 1, 1, 1, 1)
+    end
+    tip:AddDoubleLine("Total", CoinText(total), 1, 0.82, 0, 1, 1, 1)
+    tip:Show()
+end
+
+local function OnMoneyLeave(self)
+    local tip = _G.GameTooltip
+    if tip and tip.GetOwner and tip:GetOwner() == self then tip:Hide() end
+end
+
+local function HookMoneyFrame(frame)
+    if type(frame) ~= "table" or moneyHooked[frame] or type(frame.HookScript) ~= "function" then return end
+    moneyHooked[frame] = true
+    -- The coin buttons sit on top of the money frame and take the mouse, so they are hooked too.
+    -- Only OnEnter and OnLeave: their clicks stay Blizzard's.
+    local targets = { frame }
+    local name = type(frame.GetName) == "function" and frame:GetName() or nil
+    for _, coin in ipairs({ "GoldButton", "SilverButton", "CopperButton" }) do
+        local b = frame[coin]
+        if type(b) ~= "table" and name then b = _G[name .. coin] end
+        if type(b) == "table" and type(b.HookScript) == "function" then targets[#targets + 1] = b end
+    end
+    for _, t in ipairs(targets) do
+        if type(t.HasScript) ~= "function" or t:HasScript("OnEnter") then
+            pcall(t.HookScript, t, "OnEnter", function(...) pcall(OnMoneyEnter, ...) end)
+            pcall(t.HookScript, t, "OnLeave", function(...) pcall(OnMoneyLeave, ...) end)
+        end
+    end
+end
+
+-- The Combined Backpack's money frame and the separate backpack's, under whichever name or key
+-- this client gives them.
+local function HookMoneyFrames()
+    local combined = GetBagFrame()
+    if combined then HookMoneyFrame(combined.MoneyFrame) end
+    HookMoneyFrame(_G.ContainerFrameCombinedBagsMoneyFrame)
+    local backpack = _G.ContainerFrame1
+    if type(backpack) == "table" then HookMoneyFrame(backpack.MoneyFrame) end
+    HookMoneyFrame(_G.ContainerFrame1MoneyFrame)
+end
+
+local function CountMoneyHooks()
+    local n = 0
+    for _ in pairs(moneyHooked) do n = n + 1 end
+    return n
+end
+
+-- ---- commands and settings ------------------------------------------------
+
+local function SetCounts(on)
+    if not db then return end
+    if on == nil then on = not CountsOn() end
+    db.showCounts = on and true or false
+    Print("item counts in tooltip: " .. OnOff(db.showCounts))
+end
+
+local function PrintGold()
+    local rows, total = GoldRows()
+    if #rows == 0 then
+        Print("no gold recorded on this realm yet.")
+        return
+    end
+    Print("gold on " .. (playerRealm or "this realm") .. ":")
+    for _, r in ipairs(rows) do
+        Print("  " .. ClassColored(r.name, r.class) .. ": " .. CoinText(r.gold))
+    end
+    Print("  Total: " .. CoinText(total))
+end
+
+local function ForgetCharacter(who)
+    local realm = RealmData(false)
+    who = who and who:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if who == "" then
+        Print("/bbf forget <name> - remove a character from this realm's item counts and gold.")
+        return
+    end
+    local key
+    if realm then
+        for name in pairs(realm) do
+            if type(name) == "string" and name:lower() == who:lower() then key = name end
+        end
+    end
+    if not key then
+        Print("no character named " .. who .. " is recorded on " .. (playerRealm or "this realm") .. ".")
+    elseif key == playerName then
+        Print("you are logged in as " .. key .. "; that character cannot be forgotten here.")
+    else
+        realm[key] = nil
+        Print("removed " .. key .. " from " .. playerRealm .. ": its bags, bank, equipped, mail and gold.")
+    end
+end
+
+local function Ago(t)
+    if type(t) ~= "number" then return "never" end
+    local s = math.max(0, time() - t)
+    if s < 3600 then return string.format("%d min ago", math.floor(s / 60)) end
+    if s < 86400 then return string.format("%d h ago", math.floor(s / 3600)) end
+    return string.format("%d d ago", math.floor(s / 86400))
+end
+
+local function InventoryStatus()
+    local rec = playerName and RealmData(false) and RealmData(false)[playerName]
+    rec = type(rec) == "table" and rec or {}
+    local chars, frames = #RealmCharacters(), CountMoneyHooks()
+    return string.format("inventory: %d character%s on %s%scounts %s%sbank scanned %s%smail scanned %s%sgold hover on %d money frame%s",
+        chars, chars == 1 and "" or "s", playerRealm or "?", DOT, OnOff(CountsOn()), DOT, Ago(rec.bankScanned), DOT,
+        Ago(rec.mailScanned), DOT, frames, frames == 1 and "" or "s")
+end
+
+-- ---------------------------------------------------------------------------
 -- Following Blizzard
 -- ---------------------------------------------------------------------------
 
@@ -1041,6 +1678,7 @@ end
 local function OnBagFrameShown()
     ApplyPosition()
     LayoutSearchRow()
+    HookMoneyFrames()
 end
 
 local function OnBagFrameHidden()
@@ -1080,6 +1718,7 @@ local function HookBlizzard()
 
     CreateDragHandle()
     CreateCleanupButton()
+    HookMoneyFrames()
     if bagFrame:IsShown() then OnBagFrameShown() end
     return true
 end
@@ -1125,6 +1764,9 @@ local function PrintHelp()
     Print("Clean Up button (left of the search box): left-click = Blizzard's own clean-up, the same as Forever's own button; right-click = toggle Reverse.")
     Print("/bbf reverse - toggle Reverse; /bbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
     Print("/bbf stop - stop a running reversal")
+    Print("/bbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
+    Print("/bbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
+    Print("/bbf forget <name> - remove a character from this realm's counts and gold")
     Print("/bbf status - what this client offers and what the next clean-up will do")
 end
 
@@ -1148,10 +1790,12 @@ local function PrintStatus()
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     local pos = db and db.position
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
+    Print(InventoryStatus())
 end
 
 local function OnSlash(msg)
-    msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+    local raw = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    msg = raw:lower():gsub("%s+", " ")
     if not db then
         Print("not loaded yet.")
         return
@@ -1172,6 +1816,14 @@ local function OnSlash(msg)
         if not (cleanupRun and StopRun(StopMessage(cleanupRun, "stopped."))) then
             Print("nothing is running.")
         end
+    elseif msg == "counts" then
+        SetCounts(nil)
+    elseif msg == "counts on" or msg == "counts off" then
+        SetCounts(msg == "counts on")
+    elseif msg == "gold" then
+        PrintGold()
+    elseif msg == "forget" or msg:find("^forget ") then
+        ForgetCharacter(raw:match("^%S+%s+(.+)$"))
     elseif msg == "status" then
         PrintStatus()
     else
@@ -1194,12 +1846,13 @@ end
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.6"
+local VERSION = "1.7"
 
 local function StatusLine()
     if not db then return "not loaded yet" end
     return "Reverse " .. OnOff(ReverseOn()) .. " \194\183 " .. (db.locked and "locked" or "unlocked")
         .. " \194\183 " .. (db.position and "moved" or "default position")
+        .. " \194\183 counts " .. OnOff(CountsOn())
 end
 
 local function MenuEntries()
@@ -1213,6 +1866,8 @@ local function MenuEntries()
         { text = "Hide Blizzard's own Clean Up button", checkbox = true,
           checked = function() return db.hideNativeButton end,
           func = function() SetNativeHidden(not db.hideNativeButton) end },
+        { text = "Item counts in tooltip", checkbox = true, checked = CountsOn,
+          func = function() SetCounts(not CountsOn()) end },
     }
 end
 
@@ -1256,6 +1911,8 @@ local function BindSavedVariables()
         if not SAVED_KEYS[k] then db[k] = nil end
     end
     if type(db.reverse) ~= "boolean" then db.reverse = false end
+    if type(db.showCounts) ~= "boolean" then db.showCounts = true end
+    if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then
         db.position = nil
@@ -1270,24 +1927,78 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("BAG_UPDATE")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("ITEM_LOCK_CHANGED")
+-- The inventory events, each checked: a name this client does not know is skipped, not raised.
+for _, name in ipairs({ "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
+                        "PLAYERBANKSLOTS_CHANGED", "MAIL_SHOW", "MAIL_INBOX_UPDATE", "MAIL_CLOSED" }) do
+    pcall(events.RegisterEvent, events, name)
+end
+
+-- Inventory events. Every one only marks a source and schedules a read; nothing here can raise.
+local function OnInventoryEvent(event)
+    if event == "BAG_UPDATE_DELAYED" then
+        QueueScan("bags")
+        if bankOpen then QueueScan("bank") end
+    elseif event == "BAG_UPDATE" or event == "PLAYERBANKSLOTS_CHANGED" then
+        if bankOpen then QueueScan("bank") end
+    elseif event == "PLAYER_MONEY" then
+        UpdateGold()
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+        QueueScan("equipped")
+    elseif event == "BANKFRAME_OPENED" then
+        bankOpen = true
+        QueueScan("bank")
+    elseif event == "BANKFRAME_CLOSED" then
+        -- One last read of whatever is still waiting, while the bank is still readable.
+        if pendingScan.bank and not InCombat() then
+            pendingScan.bank = nil
+            local rec = PlayerRecord()
+            if rec then pcall(ScanBank, rec) end
+        end
+        bankOpen = false
+        pendingScan.bank = nil
+    elseif event == "MAIL_SHOW" then
+        mailOpen = true
+        ScanMail()
+    elseif event == "MAIL_INBOX_UPDATE" then
+        ScanMail()
+    elseif event == "MAIL_CLOSED" then
+        mailOpen = false
+    end
+end
+
+local INVENTORY_EVENTS = {
+    BAG_UPDATE = true, BAG_UPDATE_DELAYED = true, PLAYERBANKSLOTS_CHANGED = true, PLAYER_MONEY = true,
+    PLAYER_EQUIPMENT_CHANGED = true, BANKFRAME_OPENED = true, BANKFRAME_CLOSED = true,
+    MAIL_SHOW = true, MAIL_INBOX_UPDATE = true, MAIL_CLOSED = true,
+}
+
 events:SetScript("OnEvent", function(_, event, arg1)
+    if INVENTORY_EVENTS[event] and db and playerName then
+        pcall(OnInventoryEvent, event)
+    end
     if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "ITEM_LOCK_CHANGED" then
         OnBagActivity()
     elseif event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
+            HookTooltips()
             HookBlizzard()
         elseif db and not frameHooked then
             -- In case the bag frames arrive with a Blizzard addon loaded after us.
             HookBlizzard()
         end
     elseif event == "PLAYER_LOGIN" then
-        if db then HookBlizzard() end
+        if db then
+            HookBlizzard()
+            HookMoneyFrames()
+            pcall(InitInventory)
+        end
     elseif event == "PLAYER_REGEN_DISABLED" then
         SetCombatLook(true)
         if cleanupRun then StopRun(StopMessage(cleanupRun, "combat.")) end
     elseif event == "PLAYER_REGEN_ENABLED" then
         SetCombatLook(false)
+        ScheduleScans()
         if pendingApply then
             pendingApply = false
             ApplyPosition()

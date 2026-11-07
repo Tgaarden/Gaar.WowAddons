@@ -22,7 +22,7 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
-| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards | `/bbf` |
+| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), and hovering the bag gold shows every character's gold | `/bbf` |
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever` and `BetterMapsForever` through their small API; no bag, quest or map code of its own, and the addons work the same without it | `/bgf`, minimap button |
@@ -53,9 +53,13 @@ one ends up hidden under the bag slot icons. A left-click does exactly what Fore
 does: the sort sound and `C_Container.SortBags()`. A right-click toggles **Reverse** (off by
 default): with it on, in the Combined Backpack only, the addon waits for Blizzard's sort to
 settle and then mirrors the whole visible order, so the last slot on screen trades places with
-the first, and so on. The sort-direction setting is never read or changed. `/bbf` for help,
-`/bbf reset`, `/bbf lock`, `/bbf unlock`, `/bbf native hide|show`, `/bbf reverse [on|off]`,
-`/bbf stop` and `/bbf status`. It ships only a `_Camelot` TOC and a
+the first, and so on. The sort-direction setting is never read or changed. Since 1.7 it also
+keeps a compact record per character (bags, bank, equipped, mail and gold, by item id, per realm)
+and adds a line per character on the realm to every item tooltip, plus a gold-per-character
+tooltip on the bag window's money; the bank and mail are read only while they are open.
+`/bbf` for help, `/bbf reset`, `/bbf lock`, `/bbf unlock`, `/bbf native hide|show`,
+`/bbf reverse [on|off]`, `/bbf counts on|off`, `/bbf gold`, `/bbf forget <name>`, `/bbf stop` and
+`/bbf status`. It ships only a `_Camelot` TOC and a
 plain fallback TOC, both at 16001. Details in
 [`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
 

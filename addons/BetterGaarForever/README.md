@@ -27,7 +27,7 @@ minimap (`GetMinimapShape() == "SQUARE"`), dragged around it, angle saved, 285 d
 A click opens:
 
 - **Bags**: BetterBagsForever's options (Lock position, Reset position, Reverse, Hide Blizzard's
-  own Clean Up button).
+  own Clean Up button, and since BetterBagsForever 1.7 Item counts in tooltip).
 - **Quests**: BetterQuestsForever's options (Enabled, Max quests shown, Sort by, Completed quests,
   Backdrop, Backdrop opacity, Hide in combat).
 - **Maps**: BetterMapsForever's options (Lock position & size, Reset position & size, Scale

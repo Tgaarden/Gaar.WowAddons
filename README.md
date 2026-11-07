@@ -24,7 +24,8 @@ of the code.
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards | `/bbf` |
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever` and `BetterQuestsForever` through their small API; no bag or quest code of its own, and both addons work the same without it | `/bgf`, minimap button |
+| `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever` and `BetterMapsForever` through their small API; no bag, quest or map code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -72,13 +73,29 @@ help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bq
 `_Camelot` TOC and a plain fallback TOC, both at 16001. Details, including the taint analysis, in
 [`addons/BetterQuestsForever/README.md`](addons/BetterQuestsForever/README.md).
 
-## BetterGaarForever: an optional hub for both
+## BetterMapsForever: the world map on Forever
+
+A standalone addon for Forever's own world map window, **Map & Quest Log** - no Gaar addon or
+library needed, and not listed in `GaarUI`. Drag the title bar to move it; the position is saved
+account-wide in `BetterMapsForeverDB` and put back every time the map opens or Blizzard's panel
+layout re-anchors it. Drag the grip in the bottom-right corner to scale the whole window (map and
+quest log together, 50-150%) with the top-left corner held in place. While you move, the map fades
+to 35% opacity (on by default, adjustable), as in GaarMap. Lock turns moving and resizing off,
+reset goes back to Blizzard's position and 100%. Nothing is moved or scaled in combat (it waits
+for combat to end), and the maximized map is left to Blizzard. No Blizzard function or table is
+replaced. `/bmf` for help, `/bmf lock|unlock`, `/bmf reset`, `/bmf scale <50-150>`, `/bmf fade
+on|off`, `/bmf fade <percent>` and `/bmf status`. It ships a `_Camelot` TOC and a plain fallback
+TOC, both at 16001. Use it or GaarMap, not both. Details in
+[`addons/BetterMapsForever/README.md`](addons/BetterMapsForever/README.md).
+
+## BetterGaarForever: an optional hub for all three
 
 An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
-menu has a **Bags** and a **Quests** submenu with `BetterBagsForever`'s and
-`BetterQuestsForever`'s options. It carries no bag or quest code of its own: both addons keep their
-logic, their saved variables and `/bbf` / `/bqf`, and behave exactly the same without the hub. Each
-exports a small global API (`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`: `version`,
+menu has a **Bags**, a **Quests** and a **Maps** submenu with `BetterBagsForever`'s,
+`BetterQuestsForever`'s and `BetterMapsForever`'s options. It carries no bag, quest or map code of
+its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf`, and
+behave exactly the same without the hub. Each exports a small global API
+(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
 its submenu from the same option list as the addon's own menu. While the hub is loaded,
 `BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not

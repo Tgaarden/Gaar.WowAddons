@@ -1,13 +1,14 @@
 --[[
-  BetterGaarForever - an optional hub for BetterBagsForever and BetterQuestsForever, for WoW Forever.
+  BetterGaarForever - an optional hub for BetterBagsForever, BetterQuestsForever and
+  BetterMapsForever, for WoW Forever.
 
-  It carries no bag or quest code of its own. Both addons stay fully independent: their logic, their
-  settings (BetterBagsForeverDB, BetterQuestsForeverDB) and their slash commands (/bbf, /bqf) stay
-  in their own addon, and without this hub they behave exactly as they do on their own. What the
-  hub adds is one minimap button whose menu has a "Bags" and a "Quests" submenu, filled by each
-  addon through the small API table it exports:
+  It carries no bag, quest or map code of its own. The addons stay fully independent: their logic,
+  their settings (BetterBagsForeverDB, BetterQuestsForeverDB, BetterMapsForeverDB) and their slash
+  commands (/bbf, /bqf, /bmf) stay in their own addon, and without this hub they behave exactly as
+  they do on their own. What the hub adds is one minimap button whose menu has a "Bags", a
+  "Quests" and a "Maps" submenu, filled by each addon through the small API table it exports:
 
-    BetterBagsForeverAPI, BetterQuestsForeverAPI = {
+    BetterBagsForeverAPI, BetterQuestsForeverAPI, BetterMapsForeverAPI = {
         version,              the addon's version, a string
         StatusLine(),         one short line of state, shown in the tooltip and /bgf status
         MenuEntries(),        the options as plain data, for the menu drawn without MenuUtil
@@ -16,8 +17,8 @@
     }
 
   While the hub is loaded, the addons' own minimap buttons are hidden, so there is one button: the
-  TOC lists both as OptionalDeps, so they load first and their API is there at our PLAYER_LOGIN,
-  where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
+  TOC lists all three as OptionalDeps, so they load first and their API is there at our
+  PLAYER_LOGIN, where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
   itself before it shows its button, so the order does not matter. Their saved minimap settings
   are never changed.
 
@@ -25,7 +26,7 @@
     minimap = { hide = <bool>, angle = <deg> }
   Anything else (1.0's bags, quests, modules and migrated keys) is dropped on load.
 
-  Taint: the hub creates its own button and menu and calls only the two addons' API; it hooks no
+  Taint: the hub creates its own button and menu and calls only the addons' API; it hooks no
   Blizzard function and touches no Blizzard frame.
 ]]
 
@@ -33,7 +34,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterGaarForever"
 
 local TITLE = "BetterGaarForever"
-local VERSION = "2.0"
+local VERSION = "2.1"
 local PREFIX = "|cff33ff99BetterGaarForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -41,6 +42,7 @@ local EN_DASH = "\226\128\147"
 local ADDONS = {
     { key = "bags", label = "Bags", name = "BetterBagsForever", api = "BetterBagsForeverAPI", slash = "/bbf" },
     { key = "quests", label = "Quests", name = "BetterQuestsForever", api = "BetterQuestsForeverAPI", slash = "/bqf" },
+    { key = "maps", label = "Maps", name = "BetterMapsForever", api = "BetterMapsForeverAPI", slash = "/bmf" },
 }
 
 local db          -- BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -493,10 +495,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function PrintHelp()
-    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever and BetterQuestsForever.")
+    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever and BetterMapsForever.")
     Print("/bgf status - this version and each addon's state")
     Print("/bgf minimap - show or hide the minimap button; /bgf minimap reset - default place, shown")
-    Print("Each addon keeps its own commands: /bbf (BetterBagsForever) and /bqf (BetterQuestsForever).")
+    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever) and /bmf (BetterMapsForever).")
 end
 
 local function PrintStatus()
@@ -557,7 +559,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             -- Loaded after login (LoadAddOn): no PLAYER_LOGIN is coming, so start now.
             if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then Start() end
         elseif started then
-            -- One of the two loaded after us (LoadAddOn): its button goes too.
+            -- One of them loaded after us (LoadAddOn): its button goes too.
             for _, a in ipairs(ADDONS) do
                 if arg1 == a.name then HideStandaloneButtons() end
             end

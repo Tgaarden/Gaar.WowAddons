@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: BetterGaarForever
-## Notes: Optional hub for BetterBagsForever and BetterQuestsForever: one minimap button whose menu holds both addons' options. Each addon keeps its own settings and commands. /bgf
+## Notes: Optional hub for BetterBagsForever, BetterQuestsForever and BetterMapsForever: one minimap button whose menu holds their options. Each addon keeps its own settings and commands. /bgf
 ## Author: Gaar
-## Version: 2.0
+## Version: 2.1
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
-## OptionalDeps: BetterBagsForever, BetterQuestsForever
+## OptionalDeps: BetterBagsForever, BetterQuestsForever, BetterMapsForever
 ## SavedVariables: BetterGaarForeverDB
 
 Core.lua

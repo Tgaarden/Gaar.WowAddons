@@ -27,7 +27,7 @@ of the code.
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever` and `BetterMapsForever` through their small API; no bag, quest or map code of its own, and the addons work the same without it | `/bgf`, minimap button |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever` and `BetterPlatesForever` through their small API; no bag, quest, map, cast bar or nameplate code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -130,19 +130,20 @@ replaces, with `HookScript("OnShow")` and nothing else, and every cast timing an
 checked for secret values first; a bar the client refuses is switched off with one line in chat.
 `/bcf` for help, `/bcf status`, `lock`, `unlock`, `test`, `reset`, `follow on|off`,
 `bar <unit> on|off`, `latency on|off`, `texture blizzard|smooth|flat`, `font 9|11|13` and
-`timer total|remain`. It exports `BetterCastbarsForeverAPI` with the same shape as the others; the
-hub row for it comes in BetterGaarForever 2.2. It ships a `_Camelot` TOC and a plain fallback TOC,
+`timer total|remain`. It exports `BetterCastbarsForeverAPI` with the same shape as the others, and
+BetterGaarForever 2.2 and later has a Castbars row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
 both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
 Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).
 
-## BetterGaarForever: an optional hub for all three
+## BetterGaarForever: an optional hub for all five
 
 An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
-menu has a **Bags**, a **Quests** and a **Maps** submenu with `BetterBagsForever`'s,
-`BetterQuestsForever`'s and `BetterMapsForever`'s options. It carries no bag, quest or map code of
-its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf`, and
+menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars** and a **Plates** submenu with
+`BetterBagsForever`'s, `BetterQuestsForever`'s, `BetterMapsForever`'s, `BetterCastbarsForever`'s and
+`BetterPlatesForever`'s options. It carries no bag, quest, map, cast bar or nameplate code of
+its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf`, and
 behave exactly the same without the hub. Each exports a small global API
-(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`: `version`,
+(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
 its submenu from the same option list as the addon's own menu. While the hub is loaded,
 `BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not

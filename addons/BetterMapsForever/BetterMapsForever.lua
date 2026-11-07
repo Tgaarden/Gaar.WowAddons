@@ -498,6 +498,25 @@ local function PlayerIsMoving()
     return nil
 end
 
+-- True while the cursor is over the map window or one of its shown child frames (the quest log
+-- panel may sit outside the parent's own rect). pcall-guarded: a failed check counts as "not over".
+local function CursorOverMap()
+    if not map then return false end
+    local ok, over = pcall(map.IsMouseOver, map)
+    if ok and over then return true end
+    local okc, kids = pcall(function() return { map:GetChildren() } end)
+    if okc and type(kids) == "table" then
+        for _, kid in ipairs(kids) do
+            local oks, shown = pcall(kid.IsShown, kid)
+            if oks and shown then
+                local okm, m = pcall(kid.IsMouseOver, kid)
+                if okm and m then return true end
+            end
+        end
+    end
+    return false
+end
+
 local function SetFaded(on)
     if not map then return end
     map:SetAlpha(on and db.fadeAlpha or 1)
@@ -511,6 +530,8 @@ local function FadeStep()
     end
     local m = PlayerIsMoving()
     if m == nil then return end
+    -- Hovering the map keeps it at full opacity even while moving; it fades again on leave.
+    if m and CursorOverMap() then m = false end
     if m and not faded then
         SetFaded(true)
     elseif not m and faded then

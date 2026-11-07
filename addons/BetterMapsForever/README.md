@@ -23,6 +23,8 @@ does nothing else. It needs no other addon or library, and it is not part of the
   boolean), `GetUnitSpeed("player")` only where that is missing (it can be a secret number on this
   client), and the map is left alone when neither can answer. One difference: closing the map
   while it is faded puts it back to full opacity, so it never opens faded while you stand still.
+  While the mouse cursor is over the map window (including its quest log panel) the map stays at
+  full opacity even while you move, and it fades again when the cursor leaves.
   The fade works in both windowed and maximized mode, and in combat (it is only `SetAlpha`).
 - **Lock.** No moving and no resizing; the grip and the title-bar handle are hidden.
 - **Reset.** Blizzard's default position and 100% scale.

@@ -26,6 +26,7 @@ of the code.
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
+| `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever` and `BetterMapsForever` through their small API; no bag, quest or map code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
@@ -112,6 +113,27 @@ runs in `pcall`: the first refusal switches only that part off for the session, 
 debuffs|tot|dim|targetscale on|off` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
 once at login when both are loaded). It ships a `_Camelot` TOC and a plain fallback TOC, both at
 16001. Details in [`addons/BetterPlatesForever/README.md`](addons/BetterPlatesForever/README.md).
+
+## BetterCastbarsForever: cast bars on Forever
+
+A standalone addon - no Gaar addon or library needed, and not listed in `GaarUI`. It is a port of
+`GaarCast` to the Better...Forever conventions and draws its own cast bars for the player, target
+and focus (on by default; focus only where the client has one) and the pet (off by default): spell
+icon with a 1px border (steel with a small shield when the cast cannot be interrupted), name,
+`remain / total` or `remain` timer, spark, the cast's target under the bar and a latency
+safe-zone on the player bar. Yellow cast, green channel, grey uninterruptible, a red flash on a
+failed or interrupted cast and a 0.3 s fade when it finishes. Each bar has its own position by
+default: drag to move, the bottom-right grip to resize, saved per bar account-wide in
+`BetterCastbarsForeverDB`. **Follow Blizzard (Edit Mode)** anchors each bar to Blizzard's own bar
+instead; dragging turns that off again. Blizzard's cast bar is hidden only for the units it
+replaces, with `HookScript("OnShow")` and nothing else, and every cast timing and frame geometry is
+checked for secret values first; a bar the client refuses is switched off with one line in chat.
+`/bcf` for help, `/bcf status`, `lock`, `unlock`, `test`, `reset`, `follow on|off`,
+`bar <unit> on|off`, `latency on|off`, `texture blizzard|smooth|flat`, `font 9|11|13` and
+`timer total|remain`. It exports `BetterCastbarsForeverAPI` with the same shape as the others; the
+hub row for it comes in BetterGaarForever 2.2. It ships a `_Camelot` TOC and a plain fallback TOC,
+both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
+Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).
 
 ## BetterGaarForever: an optional hub for all three
 

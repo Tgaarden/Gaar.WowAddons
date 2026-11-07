@@ -25,6 +25,7 @@ of the code.
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), and hovering the bag gold shows every character's gold | `/bbf` |
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
+| `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever` and `BetterMapsForever` through their small API; no bag, quest or map code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
@@ -91,6 +92,26 @@ replaced. `/bmf` for help, `/bmf lock|unlock`, `/bmf reset`, `/bmf scale <50-150
 on|off`, `/bmf fade <percent>` and `/bmf status`. It ships a `_Camelot` TOC and a plain fallback
 TOC, both at 16001. Use it or GaarMap, not both. Details in
 [`addons/BetterMapsForever/README.md`](addons/BetterMapsForever/README.md).
+
+## BetterPlatesForever: nameplates on Forever
+
+A standalone port of `GaarPlates` - no Gaar addon or library needed, and not listed in `GaarUI`.
+It draws its own overlay on every enemy nameplate (the frame `C_NamePlate.GetNamePlateForUnit`
+returns) and hides Blizzard's art there, through `HookScript("OnShow")` and `Hide()` only; a plate
+it stops styling gets Blizzard's art back. A flat health bar (120x12 by default) coloured by
+reaction, class, health or one solid colour, grey when someone else tagged the mob, an execute
+tint at 20% or less; purple with a ring when you hold aggro, amber when your threat is high, threat
+percent on the bar; name, level, health text and the unit's target; a cast bar with icon, spell
+name and time left, grey for uninterruptible casts; up to 8 of your own debuffs with stacks and a
+countdown; your target scaled to 115% and every other plate dimmed to 55%. Friendly plates are
+Blizzard's unless `/bpf friendly on`. **No CVars are changed**, so stacking, overlap and plate size
+stay as they were. Hidden (secret) values are guarded at the read, and each part of a plate's update
+runs in `pcall`: the first refusal switches only that part off for the session, with one message.
+`/bpf` for help, `/bpf status`, `/bpf on|off`, `/bpf color reaction|class|health|solid`,
+`/bpf health off|percent|current`, `/bpf size <w> <h>`, `/bpf friendly|threat|threattext|execute|
+debuffs|tot|dim|targetscale on|off` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
+once at login when both are loaded). It ships a `_Camelot` TOC and a plain fallback TOC, both at
+16001. Details in [`addons/BetterPlatesForever/README.md`](addons/BetterPlatesForever/README.md).
 
 ## BetterGaarForever: an optional hub for all three
 

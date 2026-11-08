@@ -27,7 +27,8 @@ of the code.
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of `BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever` and `BetterPlatesForever` through their small API; no bag, quest, map, cast bar or nameplate code of its own, and the addons work the same without it | `/bgf`, minimap button |
+| `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all six Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever` and `BetterGpsForever`) through their small API; no bag, quest, map, cast bar, nameplate or waypoint code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -135,15 +136,39 @@ BetterGaarForever 2.2 and later has a Castbars row for it. It ships a `_Camelot`
 both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
 Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).
 
-## BetterGaarForever: an optional hub for all five
+## BetterGpsForever: one waypoint on Forever
+
+A standalone addon - no Gaar addon or library needed, and not listed in `GaarUI` - for one
+TomTom-style waypoint. `/way x y`, `/way x,y` or `/way <zone> x y` (0-100, x first; the zone is
+matched case-insensitively, exact or by a unique prefix, and an ambiguous name lists the
+candidates) sets it, `/way clear` removes it, and shift + left-click on the world map sets it at
+the point under the cursor on the map shown, worked out from the canvas's own scale so it is right
+at any BetterMapsForever scale. A new waypoint replaces the old. A movable arrow (lock, reset,
+on/off) points at it from `C_Map.GetPlayerMapPosition` and `GetPlayerFacing()`, with the distance
+in yards from `C_Map.GetWorldPosFromMapPos` and, under it, the time to get there at the speed you
+are closing in over the last 3 seconds (`--` while standing still or moving away). A pin on the
+world map (also converted to the continent map) and one on the minimap (minimap zoom and
+`rotateMinimap` respected, on the edge when out of range). Blizzard's own user waypoint is set
+too where the client allows it and cleared with ours while it is still ours. Within 10 yards it
+clears itself with "Arrived at ...". Saved account-wide in `BetterGpsForeverDB`. With TomTom
+loaded `/way` stays TomTom's and `/bgps way x y` does the job (one note at login). No Blizzard
+function or table is written; every read is guarded for errors and secret values, and each part
+switches itself off after its first error with one line in chat. `/bgps` for help, `status`,
+`arrow on|off`, `lock`, `unlock`, `reset`, `clear` and `way`. It exports `BetterGpsForeverAPI`,
+and BetterGaarForever 2.3 and later has a GPS row for it. It ships a `_Camelot` TOC and a plain
+fallback TOC, both at 16001. Details in
+[`addons/BetterGpsForever/README.md`](addons/BetterGpsForever/README.md).
+
+## BetterGaarForever: an optional hub for all six
 
 An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
-menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars** and a **Plates** submenu with
-`BetterBagsForever`'s, `BetterQuestsForever`'s, `BetterMapsForever`'s, `BetterCastbarsForever`'s and
-`BetterPlatesForever`'s options. It carries no bag, quest, map, cast bar or nameplate code of
-its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf`, and
+menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars**, a **Plates** and a **GPS** submenu with
+the options of all six Better...Forever addons: `BetterBagsForever`, `BetterQuestsForever`,
+`BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever` and `BetterGpsForever`. It
+carries no bag, quest, map, cast bar, nameplate or waypoint code of
+its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps`, and
 behave exactly the same without the hub. Each exports a small global API
-(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`: `version`,
+(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
 its submenu from the same option list as the addon's own menu. While the hub is loaded,
 `BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not

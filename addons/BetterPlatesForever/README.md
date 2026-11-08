@@ -21,14 +21,18 @@ exactly what the game, or you, set them to.
   threat is high (status 2 or more), and your threat percent at the right end of the bar (on by
   default). Threat colours win over the colour mode and the execute tint.
 - **Text.** The name above the bar, the level right of it (`??` when the client hides it), the
-  health text inside it (`off`, `percent` (default) or `current`), and the unit's target under it
+  health text inside it (`off`, `percent` (default), `current` or `both`, e.g. `850  85%`), and
+  the unit's target under it
   as `-> Name` (on by default).
 - **Cast bar** over the name row while the unit casts or channels: spell icon left of the bar,
   spell name and the time left in seconds. Casts are orange, channels green and drain from full.
   An **uninterruptible** cast gets the grey "shield" look from `GaarCast`: grey bar and a light
   steel edge round the icon.
 - **Your debuffs.** Up to 8 of your own debuffs (`HARMFUL|PLAYER`) as 16px icons under the bar,
-  with stacks and a countdown that turns yellow at 8 s and red at 3 s.
+  with stacks and a countdown that turns yellow at 8 s and red at 3 s. In combat the client keeps
+  auras secret and refuses reads by index; then each spell you have cast this session is looked
+  up by spell ID instead, and a hidden countdown is drawn by the client's own Cooldown swipe and
+  numbers. So a DoT shows once you have cast it once this session.
 - **Your target.** Its plate is scaled to 115% with a faint grey ring (`targetscale`, on by
   default), and every other plate is dimmed to 55% while you have a target (`dim`, on by default).
 - **Plates update 12.5 times a second**, the same loop as `GaarPlates`, over the plates being
@@ -41,10 +45,11 @@ exactly what the game, or you, set them to.
 | Command | Does |
 |---|---|
 | `/bpf`, `/bpf help` | Help |
-| `/bpf status` | Version, every setting, what this client offers (`C_NamePlate`, which aura API, threat, whether it can hide values), how many plates are styled now, anything this client switched off this session, and a warning if `GaarPlates` is loaded too |
+| `/bpf status` | Version, every setting, what this client offers (`C_NamePlate`, which aura API, threat, whether it can hide values), how many plates are styled now, anything this client switched off this session (with the reason), the debuff and health text state, and a warning if `GaarPlates` is loaded too |
+| `/bpf debug` | Debuff and health text state: icons on your target's plate and how they were read, aura reads refused this session, the spells remembered for the spell-ID lookup, the last refusal, which aura and health-text APIs this client has, and whether your target's health is hidden |
 | `/bpf on`, `/bpf off` | The whole addon. Off gives every plate back to Blizzard straight away |
 | `/bpf color reaction\|class\|health\|solid` | Bar colour mode (`/bpf colour` works too) |
-| `/bpf health off\|percent\|current` | Health text |
+| `/bpf health off\|percent\|current\|both` | Health text |
 | `/bpf size <width> <height>` | Health bar size, width 60-250 and height 6-30 (`/bpf size 140 16`, `/bpf size 140x16`) |
 | `/bpf friendly on\|off` | Style friendly plates too (off by default) |
 | `/bpf threat on\|off` | Threat colours and the aggro ring |
@@ -63,7 +68,7 @@ A switch without `on` or `off` toggles it. `/betterplatesforever` is the long fo
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
 menu holds the options of the Better...Forever addons. Its **Plates** submenu is in
 BetterGaarForever 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
-**Health text** (Off / Percent / Current), **Size** (Small 100x10 / Medium 120x12 / Large 140x16),
+**Health text** (Off / Percent / Current / Both), **Size** (Small 100x10 / Medium 120x12 / Large 140x16),
 a checkbox for each of friendly, threat, threat text, execute, debuffs, target of target, dim and
 target scale, and **Reset to defaults**: the same settings as `/bpf`, through the same functions.
 This addon has no minimap button or menu of its own, so nothing here changes with or without the
@@ -91,16 +96,20 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   frames were hooked is kept in a weak table of the addon's own.
 - **Hidden values.** Where the client hides a number (`issecretvalue`), the health bar still gets
   the raw values (handing a hidden value straight back to a widget is allowed), but nothing is
-  worked out from them: no percent, no execute tint, no health text, no colour by health (it falls
-  back to reaction). Hidden threat values are dropped at the read, so the plate shows no threat;
+  worked out from them: no execute tint, no colour by health (it falls back to reaction). The
+  health text is then written by the client's own secret-safe helpers, as in
+  `BetterFramesForever`: `UnitHealthPercent` with `CurveConstants.ScaleTo100`,
+  `AbbreviateNumbers` and `FontString:SetFormattedText`; without them it stays empty. Hidden threat values are dropped at the read, so the plate shows no threat;
   a hidden level shows `??`. Cast timings that are hidden mean no cast bar.
 - **One refusal, one message.** The client can refuse a read that no check predicted. Each part of
   a plate's update (threat, health, names and levels, cast bar, debuffs, target emphasis) runs
   inside `pcall`. The first refusal switches that part off for the session on every plate, with
   one message in chat, instead of an error twelve times a second per plate. `/bpf status` lists
   what was switched off. If the overlay itself cannot be drawn, every plate goes back to Blizzard.
-  Auras are read with `C_UnitAuras.GetAuraDataByIndex` (`UnitAura` on a client that still has it),
-  which this client may refuse on nameplates; that switches only the debuff icons off.
+  An aura read the client refuses is **not** such a refusal: it is what the client does in combat
+  (*"auras cannot be accessed when secret while tainted"*). Version 1.0 treated it as one and
+  switched the debuff icons off for the session the first time you DoTed a mob. Now it is counted
+  (`/bpf debug`), the spell-ID lookup takes over, and the next pass tries again.
 - **`GaarPlates`.** Both addons draw over the same plates. If `GaarPlates` is loaded, a one-time
   warning is printed at login and `/bpf status` says so. Nothing is disabled; use one of the two.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled`, `colorMode`,
@@ -119,5 +128,9 @@ Unit API: `UnitHealth`, `UnitHealthMax`, `UnitLevel`, `UnitName`, `UnitClass`, `
 `UnitIsFriend`, `UnitReaction`, `UnitCanAttack`, `UnitIsUnit`, `UnitExists`, `UnitIsTapDenied`,
 `UnitDetailedThreatSituation`, `UnitCastingInfo` / `UnitChannelInfo` (both return shapes, with
 and without the old `nameSubtext`), `C_UnitAuras.GetAuraDataByIndex` (or `UnitAura`),
+`C_UnitAuras.GetUnitAuraBySpellID`, `C_UnitAuras.GetAuraDuration`,
+`C_UnitAuras.GetAuraApplicationDisplayCount`, `C_Secrets.ShouldUnitAuraIndexBeSecret`,
+`UNIT_SPELLCAST_SUCCEEDED`, `Cooldown:SetCooldownFromDurationObject`, `UnitHealthPercent`,
+`CurveConstants.ScaleTo100`, `AbbreviateNumbers`, `UnitIsDeadOrGhost`,
 `issecretvalue` where it exists, `RAID_CLASS_COLORS`, `AbbreviateLargeNumbers`, `STANDARD_TEXT_FONT`,
 `BackdropTemplate`, `C_AddOns.IsAddOnLoaded` (or `IsAddOnLoaded`).

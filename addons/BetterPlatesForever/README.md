@@ -28,7 +28,7 @@ exactly what the game, or you, set them to.
   spell name and the time left in seconds. Casts are orange, channels green and drain from full.
   An **uninterruptible** cast gets the grey "shield" look from `GaarCast`: grey bar and a light
   steel edge round the icon.
-- **Your debuffs.** Up to 8 of your own debuffs (`HARMFUL|PLAYER`) as 20px icons under the bar,
+- **Your debuffs.** Up to 8 of your own debuffs (`HARMFUL|PLAYER`) as 20px icons above the name,
   with stacks, a cooldown swipe and the time left. In combat this client keeps auras secret and
   refuses every aura read from addon code, so since 1.2 the icons are **drawn by the client**
   (`native`, on by default): each plate gets an `AuraContainer` made from Blizzard's

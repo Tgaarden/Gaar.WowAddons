@@ -55,7 +55,7 @@ local ADDON_NAME = ... or "BetterCastbarsForever"
 local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.1.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -773,9 +773,8 @@ end
 --   * PLAYER_SWING, an event of this client's own (retail has none), next to C_SwingTimer and
 --     Enum.PlayerSwingType, which drive the client's built-in "Main Hand" swing bar. Each event
 --     restarts the bar of the hand it names. Its payload is not documented: the hand is read from
---     the first number (an Enum.PlayerSwingType value, the enum's own names decide which hand)
---     or a string naming it, and taken as main hand otherwise. The duration never comes from the
---     payload, only from UnitAttackSpeed. /bcf swing debug prints every payload.
+--     (duration, Enum.PlayerSwingType value): arg2 decides the hand, arg1 is the swing duration
+--     when sane, else UnitAttackSpeed / UnitRangedDamage. Ranged swings drive the ranged bar. /bcf swing debug prints every payload.
 --   * Until PLAYER_SWING has been seen this session (or where it cannot be registered), an
 --     estimate: PLAYER_ENTER_COMBAT (auto-attack on) starts a swing at once, the bar loops on
 --     its own while auto-attack lasts, and on-next-swing abilities (Heroic Strike, Cleave,
@@ -818,6 +817,7 @@ local swingState = {
     autoRepeat = false,  -- START_AUTOREPEAT_SPELL .. STOP_ (Auto Shot, Shoot)
     dual = false,        -- an off-hand attack speed is reported
     eventOK = false,     -- PLAYER_SWING could be registered
+    rangedEventSeen = false,   -- a ranged PLAYER_SWING arrived this session
     eventSeen = false,   -- a melee PLAYER_SWING arrived this session
     debug = false,       -- /bcf swing debug, not saved
 }
@@ -856,8 +856,8 @@ local function SwingRunning(t, now)
     return t.start ~= nil and now < t.start + t.dur
 end
 
-local function SwingStart(hand)
-    local d = SwingDuration(hand)
+local function SwingStart(hand, dur)
+    local d = dur or SwingDuration(hand)
     if not d then return end          -- secret or missing speed: this swing is not drawn
     local t = swingReal[hand]
     t.start, t.dur = GetTime(), d
@@ -938,20 +938,31 @@ local function SwingEnumKinds()
     return swingEnumKind
 end
 
--- Which hand a PLAYER_SWING names: the first readable number decides (an enum value), a string
--- naming a hand decides, anything else is skipped. Nothing readable: main hand.
-local function SwingHandOf(...)
-    for i = 1, select("#", ...) do
-        local a = select(i, ...)
-        if not IsSecret(a) then
-            if type(a) == "number" then return SwingEnumKinds()[a] or "mh" end
-            if type(a) == "string" then
-                local h = HandFromName(a)
-                if h then return h end
+-- PLAYER_SWING payload, seen in game (/bcf swing debug): (duration, swingType), e.g.
+-- 2.9000000953674, 0 -> MH, with swingType an Enum.PlayerSwingType value (MainHand=0, OffHand=1,
+-- Ranged=2). Returns the hand and the duration (nil unless sane: > 0 and < 10, not secret).
+-- Guarded fallbacks: no number in arg2 and an integer 0..2 in arg1 is taken as the type; a
+-- string naming a hand also decides; nothing readable is main hand. Secrets are never compared.
+local SWING_TYPE_FALLBACK = { [0] = "mh", [1] = "oh", [2] = "ranged" }
+local function SwingPayload(a1, a2, ...)
+    local dur, hand
+    local n1 = (not IsSecret(a1) and type(a1) == "number") and a1 or nil
+    local n2 = (not IsSecret(a2) and type(a2) == "number") and a2 or nil
+    if n2 ~= nil then
+        hand = SwingEnumKinds()[n2] or SWING_TYPE_FALLBACK[n2]
+        if n1 and n1 > 0 and n1 < 10 then dur = n1 end
+    elseif n1 ~= nil and a2 == nil and n1 >= 0 and n1 <= 2 and n1 == math.floor(n1) then
+        hand = SwingEnumKinds()[n1] or SWING_TYPE_FALLBACK[n1]
+    end
+    if not hand then
+        for _, a in ipairs({ a1, a2, ... }) do
+            if not IsSecret(a) and type(a) == "string" then
+                hand = HandFromName(a)
+                if hand then break end
             end
         end
     end
-    return "mh"
+    return hand or "mh", dur
 end
 
 local function DescribeArgs(...)
@@ -966,15 +977,19 @@ local function DescribeArgs(...)
 end
 
 local function OnPlayerSwing(...)
-    local hand = SwingHandOf(...)
-    if swingState.debug then Print("PLAYER_SWING: " .. DescribeArgs(...) .. " -> " .. SWING_LABEL[hand]) end
-    if hand ~= "ranged" then swingState.eventSeen = true end
-    SwingStart(hand)
+    local hand, dur = SwingPayload(...)
+    if swingState.debug then
+        Print("PLAYER_SWING: " .. DescribeArgs(...) .. " -> " .. SWING_LABEL[hand]
+              .. " (dur=" .. tostring(dur) .. ", type=" .. SWING_LABEL[hand] .. ")")
+    end
+    if hand == "ranged" then swingState.rangedEventSeen = true else swingState.eventSeen = true end
+    SwingStart(hand, dur)
 end
 
 local function OnSwingSpell(spellID)
     local kind = SwingSpellKind(spellID)
-    if kind == "ranged" then SwingStart("ranged")
+    if kind == "ranged" then
+        if not swingState.rangedEventSeen then SwingStart("ranged") end   -- PLAYER_SWING drives it once seen
     elseif kind == "slam" then SwingStart("mh")
     elseif kind == "nextswing" and not swingState.eventSeen then SwingStart("mh") end
 end

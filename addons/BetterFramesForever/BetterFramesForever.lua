@@ -16,6 +16,8 @@
     * Target: combo points (rogues and druids), a row of buffs and one of debuffs (up to 16
       each; your own debuffs larger, the rest smaller and greyed), a gold border for elites and
       bosses, silver for rares.
+    * Player: your own buffs in rows under the frame (up to 20, two rows of 10, with the
+      remaining-time swipe; option, on by default).
     * Party: small buffs and debuffs, faded to 50% when out of range.
     * Icons: raid target, group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
@@ -26,7 +28,7 @@
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /bff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      editmode, portrait, text, lowhp and classcolor.
+      editmode, portrait, text, lowhp, classcolor and playerbuffs.
     * BetterFramesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
 
@@ -57,7 +59,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -96,8 +98,10 @@ local LAYOUT = {
     party  = { w = 180, name = 14, hp = 18, mp = 8, portrait = true, compact = true, reserve = 30 },
 }
 
--- Auras: which rows a frame has. Target: buffs then debuffs, your own debuffs larger.
+-- Auras: which rows a frame has. Target: buffs then debuffs, your own debuffs larger. Player:
+-- your own buffs (option playerBuffs), up to 20 in two rows of 10 under the frame.
 local AURAS = {
+    player = { { filter = "HELPFUL", max = 20, size = 20 } },
     target = { { filter = "HELPFUL", max = 16, size = 18 },
                { filter = "HARMFUL", max = 16, size = 18, own = 24 } },
     party  = { { filter = "HARMFUL", max = 8, size = 14 },
@@ -107,7 +111,7 @@ local AURAS = {
 -- Default place of each frame's top-left corner, in UIParent units from UIParent's top-left.
 local DEFAULT_POS = {
     player = { 20, -40 }, target = { 276, -40 }, tot = { 520, -40 }, focus = { 520, -100 },
-    pet = { 20, -112 }, party = { 20, -175 },
+    pet = { 20, -152 }, party = { 20, -210 },   -- pet under the player's two buff rows
 }
 
 -- Blizzard's frames each of ours replaces (feature-detected; missing names are skipped).
@@ -147,13 +151,14 @@ local DEFAULTS = {
     lowhp = true,
     classColor = true,
     followEditMode = false,
+    playerBuffs = true,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
-    frames = true, scales = true, positions = true,
+    playerBuffs = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- BetterFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -846,17 +851,39 @@ local function SetPowerShown(f, on)
     end
 end
 
+-- Whether a unit has no power to show: true (none), false (it has power) or nil (cannot tell),
+-- and why, for /bff status. A plain maximum decides where there is one. On this client
+-- UnitPowerMax is secret for every unit that is not player-controlled (the API documentation's
+-- SecretWhenUnitPowerMaxRestricted), so a beast's maximum of 0 cannot be tested - 1.1 fell
+-- through to the hidden-value text and wrote "0/0 0%". UnitPowerType and UnitHasPowerType carry
+-- no secret flag there, so for NPCs the client's own "has a power of this type" decides. Where
+-- UnitHasPowerType is missing: UnitPower is only plain for a power the unit does not have (or a
+-- type flagged never secret), so a plain 0 next to a hidden maximum is taken as none.
+local function NoPower(u, pType, cur, mx)
+    local plainMax = Num(mx)
+    if plainMax then return plainMax <= 0, "max " .. plainMax end
+    local H = _G.UnitHasPowerType
+    if pType and type(H) == "function" then
+        local ok, has = pcall(H, u, pType)
+        if ok and not IsSecret(has) and type(has) == "boolean" then
+            return not has, "UnitHasPowerType " .. tostring(has)
+        end
+    end
+    if Num(cur) == 0 then return true, "power 0 plain, max hidden" end
+    return nil, "max hidden, nothing to tell"
+end
+
 local function UpdatePower(f)
     local u, bar = f.unit, f.power
-    local _, token = UnitPowerType(u)
+    local pType, token = UnitPowerType(u)
     bar:SetStatusBarColor(PowerRGB(Plain(token)))
     local cur, mx = UnitPower(u), UnitPowerMax(u)
     local fs = bar.text
-    -- No power at all (a beast, most warriors-type NPCs): the bar goes and health takes its room.
-    -- Only a plain maximum is tested; the current value may be secret while the maximum is not.
-    local plainMax = Num(mx)
-    SetPowerShown(f, not (plainMax and plainMax <= 0))
-    if plainMax and plainMax <= 0 then
+    -- No power at all (a beast, most warrior-type NPCs): the bar goes and health takes its room.
+    local none, why = NoPower(u, Num(pType), cur, mx)
+    f.powerWhy = why
+    SetPowerShown(f, not none)
+    if none then
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         if fs then fs:SetText("") end
@@ -1085,6 +1112,9 @@ do
     -- The groups each kind of frame gets, in layout order. own = only your auras, others = only
     -- other people's; grey = drawn desaturated.
     local GROUPS = {
+        player = {
+            { key = "buffs", filter = "HELPFUL", max = 20, size = 20 },
+        },
         target = {
             { key = "buffs", filter = "HELPFUL", max = 16, size = 18 },
             { key = "mine", filter = "HARMFUL|PLAYER", max = 16, size = 24, newLine = true, border = { 0.9, 0.1, 0.1 } },
@@ -1295,9 +1325,37 @@ do
         for i = n + 1, #icons do icons[i]:Hide() end
     end
 
+    -- Shows or hides a frame's container. It is a plain (not protected) child of our frame, so
+    -- this is allowed in combat; SetEnabled also stops its aura events while it is off. The
+    -- state is kept on our frame: the container's own table belongs to the client.
+    local function SetContainerShown(f, on)
+        local c = f.auraContainer
+        if f.auraContainerShown == on then return end
+        f.auraContainerShown = on
+        if type(c.SetEnabled) == "function" then pcall(c.SetEnabled, c, on) end
+        pcall(on and c.Show or c.Hide, c)
+    end
+
+    -- The player's buffs are drawn only with the playerBuffs option on, and not in test mode:
+    -- made-up icons sit in their place then, and test mode owns the player's aura icons.
+    local function Wanted(f)
+        if f.key ~= "player" then return true end
+        return db.playerBuffs and not testing
+    end
+
     UpdateAuras = function(f)
         if not AURAS[f.key] or not f.auraIcons then return end
-        if f.auraContainer == nil then f.auraContainer = BuildContainer(f) end
+        local wanted = Wanted(f)
+        if f.auraContainer then SetContainerShown(f, wanted) end
+        if not wanted then
+            f.auraPath = testing and "test mode" or "off (/bff playerbuffs on)"
+            if not testing then for _, icon in ipairs(f.auraIcons) do icon:Hide() end end
+            return
+        end
+        if f.auraContainer == nil then
+            f.auraContainer = BuildContainer(f)
+            f.auraContainerShown = f.auraContainer and true or nil
+        end
         if f.auraContainer then
             -- The client draws them; it follows the unit and its aura events itself.
             f.auraPath = "Blizzard aura container"
@@ -1700,6 +1758,22 @@ end
 -- ---------------------------------------------------------------------------
 
 local FAKE = {
+    -- The player frame is the real one in test mode; only its buffs are made up. { icon, own,
+    -- { seconds gone, duration } } - the last for a cooldown swipe.
+    player = { buffs = {
+        { "Interface\\Icons\\Spell_Nature_Regeneration", nil, { 600, 1800 } },
+        { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 300, 1800 } },
+        { "Interface\\Icons\\Spell_Holy_MagicalSentry", nil, { 1500, 1800 } },
+        { "Interface\\Icons\\Spell_Holy_FistOfJustice", nil, { 100, 300 } },
+        "Interface\\Icons\\Spell_Holy_DivineSpirit",
+        { "Interface\\Icons\\Spell_Nature_Thorns", nil, { 400, 600 } },
+        { "Interface\\Icons\\Spell_Nature_Rejuvenation", nil, { 4, 12 } },
+        { "Interface\\Icons\\Spell_Holy_PowerWordShield", nil, { 20, 30 } },
+        "Interface\\Icons\\Spell_Shadow_AntiShadow",
+        "Interface\\Icons\\Spell_Nature_ResistNature",
+        { "Interface\\Icons\\Spell_Nature_LightningShield", nil, { 60, 600 } },
+        "Interface\\Icons\\Spell_Holy_SealOfWisdom",
+    } },
     target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 },
         power = { 900, 1200, "MANA" }, reaction = { 0.85, 0.2, 0.2 }, combo = 3,
         buffs = { "Interface\\Icons\\Spell_Holy_WordFortitude", "Interface\\Icons\\Spell_Nature_Regeneration" },
@@ -1717,6 +1791,45 @@ local FAKE = {
     party3 = { name = "Uther", level = 60, class = "PALADIN", hp = { 600, 4800 }, power = { 1800, 4300, "MANA" }, far = true },
     party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" } },
 }
+
+-- Made-up aura icons from d.buffs and d.debuffs, in the frame's rows, wrapping at its width.
+local function FakeAuras(f, d)
+    local n, x, y, rowH = 0, 0, 0, 0
+    local rows = AURAS[f.key]
+    local width = f.layout.w
+    local lists = { d.buffs or {}, d.debuffs or {} }
+    if rows[1].filter == "HARMFUL" then lists = { d.debuffs or {}, d.buffs or {} } end
+    local now = type(_G.GetTime) == "function" and _G.GetTime() or nil
+    for ri, row in ipairs(rows) do
+        if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
+        for k, item in ipairs(lists[ri]) do
+            if k > row.max then break end
+            n = n + 1
+            local icon = f.auraIcons[n]
+            if not icon then icon = NewAuraIcon(f); f.auraIcons[n] = icon end
+            local path, own, cd = item, nil, nil
+            if type(item) == "table" then path, own, cd = item[1], item[2], item[3] end
+            local size = (own and row.own) or row.size
+            if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
+            icon:SetSize(size, size)
+            icon:ClearAllPoints()
+            icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
+            x = x + size + 2
+            if size > rowH then rowH = size end
+            icon.tex:SetTexture(path)
+            icon.tex:SetDesaturated(row.own ~= nil and own == false)
+            SetSolid(icon.border, own and 0.9 or 0, 0.1, 0.1, 1)
+            icon.count:SetText("")
+            if icon.cd then
+                if cd and now then icon.cd:SetCooldown(now - cd[1], cd[2]); icon.cd:Show()
+                else icon.cd:Hide() end
+            end
+            icon.unit = nil
+            icon:Show()
+        end
+    end
+    for i = n + 1, #f.auraIcons do f.auraIcons[i]:Hide() end
+end
 
 local function FillFake(f)
     local d = FAKE[f.unit]
@@ -1776,38 +1889,18 @@ local function FillFake(f)
     end
     f:SetAlpha(d.far and OUT_OF_RANGE or 1)
 
-    if f.auraIcons then
-        local n, x = 0, 0
-        local rows = AURAS[f.key]
-        local lists = { d.buffs or {}, d.debuffs or {} }
-        if rows[1].filter == "HARMFUL" then lists = { d.debuffs or {}, d.buffs or {} } end
-        local y, rowH = 0, 0
-        for ri, row in ipairs(rows) do
-            if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
-            for _, item in ipairs(lists[ri]) do
-                n = n + 1
-                local icon = f.auraIcons[n]
-                if not icon then icon = NewAuraIcon(f); f.auraIcons[n] = icon end
-                local path, own = item, nil
-                if type(item) == "table" then path, own = item[1], item[2] end
-                local size = (own and row.own) or row.size
-                icon:SetSize(size, size)
-                icon:ClearAllPoints()
-                icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
-                x = x + size + 2
-                if size > rowH then rowH = size end
-                icon.tex:SetTexture(path)
-                icon.tex:SetDesaturated(row.own ~= nil and own == false)
-                SetSolid(icon.border, own and 0.9 or 0, 0.1, 0.1, 1)
-                icon.count:SetText("")
-                if icon.cd then icon.cd:Hide() end
-                icon.unit = nil
-                icon:Show()
-            end
-        end
-        for i = n + 1, #f.auraIcons do f.auraIcons[i]:Hide() end
-    end
+    if f.auraIcons then FakeAuras(f, d) end
     ApplyBorder(f)
+end
+
+-- The player frame stays the real one in test mode: its own buffs make way (UpdateAuras holds
+-- them back while testing) for made-up ones, so the row under it can be placed. None with the
+-- option off.
+local function FakePlayerBuffs()
+    local p = real.player
+    if not (p and p.auraIcons and enabledNow.player) then return end
+    Run("auras", UpdateAuras, p)
+    FakeAuras(p, db.playerBuffs and FAKE.player or {})
 end
 
 -- The real frames of every key but the player go see-through (alpha only, which combat allows,
@@ -1825,12 +1918,19 @@ local function ShowPreviews()
             PlaceSet(key, previews)
         end
     end
+    FakePlayerBuffs()
 end
 
 local function HidePreviews()
     for _, f in pairs(previews) do f:Hide() end
     for u, f in pairs(real) do
         if KEY_OF[u] ~= "player" then f:SetAlpha(1) end
+    end
+    -- The player's made-up buffs go; its real ones come back (testing is already off here).
+    local p = real.player
+    if p and p.auraIcons then
+        for _, icon in ipairs(p.auraIcons) do icon:Hide() end
+        Run("auras", UpdateAuras, p)
     end
 end
 
@@ -2079,7 +2179,10 @@ end
 local function RefreshLooks()
     for _, f in ipairs(AllFrames()) do ApplyBorder(f) end
     UpdateAllFrames()
-    if testing then for _, f in pairs(previews) do if f:IsShown() then FillFake(f) end end end
+    if testing then
+        for _, f in pairs(previews) do if f:IsShown() then FillFake(f) end end
+        FakePlayerBuffs()
+    end
 end
 
 local function SetLocked(on)
@@ -2140,6 +2243,7 @@ local SETTING_TOGGLES = {
     { key = "text", cmd = "text", label = "Bar text" },
     { key = "lowhp", cmd = "lowhp", label = "Low-health colour" },
     { key = "classColor", cmd = "classcolor", label = "Class colour" },
+    { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
 }
 
 local function SetToggle(t, on)
@@ -2178,6 +2282,8 @@ local function PrintHelp()
     Print("/bff frame <" .. KeyList() .. "> on | off - which frames are drawn (off: Blizzard's comes back after /reload)")
     Print("/bff portrait 2d | 3d (now: " .. (db and db.portrait or "?") .. ")")
     Print("/bff text | lowhp | classcolor on | off - bar text, low-health colour, class colour")
+    Print("/bff playerbuffs on | off - your buffs in rows under the player frame (now: "
+        .. OnOff(db and db.playerBuffs) .. ")")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -2215,6 +2321,21 @@ local function PrintAuraStatus()
             .. (shown.HELPFUL or 0) .. " buff(s), " .. (shown.HARMFUL or 0) .. " debuff(s)"
     end
     Print("auras: " .. how)
+    local p = real.player
+    local pb
+    if not db.playerBuffs then
+        pb = "off"
+    elseif not p then
+        pb = "no player frame"
+    elseif testing then
+        pb = "made-up icons (test mode)"
+    elseif p.auraContainer then
+        local n = containerInfo.Shown(p, "buffs")
+        pb = (n and tostring(n) or "hidden") .. " shown by Blizzard's aura container"
+    else
+        pb = tostring((p.auraShown or {}).HELPFUL or 0) .. " shown, " .. (p.auraPath or "not drawn yet")
+    end
+    Print("player buffs: " .. pb)
     local secretNow = "?"
     local S = _G.C_Secrets
     if type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function" then
@@ -2236,6 +2357,41 @@ local function PrintAuraStatus()
     Print(string.format("aura reads refused this session: %d; icons failed to draw: %d",
         auraStats.indexRefused, auraStats.paintFailed)
         .. (auraStats.lastError and (" - last: " .. auraStats.lastError) or ""))
+end
+
+-- Target power: the values that decide whether the power bar shows, so the next test in game
+-- proves which of them this client hands out plainly.
+local function PrintPowerStatus()
+    local u = "target"
+    if Plain(UnitExists(u)) ~= true then
+        Print("target power: no target (target something without mana, e.g. a beast, and ask again)")
+        return
+    end
+    local function Show(v)
+        if IsSecret(v) then return "hidden" end
+        return tostring(v)
+    end
+    local okT, pType, token = pcall(UnitPowerType, u)
+    local cur, mx = UnitPower(u), UnitPowerMax(u)
+    local has = "MISSING"
+    if type(_G.UnitHasPowerType) == "function" then
+        local ok, v = pcall(_G.UnitHasPowerType, u, Num(pType) or 0)
+        has = ok and Show(v) or ("error: " .. tostring(v))
+    end
+    local S = _G.C_Secrets
+    local function Pred(name)
+        if type(S) ~= "table" or type(S[name]) ~= "function" then return "MISSING" end
+        local ok, v = pcall(S[name], u, Num(pType))
+        return ok and Show(v) or "error"
+    end
+    local t = real.target
+    Print("target power: type " .. (okT and (Show(pType) .. " " .. Show(token)) or "error")
+        .. DOT .. "UnitHasPowerType " .. has
+        .. DOT .. "UnitPower " .. Show(cur) .. DOT .. "UnitPowerMax " .. Show(mx)
+        .. DOT .. "ShouldUnitPowerBeSecret " .. Pred("ShouldUnitPowerBeSecret")
+        .. DOT .. "ShouldUnitPowerMaxBeSecret " .. Pred("ShouldUnitPowerMaxBeSecret")
+        .. DOT .. "bar " .. ((t and t.powerShown == false) and "hidden" or "shown")
+        .. " (" .. ((t and t.powerWhy) or "not drawn yet") .. ")")
 end
 
 local function PrintStatus()
@@ -2262,7 +2418,8 @@ local function PrintStatus()
     end
     PrintAuraStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "low-health colour " .. OnOff(db.lowhp)
-        .. DOT .. "class colour " .. OnOff(db.classColor))
+        .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
+    PrintPowerStatus()
     Print("SecureUnitButtonTemplate frames: " .. (unsupported and ("no - " .. unsupported) or (started and "built" or "not built yet"))
         .. "   RegisterUnitWatch: " .. Yes(type(_G.RegisterUnitWatch) == "function")
         .. "   focus: " .. (HAS_FOCUS and "yes" or "no (no focus unit)"))

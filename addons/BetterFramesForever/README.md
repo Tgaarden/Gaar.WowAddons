@@ -22,6 +22,13 @@ party, and switches Blizzard's off. It needs no other addon or library.
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
   border, rares a silver one. A unit without power (most beasts) has no power bar; the health
   bar takes its room.
+- **Player buffs** (1.2, on by default: `/bff playerbuffs off` to hide). Your own buffs in rows
+  under the player frame, X-Perl style: up to 20 icons of 20 px, 10 to a row, with the same look
+  as the target's buffs (icon, stack count, remaining-time swipe, tooltip on hover). Buffs only,
+  no debuffs; right-click to cancel a buff is not there (that needs Blizzard's secure buff
+  buttons). They move and scale with the player frame and follow Edit Mode with it. To make room
+  the pet frame's default place is now under the two buff rows, and the party block's below it
+  (a position you dragged yourself is kept).
 - **Party.** Small debuffs and buffs under each frame (up to 8 each), and the frame fades to 50%
   when the member is out of range.
 - **Icons.** Raid target icon on every frame, group leader on the player and party frames, combat
@@ -41,9 +48,11 @@ party, and switches Blizzard's off. It needs no other addon or library.
   placed this way cannot be dragged with `/bff unlock`; your own positions are kept untouched, so
   `/bff editmode off` puts everything back where it was.
 - **Test mode.** Shows every enabled frame with made-up data, the party included without a group,
-  so they can be placed. Out of combat only; entering combat ends it. Not saved.
+  so they can be placed. The player frame stays the real one, but its buffs are replaced by
+  twelve made-up ones (two rows, some with a swipe) so the buff rows can be placed too. Out of
+  combat only; entering combat ends it. Not saved.
 
-Not in 1.1: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
+Not in 1.2: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
 (use BetterCastbarsForever), click-casting.
 
 ## Commands
@@ -51,7 +60,7 @@ Not in 1.1: raid frames, an XP bar, an options panel, a minimap button, cast bar
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn and which aura API and templates this client has, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs) and which aura API and templates this client has, the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
 | `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
 | `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
@@ -62,6 +71,7 @@ Not in 1.1: raid frames, an XP bar, an options panel, a minimap button, cast bar
 | `/bff text on\|off` | `cur/max  NN%` text on the bars (on by default) |
 | `/bff lowhp on\|off` | Orange under 35%, red under 20% (on by default) |
 | `/bff classcolor on\|off` | Class colour for players (on by default; off: green) |
+| `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
 
@@ -71,7 +81,7 @@ Not in 1.1: raid frames, an XP bar, an options panel, a minimap button, cast bar
 menu has a submenu per Better...Forever addon. Its **Frames** row is in BetterGaarForever 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
 **Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**, **Low-health colour**,
-**Class colour** and **Reset positions & scales**, the same settings as `/bff` (both go through
+**Class colour**, **Player buffs** and **Reset positions & scales**, the same settings as `/bff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here
 changes with or without the hub.
 
@@ -152,8 +162,8 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   `SetCooldownFromDurationObject`) where it has one.
 - **Auras in combat.** On this client auras are secret in combat, and reading one by index from
   addon code then raises an error ("Auras cannot be accessed when secret while tainted"); 1.0
-  switched auras off for the session on the first DoT. 1.1 lets the client draw them: the target
-  and party frames get a Blizzard aura container (`CreateFrame("AuraContainer", ...,
+  switched auras off for the session on the first DoT. 1.1 lets the client draw them: the target,
+  party and (1.2) player frames get a Blizzard aura container (`CreateFrame("AuraContainer", ...,
   "CustomAuraContainerTemplate")`, retail 12.x's `Blizzard_AuraContainer`) with groups for buffs,
   your debuffs (larger) and other debuffs (smaller, grey), and buttons whose icon, cooldown and
   stack count this addon supplies; the container's own secure code reads the auras, secret or
@@ -163,9 +173,15 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   Looking auras up by spell ID is not used: in game it answers nil for your own DoTs in combat.
   `/bff status` says which way auras are drawn, what the target shows, how many reads were
   refused, and which aura API and templates the client has.
-- **No power, no power bar.** When a unit's maximum power is a plain 0 the power bar is hidden
-  and the health bar takes its room (the current value may be secret while the maximum is not).
-  A secret maximum keeps the bar, with the client's secret-safe text.
+- **No power, no power bar.** When a unit has no power the power bar is hidden and the health
+  bar takes its room. A plain maximum of 0 says so. But on Forever `UnitPowerMax` is secret for
+  every unit that is not player-controlled (`SecretWhenUnitPowerMaxRestricted` in the API
+  documentation), so for a beast 1.1 could not test it and wrote the secret-safe text, `0/0 0%`.
+  1.2 asks `UnitHasPowerType(unit, UnitPowerType(unit))` instead: neither carries a secret flag
+  in the API documentation, so the answer is plain. Where the client has no `UnitHasPowerType`,
+  a plain current power of 0 next to a hidden maximum counts as no power (`UnitPower` is plain
+  only for a power the unit does not have, or a type flagged never secret). Otherwise the bar
+  stays, with the secret-safe text. `/bff status` shows the values for the current target.
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
@@ -182,7 +198,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   ticker; everything else is event-driven.
 - Party frames follow `RegisterUnitWatch`, so in a raid they show your own subgroup.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `portrait`,
-  `text`, `lowhp`, `classColor`, `followEditMode`, `frames`, `scales` and `positions` are kept, each type-checked
+  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `frames`, `scales` and `positions` are kept, each type-checked
   (scales clamped to 0.6-1.5, positions with a missing field dropped); anything else is cleared
   on load. A position is saved only when none of its numbers is secret. Test mode is never saved.
 
@@ -198,11 +214,11 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `DebuffTypeColor` and `CurveConstants`; `GameTooltip_SetDefaultAnchor`; `EventRegistry`
 (`EditMode.Enter`, `EditMode.Exit`) and `EditModeManagerFrame:IsEditModeActive()`; the
 `AuraContainer` frame type with `CustomAuraContainerTemplate` (`SetUnit`, `AddAuraGroup`,
-`SetFlowLayoutMaximumLineSize`, `GetAuraGroupFrame`; buttons: `SetIcon`, `SetDurationCooldown`,
+`SetFlowLayoutMaximumLineSize`, `GetAuraGroupFrame`, `SetEnabled`; buttons: `SetIcon`, `SetDurationCooldown`,
 `SetApplicationCount`).
 
 Unit API (every one of these is a string in Forever's client binary, build 70790; the FrameXML names above cannot be read off disk and are feature-detected): `UnitHealth`,
-`UnitHealthMax`, `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitHealthPercent`,
+`UnitHealthMax`, `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitHasPowerType`, `UnitHealthPercent`,
 `UnitPowerPercent`, `AbbreviateNumbers`, `UnitName`, `UnitLevel`, `UnitClass`,
 `UnitClassification`, `UnitIsPlayer`, `UnitReaction`, `UnitCanAttack`, `UnitIsTapDenied`,
 `UnitIsConnected`, `UnitIsDeadOrGhost`, `UnitIsGhost`, `UnitIsVisible`, `UnitGUID`,
@@ -211,7 +227,8 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `UnitAffectingCombat`, `IsResting`, `GetRaidTargetIndex`, `GetComboPoints`,
 `SetPortraitTexture`, `C_UnitAuras.GetAuraDataByIndex` (or `UnitAura`),
 `C_UnitAuras.GetAuraDuration`, `C_UnitAuras.GetAuraApplicationDisplayCount`,
-`C_Secrets.ShouldUnitAuraIndexBeSecret`, `C_AuraContainerUtil` (detected only), `issecretvalue`, `InCombatLockdown`,
+`C_Secrets.ShouldUnitAuraIndexBeSecret`, `C_Secrets.ShouldUnitPowerBeSecret` and
+`C_Secrets.ShouldUnitPowerMaxBeSecret` (status only), `C_AuraContainerUtil` (detected only), `issecretvalue`, `InCombatLockdown`,
 `C_AddOns.IsAddOnLoaded` / `IsAddOnLoaded`; widget methods `SetFormattedText`,
 `SetAlphaFromBoolean`, `SetCooldownFromDurationObject` where they exist. Events:
 `UNIT_HEALTH`, `UNIT_MAXHEALTH`, `UNIT_CONNECTION`, `UNIT_POWER_UPDATE`, `UNIT_POWER_FREQUENT`,

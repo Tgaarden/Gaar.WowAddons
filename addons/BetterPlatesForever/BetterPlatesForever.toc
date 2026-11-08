@@ -2,7 +2,7 @@
 ## Title: BetterPlatesForever
 ## Notes: Cleaner enemy nameplates on WoW Forever: flat health bar, threat colours, cast bar with time left, your debuffs, target emphasis. Changes no CVars. /bpf
 ## Author: Gaar
-## Version: 1.2
+## Version: 1.2.1
 ## IconTexture: Interface\Icons\Ability_Hunter_SniperShot
 ## SavedVariables: BetterPlatesForeverDB
 

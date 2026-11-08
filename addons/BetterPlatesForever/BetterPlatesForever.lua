@@ -15,7 +15,7 @@
       the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
       "shield" look (grey bar, light steel edge round the icon).
-    * Your own debuffs (HARMFUL|PLAYER), up to 8 icons of 20px under the bar. By default they are
+    * Your own debuffs (HARMFUL|PLAYER), up to 8 icons of 20px above the name. By default they are
       drawn by the client itself: an AuraContainer from CustomAuraContainerTemplate (Blizzard's
       12.1 aura API for addons), which reads auras in its secure code and so keeps working in
       combat, where this client refuses every aura read from addon code. BPF only supplies the
@@ -58,7 +58,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -66,6 +66,7 @@ local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local AURA_N, AURA_SZ = 8, 20     -- debuff icons per plate, and their size
 local AURA_GAP = 6                -- space between debuff icons
+local AURA_ABOVE_GAP = 3        -- gap between the name text and the debuff row above it
 local CAST_H = 9                  -- cast bar height
 local NAME_SIZE = 11              -- name font size
 local EXECUTE_PCT = 20            -- execute tint at or below this health percent
@@ -318,9 +319,11 @@ local function BuildOverlay(plate)
         o.auraIcons[i] = ic
     end
 
-    -- The unit's target first, then the debuffs under it.
+    -- The unit's target under the bar; the debuffs sit above the name, on a frame level over the
+    -- plate's bars so nothing covers them.
     o.tot = h:CreateFontString(nil, "OVERLAY"); o.tot:SetPoint("TOP", h, "BOTTOM", 0, -1)
-    o.auraRow:SetPoint("TOP", o.tot, "BOTTOM", 0, -2)
+    o.auraRow:SetPoint("BOTTOM", o.name, "TOP", 0, AURA_ABOVE_GAP)
+    o.auraRow:SetFrameLevel(h:GetFrameLevel() + 6)
 
     ApplySize(o); SetFonts(o)
     overlays[plate] = o
@@ -738,9 +741,10 @@ local function NativeContainer(o)
         return false
     end
     local ok2, err = pcall(function()
-        -- Anchored by its top centre where the addon's own icons sit; the container sizes
-        -- itself to its icons, so the row stays centred under the bar.
-        c:SetPoint("TOP", o.tot, "BOTTOM", 0, -2)
+        -- Anchored by its bottom centre just above the name text, where the addon's own icons
+        -- sit; the container sizes itself to its icons, so the row stays centred over the name.
+        c:SetPoint("BOTTOM", o.name, "TOP", 0, AURA_ABOVE_GAP)
+        c:SetFrameLevel(o.health:GetFrameLevel() + 6)
         c:AddAuraGroup(NATIVE_GROUP, "HARMFUL|PLAYER", {
             maxFrameCount = AURA_N,
             initializeFrame = InitNativeButton,

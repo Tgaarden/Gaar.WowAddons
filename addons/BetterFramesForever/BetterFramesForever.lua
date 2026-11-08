@@ -21,8 +21,12 @@
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
       reset, and a test mode that shows every enabled frame with made-up data (party without a
       group) so they can be placed.
+    * Follow Blizzard Edit Mode (option, off by default): player, target, focus and party sit
+      where Blizzard's own frames are placed in Edit Mode; pet and target of target keep their
+      offset from player and target. While Edit Mode is open Blizzard's frames are given back
+      so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /bff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      portrait, text, lowhp and classcolor.
+      editmode, portrait, text, lowhp and classcolor.
     * BetterFramesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
 
@@ -53,7 +57,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -116,6 +120,12 @@ local BLIZZARD = {
     pet    = { "PetFrame" },
 }
 
+-- Follow Blizzard Edit Mode: the Blizzard frame whose place each of ours copies, and the frames
+-- with no Edit Mode system of their own, which keep their offset from the frame they hang off.
+local FOLLOW_SOURCE = { player = "PlayerFrame", target = "TargetFrame", focus = "FocusFrame", party = "PartyFrame" }
+local FOLLOW_PARENT = { pet = "player", tot = "target" }
+local FOLLOW_CHILD = { player = "pet", target = "tot" }
+
 local CONFLICTS = { "GaarFrames", "XPerl", "XPerl_Player", "ShadowedUnitFrames", "PitBull4" }
 
 local POWER_COLORS = {
@@ -136,12 +146,13 @@ local DEFAULTS = {
     text = true,
     lowhp = true,
     classColor = true,
+    followEditMode = false,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
-    locked = true, portrait = true, text = true, lowhp = true, classColor = true,
+    locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
     frames = true, scales = true, positions = true,
 }
 
@@ -159,6 +170,14 @@ local unsupported           -- why this client cannot have secure frames, or nil
 local comboClass            -- the player's class uses combo points
 local hiddenParent          -- our own hidden frame Blizzard's frames are parked under
 local conflictWarned, queueNoted
+local origParent = {}       -- [Blizzard frame] = its parent before we parked it
+local followPos = {}        -- [key] = { x, y }: top-left of Blizzard's frame, UIParent units from its bottom-left
+local followMiss = {}       -- [key] = why Blizzard's frame gave no position at the last read
+local restored = {}         -- [key] = Blizzard frame given back to Blizzard while Edit Mode is open
+local editOpen = false      -- Edit Mode is open (from its Enter / Exit callbacks)
+local editFaded = false     -- our followed frames are see-through for Edit Mode
+local editHooked            -- how the Edit Mode callbacks were hooked, for /bff status
+local editOwner = {}        -- owner handle for EventRegistry
 
 -- Forward declarations: used by the frame scripts before they are defined.
 local UpdateFrame, StartDrag, StopDrag, ApplyBorder
@@ -217,6 +236,23 @@ end
 
 local function InCombat()
     return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
+end
+
+-- Following Blizzard's Edit Mode is on (and this client has not refused it this session).
+local function FollowOn()
+    return db ~= nil and db.followEditMode == true and not blocked.editmode
+end
+
+-- A key whose place comes from Edit Mode: its own Blizzard frame, or the frame it hangs off.
+local function Followed(key)
+    return FollowOn() and (FOLLOW_SOURCE[key] ~= nil or FOLLOW_PARENT[key] ~= nil)
+end
+
+local function EditModeActive()
+    local em = _G.EditModeManagerFrame
+    if type(em) ~= "table" or type(em.IsEditModeActive) ~= "function" then return false end
+    local ok, active = pcall(em.IsEditModeActive, em)
+    return ok and not IsSecret(active) and active and true or false
 end
 
 -- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
@@ -329,6 +365,7 @@ local FEATURE_LABELS = {
     secrettext = "write hidden health and power values as text",
     blizzard = "switch Blizzard's unit frames off",
     frames = "build secure unit frames",
+    editmode = "follow Blizzard's Edit Mode positions",
 }
 
 -- What each feature leaves behind once it is switched off.
@@ -337,7 +374,7 @@ local CLEAR = {
         for _, icon in ipairs(f.auraIcons or {}) do icon:Hide() end
     end,
     threat = function(f) f.threatStatus = nil; ApplyBorder(f) end,
-    range = function(f) if not f.preview and not testing then f:SetAlpha(1) end end,
+    range = function(f) if not f.preview and not testing and not editFaded then f:SetAlpha(1) end end,
     combo = function(f) for _, p in ipairs(f.combo or {}) do p:Hide() end end,
     icons = function(f)
         if f.raidIcon then f.raidIcon:Hide() end
@@ -420,7 +457,7 @@ end
 
 ApplyBorder = function(f)
     local c = BORDER
-    if db and not db.locked then
+    if db and not db.locked and not f.followed then
         c = BORDER_UNLOCKED
     elseif f.eliteKind == "elite" then
         c = BORDER_ELITE
@@ -565,6 +602,10 @@ local function UnitTooltipHide(self)
     if _G.GameTooltip then _G.GameTooltip:Hide() end
 end
 
+local function FrameHeight(L)
+    return PAD + L.name + 2 + L.hp + 1 + L.mp + PAD
+end
+
 -- One unit frame. A secure button for the real thing; a plain one for the test-mode preview.
 -- Secure attributes are set here, once, and this is only ever called out of combat.
 local function Build(key, unit, preview)
@@ -575,7 +616,7 @@ local function Build(key, unit, preview)
     f.layout = L
 
     local bodyH = L.hp + 1 + L.mp
-    f:SetSize(L.w, PAD + L.name + 2 + bodyH + PAD)
+    f:SetSize(L.w, FrameHeight(L))
     f:SetFrameStrata("LOW")
     f:SetClampedToScreen(true)
     f:SetMovable(true)
@@ -789,12 +830,38 @@ local function UpdateHealth(f)
     Run("secrettext", SecretText, fs, u, false, f.layout.compact)
 end
 
+-- Shows or hides the power bar; without it the health bar takes the power bar's height too.
+-- Both are plain child bars of our frame, so this is allowed in combat.
+local function SetPowerShown(f, on)
+    on = on and true or false
+    if f.powerShown == on then return end
+    f.powerShown = on
+    local L = f.layout
+    if on then
+        f.health:SetHeight(L.hp)
+        f.power:Show()
+    else
+        f.power:Hide()
+        f.health:SetHeight(L.hp + 1 + L.mp)
+    end
+end
+
 local function UpdatePower(f)
     local u, bar = f.unit, f.power
     local _, token = UnitPowerType(u)
     bar:SetStatusBarColor(PowerRGB(Plain(token)))
     local cur, mx = UnitPower(u), UnitPowerMax(u)
     local fs = bar.text
+    -- No power at all (a beast, most warriors-type NPCs): the bar goes and health takes its room.
+    -- Only a plain maximum is tested; the current value may be secret while the maximum is not.
+    local plainMax = Num(mx)
+    SetPowerShown(f, not (plainMax and plainMax <= 0))
+    if plainMax and plainMax <= 0 then
+        bar:SetMinMaxValues(0, 1)
+        bar:SetValue(0)
+        if fs then fs:SetText("") end
+        return
+    end
     if Secret(cur, mx) then
         bar:SetMinMaxValues(0, mx)
         bar:SetValue(cur)
@@ -937,109 +1004,312 @@ local function UpdateThreat(f)
     end
 end
 
-local function ReadAura(unit, i, filter)
-    local C = _G.C_UnitAuras
-    if type(C) == "table" and type(C.GetAuraDataByIndex) == "function" then
-        local a = C.GetAuraDataByIndex(unit, i, filter)
-        if type(a) == "table" then return a end
+-- ---------------------------------------------------------------------------
+-- Auras.
+--
+-- On this client (Forever 1.60.1, retail 12.x secret-aura rules) auras are secret while you are
+-- in combat, and every aura read by index, slot or instance ID from addon code is then refused
+-- with a Lua error ("GetAuraDataByIndex(): Auras cannot be accessed when secret while tainted").
+-- Casting a DoT puts you in combat, so 1.0 - one pcall round the whole aura update - switched
+-- auras off for the session on the first DoT. Looking an aura up by spell ID
+-- (C_UnitAuras.GetUnitAuraBySpellID) is no way round it: in game it answers nil for your own
+-- DoTs on an enemy in combat (seen with BetterPlatesForever 1.1).
+--
+-- What does work in combat is letting the client draw them: Blizzard_AuraContainer (retail 12.x,
+-- C_AuraContainerUtil is in Forever's binary) has an addon-usable "AuraContainer" frame with the
+-- CustomAuraContainerTemplate. We give it a unit, filter strings and the look of each button
+-- (icon, cooldown, count); its own secure code reads the auras, secret or not, and shows them.
+-- So, per frame with auras:
+--   1. The Blizzard aura container, where this client has it (feature-detected; built the first
+--      time the frame's auras are drawn). Target: your debuffs (large), other debuffs (small,
+--      grey) and buffs; party: debuffs and buffs.
+--   2. Otherwise our own icons from index reads, one pcall per read, C_Secrets.
+--      ShouldUnitAuraIndexBeSecret asked first. A refused read is counted for /bff status and
+--      tried again at the next update - never a latch - so out of combat the auras are back.
+-- Only an error outside the reads switches auras off for the session, with one line in chat.
+-- ---------------------------------------------------------------------------
+
+local auraStats              -- aura reads refused this session, for /bff status
+local containerInfo = {}     -- how the Blizzard aura container fared, for /bff status
+local UpdateAuras
+
+do
+    auraStats = { indexRefused = 0, paintFailed = 0, lastError = nil }
+
+    local function NoteRefusal(kind, err)
+        auraStats[kind] = auraStats[kind] + 1
+        auraStats.lastError = tostring(err)
+    end
+
+    -- True only when the client says plainly that this index would be secret.
+    local function IndexIsSecret(unit, i, filter)
+        local S = _G.C_Secrets
+        if type(S) ~= "table" or type(S.ShouldUnitAuraIndexBeSecret) ~= "function" then return false end
+        local ok, secret = pcall(S.ShouldUnitAuraIndexBeSecret, unit, i, filter)
+        return ok and Plain(secret) == true
+    end
+
+    -- An aura table, nil at the end of the list, or false when the client refused the read.
+    local function IndexAura(unit, i, filter)
+        if IndexIsSecret(unit, i, filter) then return false end
+        local C = _G.C_UnitAuras
+        if type(C) == "table" and type(C.GetAuraDataByIndex) == "function" then
+            local ok, a = pcall(C.GetAuraDataByIndex, unit, i, filter)
+            if not ok then NoteRefusal("indexRefused", a); return false end
+            if type(a) ~= "table" then return nil end
+            return a
+        end
+        if type(_G.UnitAura) == "function" then
+            local ok, name, icon, count, dispel, duration, expiration, source = pcall(_G.UnitAura, unit, i, filter)
+            if not ok then NoteRefusal("indexRefused", name); return false end
+            if Plain(name) == nil then return nil end
+            return { icon = icon, applications = count, dispelName = dispel, duration = duration,
+                expirationTime = expiration, sourceUnit = source }
+        end
         return nil
     end
-    if type(_G.UnitAura) == "function" then
-        local name, icon, count, dispel, duration, expiration, source = _G.UnitAura(unit, i, filter)
-        if Plain(name) == nil then return nil end
-        return { icon = icon, applications = count, dispelName = dispel, duration = duration,
-            expirationTime = expiration, sourceUnit = source }
+
+    -- true / false when known, nil when the client hides it.
+    local function OwnAura(a)
+        local mine = Plain(a.isFromPlayerOrPlayerPet)
+        if mine ~= nil then return mine and true or false end
+        local src = Plain(a.sourceUnit)
+        if type(src) == "string" then return src == "player" or src == "pet" or src == "vehicle" end
+        return nil
     end
-    return nil
-end
 
--- true / false when known, nil when the client hides it.
-local function OwnAura(a)
-    local mine = Plain(a.isFromPlayerOrPlayerPet)
-    if mine ~= nil then return mine and true or false end
-    local src = Plain(a.sourceUnit)
-    if type(src) == "string" then return src == "player" or src == "pet" or src == "vehicle" end
-    return nil
-end
+    -- -----------------------------------------------------------------------
+    -- 1. The Blizzard aura container
+    -- -----------------------------------------------------------------------
 
-local function SetAuraCooldown(icon, unit, a)
-    local cd = icon.cd
-    if not cd then return end
-    local dur, exp = a.duration, a.expirationTime
-    if not Secret(dur, exp) then
-        dur, exp = Num(dur), Num(exp)
-        if dur and exp and dur > 0 then
-            cd:SetCooldown(exp - dur, dur)
-            cd:Show()
-        else
-            cd:Hide()
+    -- The groups each kind of frame gets, in layout order. own = only your auras, others = only
+    -- other people's; grey = drawn desaturated.
+    local GROUPS = {
+        target = {
+            { key = "buffs", filter = "HELPFUL", max = 16, size = 18 },
+            { key = "mine", filter = "HARMFUL|PLAYER", max = 16, size = 24, newLine = true, border = { 0.9, 0.1, 0.1 } },
+            { key = "debuffs", filter = "HARMFUL", max = 16, size = 18, others = true, grey = true,
+              border = { 0.35, 0, 0 } },
+        },
+        party = {
+            { key = "debuffs", filter = "HARMFUL", max = 8, size = 14, border = { 0.35, 0, 0 } },
+            { key = "buffs", filter = "HELPFUL", max = 8, size = 12, newLine = true },
+        },
+    }
+
+    -- The look of one button, made when the container creates it. It runs inside the client's
+    -- securecallfunction, which would report an error but not hand it back, so it is a pcall.
+    local function ButtonLook(g)
+        return function(button)
+            local ok, err = pcall(function()
+                button:SetSize(g.size, g.size)
+                local border = button:CreateTexture(nil, "BACKGROUND")
+                border:SetPoint("TOPLEFT", -1, 1)
+                border:SetPoint("BOTTOMRIGHT", 1, -1)
+                local c = g.border or { 0, 0, 0 }
+                SetSolid(border, c[1], c[2], c[3], 1)
+                local tex = button:CreateTexture(nil, "ARTWORK")
+                tex:SetAllPoints()
+                tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                if g.grey then tex:SetDesaturated(true) end
+                button:SetIcon(tex)
+                local okCd, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
+                if okCd and cd then
+                    cd:SetAllPoints()
+                    if cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, true) end
+                    if cd.SetDrawEdge then pcall(cd.SetDrawEdge, cd, false) end
+                    button:SetDurationCooldown(cd)
+                end
+                local count = NewFont(button, 9)
+                count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 2, -1)
+                button:SetApplicationCount(count)
+            end)
+            if not ok then
+                containerInfo.buttonError = tostring(err)
+            end
         end
-        return
     end
-    -- Hidden timings: the client's duration object, where it has one.
-    local C = _G.C_UnitAuras
-    if type(C) == "table" and type(C.GetAuraDuration) == "function" and type(cd.SetCooldownFromDurationObject) == "function" then
-        local obj = C.GetAuraDuration(unit, a.auraInstanceID)
-        if obj ~= nil then
-            cd:SetCooldownFromDurationObject(obj)
-            cd:Show()
+
+    -- The container for one frame, or false where the client has none (or refuses it). Missing
+    -- on this client is quiet (it shows in /bff status); a client that has the template but
+    -- refuses our setup says so once in chat.
+    local function BuildContainer(f)
+        local groups = GROUPS[f.key]
+        if not groups or containerInfo.missing or containerInfo.failed then return false end
+        local okMake, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+        if not okMake or type(c) ~= "table" or type(c.AddAuraGroup) ~= "function" then
+            containerInfo.missing = okMake and "the frame has no AddAuraGroup" or tostring(c)
+            return false
+        end
+        local ok, err = pcall(function()
+            c:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", 0, 0)
+            if type(c.SetFlowLayoutMaximumLineSize) == "function" then c:SetFlowLayoutMaximumLineSize(f.layout.w) end
+            for i, g in ipairs(groups) do
+                c:AddAuraGroup(g.key, g.filter, {
+                    maxFrameCount = g.max,
+                    candidateFilters = g.others and { isFromPlayerOrPlayerPet = false } or nil,
+                    initializeFrame = ButtonLook(g),
+                    layout = { elementSpacing = 2, lineSpacing = 2, groupSpacing = 4, groupLineSpacing = 2,
+                        forceNewLine = g.newLine or nil, elementWidth = g.size, elementHeight = g.size,
+                        layoutIndex = i },
+                })
+            end
+            c:SetUnit(f.unit)
+        end)
+        if not ok then
+            containerInfo.failed = tostring(err)
+            pcall(c.Hide, c)
+            Print("Blizzard's aura container refused this addon's setup, so auras are read by this addon"
+                .. " (none while they are secret in combat). (" .. tostring(err) .. ")")
+            return false
+        end
+        containerInfo.built = (containerInfo.built or 0) + 1
+        return c
+    end
+
+    -- Buttons the container shows in one group: a number, or nil while that is hidden.
+    function containerInfo.Shown(f, groupKey)
+        local c = f.auraContainer
+        if not c or type(c.GetAuraGroupFrame) ~= "function" then return nil end
+        local ok, n = pcall(function()
+            local count = 0
+            for i = 1, 40 do
+                local b = c:GetAuraGroupFrame(groupKey, i)
+                if not b then break end
+                local shown = b:IsShown()
+                if IsSecret(shown) then return nil end
+                if shown then count = count + 1 end
+            end
+            return count
+        end)
+        if ok then return n end
+        return nil
+    end
+
+    -- -----------------------------------------------------------------------
+    -- 2. Our own icons from index reads
+    -- -----------------------------------------------------------------------
+
+    local function SetAuraCooldown(icon, unit, a)
+        local cd = icon.cd
+        if not cd then return end
+        local dur, exp = a.duration, a.expirationTime
+        if not Secret(dur, exp) then
+            dur, exp = Num(dur), Num(exp)
+            if dur and exp and dur > 0 then
+                cd:SetCooldown(exp - dur, dur)
+                cd:Show()
+            else
+                cd:Hide()
+            end
             return
         end
-    end
-    cd:Hide()
-end
-
-local function UpdateAuras(f)
-    local rows = AURAS[f.key]
-    if not rows or not f.auraIcons then return end
-    local u, icons, width = f.unit, f.auraIcons, f.layout.w
-    local n, x, y, rowH = 0, 0, 0, 0
-    local function Place(icon, size)
-        if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
-        icon:SetSize(size, size)
-        icon:ClearAllPoints()
-        icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
-        x = x + size + 2
-        if size > rowH then rowH = size end
-    end
-    for _, row in ipairs(rows) do
-        if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
-        local shown = 0
-        for i = 1, 40 do
-            if shown >= row.max then break end
-            local a = ReadAura(u, i, row.filter)
-            if not a then break end
-            shown = shown + 1
-            n = n + 1
-            local icon = icons[n]
-            if not icon then icon = NewAuraIcon(f); icons[n] = icon end
-            icon.unit, icon.index, icon.filter, icon.auraInstanceID = u, i, row.filter, a.auraInstanceID
-            if IsSecret(a.icon) then icon.tex:SetTexture(a.icon) else icon.tex:SetTexture(a.icon or QUESTION) end
-            local own = row.own and OwnAura(a) or nil
-            local size = (own == true) and row.own or row.size
-            Place(icon, size)
-            icon.tex:SetDesaturated(row.own ~= nil and own == false)
-            if row.filter == "HARMFUL" then
-                local dt = Plain(a.dispelName)
-                local c = type(dt) == "string" and type(_G.DebuffTypeColor) == "table" and _G.DebuffTypeColor[dt]
-                if own == true and type(c) == "table" then SetSolid(icon.border, c.r, c.g, c.b, 1)
-                elseif own == true then SetSolid(icon.border, 0.9, 0.1, 0.1, 1)
-                elseif type(c) == "table" then SetSolid(icon.border, c.r * 0.7, c.g * 0.7, c.b * 0.7, 1)
-                else SetSolid(icon.border, 0.35, 0, 0, 1) end
-            else
-                SetSolid(icon.border, 0, 0, 0, 1)
+        -- Hidden timings: the client's duration object, where it has one.
+        local C = _G.C_UnitAuras
+        local id = Plain(a.auraInstanceID)
+        if id and type(C) == "table" and type(C.GetAuraDuration) == "function"
+            and type(cd.SetCooldownFromDurationObject) == "function" then
+            local ok, obj = pcall(C.GetAuraDuration, unit, id)
+            if ok and obj ~= nil then
+                cd:SetCooldownFromDurationObject(obj)
+                cd:Show()
+                return
             end
-            local cnt = Num(a.applications)
-            icon.count:SetText((cnt and cnt > 1) and tostring(cnt) or "")
-            SetAuraCooldown(icon, u, a)
-            icon:Show()
         end
+        cd:Hide()
     end
-    for i = n + 1, #icons do icons[i]:Hide() end
+
+    local function SetAuraCount(icon, unit, a)
+        local count = a.applications
+        if IsSecret(count) then
+            local C = _G.C_UnitAuras
+            local id = Plain(a.auraInstanceID)
+            if id and type(C) == "table" and type(C.GetAuraApplicationDisplayCount) == "function" then
+                local ok, txt = pcall(C.GetAuraApplicationDisplayCount, unit, id, 2, 99)
+                if ok then SetTextSafe(icon.count, txt); return end
+            end
+            icon.count:SetText("")
+            return
+        end
+        local cnt = Num(count)
+        icon.count:SetText((cnt and cnt > 1) and tostring(cnt) or "")
+    end
+
+    local function PaintAura(f, icon, row, a, index)
+        local u = f.unit
+        icon.unit, icon.index, icon.filter, icon.auraInstanceID = u, index, row.filter, a.auraInstanceID
+        if IsSecret(a.icon) then icon.tex:SetTexture(a.icon) else icon.tex:SetTexture(a.icon or QUESTION) end
+        local own
+        if row.own then own = OwnAura(a) end
+        icon.tex:SetDesaturated(row.own ~= nil and own == false)
+        if row.filter == "HARMFUL" then
+            local dt = Plain(a.dispelName)
+            local c = type(dt) == "string" and type(_G.DebuffTypeColor) == "table" and _G.DebuffTypeColor[dt]
+            if own == true and type(c) == "table" then SetSolid(icon.border, c.r, c.g, c.b, 1)
+            elseif own == true then SetSolid(icon.border, 0.9, 0.1, 0.1, 1)
+            elseif type(c) == "table" then SetSolid(icon.border, c.r * 0.7, c.g * 0.7, c.b * 0.7, 1)
+            else SetSolid(icon.border, 0.35, 0, 0, 1) end
+        else
+            SetSolid(icon.border, 0, 0, 0, 1)
+        end
+        SetAuraCount(icon, u, a)
+        SetAuraCooldown(icon, u, a)
+        icon:Show()
+        return (own == true) and row.own or row.size
+    end
+
+    local function OwnIcons(f)
+        local rows = AURAS[f.key]
+        local u, icons, width = f.unit, f.auraIcons, f.layout.w
+        local n, x, y, rowH = 0, 0, 0, 0
+        f.auraShown = f.auraShown or {}
+        f.auraPath = "index"
+        for _, row in ipairs(rows) do
+            if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
+            local shown = 0
+            for i = 1, 40 do
+                if shown >= row.max then break end
+                local a = IndexAura(u, i, row.filter)
+                if a == false then f.auraPath = "index (refused: auras secret)"; break end
+                if not a then break end
+                local icon = icons[n + 1]
+                if not icon then icon = NewAuraIcon(f); icons[n + 1] = icon end
+                local ok, size = pcall(PaintAura, f, icon, row, a, i)
+                if ok then
+                    if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
+                    icon:SetSize(size, size)
+                    icon:ClearAllPoints()
+                    icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
+                    x = x + size + 2
+                    if size > rowH then rowH = size end
+                    n = n + 1
+                    shown = shown + 1
+                else
+                    auraStats.paintFailed = auraStats.paintFailed + 1
+                    auraStats.lastError = tostring(size)
+                    icon:Hide()
+                end
+            end
+            f.auraShown[row.filter] = shown
+        end
+        for i = n + 1, #icons do icons[i]:Hide() end
+    end
+
+    UpdateAuras = function(f)
+        if not AURAS[f.key] or not f.auraIcons then return end
+        if f.auraContainer == nil then f.auraContainer = BuildContainer(f) end
+        if f.auraContainer then
+            -- The client draws them; it follows the unit and its aura events itself.
+            f.auraPath = "Blizzard aura container"
+            for _, icon in ipairs(f.auraIcons) do icon:Hide() end
+            return
+        end
+        OwnIcons(f)
+    end
 end
 
 local function UpdateRange(f)
-    if f.preview or testing then return end
+    if f.preview or testing or editFaded then return end
     local u = f.unit
     if type(_G.UnitInRange) == "function" then
         local inRange, checked = _G.UnitInRange(u)
@@ -1142,18 +1412,66 @@ local function Head(key, set)
     return set[UNITS_OF[key][1]]
 end
 
+-- UIParent's size in its own units, or nil when it will not say.
+local function ParentSize()
+    local parent = _G.UIParent
+    local ok, w, h = pcall(function() return parent:GetWidth(), parent:GetHeight() end)
+    if not ok then return nil end
+    w, h = Num(w), Num(h)
+    if w and h then return w, h end
+end
+
+-- Where a key's head frame has its top-left corner by its own saved (or default) position, in
+-- UIParent units from UIParent's bottom-left. Used for the offset of pet and target of target.
+local function OwnTopLeft(key)
+    local L, s = LAYOUT[key], ScaleOf(key)
+    local uw, uh = ParentSize()
+    if not uh then return nil end
+    local p = db.positions[key]
+    if p then
+        return uw / 2 + p.x - L.w * s / 2, uh / 2 + p.y + FrameHeight(L) * s / 2
+    end
+    local d = DEFAULT_POS[key]
+    return d[1], uh + d[2]
+end
+
+-- Where a key's head frame goes while following Edit Mode, or nil for its own position: the
+-- top-left of Blizzard's frame as last read, or for pet and target of target their own offset
+-- from player and target added to where those follow.
+local function FollowTopLeft(key)
+    if not Followed(key) then return nil end
+    if FOLLOW_SOURCE[key] then
+        local r = followPos[key]
+        if r then return r.x, r.y end
+        return nil
+    end
+    local pk = FOLLOW_PARENT[key]
+    local r = followPos[pk]
+    if not r then return nil end
+    local ox, oy = OwnTopLeft(key)
+    local px, py = OwnTopLeft(pk)
+    if not (ox and px) then return nil end
+    return r.x + ox - px, r.y + oy - py
+end
+
 local function PlaceSet(key, set)
     local s = ScaleOf(key)
     local parent = _G.UIParent
     local prev
+    local fx, fy = FollowTopLeft(key)
     for i, u in ipairs(UNITS_OF[key]) do
         local f = set[u]
         if f then
+            -- Placed by Edit Mode: not dragged, and no "unlocked" border.
+            f.followed = fx ~= nil
+            ApplyBorder(f)
             f:SetScale(s)
             f:ClearAllPoints()
             if i == 1 then
                 local p = db.positions[key]
-                if p then
+                if fx then
+                    f:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", fx / s, fy / s)
+                elseif p then
                     f:SetPoint("CENTER", parent, "CENTER", p.x / s, p.y / s)
                 else
                     local d = DEFAULT_POS[key]
@@ -1168,9 +1486,16 @@ local function PlaceSet(key, set)
 end
 
 -- Places and scales a key's frames: the previews at once, the secure ones out of combat.
+-- Pet and target of target follow player and target, so they are placed again with them.
 local function ApplyLayout(key)
     PlaceSet(key, previews)
     OutOfCombat("layout:" .. key, function() PlaceSet(key, real) end)
+    local child = FOLLOW_CHILD[key]
+    if child and Followed(child) then ApplyLayout(child) end
+end
+
+local function ApplyAllLayouts()
+    for _, key in ipairs(KEYS) do ApplyLayout(key) end
 end
 
 -- Saves where a key's head frame now is, as an offset of its centre from UIParent's centre in
@@ -1199,6 +1524,8 @@ StartDrag = function(self)
     if not db or db.locked or InCombat() then return end
     local set = self.preview and previews or real
     local head = Head(self.key, set) or self
+    -- A frame placed by Edit Mode stays there; dragging it would only fight that.
+    if head.followed then return end
     self.dragging = head
     head:StartMoving()
 end
@@ -1240,7 +1567,11 @@ local function DisableFrame(frame, label, noReparent)
     if type(frame) ~= "table" or type(frame.UnregisterAllEvents) ~= "function" then return end
     frame:UnregisterAllEvents()
     frame:Hide()
-    if not noReparent then frame:SetParent(HiddenParent()) end
+    if not noReparent then
+        local p = frame:GetParent()
+        if p ~= HiddenParent() then origParent[frame] = p end
+        frame:SetParent(HiddenParent())
+    end
     for _, k in ipairs({ "healthbar", "healthBar", "HealthBar", "manabar", "ManaBar", "spellbar",
         "castBar", "CastingBarFrame", "powerBarAlt", "PowerBarAlt", "BuffFrame", "DebuffFrame",
         "totFrame", "PetFrame", "classPowerBar", "CcRemoverFrame" }) do
@@ -1285,15 +1616,22 @@ local function DisableBlizzard(key)
 end
 
 -- After Edit Mode or a loading screen: anything Blizzard put back is parked again. If that
--- itself fails, hiding is switched off for the session with one line, not retried.
+-- itself fails, hiding is switched off for the session with one line, not retried. A frame we
+-- gave back to Blizzard for Edit Mode is left out until Edit Mode closes.
 local function RecheckBlizzard()
     if blocked.blizzard or InCombat() or not hiddenParent then return end
+    local back = {}
+    for _, bf in pairs(restored) do back[bf] = true end
     local ok, err = pcall(function()
         for frame, noReparent in pairs(hiddenBlizz) do
-            if not noReparent and frame:GetParent() ~= hiddenParent then
-                frame:SetParent(hiddenParent)
+            -- Party member frames are not re-parented: they live under PartyFrame.
+            local skip = back[frame] or (noReparent and restored.party ~= nil)
+            if not skip then
+                if not noReparent and frame:GetParent() ~= hiddenParent then
+                    frame:SetParent(hiddenParent)
+                end
+                if frame:IsShown() then frame:Hide() end
             end
-            if frame:IsShown() then frame:Hide() end
         end
     end)
     if not ok then Latch("blizzard", err) end
@@ -1399,6 +1737,7 @@ local function FillFake(f)
     f.health:SetStatusBarColor(r, g, b)
     if db.text then PlainText(f, f.health, hp, mx) else f.health.text:SetText("") end
     local pc, pm, token = d.power[1], d.power[2], d.power[3]
+    SetPowerShown(f, pm > 0)
     f.power:SetMinMaxValues(0, pm > 0 and pm or 1)
     f.power:SetValue(pc)
     f.power:SetStatusBarColor(PowerRGB(token))
@@ -1505,6 +1844,10 @@ local function SetTesting(on, quiet)
         Print("the frames are not built yet.")
         return
     end
+    if on and editFaded then
+        Print("test mode is off while Edit Mode is open.")
+        return
+    end
     testing = on
     if on then
         local ok, err = pcall(ShowPreviews)
@@ -1523,6 +1866,209 @@ local function SetTesting(on, quiet)
         HidePreviews()
         UpdateAllFrames()
         if not quiet then Print("test mode off.") end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- Follow Blizzard Edit Mode (option, off by default)
+--
+-- Blizzard's PlayerFrame, TargetFrame, FocusFrame and PartyFrame stay parked the oUF way; ours
+-- copy their place. Nothing is anchored to Blizzard's frames: their top-left corner is read
+-- (GetLeft / GetTop x their effective scale / UIParent's), checked for secrets, and our frame
+-- gets a TOPLEFT point on UIParent at that spot, with our own scale and size.
+--
+-- While Edit Mode is open, Blizzard's frames are given back (re-parented to where they were and
+-- shown, out of combat) so they can be dragged there, and ours go see-through with the mouse off.
+-- Their events stay unregistered: Edit Mode drags the frame and its selection box, which needs no
+-- events (party member frames are set up again by PartyFrame's own OnShow). When Edit Mode closes
+-- the new place is read, Blizzard's frames are parked again exactly as at login, and ours move.
+-- ---------------------------------------------------------------------------
+
+local Refollow, HookEditMode, FollowReport, SetFollow
+
+do
+    -- Reads the top-left of each Blizzard frame we follow. A missing frame or a secret or missing
+    -- number leaves the last good reading in place (or our own position); an error switches following
+    -- off for the session with one line.
+    local function ReadBlizzardPositions()
+        if not FollowOn() then return end
+        local ok, err = pcall(function()
+            local parent = _G.UIParent
+            local ps = parent:GetEffectiveScale()
+            ps = Num(ps)
+            for key, name in pairs(FOLLOW_SOURCE) do
+                local bf = _G[name]
+                local x, y
+                if type(bf) == "table" and type(bf.GetLeft) == "function" and ps and ps > 0 then
+                    local l, t, sc = bf:GetLeft(), bf:GetTop(), bf:GetEffectiveScale()
+                    if not Secret(l, t) and not IsSecret(sc) then
+                        l, t, sc = Num(l), Num(t), Num(sc)
+                        if l and t and sc then x, y = l * sc / ps, t * sc / ps end
+                    end
+                end
+                if x then
+                    followPos[key] = { x = x, y = y }
+                    followMiss[key] = nil
+                else
+                    followMiss[key] = type(bf) == "table" and "will not report where it is" or "missing"
+                end
+            end
+        end)
+        if not ok then Latch("editmode", err) end
+    end
+
+    -- Read and place everything again; once more on the next frame, after Blizzard's own layout.
+    Refollow = function()
+        ReadBlizzardPositions()
+        ApplyAllLayouts()
+        local T = _G.C_Timer
+        if type(T) == "table" and type(T.After) == "function" then
+            T.After(0, function()
+                if FollowOn() and not editOpen then
+                    ReadBlizzardPositions()
+                    ApplyAllLayouts()
+                end
+            end)
+        end
+    end
+
+    -- See-through (alpha, allowed in combat) for every frame that follows, mouse off out of combat
+    -- so Edit Mode gets the clicks. Back on: every frame, whether it still follows or not.
+    local function FadeForEditMode(on)
+        editFaded = on and true or false
+        for u, f in pairs(real) do
+            local key = KEY_OF[u]
+            if not on then
+                f:SetAlpha(1)
+                if key == "party" and Visible(f) then Run("range", UpdateRange, f) end
+            elseif f.followed then
+                f:SetAlpha(0)
+            end
+        end
+        OutOfCombat("editmouse", function()
+            for _, f in pairs(real) do
+                f:EnableMouse(not (editFaded and f.followed))
+            end
+        end)
+    end
+
+    -- Out of combat: Blizzard's frames for the keys we draw go back to their own parent and show.
+    local function GiveBackForEditMode()
+        if blocked.blizzard or blocked.editmode or not hiddenParent then return end
+        local ok, err = pcall(function()
+            for key, name in pairs(FOLLOW_SOURCE) do
+                local bf = enabledNow[key] and _G[name]
+                if type(bf) == "table" and hiddenBlizz[bf] ~= nil and not restored[key] then
+                    restored[key] = bf
+                    if bf:GetParent() == hiddenParent then bf:SetParent(origParent[bf] or _G.UIParent) end
+                    bf:Show()
+                end
+            end
+        end)
+        if not ok then
+            -- Following is off now: ours back to their own place, visible.
+            Latch("editmode", err)
+            FadeForEditMode(false)
+            ApplyAllLayouts()
+        end
+    end
+
+    local function StartEditModeFollow()
+        if not FollowOn() or not started then return end
+        if testing then SetTesting(false, true) end
+        EndDrags()
+        FadeForEditMode(true)
+        OutOfCombat("editmode", GiveBackForEditMode)
+    end
+
+    -- Edit Mode closed (or following switched off): read where Blizzard's frames now are, park them
+    -- the oUF way again, and put ours in place. force: place them even if nothing was given back.
+    local function EndEditModeFollow(force)
+        if not force and not FollowOn() and not next(restored) and not editFaded then return end
+        ReadBlizzardPositions()
+        OutOfCombat("editmode", function()
+            local keys = restored
+            restored = {}
+            for key in pairs(keys) do DisableBlizzard(key) end
+            ApplyAllLayouts()
+        end)
+        if editFaded then FadeForEditMode(false) end
+    end
+
+    local function OnEditModeEnter()
+        editOpen = true
+        local ok, err = pcall(StartEditModeFollow)
+        if not ok then Latch("editmode", err) end
+    end
+
+    local function OnEditModeExit()
+        editOpen = false
+        local ok, err = pcall(EndEditModeFollow)
+        if not ok then Latch("editmode", err) end
+    end
+
+    -- Blizzard's own callbacks, never a replaced function: EventRegistry "EditMode.Enter" / "Exit",
+    -- or HookScript on EditModeManagerFrame where EventRegistry is missing.
+    HookEditMode = function()
+        if editHooked then return end
+        local reg = _G.EventRegistry
+        if type(reg) == "table" and type(reg.RegisterCallback) == "function" then
+            local ok1 = pcall(reg.RegisterCallback, reg, "EditMode.Enter", OnEditModeEnter, editOwner)
+            local ok2 = pcall(reg.RegisterCallback, reg, "EditMode.Exit", OnEditModeExit, editOwner)
+            if ok1 or ok2 then editHooked = "EventRegistry"; return end
+        end
+        local em = _G.EditModeManagerFrame
+        if type(em) == "table" and type(em.HookScript) == "function" then
+            local ok1 = pcall(em.HookScript, em, "OnShow", OnEditModeEnter)
+            local ok2 = pcall(em.HookScript, em, "OnHide", OnEditModeExit)
+            if ok1 or ok2 then editHooked = "EditModeManagerFrame" end
+        end
+    end
+
+    -- Which followed frames sit at Blizzard's place, and which at their own (and why).
+    FollowReport = function()
+        local at, own = {}, {}
+        for _, key in ipairs(KEYS) do
+            if HasKey(key) and Followed(key) then
+                local src = FOLLOW_SOURCE[key] and key or FOLLOW_PARENT[key]
+                if followPos[src] then at[#at + 1] = key
+                else own[#own + 1] = key .. " (" .. FOLLOW_SOURCE[src] .. " " .. (followMiss[src] or "not read yet") .. ")" end
+            end
+        end
+        return at, own
+    end
+
+    SetFollow = function(on)
+        db.followEditMode = on and true or false
+        if db.followEditMode and blocked.editmode then
+            Print("this client refused following Edit Mode earlier this session; it stays off until /reload.")
+            return
+        end
+        if not started then
+            Print("follow Blizzard Edit Mode: " .. OnOff(db.followEditMode) .. ".")
+            return
+        end
+        if db.followEditMode then
+            EndDrags()
+            if editOpen or EditModeActive() then
+                editOpen = true
+                StartEditModeFollow()
+            else
+                Refollow()
+            end
+        else
+            EndEditModeFollow(true)
+        end
+        for _, f in ipairs(AllFrames()) do ApplyBorder(f) end
+        if db.followEditMode then
+            local _, own = FollowReport()
+            Print("following Blizzard Edit Mode: player, target, focus and party sit where Blizzard's frames are"
+                .. " placed (pet and target of target move with them). Place them with Edit Mode; your own"
+                .. " positions are kept for /bff editmode off."
+                .. (#own > 0 and (" Own position for now: " .. table.concat(own, ", ") .. ".") or ""))
+        else
+            Print("own positions again - Edit Mode no longer moves the frames.")
+        end
     end
 end
 
@@ -1623,6 +2169,9 @@ local function PrintHelp()
     Print("version " .. VERSION .. ": X-Perl-style unit frames of its own. Commands:")
     Print("/bff status - settings, frames and what this client allows")
     Print("/bff lock | unlock - stop or allow dragging the frames (now: " .. (db and db.locked and "locked" or "unlocked") .. ")")
+    Print("/bff editmode on | off - player, target, focus and party follow Blizzard's frames placed in Edit Mode;"
+        .. " pet and target of target move with them, and those frames are not dragged (now: "
+        .. OnOff(db and db.followEditMode) .. ")")
     Print("/bff test - show every enabled frame with made-up data, to place them (out of combat)")
     Print("/bff reset - positions and scales back to the defaults")
     Print(string.format("/bff scale <%s> <%.1f-%.1f> - one frame's scale", KeyList(), MIN_SCALE, MAX_SCALE))
@@ -1643,6 +2192,52 @@ local function SecretTextSupport()
     return "none - bars only while values are hidden"
 end
 
+local function Has(ns, name)
+    local t = _G[ns]
+    return type(t) == "table" and type(t[name]) == "function"
+end
+
+-- Auras: how they are drawn, what the target shows, and which aura APIs and templates this
+-- client has, so the next test in game says where it stands.
+local function PrintAuraStatus()
+    local t = real.target
+    local how
+    if blocked.auras then
+        how = "OFF this session - " .. blocked.auras
+    elseif t and t.auraContainer then
+        local b, mine, other = containerInfo.Shown(t, "buffs"), containerInfo.Shown(t, "mine"), containerInfo.Shown(t, "debuffs")
+        local function N(v) return v and tostring(v) or "hidden" end
+        how = "on, drawn by Blizzard's aura container" .. DOT .. "target shows " .. N(b) .. " buff(s), "
+            .. N(mine) .. " of your debuffs, " .. N(other) .. " other debuff(s)"
+    else
+        local shown = t and t.auraShown or {}
+        how = "on, read by this addon (" .. ((t and t.auraPath) or "not drawn yet") .. ")" .. DOT .. "target shows "
+            .. (shown.HELPFUL or 0) .. " buff(s), " .. (shown.HARMFUL or 0) .. " debuff(s)"
+    end
+    Print("auras: " .. how)
+    local secretNow = "?"
+    local S = _G.C_Secrets
+    if type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function" then
+        local ok, v = pcall(S.ShouldUnitAuraIndexBeSecret, "target", 1, "HARMFUL")
+        secretNow = ok and (IsSecret(v) and "hidden" or tostring(v)) or "error"
+    end
+    Print("aura container: " .. (containerInfo.built and (containerInfo.built .. " built")
+            or (containerInfo.failed and ("refused - " .. containerInfo.failed))
+            or (containerInfo.missing and ("not on this client - " .. containerInfo.missing)) or "not tried yet")
+        .. (containerInfo.buttonError and (DOT .. "button look failed: " .. containerInfo.buttonError) or "")
+        .. "   C_AuraContainerUtil " .. Yes(type(_G.C_AuraContainerUtil) == "table")
+        .. "   CustomAuraContainerGroupDefaultOptions " .. Yes(type(_G.CustomAuraContainerGroupDefaultOptions) == "table"))
+    Print("aura API: GetAuraDataByIndex " .. Yes(Has("C_UnitAuras", "GetAuraDataByIndex"))
+        .. "   GetUnitAuras " .. Yes(Has("C_UnitAuras", "GetUnitAuras"))
+        .. "   GetAuraDuration " .. Yes(Has("C_UnitAuras", "GetAuraDuration"))
+        .. "   GetAuraApplicationDisplayCount " .. Yes(Has("C_UnitAuras", "GetAuraApplicationDisplayCount"))
+        .. "   ShouldUnitAuraIndexBeSecret " .. Yes(Has("C_Secrets", "ShouldUnitAuraIndexBeSecret"))
+        .. " (target debuff 1 secret now: " .. secretNow .. ")")
+    Print(string.format("aura reads refused this session: %d; icons failed to draw: %d",
+        auraStats.indexRefused, auraStats.paintFailed)
+        .. (auraStats.lastError and (" - last: " .. auraStats.lastError) or ""))
+end
+
 local function PrintStatus()
     Print("version " .. VERSION .. DOT .. (db.locked and "locked" or "unlocked")
         .. DOT .. "portraits " .. (db.portrait == "3d" and "3D" or "2D") .. (testing and (DOT .. "test mode on") or ""))
@@ -1654,6 +2249,18 @@ local function PrintStatus()
         end
     end
     Print("frames: " .. table.concat(parts, DOT))
+    if db.followEditMode and blocked.editmode then
+        Print("follow Blizzard Edit Mode: on, but switched off by this client this session")
+    elseif db.followEditMode then
+        local at, own = FollowReport()
+        Print("follow Blizzard Edit Mode: on" .. DOT .. "at Blizzard's place: " .. (#at > 0 and table.concat(at, ", ") or "none")
+            .. (#own > 0 and (DOT .. "own place: " .. table.concat(own, ", ")) or "")
+            .. DOT .. "Edit Mode " .. (editOpen and "open" or "closed")
+            .. DOT .. "hooked via " .. (editHooked or "nothing (no Edit Mode on this client)"))
+    else
+        Print("follow Blizzard Edit Mode: off (own positions)")
+    end
+    PrintAuraStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "low-health colour " .. OnOff(db.lowhp)
         .. DOT .. "class colour " .. OnOff(db.classColor))
     Print("SecureUnitButtonTemplate frames: " .. (unsupported and ("no - " .. unsupported) or (started and "built" or "not built yet"))
@@ -1715,6 +2322,10 @@ local function OnSlash(msg)
         else
             Print("/bff frame <" .. KeyList() .. "> on | off")
         end
+    elseif cmd == "editmode" or cmd == "follow" then
+        if rest == "on" or rest == "off" then SetFollow(rest == "on")
+        elseif rest == "" then SetFollow(not db.followEditMode)
+        else Print("/bff editmode on | off (now: " .. OnOff(db.followEditMode) .. ")") end
     elseif cmd == "portrait" then
         if rest == "2d" or rest == "3d" then SetPortraitMode(rest)
         else Print("/bff portrait 2d | 3d (now: " .. db.portrait .. ")") end
@@ -1751,6 +2362,7 @@ local function StatusLine()
     if not db then return "not loaded yet" end
     local line = (db.locked and "locked" or "unlocked") .. DOT .. CountEnabled() .. " frames"
         .. DOT .. (db.portrait == "3d" and "3D" or "2D")
+    if FollowOn() then line = line .. DOT .. "Edit Mode" end
     if testing then line = line .. DOT .. "test mode" end
     return line
 end
@@ -1778,6 +2390,8 @@ local function MenuEntries()
           func = function() SetTesting(not testing) end },
         { text = "Frames", submenu = frameItems },
         { text = "Portrait", submenu = portraits },
+        { text = "Follow Blizzard Edit Mode", checkbox = true, checked = function() return db.followEditMode end,
+          func = function() SetFollow(not db.followEditMode) end },
         { divider = true },
     }
     for _, t in ipairs(SETTING_TOGGLES) do
@@ -1917,7 +2531,8 @@ events:RegisterEvent("PLAYER_LOGIN")
 for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
     "PLAYER_TARGET_CHANGED", "PLAYER_UPDATE_RESTING", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
     "RAID_TARGET_UPDATE", "UNIT_FACTION", "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
-    "UNIT_TARGET", "UNIT_PET", "UNIT_COMBO_POINTS", "EDIT_MODE_LAYOUTS_UPDATED" }) do
+    "UNIT_TARGET", "UNIT_PET", "UNIT_COMBO_POINTS", "EDIT_MODE_LAYOUTS_UPDATED", "DISPLAY_SIZE_CHANGED",
+    "UI_SCALE_CHANGED" }) do
     pcall(events.RegisterEvent, events, e)
 end
 if HAS_FOCUS then pcall(events.RegisterEvent, events, "PLAYER_FOCUS_CHANGED") end
@@ -1942,6 +2557,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             Print(table.concat(c, ", ") .. " also draw(s) unit frames; use one of them, not both.")
         end
         Start()
+        HookEditMode()
+        if FollowOn() and started then Refollow() end
     elseif event == "PLAYER_REGEN_DISABLED" then
         EndDrags()
         if testing then SetTesting(false, true); Print("test mode off - combat.") end
@@ -1949,11 +2566,18 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         if Visible(p) then Run("icons", UpdateIcons, p) end
     elseif event == "PLAYER_REGEN_ENABLED" then
         FlushQueue()
+        -- Logged in during combat: the frames were only built now.
+        if FollowOn() and started and not editOpen and not next(followPos) then Refollow() end
         local p = real.player
         if Visible(p) then Run("icons", UpdateIcons, p) end
     elseif event == "PLAYER_ENTERING_WORLD" or event == "EDIT_MODE_LAYOUTS_UPDATED" then
         RecheckBlizzard()
+        -- A layout switch or a loading screen moves Blizzard's frames; Edit Mode itself is
+        -- handled when it closes.
+        if FollowOn() and started and not editOpen then Refollow() end
         UpdateAllFrames()
+    elseif event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
+        if FollowOn() and started and not editOpen then Refollow() end
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateUnit("target")
         UpdateUnit("targettarget")

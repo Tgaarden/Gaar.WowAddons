@@ -20,7 +20,8 @@ party, and switches Blizzard's off. It needs no other addon or library.
 - **Target.** Combo points above the frame for rogues and druids. A row of buffs and a row of
   debuffs under it, up to 16 each, with stacks and a cooldown swipe; your own debuffs are larger
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
-  border, rares a silver one.
+  border, rares a silver one. A unit without power (most beasts) has no power bar; the health
+  bar takes its room.
 - **Party.** Small debuffs and buffs under each frame (up to 8 each), and the frame fades to 50%
   when the member is out of range.
 - **Icons.** Raid target icon on every frame, group leader on the player and party frames, combat
@@ -30,10 +31,19 @@ party, and switches Blizzard's off. It needs no other addon or library.
 - **Move.** `/bff unlock` and drag a frame (out of combat; the border turns blue while unlocked).
   The party frames move as one block. Each frame has its own scale, 0.6 to 1.5. Positions and
   scales are saved account-wide in `BetterFramesForeverDB`. `/bff reset` puts them back.
+- **Follow Blizzard Edit Mode** (1.1, off by default: `/bff editmode on`). Player, target, focus
+  and party sit where Blizzard's own `PlayerFrame`, `TargetFrame`, `FocusFrame` and `PartyFrame`
+  are placed in Edit Mode, each with its own scale and size; the other party members keep their
+  spacing below the first. Pet and target of target have no Edit Mode place of their own: they
+  keep the offset they have from player and target in your own layout, and move with them. Open
+  Edit Mode and Blizzard's frames are there to drag (ours go see-through); close it and ours move
+  to the new place. A layout switch, a loading screen or a UI scale change moves them too. Frames
+  placed this way cannot be dragged with `/bff unlock`; your own positions are kept untouched, so
+  `/bff editmode off` puts everything back where it was.
 - **Test mode.** Shows every enabled frame with made-up data, the party included without a group,
   so they can be placed. Out of combat only; entering combat ends it. Not saved.
 
-Not in 1.0: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
+Not in 1.1: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
 (use BetterCastbarsForever), click-casting.
 
 ## Commands
@@ -41,8 +51,9 @@ Not in 1.0: raid frames, an XP bar, an options panel, a minimap button, cast bar
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
-| `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default) |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn and which aura API and templates this client has, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
+| `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
 | `/bff reset` | Positions and scales back to the defaults |
 | `/bff scale <player\|target\|tot\|focus\|pet\|party> <0.6-1.5>` | One frame's scale (`120` works for 1.2 too) |
@@ -59,7 +70,7 @@ Not in 1.0: raid frames, an XP bar, an options panel, a minimap button, cast bar
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
 menu has a submenu per Better...Forever addon. Its **Frames** row is in BetterGaarForever 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
-**Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Bar text**, **Low-health colour**,
+**Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**, **Low-health colour**,
 **Class colour** and **Reset positions & scales**, the same settings as `/bff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here
 changes with or without the hub.
@@ -69,7 +80,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
 | Field | What it is |
 |---|---|
 | `version` | This addon's version, a string |
-| `StatusLine()` | One line of state, e.g. `unlocked · 6 frames · 2D` (` · test mode` while testing) |
+| `StatusLine()` | One line of state, e.g. `unlocked · 6 frames · 2D` (` · Edit Mode` while following it, ` · test mode` while testing) |
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, submenu }`, `{ divider }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
@@ -99,8 +110,9 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   `PetFrame`. Party: `PartyFrame` (its member frames `PartyFrame.MemberFrame1-4` lose their
   events and are hidden, but are not re-parented, as in oUF) or the old `PartyMemberFrame1-4`.
   Every name is checked first; a missing one is skipped. **`CompactPartyFrame`** (the raid-style
-  party frames) is deliberately left alone: if "Use Raid-Style Party Frames" is on in Edit Mode,
-  turn it off or you see both.
+  party frames) is not switched off by the addon. But in retail's FrameXML it is created as a
+  child of `PartyFrame` (`CompactPartyFrame_Generate`), so parking `PartyFrame` most likely hides
+  it as well - not yet checked in game; `/bff frame party off` and a `/reload` bring both back.
 - **The trade-off.** Events cannot be handed back, so turning a frame off (`/bff frame <x> off`)
   hides ours at once but brings Blizzard's back only after `/reload`. With `PlayerFrame` gone,
   anything Blizzard hangs off it goes too (a class bar under the player frame, for example); the
@@ -110,6 +122,22 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   out of combat, that the frames it parked are still parked and hidden. If doing so ever raises
   an error, switching Blizzard's frames off is stopped for the session with one line in chat,
   rather than an error every time.
+- **Following Edit Mode without touching Blizzard's code.** Only `EventRegistry` callbacks
+  (`EditMode.Enter` / `EditMode.Exit`; `HookScript` on `EditModeManagerFrame` where there is no
+  `EventRegistry`), no replaced function, nothing written into Blizzard's tables. Nothing of ours
+  is anchored to Blizzard's frames either: their top-left is read (`GetLeft` / `GetTop` times
+  their effective scale over UIParent's), each number checked for a secret, and our frame gets a
+  `TOPLEFT` point on UIParent there. A frame that will not report its place keeps the last good
+  reading, or our own position; an error reading it switches following off for the session with
+  one line. When Edit Mode opens, out of combat (queued otherwise), `PlayerFrame`, `TargetFrame`,
+  `FocusFrame` and `PartyFrame` - only for the frames we draw - are re-parented to their own
+  parent and shown, so Edit Mode's selection boxes are there to drag; their sub-frames (target of
+  target, pet, combo points) stay parked. Their events stay unregistered: Edit Mode moves the frame
+  and its selection box with no events, and `PartyFrame` sets its member frames up again itself
+  when it is shown. Blizzard's target and focus frames therefore show stale or empty content in
+  Edit Mode. Our followed frames go see-through with the mouse off meanwhile; test mode is off.
+  When Edit Mode closes, the new place is read, the frames are parked exactly as at login
+  (`UnregisterAllEvents`, `Hide`, re-parent) and ours move.
 - **Hidden (secret) values.** The bars always get the raw values (`SetMinMaxValues(0, max)`,
   `SetValue(cur)`): a StatusBar takes a secret. Nothing is worked out from a secret: no
   comparison, no sum, no boolean test, not even `x or y`. The `cur/max  NN%` text is written from
@@ -122,6 +150,22 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   goes straight to `SetAlphaFromBoolean` where the client has it. Aura timings that are hidden
   use the client's duration object (`C_UnitAuras.GetAuraDuration` and
   `SetCooldownFromDurationObject`) where it has one.
+- **Auras in combat.** On this client auras are secret in combat, and reading one by index from
+  addon code then raises an error ("Auras cannot be accessed when secret while tainted"); 1.0
+  switched auras off for the session on the first DoT. 1.1 lets the client draw them: the target
+  and party frames get a Blizzard aura container (`CreateFrame("AuraContainer", ...,
+  "CustomAuraContainerTemplate")`, retail 12.x's `Blizzard_AuraContainer`) with groups for buffs,
+  your debuffs (larger) and other debuffs (smaller, grey), and buttons whose icon, cooldown and
+  stack count this addon supplies; the container's own secure code reads the auras, secret or
+  not. Where the client has no such container, the addon reads auras itself, one `pcall` per
+  read, asking `C_Secrets.ShouldUnitAuraIndexBeSecret` first; a refused read is counted and tried
+  again at the next update, so the auras are there out of combat and gone while they are secret.
+  Looking auras up by spell ID is not used: in game it answers nil for your own DoTs in combat.
+  `/bff status` says which way auras are drawn, what the target shows, how many reads were
+  refused, and which aura API and templates the client has.
+- **No power, no power bar.** When a unit's maximum power is a plain 0 the power bar is hidden
+  and the health bar takes its room (the current value may be secret while the maximum is not).
+  A secret maximum keeps the bar, with the client's secret-safe text.
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
@@ -138,7 +182,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   ticker; everything else is event-driven.
 - Party frames follow `RegisterUnitWatch`, so in a raid they show your own subgroup.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `portrait`,
-  `text`, `lowhp`, `classColor`, `frames`, `scales` and `positions` are kept, each type-checked
+  `text`, `lowhp`, `classColor`, `followEditMode`, `frames`, `scales` and `positions` are kept, each type-checked
   (scales clamped to 0.6-1.5, positions with a missing field dropped); anything else is cleared
   on load. A position is saved only when none of its numbers is secret. Test mode is never saved.
 
@@ -151,7 +195,11 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `FocusFrame`, `FocusFrameToT`, `TargetofFocusFrame`, `PetFrame`, `PartyFrame` (and
 `PartyFrame.MemberFrame1-4`, `PartyMemberFramePool`) or `PartyMemberFrame1-4`; the tables
 `RAID_CLASS_COLORS`, `CLASS_ICON_TCOORDS`, `FACTION_BAR_COLORS`, `PowerBarColor`,
-`DebuffTypeColor` and `CurveConstants`; `GameTooltip_SetDefaultAnchor`.
+`DebuffTypeColor` and `CurveConstants`; `GameTooltip_SetDefaultAnchor`; `EventRegistry`
+(`EditMode.Enter`, `EditMode.Exit`) and `EditModeManagerFrame:IsEditModeActive()`; the
+`AuraContainer` frame type with `CustomAuraContainerTemplate` (`SetUnit`, `AddAuraGroup`,
+`SetFlowLayoutMaximumLineSize`, `GetAuraGroupFrame`; buttons: `SetIcon`, `SetDurationCooldown`,
+`SetApplicationCount`).
 
 Unit API (every one of these is a string in Forever's client binary, build 70790; the FrameXML names above cannot be read off disk and are feature-detected): `UnitHealth`,
 `UnitHealthMax`, `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitHealthPercent`,
@@ -162,7 +210,8 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `UnitInRange` (or `CheckInteractDistance` out of combat), `UnitIsGroupLeader`,
 `UnitAffectingCombat`, `IsResting`, `GetRaidTargetIndex`, `GetComboPoints`,
 `SetPortraitTexture`, `C_UnitAuras.GetAuraDataByIndex` (or `UnitAura`),
-`C_UnitAuras.GetAuraDuration`, `issecretvalue`, `InCombatLockdown`,
+`C_UnitAuras.GetAuraDuration`, `C_UnitAuras.GetAuraApplicationDisplayCount`,
+`C_Secrets.ShouldUnitAuraIndexBeSecret`, `C_AuraContainerUtil` (detected only), `issecretvalue`, `InCombatLockdown`,
 `C_AddOns.IsAddOnLoaded` / `IsAddOnLoaded`; widget methods `SetFormattedText`,
 `SetAlphaFromBoolean`, `SetCooldownFromDurationObject` where they exist. Events:
 `UNIT_HEALTH`, `UNIT_MAXHEALTH`, `UNIT_CONNECTION`, `UNIT_POWER_UPDATE`, `UNIT_POWER_FREQUENT`,
@@ -172,7 +221,7 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `RAID_TARGET_UPDATE`, `PARTY_LEADER_CHANGED`, `GROUP_ROSTER_UPDATE`,
 `PLAYER_TARGET_CHANGED`, `PLAYER_FOCUS_CHANGED`, `PLAYER_REGEN_DISABLED`,
 `PLAYER_REGEN_ENABLED`, `PLAYER_UPDATE_RESTING`, `PLAYER_ENTERING_WORLD`,
-`EDIT_MODE_LAYOUTS_UPDATED`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-StatusBar`,
+`EDIT_MODE_LAYOUTS_UPDATED`, `DISPLAY_SIZE_CHANGED`, `UI_SCALE_CHANGED`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-StatusBar`,
 `UI-Classes-Circles`, `UI-RaidTargetingIcons`, `Interface\GroupFrame\UI-Group-LeaderIcon`,
 `Interface\CharacterFrame\UI-StateIcon`, `Interface\Buttons\WHITE8x8`.
 

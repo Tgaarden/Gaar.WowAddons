@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: BetterGpsForever
-## Notes: One waypoint with an arrow, distance and time to get there, plus world map and minimap pins: /way x y, /way <zone> x y, or shift-click the world map. /bgps
+## Notes: One waypoint with an arrow, distance and time to get there, plus world map and minimap pins: /way x y, /way <zone> x y, or shift-click the world map. Routes you to your corpse while you are a ghost. /bgps
 ## Author: Gaar
-## Version: 1.0
+## Version: 1.1
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_02
 ## SavedVariables: BetterGpsForeverDB
 

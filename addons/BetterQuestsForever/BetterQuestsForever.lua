@@ -54,6 +54,16 @@
 
   Options: /bqf, and a minimap button whose menu has the same settings.
 
+  Set GPS target (1.6): with BetterGpsForever loaded, the tracker's own right-click menu for a
+  quest (Focus, Open Quest Details, ...) gets a "Set GPS target" entry after Focus. It sets
+  BetterGpsForever's one waypoint, titled with the quest's name, on the point Blizzard shows for
+  the quest: its next waypoint (C_QuestLog.GetNextWaypoint), else its POI on the quest's own map
+  or the player's maps (C_QuestLog.GetQuestsOnMap; the turn-in point once the quest is complete),
+  else C_QuestLog.GetNextWaypointForMap. Greyed out when there is no such point. The entry is
+  added through Blizzard's public Menu.ModifyMenu("MENU_QUEST_OBJECTIVE_TRACKER", ...), and the
+  waypoint is set only through BetterGpsForeverAPI.SetWaypoint. Without BetterGpsForever there is
+  no entry and nothing else changes.
+
   BetterQuestsForeverAPI is a small global table for BetterGaarForever, the optional hub that
   shows these options in its own minimap menu (version, StatusLine, MenuEntries, AddMenuEntries,
   SetMinimapHidden). While the hub is loaded this addon's own minimap button is hidden for the
@@ -1579,6 +1589,233 @@ local function ResetMinimapButton()
 end
 
 -- ---------------------------------------------------------------------------
+-- "Set GPS target" in the quest tracker's right-click menu
+--
+-- Blizzard builds that menu in QuestObjectiveTrackerMixin:OnBlockHeaderClick with the tag
+-- MENU_QUEST_OBJECTIVE_TRACKER (the Campaign section uses the same mixin and tag). Menu.ModifyMenu
+-- is Blizzard's public way for an addon to add to a tagged menu: our callback runs after
+-- Blizzard's generator, and only adds an element of our own. The menu does not say which quest it
+-- is for, so the quest is the tracker block under the mouse (the right-click that opened it),
+-- checked against the menu's title, or else the one tracked quest with that title.
+-- ---------------------------------------------------------------------------
+
+local GPS_ADDON = "BetterGpsForever"
+local GPS_MENU_TAG = "MENU_QUEST_OBJECTIVE_TRACKER"
+local GPS_TEXT = "Set GPS target"
+local gpsMenuState      -- "registered", or why the entry cannot be offered; for /bqf status
+local gpsMenuBroken     -- switched off for the session after its first error
+
+-- BetterGpsForeverAPI when BetterGpsForever is loaded and can take a waypoint from us (1.1+).
+local function GpsApi()
+    if not AddOnLoaded(GPS_ADDON) then return nil end
+    local api = _G.BetterGpsForeverAPI
+    if type(api) == "table" and type(api.SetWaypoint) == "function" then return api end
+end
+
+local function MapNum(v)
+    v = Num(v)
+    if v and v > 0 then return v end
+end
+
+-- A map point from the client, 0-1 and not the empty 0,0, or nothing.
+local function Point01(x, y)
+    x, y = Num(x), Num(y)
+    if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not (x == 0 and y == 0) then return x, y end
+end
+
+local function MapChain(mapID)
+    local chain, seen = {}, {}
+    local getInfo = type(_G.C_Map) == "table" and _G.C_Map.GetMapInfo
+    local m = MapNum(mapID)
+    for _ = 1, 12 do
+        if not m or seen[m] then break end
+        seen[m] = true
+        chain[#chain + 1] = m
+        local info = pcall1(getInfo, m)
+        m = type(info) == "table" and not IsSecret(info) and MapNum(info.parentMapID) or nil
+    end
+    return chain
+end
+
+-- The maps to look on: the quest's own map, the player's map, then the parents of each.
+local function QuestMaps(questID)
+    local q = MapChain(pcall1(_G.GetQuestUiMapID, questID))
+    local p = MapChain(pcall1(type(_G.C_Map) == "table" and _G.C_Map.GetBestMapForUnit, "player"))
+    local list, seen = {}, {}
+    local function add(m)
+        if m and not seen[m] then
+            seen[m] = true
+            list[#list + 1] = m
+        end
+    end
+    add(q[1])
+    add(p[1])
+    for i = 2, #q do add(q[i]) end
+    for i = 2, #p do add(p[i]) end
+    return list
+end
+
+-- Blizzard's point for a quest as uiMapID, x, y (0-1), or nothing:
+--   1. C_QuestLog.GetNextWaypoint: the next step of the route Blizzard plots to a quest elsewhere
+--   2. the quest's POI in C_QuestLog.GetQuestsOnMap: the objective area, or the turn-in point
+--      once the quest is complete
+--   3. C_QuestLog.GetNextWaypointForMap on the same maps
+local function QuestPoint(questID)
+    local ql = QuestLog()
+    if not ql or type(questID) ~= "number" then return nil end
+    local ok, m, x, y = Try(ql.GetNextWaypoint, questID)
+    if ok then
+        m = MapNum(m)
+        x, y = Point01(x, y)
+        if m and x then return m, x, y end
+    end
+    local maps = QuestMaps(questID)
+    if type(ql.GetQuestsOnMap) == "function" then
+        for _, mapID in ipairs(maps) do
+            local quests = pcall1(ql.GetQuestsOnMap, mapID)
+            if type(quests) == "table" and not IsSecret(quests) then
+                for _, info in ipairs(quests) do
+                    if type(info) == "table" and Num(info.questID) == questID then
+                        local px, py = Point01(info.x, info.y)
+                        if px then return mapID, px, py end
+                    end
+                end
+            end
+        end
+    end
+    if type(ql.GetNextWaypointForMap) == "function" then
+        for _, mapID in ipairs(maps) do
+            local okW, wx, wy = Try(ql.GetNextWaypointForMap, questID, mapID)
+            if okW then
+                wx, wy = Point01(wx, wy)
+                if wx then return mapID, wx, wy end
+            end
+        end
+    end
+end
+
+local function QuestTitle(questID)
+    local ql = QuestLog()
+    local t = ql and pcall1(ql.GetTitleForQuestID, questID)
+    if type(t) == "string" and not IsSecret(t) and t ~= "" then return t end
+    t = QuestData(questID).title
+    if t ~= "" then return t end
+end
+
+local function ElementText(desc)
+    local MU = _G.MenuUtil
+    local t
+    if type(MU) == "table" and type(MU.GetElementText) == "function" then t = pcall1(MU.GetElementText, desc) end
+    if type(t) == "string" and not IsSecret(t) then return t end
+end
+
+local function MouseFrames()
+    local foci = pcall1(_G.GetMouseFoci)
+    if type(foci) == "table" then return foci end
+    local f = pcall1(_G.GetMouseFocus)
+    return f and { f } or {}
+end
+
+-- The quest of the tracker block a frame belongs to (the block itself, or its header button).
+local function BlockQuestID(frame)
+    for _ = 1, 4 do
+        if type(frame) ~= "table" then return nil end
+        local id = frame.id
+        if type(frame.parentModule) == "table" and type(id) == "number" and not IsSecret(id) and id > 0 then
+            return id
+        end
+        frame = type(frame.GetParent) == "function" and pcall1(frame.GetParent, frame) or nil
+    end
+end
+
+local function MenuQuestID(title)
+    for _, f in ipairs(MouseFrames()) do
+        local id = BlockQuestID(f)
+        if id and (not title or QuestTitle(id) == title) then return id end
+    end
+    if not title then return nil end
+    local found
+    for _, questID in ipairs(GetWatches()) do
+        if QuestTitle(questID) == title then
+            if found then return nil end -- two tracked quests with this title: not guessed
+            found = questID
+        end
+    end
+    return found
+end
+
+local function SetGpsTarget(questID, title)
+    local api = GpsApi()
+    local m, x, y = QuestPoint(questID)
+    if not api or not m then
+        Print("No map point for this quest.")
+        return
+    end
+    local ok, set = pcall(api.SetWaypoint, m, x, y, title)
+    if not ok or not set then Print("BetterGpsForever could not take that point.") end
+end
+
+-- Our ModifyMenu callback: adds the entry after Focus (Blizzard's SUPER_TRACK_QUEST or
+-- STOP_SUPER_TRACK_QUEST), or third (after the title and Focus) when Focus is not found.
+local function AddGpsEntry(root)
+    if not GpsApi() or type(root) ~= "table" or type(root.EnumerateElementDescriptions) ~= "function" then return end
+    local title, count, focusAt = nil, 0, nil
+    local focusTexts = {}
+    for _, name in ipairs({ "SUPER_TRACK_QUEST", "STOP_SUPER_TRACK_QUEST" }) do
+        if type(_G[name]) == "string" then focusTexts[_G[name]] = true end
+    end
+    for i, desc in root:EnumerateElementDescriptions() do
+        count = i
+        local text = ElementText(desc)
+        if i == 1 then title = text end
+        if text and focusTexts[text] and not focusAt then focusAt = i end
+    end
+    local questID = MenuQuestID(title)
+    if not questID then return end
+    local name = QuestTitle(questID) or title
+    local hasPoint = QuestPoint(questID) ~= nil
+    local function onClick() SetGpsTarget(questID, name) end
+
+    local MU, desc = _G.MenuUtil, nil
+    if type(MU) == "table" and type(MU.CreateButton) == "function" and type(root.Insert) == "function" then
+        local index = focusAt and (focusAt + 1) or math.min(3, count + 1)
+        desc = root:Insert(MU.CreateButton(GPS_TEXT, onClick), index)
+    elseif type(root.CreateButton) == "function" then
+        desc = root:CreateButton(GPS_TEXT, onClick)
+    end
+    if not hasPoint and type(desc) == "table" and type(desc.SetEnabled) == "function" then
+        desc:SetEnabled(false)
+    end
+end
+
+local function RegisterGpsMenu()
+    if gpsMenuState == "registered" then return end
+    local menu = _G.Menu
+    if type(menu) ~= "table" or type(menu.ModifyMenu) ~= "function" then
+        gpsMenuState = "Menu.ModifyMenu not available"
+        return
+    end
+    local ok, err = pcall(menu.ModifyMenu, GPS_MENU_TAG, function(_, root)
+        if gpsMenuBroken then return end
+        local okAdd, errAdd = pcall(AddGpsEntry, root)
+        if not okAdd then
+            gpsMenuBroken = true
+            Print("\"" .. GPS_TEXT .. "\" is switched off for this session: this client refused it. ("
+                .. tostring(errAdd) .. ")")
+        end
+    end)
+    gpsMenuState = ok and "registered" or ("error: " .. tostring(err))
+end
+
+local function GpsMenuStatus()
+    if gpsMenuBroken then return "switched off after an error" end
+    if gpsMenuState ~= "registered" then return "not available - " .. (gpsMenuState or "not set up yet") end
+    if not AddOnLoaded(GPS_ADDON) then return "hidden - BetterGpsForever is not loaded" end
+    if not GpsApi() then return "hidden - BetterGpsForever 1.1 or later is needed" end
+    return "in the tracker's quest menu, after Focus"
+end
+
+-- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
 
@@ -1701,6 +1938,9 @@ local function PrintStatus()
     local state = m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
     if HiddenByHub() then state = "hidden while BetterGaarForever is loaded (saved setting: " .. state .. ")" end
     Print("minimap button: " .. state .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
+    Print("Set GPS target: " .. GpsMenuStatus() .. "   GetNextWaypoint: " .. Yes(ql and type(ql.GetNextWaypoint) == "function")
+        .. "   GetQuestsOnMap: " .. Yes(ql and type(ql.GetQuestsOnMap) == "function")
+        .. "   GetQuestUiMapID: " .. Yes(type(_G.GetQuestUiMapID) == "function"))
 end
 
 local function OnSlash(msg)
@@ -1787,7 +2027,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.5"
+local VERSION = "1.6"
 
 local function ApiEntries()
     if not db then return {} end
@@ -1842,6 +2082,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             UpdateDistanceTicker()
             pcall(ApplyMinimap)
             pcall(HookBackdropTargets)
+            pcall(RegisterGpsMenu)
             MarkBackdrop()
             Schedule()
         elseif db and not hooked and arg1 == "Blizzard_ObjectiveTracker" then
@@ -1860,6 +2101,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
         if db then pcall(ApplyMinimap) end
+        if db then pcall(RegisterGpsMenu) end
         Schedule()
     else
         Schedule()

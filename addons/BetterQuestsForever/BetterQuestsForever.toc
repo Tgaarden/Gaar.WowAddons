@@ -2,9 +2,10 @@
 ## Title: BetterQuestsForever
 ## Notes: Orders the Quests section of Forever's objective tracker by level and shows only the first N tracked quests; every quest stays tracked and the watch list is never changed. /bqf or the minimap button
 ## Author: Gaar
-## Version: 1.5
+## Version: 1.6
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## SavedVariables: BetterQuestsForeverDB
+## OptionalDeps: BetterGpsForever
 ## X-Curse-Project-ID: 1786827
 
 BetterQuestsForever.lua

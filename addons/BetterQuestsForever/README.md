@@ -40,6 +40,26 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
   block, with 4 px of padding. It follows the content as it grows and shrinks (including after
   the order and the limit change the height) and is hidden when the tracker is hidden, collapsed
   or empty. See [Backdrop](#backdrop).
+- **Set GPS target** (1.6, needs [BetterGpsForever](../BetterGpsForever/README.md) 1.1). The
+  tracker's own right-click menu for a quest (Focus, Open Quest Details, Open Quest Map, Untrack,
+  Abandon) gets **Set GPS target** after Focus. It sets BetterGpsForever's one waypoint on the
+  point Blizzard shows for the quest, titled with the quest's name (e.g. "Harpy Raiders"):
+  1. `C_QuestLog.GetNextWaypoint(questID)` - the next step of the route Blizzard plots to a quest
+     somewhere else;
+  2. else the quest's POI from `C_QuestLog.GetQuestsOnMap(uiMapID)` - the objective area, or the
+     turn-in point once the quest is complete (Blizzard moves the POI there) - looked up on the
+     quest's own map (`GetQuestUiMapID`), the map you are on, and the parents of both;
+  3. else `C_QuestLog.GetNextWaypointForMap(questID, uiMapID)` on the same maps.
+
+  With none of them the entry is greyed out (and a click, where a client cannot grey it, says
+  "No map point for this quest."). Without BetterGpsForever the entry is not there and the addon
+  works as before. The entry is added with Blizzard's public
+  `Menu.ModifyMenu("MENU_QUEST_OBJECTIVE_TRACKER", ...)`, which runs after Blizzard has built the
+  menu and only adds an element of ours; the menu does not say which quest it is for, so that is
+  the tracker block under the mouse, checked against the menu's title (or else the one tracked
+  quest with that title). The waypoint goes through `BetterGpsForeverAPI.SetWaypoint` only. The
+  first error switches the entry off for the session with one line in chat; `/bqf status` shows
+  its state.
 - **Hide in combat** (default on). When a fight starts the whole objective tracker ("All
   Objectives", every section) and the backdrop are hidden; when it ends the tracker comes back,
   sorted and limited as before, with its backdrop. It only comes back if it was shown when the
@@ -249,7 +269,13 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `GetQuestIDForQuestWatchIndex`, `GetLogIndexForQuestID`, `GetInfo`, `IsComplete`,
 `IsQuestDisabledForSession`; `C_QuestInfoSystem.GetQuestClassification` with
 `Enum.QuestClassification.Campaign`; `ObjectiveTrackerFrame`, `RegisterStateDriver`,
-`UnregisterStateDriver`; `MenuUtil.CreateContextMenu`, `Minimap`, `GetMinimapShape`. Every one is checked before use. If the tracker is not recognised the addon
+`UnregisterStateDriver`; `MenuUtil.CreateContextMenu`, `Minimap`, `GetMinimapShape`. For Set GPS
+target: `Menu.ModifyMenu`, `MenuUtil.CreateButton` and `GetElementText`, the description's
+`EnumerateElementDescriptions`, `Insert` and `SetEnabled`, `SUPER_TRACK_QUEST` /
+`STOP_SUPER_TRACK_QUEST`, `GetMouseFoci` (or `GetMouseFocus`), `C_QuestLog.GetNextWaypoint`,
+`GetQuestsOnMap`, `GetNextWaypointForMap`, `GetTitleForQuestID`, `GetQuestUiMapID`,
+`C_Map.GetBestMapForUnit` and `GetMapInfo` (all present in the Forever binary), and
+`BetterGpsForeverAPI`. Every one is checked before use. If the tracker is not recognised the addon
 does nothing and `/bqf status` says what is missing.
 
 It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.

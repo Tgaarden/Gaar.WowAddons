@@ -18,10 +18,21 @@
       over an hour), from how fast the distance shrank over the last 3 seconds; "--" while you
       stand still, move away or have no position.
     * Within 10 yards the waypoint clears itself: "Arrived at <zone> x, y".
-    * Saved account-wide in BetterGpsForeverDB: the waypoint, the arrow's place, lock and on/off.
-    * /bgps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear and
-      way <x y>. When TomTom is loaded /way stays TomTom's and /bgps way does the same job.
-    * BetterGpsForeverAPI, a small global table for BetterGaarForever's hub menu.
+    * Corpse route (1.1, /bgps corpse on|off, default on): once you have released and are a ghost,
+      the waypoint is your corpse, titled "Corpse", from C_DeathInfo.GetCorpseMapPosition on your
+      map or one of its parents. It follows you across maps (graveyard, zone change) and does not
+      clear itself on arrival. After resurrection it is cleared and the waypoint you had before
+      comes back (or none). A waypoint you set yourself while dead replaces the corpse route and
+      is the one kept after resurrection; clearing the corpse waypoint ends the route and brings
+      the previous waypoint back at once.
+    * Saved account-wide in BetterGpsForeverDB: the waypoint, the arrow's place, lock, on/off, the
+      corpse setting and, while a corpse route runs, the waypoint to bring back.
+    * /bgps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear,
+      corpse on|off and way <x y>. When TomTom is loaded /way stays TomTom's and /bgps way does
+      the same job.
+    * BetterGpsForeverAPI, a small global table for BetterGaarForever's hub menu and for other
+      addons that set the waypoint (BetterQuestsForever's "Set GPS target"): SetWaypoint,
+      ClearWaypoint, GetWaypoint.
 
   Coordinates. Positions are compared in world yards: C_Map.GetWorldPosFromMapPos turns a map
   point (the waypoint, and the player's C_Map.GetPlayerMapPosition) into a continent and a world
@@ -50,7 +61,7 @@ local ADDON_NAME = ... or "BetterGpsForever"
 local PREFIX = "|cff33ff99BetterGpsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -76,13 +87,20 @@ local MINIMAP_RADIUS = {
 }
 local MAPTYPE_CONTINENT, MAPTYPE_ZONE = 2, 3 -- Enum.UIMapType, read from the client when it has it
 
+local CORPSE_TITLE = "Corpse"
+local CORPSE_POLL = 2            -- seconds between corpse checks while dead or a ghost
+local TITLE_MAX = 60             -- characters of a waypoint title set through the API
+
 local DEFAULTS = {
     arrow = true,
     locked = false,
+    corpse = true,
 }
 
 -- Every key BetterGpsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { waypoint = true, arrow = true, locked = true, arrowPos = true }
+-- corpseRun: { prev = <waypoint or nil>, done = <bool> } while a corpse route runs.
+local SAVED_KEYS = { waypoint = true, arrow = true, locked = true, arrowPos = true, corpse = true,
+    corpseRun = true }
 
 local db                -- BetterGpsForeverDB, bound at ADDON_LOADED (never at file scope)
 local started           -- PLAYER_LOGIN work done
@@ -236,6 +254,7 @@ local FEATURE_TEXT = {
     minimapPin = "the minimap pin",
     native = "Blizzard's own waypoint",
     click = "shift-click on the world map",
+    corpse = "the corpse route",
 }
 local OnFeatureBroken -- hides what belongs to a feature; defined with the frames below
 
@@ -382,13 +401,24 @@ local function WaypointText(wp)
     return (wp.label or MapName(wp.mapID)) .. " " .. CoordText(wp.x, wp.y)
 end
 
-local function SetWaypoint(mapID, x, y, quiet)
+-- opts (all optional): quiet = no chat line, title = the name shown instead of the zone's,
+-- corpse = this is the corpse route's waypoint.
+local function SetWaypoint(mapID, x, y, opts)
     if not db then return false end
+    opts = type(opts) == "table" and opts or {}
     mapID = MapID(mapID)
     x, y = Num(x), Num(y)
     if not mapID or not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then return false end
+    -- A waypoint set while a corpse route runs replaces it and is the one kept after resurrection.
+    local run = db.corpseRun
+    if run and not opts.corpse then
+        run.done = true
+        run.prev = nil
+    end
+    local quiet = opts.quiet
     Safe("native", ClearNative)
-    db.waypoint = { mapID = mapID, x = x, y = y, label = MapName(mapID) }
+    db.waypoint = { mapID = mapID, x = x, y = y, label = Str(opts.title) or MapName(mapID),
+        corpse = opts.corpse and true or nil }
     worldCache = nil
     lastNav = nil
     ResetEta()
@@ -396,6 +426,14 @@ local function SetWaypoint(mapID, x, y, quiet)
     if not quiet then Print("waypoint set: " .. WaypointText() .. ".") end
     UpdateNow()
     return true
+end
+
+-- Puts a waypoint saved by the corpse route back, with its title. The line comes first, so an
+-- arrival right away (already standing there) reads in order.
+local function RestoreWaypoint(prev)
+    if type(prev) ~= "table" then return false end
+    Print("waypoint back: " .. WaypointText(prev) .. ".")
+    return SetWaypoint(prev.mapID, prev.x, prev.y, { title = prev.label, quiet = true })
 end
 
 local function ClearWaypoint(reason)
@@ -411,6 +449,15 @@ local function ClearWaypoint(reason)
         Print("Arrived at " .. WaypointText(had) .. ".")
     elseif reason ~= "silent" then
         Print(had and ("waypoint cleared (" .. WaypointText(had) .. ").") or "there is no waypoint to clear.")
+    end
+    -- Clearing the corpse waypoint while the route runs ends the route: the waypoint from before
+    -- comes back at once, and nothing is brought back at resurrection.
+    local run = db.corpseRun
+    if had and had.corpse and run and not run.done then
+        local prev = run.prev
+        run.done = true
+        run.prev = nil
+        RestoreWaypoint(prev)
     end
 end
 
@@ -971,7 +1018,8 @@ local function Step()
         ResetEta()
     end
     lastNav = nav
-    if nav.state == "ok" and nav.dist <= ARRIVAL_YARDS then
+    -- The corpse waypoint stays until resurrection; it is cleared (and the old one restored) then.
+    if nav.state == "ok" and nav.dist <= ARRIVAL_YARDS and not db.waypoint.corpse then
         ClearWaypoint("arrived")
         return
     end
@@ -1023,6 +1071,153 @@ OnFeatureBroken = function(feature)
 end
 
 -- ---------------------------------------------------------------------------
+-- Corpse route
+--
+-- While the player is a ghost (released), the waypoint is the corpse. It replaces the waypoint
+-- the player had, which is kept in db.corpseRun.prev and brought back at resurrection. The rule
+-- for a waypoint set while dead: it replaces the corpse route (run.done) and is the one kept
+-- after resurrection; the corpse route is not put back until the next death. Clearing the corpse
+-- waypoint (right-click, /way clear) also ends the route, and the previous waypoint comes back
+-- at once (see ClearWaypoint). db.corpseRun is saved, so a /reload while dead keeps all of this.
+-- ---------------------------------------------------------------------------
+
+local corpseDriver = CreateFrame("Frame")
+local corpseAcc = 0
+
+-- One of UnitIsGhost / UnitIsDeadOrGhost for the player: true, false, or nil when the client has
+-- no such function, it errors, or the answer is secret.
+local function PlayerFlag(fn)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, "player")
+    if not ok then return nil end
+    return Bool(v)
+end
+
+-- "ghost", "dead" (not released yet), "alive", or nil when the client gives no clear answer.
+local function PlayerState()
+    local ghost = PlayerFlag(_G.UnitIsGhost)
+    if ghost == nil then return nil end
+    if ghost then return "ghost" end
+    local dead = PlayerFlag(_G.UnitIsDeadOrGhost)
+    if dead == nil then return nil end
+    return dead and "dead" or "alive"
+end
+
+-- The player's map and its parents, most detailed first.
+local function PlayerMapChain()
+    local list, seen = {}, {}
+    local m = MapID(Call(MapAPI("GetBestMapForUnit"), "player"))
+    for _ = 1, 12 do
+        if not m or seen[m] then break end
+        seen[m] = true
+        list[#list + 1] = m
+        local info = MapInfo(m)
+        m = info and MapID(info.parentMapID)
+    end
+    return list
+end
+
+local function CorpseOn(mapID)
+    local x, y = XY(Call(API("C_DeathInfo", "GetCorpseMapPosition"), mapID))
+    if x and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not (x == 0 and y == 0) then return x, y end
+end
+
+-- The corpse as mapID, x, y (0-1): on the player's map, or else on the first parent map that
+-- holds it, narrowed to the zone it lies in where the client says which one that is.
+local function CorpsePosition()
+    if not API("C_DeathInfo", "GetCorpseMapPosition") then return nil end
+    for i, m in ipairs(PlayerMapChain()) do
+        local x, y = CorpseOn(m)
+        if x then
+            if i > 1 then
+                local info = Call(MapAPI("GetMapInfoAtPosition"), m, x, y)
+                local zone = not IsSecret(info) and type(info) == "table" and MapID(info.mapID) or nil
+                if zone and zone ~= m then
+                    local zx, zy = CorpseOn(zone)
+                    if zx then return zone, zx, zy end
+                end
+            end
+            return m, x, y
+        end
+    end
+end
+
+local function CopyWaypoint(wp)
+    if type(wp) ~= "table" then return nil end
+    return { mapID = wp.mapID, x = wp.x, y = wp.y, label = wp.label }
+end
+
+-- Ghost: start the route, or move its waypoint when the corpse is now read on another map.
+local function RouteToCorpse()
+    local run = db.corpseRun
+    if run and run.done then return end
+    local mapID, x, y = CorpsePosition()
+    if not mapID then return end -- not known here yet; asked again on the next poll or event
+    local cur = db.waypoint
+    if not run then
+        run = { prev = (cur and not cur.corpse) and CopyWaypoint(cur) or nil, done = false }
+        db.corpseRun = run
+    end
+    if cur and cur.corpse and cur.mapID == mapID and math.abs(cur.x - x) < 0.0005 and math.abs(cur.y - y) < 0.0005 then
+        return
+    end
+    local first = not (cur and cur.corpse)
+    SetWaypoint(mapID, x, y, { title = CORPSE_TITLE, corpse = true, quiet = true })
+    if first then
+        Print("waypoint set to your corpse"
+            .. (run.prev and (": " .. WaypointText(run.prev) .. " comes back after resurrection.") or "."))
+    end
+end
+
+-- Resurrected, or the setting was switched off: the corpse waypoint goes and the one from before
+-- comes back. Nothing is restored when the player set or cleared a waypoint while dead (done).
+local function EndCorpseRun()
+    local run = db.corpseRun
+    if not run then return end
+    db.corpseRun = nil
+    if run.done then return end
+    local cur = db.waypoint
+    if cur and cur.corpse then ClearWaypoint("silent") end
+    if not RestoreWaypoint(run.prev) and cur and cur.corpse then
+        Print("corpse waypoint cleared.")
+    end
+end
+
+local function CorpseCheck()
+    if not db then return "stop" end
+    local state = PlayerState()
+    if state == nil then return "poll" end
+    if state == "alive" then
+        EndCorpseRun()
+        -- A corpse waypoint with no route behind it (an old save) has nothing left to show.
+        if db.waypoint and db.waypoint.corpse then ClearWaypoint("silent") end
+        return "stop"
+    end
+    if state == "ghost" and db.corpse then RouteToCorpse() end
+    return "poll"
+end
+
+local function CorpsePoll(_, elapsed)
+    corpseAcc = corpseAcc + (Num(elapsed) or 0)
+    if corpseAcc < CORPSE_POLL then return end
+    corpseAcc = 0
+    local r = Safe("corpse", CorpseCheck)
+    if r ~= "poll" then corpseDriver:SetScript("OnUpdate", nil) end
+end
+
+-- Runs on the death events and on every map change: checks at once, then every CORPSE_POLL
+-- seconds while the player is dead or a ghost (the corpse may only be known a moment later).
+local function UpdateCorpse()
+    if not db then return end
+    if Safe("corpse", CorpseCheck) == "poll" then
+        corpseAcc = 0
+        corpseDriver:SetScript("OnUpdate", CorpsePoll)
+    else
+        corpseDriver:SetScript("OnUpdate", nil)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Settings, shared by the slash command and the menu entries of the API
 -- ---------------------------------------------------------------------------
 
@@ -1039,6 +1234,17 @@ local function SetLocked(on)
     db.locked = on and true or false
     if db.locked and arrowFrame then arrowFrame:StopMovingOrSizing() end
     Print(db.locked and "arrow locked." or "arrow unlocked: drag it to move it.")
+end
+
+local function SetCorpse(on)
+    if not db then return end
+    db.corpse = on and true or false
+    if db.corpse then
+        UpdateCorpse()
+    elseif db.corpseRun then
+        Safe("corpse", EndCorpseRun)
+    end
+    Print("route to your corpse when dead " .. OnOff(db.corpse) .. ".")
 end
 
 local function ResetArrow()
@@ -1066,6 +1272,8 @@ local function PrintHelp()
     Print("/bgps arrow on | /bgps arrow off - show the arrow (now: " .. OnOff(db and db.arrow) .. ")")
     Print("/bgps lock | /bgps unlock - stop or allow dragging the arrow (now: "
         .. ((db and db.locked) and "locked" or "unlocked") .. "); /bgps reset - arrow back to its default place")
+    Print("/bgps corpse on | /bgps corpse off - waypoint to your corpse while you are a ghost, the old one back after"
+        .. " resurrection (now: " .. OnOff(db and db.corpse) .. ")")
     Print("/bgps clear - clear the waypoint (or right-click the arrow); /bgps status - what this client offers")
     if wayOwner then Print("/way belongs to " .. wayOwner .. ", so use /bgps way x y here.") end
 end
@@ -1078,6 +1286,17 @@ local function PrintStatus()
         .. ((lastNav and lastNav.state == "nopos") and (DOT .. "no position here") or ""))
     Print("arrow: " .. OnOff(db and db.arrow) .. ", " .. ((db and db.locked) and "locked" or "unlocked")
         .. ", " .. (db and db.arrowPos and "moved" or "default place"))
+    local run = db and db.corpseRun
+    local corpse = OnOff(db and db.corpse)
+    if run and run.done then
+        corpse = corpse .. " - dead, your own waypoint is kept after resurrection"
+    elseif run then
+        corpse = corpse .. " - routing to your corpse; after resurrection: "
+            .. (run.prev and WaypointText(run.prev) or "no waypoint")
+    end
+    Print("corpse route: " .. corpse .. "   C_DeathInfo.GetCorpseMapPosition: "
+        .. Yes(API("C_DeathInfo", "GetCorpseMapPosition")) .. "   UnitIsGhost: "
+        .. Yes(type(_G.UnitIsGhost) == "function"))
     Print("/way: " .. (wayRegistered and "ours" or ("not ours (" .. (wayOwner or "not registered yet") .. "); use /bgps way")))
     Print("GetWorldPosFromMapPos: " .. Yes(MapAPI("GetWorldPosFromMapPos"))
         .. "   GetMapPosFromWorldPos: " .. Yes(MapAPI("GetMapPosFromWorldPos"))
@@ -1117,6 +1336,10 @@ local function OnSlash(msg)
         ResetArrow()
     elseif lower == "clear" then
         ClearWaypoint()
+    elseif lower == "corpse on" or lower == "corpse off" then
+        SetCorpse(lower == "corpse on")
+    elseif lower == "corpse" then
+        SetCorpse(not db.corpse)
     else
         PrintHelp()
     end
@@ -1164,6 +1387,11 @@ end
 --                        { text, func }, { text, checkbox = true, checked, func }, { label }
 --   AddMenuEntries(root) adds the same options to a MenuUtil root or submenu description
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
+--   SetWaypoint(uiMapID, x, y [, title])  sets the one waypoint (x, y 0-1), shown as title instead
+--                        of the zone name; true when it was set. Same as /way, so it replaces the
+--                        waypoint there was, and while dead it replaces the corpse route.
+--   ClearWaypoint()      clears the waypoint, as /way clear does
+--   GetWaypoint()        uiMapID, x, y, title of the waypoint, or nil when there is none
 -- ---------------------------------------------------------------------------
 
 local function StatusLine()
@@ -1189,6 +1417,8 @@ local function MenuEntries()
         { text = "Lock arrow", checkbox = true, checked = function() return db.locked end,
           func = function() SetLocked(not db.locked) end },
         { text = "Reset arrow position", func = ResetArrow },
+        { text = "Route to corpse when dead", checkbox = true, checked = function() return db.corpse end,
+          func = function() SetCorpse(not db.corpse) end },
     }
     if db.waypoint then
         entries[#entries + 1] = { text = "Clear waypoint", func = function() ClearWaypoint() end }
@@ -1215,12 +1445,31 @@ local function RenderMenu(root, entries)
     end
 end
 
+-- A title from another addon: one line, no escape sequences, at most TITLE_MAX characters.
+local function CleanTitle(title)
+    title = Str(title)
+    if not title then return nil end
+    title = title:gsub("|", "/"):gsub("%c", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if title == "" then return nil end
+    if #title > TITLE_MAX then title = title:sub(1, TITLE_MAX) end
+    return title
+end
+
 _G.BetterGpsForeverAPI = {
     version = VERSION,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
+    SetWaypoint = function(mapID, x, y, title)
+        return SetWaypoint(mapID, x, y, { title = CleanTitle(title) }) and true or false
+    end,
+    ClearWaypoint = function() ClearWaypoint() end,
+    GetWaypoint = function()
+        local wp = db and db.waypoint
+        if not wp then return nil end
+        return wp.mapID, wp.x, wp.y, wp.label
+    end,
 }
 
 -- ---------------------------------------------------------------------------
@@ -1231,7 +1480,15 @@ local function ValidWaypoint(wp)
     if type(wp) ~= "table" then return nil end
     local id, x, y = MapID(wp.mapID), Num(wp.x), Num(wp.y)
     if not id or not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then return nil end
-    return { mapID = id, x = x, y = y, label = type(wp.label) == "string" and wp.label or nil }
+    return { mapID = id, x = x, y = y, label = type(wp.label) == "string" and wp.label or nil,
+        corpse = wp.corpse == true or nil }
+end
+
+local function ValidCorpseRun(run)
+    if type(run) ~= "table" then return nil end
+    local prev = ValidWaypoint(run.prev)
+    if prev then prev.corpse = nil end
+    return { prev = prev, done = run.done == true }
 end
 
 local function BindSavedVariables()
@@ -1245,7 +1502,9 @@ local function BindSavedVariables()
     end
     if type(db.arrow) ~= "boolean" then db.arrow = true end
     if type(db.locked) ~= "boolean" then db.locked = false end
+    if type(db.corpse) ~= "boolean" then db.corpse = DEFAULTS.corpse end
     db.waypoint = ValidWaypoint(db.waypoint)
+    db.corpseRun = ValidCorpseRun(db.corpseRun)
     local pos = db.arrowPos
     if pos ~= nil and (type(pos) ~= "table" or type(pos.point) ~= "string" or not Num(pos.x) or not Num(pos.y)) then
         db.arrowPos = nil
@@ -1258,12 +1517,17 @@ local function Start()
     RegisterWay()
     HookMap()
     UpdateNow()
+    UpdateCorpse()
 end
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- RegisterEvent raises on an event the client does not know, so these are tried one by one.
+local CORPSE_EVENTS = { PLAYER_DEAD = true, PLAYER_ALIVE = true, PLAYER_UNGHOST = true,
+    ZONE_CHANGED_NEW_AREA = true, ZONE_CHANGED = true, ZONE_CHANGED_INDOORS = true }
+for event in pairs(CORPSE_EVENTS) do pcall(events.RegisterEvent, events, event) end
 events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
@@ -1281,7 +1545,13 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- A new zone or continent: world positions are worked out again.
         worldCache = nil
         pinCache = {}
-        if started then UpdateNow() end
+        if started then
+            UpdateNow()
+            UpdateCorpse()
+        end
+    elseif CORPSE_EVENTS[event] then
+        -- Death, release, resurrection, or a new map while dead: the corpse is read again.
+        if started then UpdateCorpse() end
     end
 end)
 

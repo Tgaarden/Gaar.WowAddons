@@ -28,7 +28,8 @@ of the code.
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
 | `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all six Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever` and `BetterGpsForever`) through their small API; no bag, quest, map, cast bar, nameplate or waypoint code of its own, and the addons work the same without it | `/bgf`, minimap button |
+| `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, class/reaction/low-health colours, target buffs and debuffs with combo points, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all seven Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever` and `BetterFramesForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint or unit-frame code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -159,16 +160,43 @@ and BetterGaarForever 2.3 and later has a GPS row for it. It ships a `_Camelot` 
 fallback TOC, both at 16001. Details in
 [`addons/BetterGpsForever/README.md`](addons/BetterGpsForever/README.md).
 
-## BetterGaarForever: an optional hub for all six
+## BetterFramesForever: unit frames on Forever
+
+A standalone addon - no Gaar addon or library needed, and not listed in `GaarUI` - that draws
+X-Perl-style unit frames of its own for the player, target, target of target, focus, pet and
+party1-4 (no raid, no XP bar): a name bar with level and class icon or Elite / Rare / Boss tag,
+a 2D portrait (3D model as an option), health and power bars with `cur/max  NN%` text on a dark
+see-through backdrop. Class colour for players, reaction colour for NPCs, grey when tapped by
+someone else, orange under 35% and red under 20% health. The target gets combo points, a row of
+buffs and one of debuffs (your own larger); party frames get small auras and fade out of range;
+raid target, leader, combat and resting icons and a threat border. Left-click targets,
+right-click opens Blizzard's unit menu. Drag when unlocked, scale per frame (0.6-1.5), lock,
+reset and a test mode with made-up data (party without a group). It exists because `GaarFrames`
+cannot run on Forever: restyling Blizzard's unit frames taints them. So the frames are
+`SecureUnitButtonTemplate` buttons of its own (attributes set once, `RegisterUnitWatch` for
+show/hide, every change to them out of combat, queued to `PLAYER_REGEN_ENABLED` otherwise), and
+Blizzard's frames are switched off the oUF way - `UnregisterAllEvents`, `Hide`, re-parented to a
+hidden frame - out of combat, back only after `/reload`. Hidden (secret) values go straight to the
+bars; the text uses the client's secret-safe helpers where it has them, otherwise the bars stand
+alone, and every part of an update runs in `pcall` and switches itself off after its first
+refusal with one line in chat. `/bff` for help, `status`, `lock`, `unlock`, `test`, `reset`,
+`scale <frame> <0.6-1.5>`, `frame <frame> on|off`, `portrait 2d|3d`, `text`, `lowhp` and
+`classcolor on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
+a Frames row for it. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Use it
+instead of GaarFrames, X-Perl, ShadowedUnitFrames or PitBull4, not next to them (it warns once at
+login). Details in [`addons/BetterFramesForever/README.md`](addons/BetterFramesForever/README.md).
+
+## BetterGaarForever: an optional hub for all seven
 
 An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
-menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars**, a **Plates** and a **GPS** submenu with
-the options of all six Better...Forever addons: `BetterBagsForever`, `BetterQuestsForever`,
-`BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever` and `BetterGpsForever`. It
-carries no bag, quest, map, cast bar, nameplate or waypoint code of
-its own: the addons keep their logic, their saved variables and `/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps`, and
+menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars**, a **Plates**, a **GPS** and a
+**Frames** submenu with the options of all seven Better...Forever addons: `BetterBagsForever`,
+`BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`,
+`BetterGpsForever` and `BetterFramesForever`. It carries no bag, quest, map, cast bar, nameplate,
+waypoint or unit-frame code of its own: the addons keep their logic, their saved variables and
+`/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps` / `/bff`, and
 behave exactly the same without the hub. Each exports a small global API
-(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`: `version`,
+(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`, `BetterFramesForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
 its submenu from the same option list as the addon's own menu. While the hub is loaded,
 `BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not

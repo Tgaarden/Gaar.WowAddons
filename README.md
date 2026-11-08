@@ -26,7 +26,7 @@ of the code.
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
-| `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
+| `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
 | `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, class/reaction/low-health colours, target buffs and debuffs with combo points, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all seven Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever` and `BetterFramesForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint or unit-frame code of its own, and the addons work the same without it | `/bgf`, minimap button |
@@ -123,7 +123,9 @@ A standalone addon - no Gaar addon or library needed, and not listed in `GaarUI`
 and focus (on by default; focus only where the client has one) and the pet (off by default): spell
 icon with a 1px border (steel with a small shield when the cast cannot be interrupted), name,
 `remain / total` or `remain` timer, spark, the cast's target under the bar and a latency
-safe-zone on the player bar. Yellow cast, green channel, grey uninterruptible, a red flash on a
+safe-zone on the player bar. Since 1.1 thin swing bars hang under the player bar (main hand, off
+hand while dual-wielding, ranged while Auto Shot / Shoot repeats), driven by the client's own
+`PLAYER_SWING` event since Forever has no combat log reader. Yellow cast, green channel, grey uninterruptible, a red flash on a
 failed or interrupted cast and a 0.3 s fade when it finishes. Each bar has its own position by
 default: drag to move, the bottom-right grip to resize, saved per bar account-wide in
 `BetterCastbarsForeverDB`. **Follow Blizzard (Edit Mode)** anchors each bar to Blizzard's own bar
@@ -132,7 +134,7 @@ replaces, with `HookScript("OnShow")` and nothing else, and every cast timing an
 checked for secret values first; a bar the client refuses is switched off with one line in chat.
 `/bcf` for help, `/bcf status`, `lock`, `unlock`, `test`, `reset`, `follow on|off`,
 `bar <unit> on|off`, `latency on|off`, `texture blizzard|smooth|flat`, `font 9|11|13` and
-`timer total|remain`. It exports `BetterCastbarsForeverAPI` with the same shape as the others, and
+`timer total|remain`, `swing on|off`, `swing offhand on|off`, `swing ranged on|off`. It exports `BetterCastbarsForeverAPI` with the same shape as the others, and
 BetterGaarForever 2.2 and later has a Castbars row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
 both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
 Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).

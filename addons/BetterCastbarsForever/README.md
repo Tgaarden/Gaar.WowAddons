@@ -40,15 +40,54 @@ GaarCast learnt about secret values.
 - **Looks.** Bar texture Blizzard, Smooth or Flat; font size 9, 11 or 13.
 - **Blizzard's own bars.** For each bar this addon draws, Blizzard's cast bar for that unit is
   hidden. Turn a bar off and Blizzard's shows again from its next cast; no `/reload` needed.
+- **Swing timer** (1.1, on by default). Thin 8 px bars hang right under the player cast bar, the
+  same width and texture, so they move, resize and follow Edit Mode with it. Stacked top to
+  bottom: **MH** (main hand), **OH** (only while dual-wielding) and **Ranged** (only while Auto
+  Shot or a wand's Shoot repeats, or a ranged swing is still running). Each fills over the swing
+  and shows the seconds left on the right (`1.8`). They show in combat or while a swing runs and
+  fade out otherwise; test bars loop fake swings (2.6 s, 1.8 s, 3.0 s) so they can be previewed.
+  While they show, the player bar's cast-target line moves under them. The client's own built-in
+  "Main Hand" swing bar is left alone; turn it off yourself (Edit Mode) if you use this one.
 
-Not in 1.0: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
+Not in 1.1: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
+
+## How the swing timer finds swings
+
+Forever gives addons no combat log reader (`C_CombatLog` has only `IsCombatLogRestricted`,
+`ClearEntries` and `SetMessageLimit`, see `docs/forever-client-findings.md`), so the usual
+`SWING_DAMAGE` / `SWING_MISSED` route is closed. Instead:
+
+- **`PLAYER_SWING`**, an event this client has and retail does not, next to `C_SwingTimer` and
+  `Enum.PlayerSwingType`; it is what the client's own swing bar runs on. Each one restarts the
+  bar of the hand it names, so hits, misses, dodges, parries, blocks and landed on-next-swing
+  abilities all count. The payload is not documented: the hand is taken from the first number in
+  it (an `Enum.PlayerSwingType` value, whose names decide main hand, off hand or ranged) or a
+  string naming a hand, and is main hand otherwise. The swing's length always comes from
+  `UnitAttackSpeed`. `/bcf swing debug` prints every payload and the enum, to check this in game.
+- **An estimate** until `PLAYER_SWING` has been seen this session, or where it cannot be
+  registered: turning auto-attack on (`PLAYER_ENTER_COMBAT`) starts a swing at once and the bar
+  loops while auto-attack lasts; Heroic Strike, Cleave, Maul and Raptor Strike restart the main
+  hand when `UNIT_SPELLCAST_SUCCEEDED` reports them. `/bcf status` says which source is in use.
+- **Always:** Slam restarts the main hand when it succeeds; Auto Shot and Shoot (wand) restart
+  the ranged bar on `UNIT_SPELLCAST_SUCCEEDED` (length from `UnitRangedDamage`); a haste change
+  (`UNIT_ATTACK_SPEED`, `UNIT_RANGEDDAMAGE`) rescales a running swing, keeping the share already
+  done; parrying an attack (`UNIT_COMBAT` `PARRY` on the player) takes 40% of the swing off what
+  is left of the main hand, never below 20%. Spell IDs are all Classic ranks; their names are
+  looked up from those IDs, so a rank the list misses still matches by its localised name.
+- Every value is checked with `issecretvalue` first and a secret skips that update (a secret
+  attack speed means no bar for that swing). The swing timer runs on its own event frame under
+  `pcall`; its first error switches it off until `/reload` with one line in chat, and the cast
+  bars carry on.
+
+Not handled: a weapon swap does not restart the bars, and parry haste on the enemy's timer when
+it parries you does not apply (only your own timer is tracked).
 
 ## Commands
 
 | Command | Does |
 |---|---|
 | `/bcf`, `/bcf help` | Help, with the current value of every setting |
-| `/bcf status` | Which APIs and Blizzard bars this client has, every setting, each bar's state, place and size, any bar the client refused, and a GaarCast warning if it is loaded |
+| `/bcf status` | Which APIs and Blizzard bars this client has, every setting, each bar's state, place and size, any bar the client refused, the swing timer settings and where its swings come from, and a GaarCast warning if it is loaded |
 | `/bcf lock`, `/bcf unlock` | Stop or allow moving and resizing |
 | `/bcf test`, `/bcf test on`, `/bcf test off` | Toggle or set the looping test casts |
 | `/bcf reset` | Positions and sizes back to the defaults |
@@ -58,6 +97,10 @@ Not in 1.0: channel ticks, a GCD bar, nameplate cast bars, an options panel and 
 | `/bcf texture blizzard\|smooth\|flat` | Bar texture (Blizzard by default) |
 | `/bcf font 9\|11\|13` | Font size (11 by default) |
 | `/bcf timer total\|remain` | `remain / total` (default) or just `remain` |
+| `/bcf swing on\|off` | Swing timer under the player bar (on by default; without `on`/`off`: toggle) |
+| `/bcf swing offhand on\|off` | Off-hand swing bar while dual-wielding (on by default) |
+| `/bcf swing ranged on\|off` | Ranged swing bar for Auto Shot / Shoot (on by default) |
+| `/bcf swing debug` | Print every `PLAYER_SWING` payload and `Enum.PlayerSwingType` (not saved) |
 
 `/bettercastbarsforever` works the same as `/bcf`.
 
@@ -66,7 +109,8 @@ Not in 1.0: channel ticks, a GCD bar, nameplate cast bars, an options panel and 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
 menu has a submenu per Better...Forever addon. Its **Castbars** row is in
 BetterGaarForever 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
-size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Follow Blizzard (Edit Mode)**,
+size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Swing timer** (Show swing
+timer, Off hand, Ranged), **Follow Blizzard (Edit Mode)**,
 **Latency safe-zone**, **Texture**, **Font size**, the two **Timer** styles and **Reset positions
 & sizes**, the same settings as `/bcf` (both go through the same functions). This addon has no
 minimap button or menu of its own, so nothing here changes with or without the hub: the settings
@@ -112,7 +156,8 @@ The hub talks to this addon only through `BetterCastbarsForeverAPI`:
 - Every name is checked before use; a missing frame or function means that feature or bar falls
   back or stays off instead of raising an error.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `follow`,
-  `latency`, `texture`, `fontSize`, `timer`, `bars`, `positions` and `sizes` are kept, each
+  `latency`, `texture`, `fontSize`, `timer`, `swingTimer`, `swingRanged`, `swingOffhand`, `bars`,
+  `positions` and `sizes` are kept, each
   type-checked; anything else is cleared on load. Test mode is never saved.
 
 ## Names it relies on
@@ -127,7 +172,12 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `IsAddOnLoaded`; the events `UNIT_SPELLCAST_START`, `_STOP`, `_FAILED`, `_INTERRUPTED`,
 `_DELAYED`, `_CHANNEL_START`, `_CHANNEL_UPDATE`, `_CHANNEL_STOP`, `_INTERRUPTIBLE`,
 `_NOT_INTERRUPTIBLE`, `PLAYER_TARGET_CHANGED`, `PLAYER_FOCUS_CHANGED`, `UNIT_PET` and
-`EDIT_MODE_LAYOUTS_UPDATED`; the textures `Interface\TargetingFrame\UI-StatusBar`,
+`EDIT_MODE_LAYOUTS_UPDATED`; for the swing timer `PLAYER_SWING` and `Enum.PlayerSwingType`
+(Forever only), `UnitAttackSpeed`, `UnitRangedDamage`, `UnitAffectingCombat`,
+`C_Spell.GetSpellName` (or `GetSpellInfo`), and the events `PLAYER_ENTER_COMBAT`,
+`PLAYER_LEAVE_COMBAT`, `PLAYER_REGEN_DISABLED`, `PLAYER_REGEN_ENABLED`, `START_AUTOREPEAT_SPELL`,
+`STOP_AUTOREPEAT_SPELL`, `UNIT_SPELLCAST_SUCCEEDED`, `UNIT_ATTACK_SPEED`, `UNIT_RANGEDDAMAGE`,
+`UNIT_INVENTORY_CHANGED` and `UNIT_COMBAT`; the textures `Interface\TargetingFrame\UI-StatusBar`,
 `Interface\RaidFrame\Raid-Bar-Hp-Fill`, `Interface\Buttons\WHITE8x8`,
 `Interface\CastingBar\UI-CastingBar-Spark`, `Interface\ChatFrame\UI-ChatIM-SizeGrabber-*` and the
 icon `Interface\Icons\INV_Shield_06`; the strings `INTERRUPTED` and `FAILED`.

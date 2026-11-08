@@ -19,8 +19,13 @@
       bars can be placed out of combat) and reset (positions and sizes).
     * Blizzard's own cast bar is hidden, for the bars this addon replaces only, with
       HookScript("OnShow") -> Hide. Turning a bar off lets Blizzard's show again at its next cast.
-    * /bcf for help, status, lock, unlock, test, reset, follow, bar, latency, texture, font and
-      timer.
+    * A swing timer (1.1, on by default): thin bars stacked right under the player cast bar -
+      main hand, off hand while dual-wielding, ranged while Auto Shot / Shoot repeats - that fill
+      over each swing and show the seconds left. Shown in combat or while a swing runs, faded out
+      otherwise, and looped in test mode. See the swing timer section below for how swings are
+      detected on a client whose combat log addons cannot read.
+    * /bcf for help, status, lock, unlock, test, reset, follow, bar, latency, texture, font,
+      timer and swing.
     * BetterCastbarsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -50,7 +55,7 @@ local ADDON_NAME = ... or "BetterCastbarsForever"
 local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -113,6 +118,9 @@ local DEFAULTS = {
     texture = "blizzard",
     fontSize = 11,
     timer = "total",
+    swingTimer = true,
+    swingRanged = true,
+    swingOffhand = true,
 }
 local DEFAULT_BARS = { player = true, target = true, focus = true, pet = false }
 
@@ -120,6 +128,7 @@ local DEFAULT_BARS = { player = true, target = true, focus = true, pet = false }
 local SAVED_KEYS = {
     locked = true, follow = true, latency = true, texture = true, fontSize = true, timer = true,
     bars = true, positions = true, sizes = true,
+    swingTimer = true, swingRanged = true, swingOffhand = true,
 }
 
 local db                 -- BetterCastbarsForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -754,6 +763,451 @@ local function Guard(u, fn, ...)
         u, tostring(err)))
 end
 
+-- ---------------------------------------------------------------------------
+-- Swing timer
+--
+-- Forever gives addons no combat log reader (C_CombatLog has only IsCombatLogRestricted,
+-- ClearEntries and SetMessageLimit, see docs/forever-client-findings.md), so SWING_DAMAGE and
+-- SWING_MISSED cannot be read. Two sources instead:
+--
+--   * PLAYER_SWING, an event of this client's own (retail has none), next to C_SwingTimer and
+--     Enum.PlayerSwingType, which drive the client's built-in "Main Hand" swing bar. Each event
+--     restarts the bar of the hand it names. Its payload is not documented: the hand is read from
+--     the first number (an Enum.PlayerSwingType value, the enum's own names decide which hand)
+--     or a string naming it, and taken as main hand otherwise. The duration never comes from the
+--     payload, only from UnitAttackSpeed. /bcf swing debug prints every payload.
+--   * Until PLAYER_SWING has been seen this session (or where it cannot be registered), an
+--     estimate: PLAYER_ENTER_COMBAT (auto-attack on) starts a swing at once, the bar loops on
+--     its own while auto-attack lasts, and on-next-swing abilities (Heroic Strike, Cleave,
+--     Maul, Raptor Strike) restart it on UNIT_SPELLCAST_SUCCEEDED.
+--
+-- Always, whichever source: Slam restarts the main hand when it succeeds, Auto Shot and Shoot
+-- (wand) restart the ranged bar, UNIT_ATTACK_SPEED / UNIT_RANGEDDAMAGE rescale a running swing
+-- (the share already done is kept), and parrying an attack (UNIT_COMBAT "PARRY" on the player)
+-- takes 40% of the swing off what is left of the main hand, never below 20%.
+--
+-- The client's built-in swing bar is never touched. Every value read is checked with
+-- issecretvalue first and a secret skips that update; all of it runs under pcall and the first
+-- error switches the swing timer off for the session with one line in chat.
+-- ---------------------------------------------------------------------------
+
+local SWING_H, SWING_GAP, SWING_FONT = 8, 1, 8
+local SWING_ORDER = { "mh", "oh", "ranged" }
+local MELEE_HANDS = { "mh", "oh" }
+local SWING_LABEL = { mh = "MH", oh = "OH", ranged = "Ranged" }
+local SWING_COLOR = { mh = { 0.8, 0.8, 0.85 }, oh = { 0.55, 0.65, 0.85 }, ranged = { 0.45, 0.8, 0.45 } }
+local SWING_TEST = { mh = 2.6, oh = 1.8, ranged = 3.0 }
+local PARRY_CUT, PARRY_FLOOR = 0.4, 0.2
+
+-- Spell IDs (every Classic rank) by what they do to a swing. Names are resolved from these IDs
+-- on first use, so a rank or ID this list misses still matches by its localised name.
+local SWING_SPELLS = {
+    nextswing = { 78, 284, 285, 1608, 11564, 11565, 11566, 11567, 25286,   -- Heroic Strike
+                  845, 7369, 11608, 11609, 20569,                          -- Cleave
+                  6807, 6808, 6809, 8972, 9745, 9880, 9881,                -- Maul
+                  2973, 14260, 14261, 14262, 14263, 14264, 14265, 14266 }, -- Raptor Strike
+    slam      = { 1464, 8820, 11604, 11605 },
+    ranged    = { 75, 5019 },                                              -- Auto Shot, Shoot (wand)
+}
+
+local swingReal = { mh = {}, oh = {}, ranged = {} }   -- [hand] = { start, dur } in GetTime() seconds
+local swingTest = { mh = {}, oh = {}, ranged = {} }
+local swingState = {
+    combat = false,      -- PLAYER_REGEN_DISABLED .. _ENABLED
+    melee = false,       -- PLAYER_ENTER_COMBAT .. _LEAVE_COMBAT (auto-attack on)
+    autoRepeat = false,  -- START_AUTOREPEAT_SPELL .. STOP_ (Auto Shot, Shoot)
+    dual = false,        -- an off-hand attack speed is reported
+    eventOK = false,     -- PLAYER_SWING could be registered
+    eventSeen = false,   -- a melee PLAYER_SWING arrived this session
+    debug = false,       -- /bcf swing debug, not saved
+}
+local swingBlocked       -- error text, once the client has refused the swing timer
+local swingHolder        -- the frame the swing rows stack in, under the player bar
+local swingRows = {}     -- [hand] = row frame
+local swingLayout        -- the hands laid out now, as one string
+local swingFadeStart
+local swingWant = {}      -- [hand] = whether its row shows, reused every frame
+local swingSpellKind     -- [spellID or name] = "nextswing" | "slam" | "ranged", built on first use
+local swingEnumKind      -- [Enum.PlayerSwingType value] = hand, built on first use
+
+local function SwingSpeeds()
+    local mh, oh, rs
+    if type(_G.UnitAttackSpeed) == "function" then
+        local ok, a, b, c = pcall(_G.UnitAttackSpeed, "player")
+        if ok then mh, oh, rs = Num(a), Num(b), Num(c) end
+    end
+    if type(_G.UnitRangedDamage) == "function" then
+        local ok, s = pcall(_G.UnitRangedDamage, "player")
+        if ok and Num(s) then rs = Num(s) end
+    end
+    if mh and mh <= 0 then mh = nil end
+    if oh and oh <= 0 then oh = nil end
+    if rs and rs <= 0 then rs = nil end
+    return mh, oh, rs
+end
+
+local function SwingDuration(hand)
+    local mh, oh, rs = SwingSpeeds()
+    if hand == "mh" then return mh elseif hand == "oh" then return oh end
+    return rs
+end
+
+local function SwingRunning(t, now)
+    return t.start ~= nil and now < t.start + t.dur
+end
+
+local function SwingStart(hand)
+    local d = SwingDuration(hand)
+    if not d then return end          -- secret or missing speed: this swing is not drawn
+    local t = swingReal[hand]
+    t.start, t.dur = GetTime(), d
+end
+
+-- A haste change keeps the share of the swing already done and stretches what is left.
+local function SwingRescale(hand)
+    local t = swingReal[hand]
+    local now = GetTime()
+    if not SwingRunning(t, now) then return end
+    local d = SwingDuration(hand)
+    if not d or d == t.dur then return end
+    local frac = (now - t.start) / t.dur
+    t.start, t.dur = now - frac * d, d
+end
+
+local function SwingRefreshDual()
+    local _, oh = SwingSpeeds()
+    swingState.dual = oh ~= nil
+end
+
+local function SwingParry()
+    local t = swingReal.mh
+    local now = GetTime()
+    if not SwingRunning(t, now) then return end
+    local left = t.start + t.dur - now
+    local floor = t.dur * PARRY_FLOOR
+    if left <= floor then return end
+    t.start = t.start - math.min(t.dur * PARRY_CUT, left - floor)
+end
+
+local function SpellName(id)
+    local name
+    local cs = _G.C_Spell
+    if type(cs) == "table" and type(cs.GetSpellName) == "function" then
+        local ok, n = pcall(cs.GetSpellName, id)
+        if ok then name = n end
+    elseif type(_G.GetSpellInfo) == "function" then
+        local ok, n = pcall(_G.GetSpellInfo, id)
+        if ok then name = n end
+    end
+    if IsSecret(name) or type(name) ~= "string" or name == "" then return nil end
+    return name
+end
+
+local function SwingSpellKind(spellID)
+    if not swingSpellKind then
+        swingSpellKind = {}
+        for kind, ids in pairs(SWING_SPELLS) do
+            for _, id in ipairs(ids) do
+                swingSpellKind[id] = kind
+                local n = SpellName(id)
+                if n then swingSpellKind[n] = kind end
+            end
+        end
+    end
+    spellID = Num(spellID)
+    if not spellID then return nil end
+    return swingSpellKind[spellID] or swingSpellKind[SpellName(spellID) or false]
+end
+
+local function HandFromName(s)
+    local l = s:lower()
+    if l:find("off") then return "oh" end
+    if l:find("rang") then return "ranged" end
+    if l:find("main") or l:find("melee") then return "mh" end
+end
+
+local function SwingEnumKinds()
+    if swingEnumKind then return swingEnumKind end
+    swingEnumKind = {}
+    local e = type(_G.Enum) == "table" and _G.Enum.PlayerSwingType
+    if type(e) == "table" then
+        for k, v in pairs(e) do
+            if type(k) == "string" and Num(v) then swingEnumKind[v] = HandFromName(k) or "mh" end
+        end
+    end
+    return swingEnumKind
+end
+
+-- Which hand a PLAYER_SWING names: the first readable number decides (an enum value), a string
+-- naming a hand decides, anything else is skipped. Nothing readable: main hand.
+local function SwingHandOf(...)
+    for i = 1, select("#", ...) do
+        local a = select(i, ...)
+        if not IsSecret(a) then
+            if type(a) == "number" then return SwingEnumKinds()[a] or "mh" end
+            if type(a) == "string" then
+                local h = HandFromName(a)
+                if h then return h end
+            end
+        end
+    end
+    return "mh"
+end
+
+local function DescribeArgs(...)
+    local parts = {}
+    for i = 1, select("#", ...) do
+        local a = select(i, ...)
+        if IsSecret(a) then parts[#parts + 1] = "<secret>"
+        elseif type(a) == "string" then parts[#parts + 1] = "\"" .. a .. "\""
+        else parts[#parts + 1] = tostring(a) end
+    end
+    return #parts > 0 and table.concat(parts, ", ") or "(no payload)"
+end
+
+local function OnPlayerSwing(...)
+    local hand = SwingHandOf(...)
+    if swingState.debug then Print("PLAYER_SWING: " .. DescribeArgs(...) .. " -> " .. SWING_LABEL[hand]) end
+    if hand ~= "ranged" then swingState.eventSeen = true end
+    SwingStart(hand)
+end
+
+local function OnSwingSpell(spellID)
+    local kind = SwingSpellKind(spellID)
+    if kind == "ranged" then SwingStart("ranged")
+    elseif kind == "slam" then SwingStart("mh")
+    elseif kind == "nextswing" and not swingState.eventSeen then SwingStart("mh") end
+end
+
+-- The player bar's cast-target line moves under the swing rows while they show.
+local function AnchorPlayerTargetText(below)
+    local f = bars.player
+    if not f then return end
+    f.target:ClearAllPoints()
+    f.target:SetPoint("TOP", below or f, "BOTTOM", 0, -2)
+end
+
+local function ApplySwingLook()
+    local font = _G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    for _, hand in ipairs(SWING_ORDER) do
+        local r = swingRows[hand]
+        if r then
+            r.bar:SetStatusBarTexture(TexturePath(db and db.texture))
+            local c = SWING_COLOR[hand]
+            r.bar:SetStatusBarColor(c[1], c[2], c[3])
+            r.label:SetFont(font, SWING_FONT, "OUTLINE")
+            r.time:SetFont(font, SWING_FONT, "OUTLINE")
+        end
+    end
+end
+
+local function MakeSwingRow(hand)
+    local r = CreateFrame("Frame", nil, swingHolder, "BackdropTemplate")
+    r:SetHeight(SWING_H)
+    r:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+                    insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+    r:SetBackdropColor(0, 0, 0, 0.6)
+    r:SetBackdropBorderColor(0.3, 0.3, 0.35, 1)
+    r.bar = CreateFrame("StatusBar", nil, r)
+    r.bar:SetPoint("TOPLEFT", 1, -1)
+    r.bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    r.bar:SetMinMaxValues(0, 1)
+    r.bar:SetValue(0)
+    r.label = r.bar:CreateFontString(nil, "OVERLAY")
+    r.label:SetPoint("LEFT", 3, 0)
+    r.label:SetAlpha(0.7)
+    r.time = r.bar:CreateFontString(nil, "OVERLAY")
+    r.time:SetPoint("RIGHT", -3, 0)
+    r.time:SetJustifyH("RIGHT")
+    r:Hide()
+    return r
+end
+
+-- The rows hang off the player bar's bottom edge, the same width, so they move, resize and
+-- follow Edit Mode with it. Parented to UIParent: they show while the cast bar is idle.
+local function MakeSwingHolder()
+    swingHolder = CreateFrame("Frame", "BetterCastbarsForever_swing", _G.UIParent)
+    swingHolder:SetFrameStrata("MEDIUM")
+    swingHolder:EnableMouse(false)
+    swingHolder:SetPoint("TOPLEFT", bars.player, "BOTTOMLEFT", 0, -1)
+    swingHolder:SetPoint("TOPRIGHT", bars.player, "BOTTOMRIGHT", 0, -1)
+    swingHolder:SetHeight(SWING_H)
+    for _, hand in ipairs(SWING_ORDER) do swingRows[hand] = MakeSwingRow(hand) end
+    ApplySwingLook()
+    for _, hand in ipairs(SWING_ORDER) do swingRows[hand].label:SetText(SWING_LABEL[hand]) end
+    swingHolder:Hide()
+end
+
+local function HideSwing()
+    swingFadeStart, swingLayout = nil, nil
+    if swingHolder and swingHolder:IsShown() then
+        swingHolder:Hide()
+        AnchorPlayerTargetText(nil)
+    end
+end
+
+local function LayoutSwing(want, key)
+    local prev, n = nil, 0
+    for _, hand in ipairs(SWING_ORDER) do
+        local r = swingRows[hand]
+        r:ClearAllPoints()
+        if want[hand] then
+            local anchor = prev or swingHolder
+            local rel = prev and "BOTTOM" or "TOP"
+            r:SetPoint("TOPLEFT", anchor, rel .. "LEFT", 0, prev and -SWING_GAP or 0)
+            r:SetPoint("TOPRIGHT", anchor, rel .. "RIGHT", 0, prev and -SWING_GAP or 0)
+            r:Show()
+            prev, n = r, n + 1
+        else
+            r:Hide()
+        end
+    end
+    swingHolder:SetHeight(n * SWING_H + (n - 1) * SWING_GAP)
+    AnchorPlayerTargetText(swingHolder)
+    swingLayout = key
+end
+
+local function SwingTick()
+    if not swingHolder then return end
+    if not db.swingTimer then HideSwing(); return end
+    local now = GetTime()
+
+    -- The estimate: with no PLAYER_SWING seen, a finished swing starts the next while
+    -- auto-attack lasts.
+    if not swingState.eventSeen and swingState.melee then
+        for _, hand in ipairs(MELEE_HANDS) do
+            local t = swingReal[hand]
+            if t.start and now >= t.start + t.dur and (hand == "mh" or swingState.dual) then
+                local d = SwingDuration(hand)
+                if d then
+                    local s = t.start + t.dur
+                    if s + d <= now then s = now end
+                    t.start, t.dur = s, d
+                else
+                    t.start = nil
+                end
+            end
+        end
+    end
+
+    local src = swingReal
+    if testing then
+        src = swingTest
+        for _, hand in ipairs(SWING_ORDER) do
+            local t = swingTest[hand]
+            if not SwingRunning(t, now) then t.start, t.dur = now, SWING_TEST[hand] end
+        end
+    end
+
+    local fight = swingState.combat or swingState.melee
+    local runMH, runOH, runR = SwingRunning(src.mh, now), SwingRunning(src.oh, now), SwingRunning(src.ranged, now)
+    local want = swingWant
+    want.mh = testing or fight or runMH
+    want.oh = db.swingOffhand and (testing or (fight and swingState.dual) or runOH)
+    want.ranged = db.swingRanged and (testing or swingState.autoRepeat or runR)
+    local key = (want.mh and "m" or "") .. (want.oh and "o" or "") .. (want.ranged and "r" or "")
+
+    if key == "" then
+        if not swingHolder:IsShown() then return end
+        swingFadeStart = swingFadeStart or now
+        local a = 1 - (now - swingFadeStart) / FADE_TIME
+        if a <= 0 then HideSwing() else swingHolder:SetAlpha(a) end
+        return
+    end
+    swingFadeStart = nil
+    if key ~= swingLayout then LayoutSwing(want, key) end
+    swingHolder:SetAlpha(1)
+    if not swingHolder:IsShown() then swingHolder:Show() end
+
+    for _, hand in ipairs(SWING_ORDER) do
+        if want[hand] then
+            local r, t = swingRows[hand], src[hand]
+            if SwingRunning(t, now) then
+                r.bar:SetValue((now - t.start) / t.dur)
+                r.time:SetText(string.format("%.1f", t.start + t.dur - now))
+            else
+                r.bar:SetValue(0)
+                r.time:SetText("")
+            end
+        end
+    end
+end
+
+-- The first error the swing timer raises switches it off until /reload, with one chat line.
+local function SwingGuard(fn, ...)
+    if swingBlocked then return end
+    local ok, err = pcall(fn, ...)
+    if ok then return end
+    swingBlocked = tostring(err)
+    pcall(HideSwing)
+    Print("this client will not let an addon run the swing timer - it is off until /reload. (" .. swingBlocked .. ")")
+end
+
+local function OnSwingEvent(event, ...)
+    local arg1 = ...
+    if event == "PLAYER_SWING" then
+        OnPlayerSwing(...)
+    elseif event == "PLAYER_ENTER_COMBAT" then
+        swingState.melee = true
+        SwingRefreshDual()
+        if not swingState.eventSeen then
+            local now = GetTime()
+            if not SwingRunning(swingReal.mh, now) then SwingStart("mh") end
+            if swingState.dual and not SwingRunning(swingReal.oh, now) then SwingStart("oh") end
+        end
+    elseif event == "PLAYER_LEAVE_COMBAT" then
+        swingState.melee = false
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        swingState.combat = true
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        swingState.combat = false
+    elseif event == "START_AUTOREPEAT_SPELL" then
+        swingState.autoRepeat = true
+    elseif event == "STOP_AUTOREPEAT_SPELL" then
+        swingState.autoRepeat = false
+    elseif IsSecret(arg1) or arg1 ~= "player" then
+        return
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        OnSwingSpell(select(3, ...))
+    elseif event == "UNIT_ATTACK_SPEED" then
+        SwingRefreshDual()
+        SwingRescale("mh")
+        SwingRescale("oh")
+    elseif event == "UNIT_RANGEDDAMAGE" then
+        SwingRescale("ranged")
+    elseif event == "UNIT_INVENTORY_CHANGED" then
+        SwingRefreshDual()
+    elseif event == "UNIT_COMBAT" then
+        local action = select(2, ...)
+        if not IsSecret(action) and action == "PARRY" then SwingParry() end
+    end
+end
+
+-- Own frame for the swing events, so a refusal there never reaches the cast bars.
+local swingEvents = CreateFrame("Frame")
+swingState.eventOK = pcall(swingEvents.RegisterEvent, swingEvents, "PLAYER_SWING") and true or false
+for _, e in ipairs({ "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT", "PLAYER_REGEN_DISABLED",
+                     "PLAYER_REGEN_ENABLED", "START_AUTOREPEAT_SPELL", "STOP_AUTOREPEAT_SPELL",
+                     "UNIT_SPELLCAST_SUCCEEDED" }) do
+    pcall(swingEvents.RegisterEvent, swingEvents, e)
+end
+for _, e in ipairs({ "UNIT_ATTACK_SPEED", "UNIT_RANGEDDAMAGE", "UNIT_INVENTORY_CHANGED", "UNIT_COMBAT" }) do
+    local ok = type(swingEvents.RegisterUnitEvent) == "function"
+        and pcall(swingEvents.RegisterUnitEvent, swingEvents, e, "player")
+    if not ok then pcall(swingEvents.RegisterEvent, swingEvents, e) end
+end
+swingEvents:SetScript("OnEvent", function(_, event, ...)
+    if not db or not swingHolder then return end
+    SwingGuard(OnSwingEvent, event, ...)
+end)
+
+-- At login and after a loading screen: whether we are in a fight, and whether dual-wielding.
+local function SwingSync()
+    local ok, c = pcall(_G.UnitAffectingCombat, "player")
+    swingState.combat = ok and not IsSecret(c) and c and true or false
+    SwingRefreshDual()
+end
+
 local function DriverUpdate()
     if not db then return end
     for _, u in ipairs(UNITS) do
@@ -763,6 +1217,7 @@ local function DriverUpdate()
             if f.state then Guard(u, OnUpdateBar, f) end
         end
     end
+    SwingGuard(SwingTick)
 end
 
 -- Re-read a unit after it changed (new target, new focus, pet summoned).
@@ -859,6 +1314,7 @@ local function SetTexture(key)
     end
     db.texture = key
     for _, u in ipairs(UNITS) do if bars[u] then ApplyTexture(bars[u]) end end
+    ApplySwingLook()
     Print("texture: " .. key .. ".")
 end
 
@@ -882,6 +1338,44 @@ local function SetTimer(key)
     end
     db.timer = key
     Print("timer: " .. (key == "total" and "remain / total." or "remain only."))
+end
+
+local SWING_SETTING_TEXT = {
+    swingTimer = "swing timer",
+    swingOffhand = "off-hand swing bar",
+    swingRanged = "ranged swing bar",
+}
+
+local function SetSwing(key, on)
+    if not db or not SWING_SETTING_TEXT[key] then return end
+    db[key] = on and true or false
+    if key == "swingTimer" and not db.swingTimer then pcall(HideSwing) end
+    Print(SWING_SETTING_TEXT[key] .. " " .. OnOff(db[key]) .. "."
+        .. ((db[key] and swingBlocked) and " (still off until /reload: the client refused it.)" or ""))
+end
+
+local function SetSwingDebug(on)
+    swingState.debug = on and true or false
+    if not swingState.debug then
+        Print("swing debug off.")
+        return
+    end
+    local names = {}
+    local e = type(_G.Enum) == "table" and _G.Enum.PlayerSwingType
+    if type(e) == "table" then
+        for k, v in pairs(e) do names[#names + 1] = tostring(k) .. "=" .. (IsSecret(v) and "<secret>" or tostring(v)) end
+        table.sort(names)
+    end
+    Print("swing debug on: every PLAYER_SWING payload is printed. Enum.PlayerSwingType: "
+        .. (#names > 0 and table.concat(names, ", ") or "missing")
+        .. ". /bcf swing debug again to stop.")
+end
+
+-- Where swings come from now, for /bcf status.
+local function SwingSourceText()
+    if swingState.eventSeen then return "PLAYER_SWING (seen this session)" end
+    if swingState.eventOK then return "PLAYER_SWING registered, none seen yet - estimating from auto-attack" end
+    return "estimate from auto-attack (this client has no PLAYER_SWING)"
 end
 
 -- ---------------------------------------------------------------------------
@@ -925,6 +1419,9 @@ local function PrintHelp()
     Print("/bcf texture blizzard|smooth|flat (now: " .. (db and db.texture or DEFAULTS.texture) .. ")")
     Print("/bcf font 9|11|13 (now: " .. (db and db.fontSize or DEFAULTS.fontSize) .. ")")
     Print("/bcf timer total|remain - \"remain / total\" or just remain (now: " .. (db and db.timer or DEFAULTS.timer) .. ")")
+    Print("/bcf swing on|off - swing timer under the player bar (now: " .. OnOff(db and db.swingTimer) .. ")")
+    Print("/bcf swing offhand on|off, /bcf swing ranged on|off - its off-hand and ranged bars (now: "
+        .. OnOff(db and db.swingOffhand) .. ", " .. OnOff(db and db.swingRanged) .. "); /bcf swing debug prints each swing event")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -948,6 +1445,11 @@ local function PrintStatus()
         if blocked[u] then line = line .. "; OFF - the client refused it: " .. blocked[u] end
         Print(line)
     end
+    local swingLine = "swing timer: " .. OnOff(db and db.swingTimer) .. "   off hand: " .. OnOff(db and db.swingOffhand)
+        .. "   ranged: " .. OnOff(db and db.swingRanged) .. "   UnitAttackSpeed: " .. Yes(type(_G.UnitAttackSpeed) == "function")
+        .. "   swings from: " .. SwingSourceText()
+    if swingBlocked then swingLine = swingLine .. "; OFF - the client refused it: " .. swingBlocked end
+    Print(swingLine)
     if AddOnLoaded("GaarCast") then Print(GaarCastLine()) end
 end
 
@@ -994,6 +1496,21 @@ local function OnSlash(msg)
         SetFontSize(rest)
     elseif cmd == "timer" then
         SetTimer(rest)
+    elseif cmd == "swing" then
+        local sub, v = rest:match("^(%a*)%s*(%a*)$")
+        sub, v = sub or "", v or ""
+        if sub == "" then SetSwing("swingTimer", not db.swingTimer)
+        elseif sub == "on" or sub == "off" then SetSwing("swingTimer", sub == "on")
+        elseif sub == "offhand" or sub == "ranged" then
+            local key = sub == "offhand" and "swingOffhand" or "swingRanged"
+            if v == "on" then SetSwing(key, true)
+            elseif v == "off" then SetSwing(key, false)
+            else SetSwing(key, not db[key]) end
+        elseif sub == "debug" then
+            SetSwingDebug(not swingState.debug)
+        else
+            Print("/bcf swing on|off, /bcf swing offhand on|off, /bcf swing ranged on|off, /bcf swing debug")
+        end
     else
         Print("unknown command \"" .. msg .. "\".")
         PrintHelp()
@@ -1050,6 +1567,14 @@ local function MenuEntries()
         { text = "Test bars", checkbox = true, checked = function() return testing end,
           func = function() SetTesting(not testing) end },
         { text = "Bars", submenu = barItems },
+        { text = "Swing timer", submenu = {
+            { text = "Show swing timer", checkbox = true, checked = function() return db.swingTimer end,
+              func = function() SetSwing("swingTimer", not db.swingTimer) end },
+            { text = "Off hand", checkbox = true, checked = function() return db.swingOffhand end,
+              func = function() SetSwing("swingOffhand", not db.swingOffhand) end },
+            { text = "Ranged", checkbox = true, checked = function() return db.swingRanged end,
+              func = function() SetSwing("swingRanged", not db.swingRanged) end },
+        } },
         { divider = true },
         { text = "Follow Blizzard (Edit Mode)", checkbox = true, checked = function() return db.follow end,
           func = function() SetFollow(not db.follow) end },
@@ -1121,6 +1646,9 @@ local function BindSavedVariables()
     if not IsTextureKey(db.texture) then db.texture = DEFAULTS.texture end
     if not IsFontSize(db.fontSize) then db.fontSize = DEFAULTS.fontSize end
     if not IsTimerKey(db.timer) then db.timer = DEFAULTS.timer end
+    if type(db.swingTimer) ~= "boolean" then db.swingTimer = DEFAULTS.swingTimer end
+    if type(db.swingRanged) ~= "boolean" then db.swingRanged = DEFAULTS.swingRanged end
+    if type(db.swingOffhand) ~= "boolean" then db.swingOffhand = DEFAULTS.swingOffhand end
 
     if type(db.bars) ~= "table" then db.bars = {} end
     for k, v in pairs(db.bars) do
@@ -1154,6 +1682,7 @@ local function Init()
         if db.bars[u] then HookBlizzard(u) end
     end
     ApplyAll()
+    SwingGuard(MakeSwingHolder)
     driver = CreateFrame("Frame")
     driver:SetScript("OnUpdate", DriverUpdate)
 end
@@ -1229,6 +1758,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             if db.bars[u] then HookBlizzard(u) end
             Guard(u, Refresh, u)
         end
+        SwingGuard(SwingSync)
     elseif event == "PLAYER_TARGET_CHANGED" then
         Guard("target", Refresh, "target")
     elseif event == "PLAYER_FOCUS_CHANGED" then

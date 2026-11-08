@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: BetterCastbarsForever
-## Notes: Movable cast bars for player, target, focus and pet on WoW Forever: spell icon, timer, spark, cast target and latency safe-zone; own position or follow Blizzard's (Edit Mode). /bcf
+## Notes: Movable cast bars for player, target, focus and pet on WoW Forever: spell icon, timer, spark, cast target, latency safe-zone and a swing timer (main hand, off hand, ranged); own position or follow Blizzard's (Edit Mode). /bcf
 ## Author: Gaar
-## Version: 1.0
+## Version: 1.1
 ## IconTexture: Interface\Icons\Spell_Fire_FlameBolt
 ## SavedVariables: BetterCastbarsForeverDB
 

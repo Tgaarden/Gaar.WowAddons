@@ -49,6 +49,8 @@ GaarCast learnt about secret values.
   While they show, the player bar's cast-target line moves under them. The client's own built-in
   "Main Hand" swing bar is left alone; turn it off yourself (Edit Mode) if you use this one.
 
+1.1.1: PLAYER_SWING payload is (duration, swingType), so OffHand and Ranged swings now drive the right bars with the real duration.
+
 Not in 1.1: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
 
 ## How the swing timer finds swings
@@ -60,10 +62,8 @@ Forever gives addons no combat log reader (`C_CombatLog` has only `IsCombatLogRe
 - **`PLAYER_SWING`**, an event this client has and retail does not, next to `C_SwingTimer` and
   `Enum.PlayerSwingType`; it is what the client's own swing bar runs on. Each one restarts the
   bar of the hand it names, so hits, misses, dodges, parries, blocks and landed on-next-swing
-  abilities all count. The payload is not documented: the hand is taken from the first number in
-  it (an `Enum.PlayerSwingType` value, whose names decide main hand, off hand or ranged) or a
-  string naming a hand, and is main hand otherwise. The swing's length always comes from
-  `UnitAttackSpeed`. `/bcf swing debug` prints every payload and the enum, to check this in game.
+  abilities all count. The payload is `(duration, swingType)`: the second value (an `Enum.PlayerSwingType`: main hand 0, off hand 1, ranged 2) picks the bar and the first is the swing length in seconds when sane, else it comes from
+  `UnitAttackSpeed` / `UnitRangedDamage`. A ranged swing drives the Ranged bar (Auto Shot/Shoot only as a fallback). `/bcf swing debug` prints every payload and the enum, to check this in game.
 - **An estimate** until `PLAYER_SWING` has been seen this session, or where it cannot be
   registered: turning auto-attack on (`PLAYER_ENTER_COMBAT`) starts a swing at once and the bar
   loops while auto-attack lasts; Heroic Strike, Cleave, Maul and Raptor Strike restart the main

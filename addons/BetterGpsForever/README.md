@@ -40,9 +40,30 @@ minimap pin. It needs no other addon or library, and it is not part of the Gaar 
   (`C_SuperTrack.SetSuperTrackedUserWaypoint(true)`). Clearing ours clears it only while it is
   still the one we set; one you placed yourself afterwards is left alone.
 - **Arrival.** Within 10 yards the waypoint clears itself, with `Arrived at <zone> x, y.` in chat.
+- **Corpse route** (1.1, default on, `/bgps corpse on|off`). Once you have released and are a
+  ghost, the waypoint is your corpse, titled **Corpse**: `C_DeathInfo.GetCorpseMapPosition` on
+  your map, or on the first parent map that holds it (then narrowed to the zone it lies in with
+  `C_Map.GetMapInfoAtPosition`). It is read again on every map change (graveyard, zone change,
+  loading screen) and every 2 seconds while you are dead, so it follows you and appears as soon
+  as the client knows the corpse. It does not clear itself when you reach the corpse; it stays
+  until you are resurrected. The waypoint you had before is kept aside and comes back
+  automatically after resurrection (at your corpse, at a spirit healer, or by another player),
+  with its title; with no waypoint before, there is none after. The rules:
+  - A waypoint you set yourself while dead (`/way`, shift-click, another addon) replaces the
+    corpse route and is the one kept after resurrection; the corpse route does not come back
+    until the next death.
+  - Clearing the corpse waypoint (right-click the arrow, `/way clear`) ends the route; the
+    waypoint from before comes back at once.
+  - `/bgps corpse off` while the route runs ends it the same way.
+  - The state is saved, so a `/reload` or a relog while dead keeps the waypoint to bring back.
+- **Waypoints from other addons.** `BetterGpsForeverAPI.SetWaypoint(uiMapID, x, y, title)` sets
+  the one waypoint with a title of its own (BetterQuestsForever 1.6 uses it for "Set GPS target"
+  in the quest tracker's menu, titled with the quest's name); the title is shown on the arrow,
+  in `/way`, `/bgps status` and the arrival line instead of the zone name. `/way` itself is
+  unchanged.
 - **Saved** account-wide in `BetterGpsForeverDB`, so it survives `/reload` and logging out.
 
-Not in 1.0: more than one waypoint, a queue, routes, importing, and the arrow inside instances.
+Not in 1.1: more than one waypoint, a queue, routes, importing, and the arrow inside instances.
 
 ## Commands
 
@@ -56,7 +77,8 @@ Not in 1.0: more than one waypoint, a queue, routes, importing, and the arrow in
 | `/bgps lock`, `/bgps unlock` | Stop or allow dragging the arrow |
 | `/bgps reset` | Arrow back to its default place |
 | `/bgps clear` | Clear the waypoint (or right-click the arrow) |
-| `/bgps status` | The waypoint, the arrow settings, who owns `/way`, which map functions this client has, and anything switched off |
+| `/bgps corpse on`, `/bgps corpse off` | Waypoint to your corpse while you are a ghost, the old one back after resurrection (default on) |
+| `/bgps status` | The waypoint, the arrow settings, the corpse route, who owns `/way`, which map functions this client has, and anything switched off |
 
 `/bettergpsforever` is the long form of `/bgps`.
 
@@ -70,9 +92,10 @@ has loaded.
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) 2.3 and later has a **GPS** submenu with
-**Show arrow**, **Lock arrow**, **Reset arrow position** and **Clear waypoint** (a grey line that
-cannot be clicked while there is no waypoint), the same as `/bgps arrow on|off`, `/bgps
-lock|unlock`, `/bgps reset` and `/bgps clear`. This addon has no minimap button of its own.
+**Show arrow**, **Lock arrow**, **Reset arrow position**, **Route to corpse when dead** (1.1) and
+**Clear waypoint** (a grey line that cannot be clicked while there is no waypoint), the same as
+`/bgps arrow on|off`, `/bgps lock|unlock`, `/bgps reset`, `/bgps corpse on|off` and `/bgps
+clear`. This addon has no minimap button of its own.
 
 The hub talks to this addon only through `BetterGpsForeverAPI`:
 
@@ -83,6 +106,9 @@ The hub talks to this addon only through `BetterGpsForeverAPI`:
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ label }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide |
+| `SetWaypoint(uiMapID, x, y [, title])` | 1.1. Sets the one waypoint (`x`, `y` 0-1) with an optional title (one line, at most 60 characters) shown instead of the zone name; `true` when it was set. Like `/way`, it replaces the waypoint there was, and while dead it replaces the corpse route |
+| `ClearWaypoint()` | 1.1. Clears the waypoint, as `/way clear` does |
+| `GetWaypoint()` | 1.1. `uiMapID, x, y, title` of the waypoint, or `nil` |
 
 ## How the numbers are worked out
 
@@ -118,7 +144,13 @@ The hub talks to this addon only through `BetterGpsForeverAPI`:
   `pcall`; the first error switches that part off for the session with one line in chat, and the
   rest keeps going. Nothing it does is protected, so nothing changes in combat.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `waypoint`
-  (`mapID`, `x`, `y`, `label`), `arrow`, `locked` and `arrowPos` are kept, each type-checked.
+  (`mapID`, `x`, `y`, `label`, `corpse`), `arrow`, `locked`, `arrowPos`, `corpse` and
+  `corpseRun` (`prev`, `done`) are kept, each type-checked.
+- The corpse route reads `UnitIsGhost("player")` and `UnitIsDeadOrGhost("player")`; a missing,
+  failing or secret answer changes nothing. It listens to `PLAYER_DEAD`, `PLAYER_ALIVE`,
+  `PLAYER_UNGHOST`, `PLAYER_ENTERING_WORLD`, `ZONE_CHANGED_NEW_AREA`, `ZONE_CHANGED` and
+  `ZONE_CHANGED_INDOORS` (each registered on its own, so an unknown event is skipped), and polls
+  every 2 seconds only while dead.
 
 ## Names it relies on
 
@@ -126,7 +158,9 @@ Present in the Forever binary (build of 2026-11-07): `C_Map.GetBestMapForUnit`,
 `GetPlayerMapPosition`, `GetWorldPosFromMapPos`, `GetMapPosFromWorldPos`, `GetMapInfo`,
 `GetMapChildrenInfo`, `CanSetUserWaypointOnMap`, `SetUserWaypoint`, `GetUserWaypoint`,
 `HasUserWaypoint`, `ClearUserWaypoint`, `C_SuperTrack.SetSuperTrackedUserWaypoint`,
-`C_Minimap.GetViewRadius`, `GetPlayerFacing` and the `rotateMinimap` CVar. From Blizzard's
+`C_Minimap.GetViewRadius`, `GetPlayerFacing` and the `rotateMinimap` CVar; for the corpse route
+(1.1) `C_DeathInfo.GetCorpseMapPosition`, `C_Map.GetMapInfoAtPosition`, `UnitIsGhost`,
+`UnitIsDeadOrGhost` and the `PLAYER_DEAD`, `PLAYER_ALIVE` and `PLAYER_UNGHOST` events. From Blizzard's
 FrameXML: `WorldMapFrame` (`GetCanvas`, `GetMapID`, `ScrollContainer`, `OnMapChanged`),
 `CreateVector2D`, `UiMapPoint`. The arrow is the built-in `Interface\Minimap\MinimapArrow`; the
 pins are drawn from plain textures. Every one is checked before use. It ships a `_Camelot` TOC

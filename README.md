@@ -23,12 +23,12 @@ of the code.
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), and hovering the bag gold shows every character's gold | `/bbf` |
-| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed | `/bqf`, minimap button |
+| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
-| `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, class/reaction/low-health colours, target buffs and debuffs with combo points, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
+| `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all seven Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever` and `BetterFramesForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint or unit-frame code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
@@ -77,7 +77,10 @@ and the watch list is never changed: after Blizzard's own layout, out of combat,
 are re-anchored in the sorted order with Blizzard's own spacing and the ones past N are hidden.
 During combat the section is Blizzard's own. Other tracker sections are not touched. `/bqf` for
 help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bqf minimap
-[reset]` and `/bqf status`; a minimap button opens the same options as a menu. It ships a
+[reset]` and `/bqf status`; a minimap button opens the same options as a menu. Since 1.6, with
+BetterGpsForever 1.1 loaded, the tracker's right-click menu for a quest has **Set GPS target**
+after Focus: the waypoint goes to Blizzard's point for the quest (next waypoint, else its POI or
+turn-in point), titled with the quest's name, and is greyed out when there is none. It ships a
 `_Camelot` TOC and a plain fallback TOC, both at 16001. Details, including the taint analysis, in
 [`addons/BetterQuestsForever/README.md`](addons/BetterQuestsForever/README.md).
 
@@ -156,8 +159,12 @@ too where the client allows it and cleared with ours while it is still ours. Wit
 clears itself with "Arrived at ...". Saved account-wide in `BetterGpsForeverDB`. With TomTom
 loaded `/way` stays TomTom's and `/bgps way x y` does the job (one note at login). No Blizzard
 function or table is written; every read is guarded for errors and secret values, and each part
-switches itself off after its first error with one line in chat. `/bgps` for help, `status`,
-`arrow on|off`, `lock`, `unlock`, `reset`, `clear` and `way`. It exports `BetterGpsForeverAPI`,
+switches itself off after its first error with one line in chat. Since 1.1, while you are a
+ghost the waypoint is your corpse (`C_DeathInfo.GetCorpseMapPosition`, titled "Corpse", followed
+across maps, never cleared on arrival), and after resurrection the waypoint you had comes back; one
+you set while dead is the one kept (`/bgps corpse on|off`, default on). `/bgps` for help, `status`,
+`arrow on|off`, `lock`, `unlock`, `reset`, `clear`, `corpse` and `way`. It exports `BetterGpsForeverAPI`
+(with `SetWaypoint`, `ClearWaypoint` and `GetWaypoint` since 1.1),
 and BetterGaarForever 2.3 and later has a GPS row for it. It ships a `_Camelot` TOC and a plain
 fallback TOC, both at 16001. Details in
 [`addons/BetterGpsForever/README.md`](addons/BetterGpsForever/README.md).

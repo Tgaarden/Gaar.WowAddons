@@ -635,3 +635,26 @@ only lists four `C_Map` names. Present, with retail's usage lines: `C_Map.GetWor
 `USER_WAYPOINT_UPDATED` event. Present in the binary is not the same as reachable from addons, and
 what `GetPlayerMapPosition` and `GetPlayerFacing` answer outdoors (and whether either is secret) is
 still to be seen in game; `/bgps status` prints which of them the addon found.
+
+
+# Auras in combat and the Blizzard aura container (2026-11-08)
+
+Seen in game (BetterFramesForever 1.0, BetterPlatesForever 1.1, client 1.60.1): auras are secret
+while you are in combat, and reading one by index from addon code then raises a Lua error, not a
+nil - `GetAuraDataByIndex(): Auras cannot be accessed when secret while tainted by '<addon>'`.
+`C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)` for your own DoTs on an enemy in combat answers
+nil without an error, so looking auras up by spell ID is no way round it. `C_Secrets` is in the
+binary with `ShouldUnitAuraIndexBeSecret`, `ShouldUnitAuraSlotBeSecret`,
+`ShouldUnitAuraInstanceBeSecret`, `ShouldUnitPowerBeSecret`, `ShouldUnitPowerMaxBeSecret` and
+more, so the refusal can be avoided by asking first.
+
+What retail 12.x gives addons for this is `Blizzard_AuraContainer` (Gethe/wow-ui-source, `live`):
+an intrinsic `AuraContainer` frame type and a `CustomAuraContainerTemplate` that addon code may
+create (`CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")`), with
+`SetUnit`, `AddAuraGroup(key, filterString, { maxFrameCount, candidateFilters, initializeFrame,
+layout })` and buttons whose look the addon hands over with `SetIcon`, `SetDurationCooldown` and
+`SetApplicationCount`. The container's own secure code reads the auras and draws them, secret or
+not. The Lua lives in the client's data, not on disk, but `C_AuraContainerUtil` and its
+`Process...Options` functions are strings in Forever's binary, so it is probably there.
+BetterFramesForever 1.1 feature-detects it for its target and party auras and falls back to its
+own index reads (out of combat only) where it is missing; `/bff status` prints which it found.

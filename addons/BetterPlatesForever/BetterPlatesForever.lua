@@ -11,17 +11,20 @@
       Execute tint at 20% health or less (option).
     * Threat on every plate: purple when you hold aggro (with a purple ring), amber when your
       threat is high (status 2 or more), threat percent on the bar (option).
-    * Name above the bar, level right of it, health text (off, percent or current) in it, the
-      unit's target under it (option).
+    * Name above the bar, level right of it, health text (off, percent, current or both) in it,
+      the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
       "shield" look (grey bar, light steel edge round the icon).
     * Your own debuffs (HARMFUL|PLAYER): up to 8 icons of 16px with stacks and a countdown that
-      turns yellow at 8 s and red at 3 s.
+      turns yellow at 8 s and red at 3 s. While the client keeps auras secret (in combat) it
+      refuses reads by index; then each spell you cast this session is looked up by spell ID
+      instead, and hidden timings and stacks go straight to a Cooldown frame and the client's own
+      display count.
     * Your target: scaled up to 115% with a faint ring; other plates dimmed to 55% while you have
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
     * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
-      threat, threattext, execute, debuffs, tot, dim, targetscale and reset.
+      threat, threattext, execute, debuffs, tot, dim, targetscale, reset and debug.
     * BetterPlatesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -38,11 +41,14 @@
   HookScript("OnShow") on it and Hide(); it is shown again when a plate stops being styled or the
   addon is turned off. No Blizzard function or table is replaced or written. Where this client
   hides a number (issecretvalue), the health bar still gets the raw values - handing a secret
-  straight back to a widget is allowed - but nothing is worked out from them: no percent, no
-  execute tint, no health text, no colour by health. Threat and level secrets are dropped to nil
-  at the read. And because secrecy travels further than issecretvalue reports, every part of a
-  plate's update runs inside pcall: the first refusal switches that one part off for the session
-  with one message, instead of an error twelve times a second per plate.
+  straight back to a widget is allowed - but nothing is worked out from them: no execute tint, no
+  colour by health. The health text then comes from the client's own secret-safe helpers
+  (UnitHealthPercent with CurveConstants.ScaleTo100, AbbreviateNumbers, SetFormattedText) where
+  it has them. Threat and level secrets are dropped to nil at the read. And because secrecy
+  travels further than issecretvalue reports, every part of a plate's update runs inside pcall:
+  the first refusal switches that one part off for the session with one message, instead of an
+  error twelve times a second per plate. An aura read the client refuses is not such a refusal:
+  it is expected in combat, is counted (/bpf debug) and tried again on the next pass.
 ]]
 
 local _G = _G
@@ -50,7 +56,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -63,14 +69,16 @@ local EXECUTE_PCT = 20            -- execute tint at or below this health percen
 local DIM_ALPHA = 0.55            -- non-target plates while you have a target
 local TARGET_SCALE = 1.15         -- your target's plate
 local TICK = 0.08                 -- seconds between plate updates (12.5 Hz)
+local AURA_TICK = 0.25            -- seconds between debuff scans of one plate
+local MAX_SPELLS = 24             -- spell IDs remembered for the by-spell-ID debuff lookup
 local MIN_W, MAX_W = 60, 250      -- health bar width bounds for /bpf size
 local MIN_H, MAX_H = 6, 30        -- health bar height bounds
 local SOLID = { 0.2, 0.6, 1.0 }   -- colour mode "solid"
 
 local COLOR_MODES = { "reaction", "class", "health", "solid" }
 local COLOR_LABELS = { reaction = "Reaction", class = "Class", health = "Health", solid = "Solid" }
-local HEALTH_MODES = { "off", "percent", "current" }
-local HEALTH_LABELS = { off = "Off", percent = "Percent", current = "Current" }
+local HEALTH_MODES = { "off", "percent", "current", "both" }
+local HEALTH_LABELS = { off = "Off", percent = "Percent", current = "Current", both = "Both" }
 local SIZE_PRESETS = {
     { label = "Small", w = 100, h = 10 },
     { label = "Medium", w = 120, h = 12 },
@@ -114,6 +122,7 @@ local overlays = {}      -- [nameplate frame] = our overlay
 local active = {}        -- [unit token] = overlay currently styling that unit
 local hookedUF = setmetatable({}, { __mode = "k" })   -- Blizzard UnitFrames we hooked
 local blocked = {}       -- [feature] = true once this client refused it
+local blockedWhy = {}    -- [feature] = the error that switched it off, for /bpf status
 local warnedGaarPlates
 
 -- ---------------------------------------------------------------------------
@@ -288,6 +297,17 @@ local function BuildOverlay(plate)
         local tm = ic:CreateFontString(nil, "OVERLAY")
         tm:SetPoint("CENTER", ic, "CENTER", 0, 0)
         tm:SetFont(_G.STANDARD_TEXT_FONT, 10, "OUTLINE"); ic.timer = tm
+        -- For hidden timings only: the client draws the swipe and countdown from its own duration
+        -- object. Optional, so a client without the template still gets icons.
+        local okc, cd = pcall(CreateFrame, "Cooldown", nil, ic, "CooldownFrameTemplate")
+        if okc and cd then
+            cd:SetAllPoints()
+            if cd.SetReverse then cd:SetReverse(true) end
+            if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(false) end
+            cd:Hide()
+            ic.cd = cd
+        end
         BorderFrame(ic, ic:GetFrameLevel())
         ic:Hide()
         o.auraIcons[i] = ic
@@ -378,16 +398,65 @@ local function UpdateHealth(o, unit, tanking, high)
     local lum = 0.3 * r + 0.59 * g + 0.11 * b
     local m = 0.28
     o.health:SetStatusBarColor(r + (lum - r) * m, g + (lum - g) * m, b + (lum - b) * m)
-
-    local mode = db.healthText
-    if mode == "off" or not pct or cur <= 0 then
-        o.htext:SetText("")
-    elseif mode == "current" then
-        o.htext:SetText(_G.AbbreviateLargeNumbers and _G.AbbreviateLargeNumbers(cur) or tostring(cur))
-    else
-        o.htext:SetText(math.floor(pct * 100 + 0.5) .. "%")
-    end
     if pct and cur <= 0 then o.ttext:SetText("") end
+end
+
+-- How the health text was last written, for /bpf status: "plain", "secret" or "none".
+local healthTextPath = "none"
+
+local function Abbrev(n)
+    if _G.AbbreviateLargeNumbers then return _G.AbbreviateLargeNumbers(n) end
+    return tostring(n)
+end
+
+-- Hidden health written through the client's own secret-safe helpers, as BetterFramesForever
+-- does. Nothing here compares, adds or tests the values (not even "~= nil"): they go straight
+-- to the client, and flags say which parts were read.
+local function SecretHealthText(fs, unit, mode)
+    local wantPct = mode == "percent" or mode == "both"
+    local wantCur = mode == "current" or mode == "both"
+    local C = _G.CurveConstants
+    local curve = type(C) == "table" and C.ScaleTo100 or nil
+    local pct, havePct
+    if wantPct and curve ~= nil and type(_G.UnitHealthPercent) == "function" then
+        pct, havePct = _G.UnitHealthPercent(unit, false, curve), true
+    end
+    local cur, haveCur
+    if wantCur and type(_G.AbbreviateNumbers) == "function" then
+        cur, haveCur = _G.AbbreviateNumbers(UnitHealth(unit)), true
+    end
+    local fmt, a1, a2
+    if haveCur and havePct then fmt, a1, a2 = "%s  %.0f%%", cur, pct
+    elseif haveCur then fmt, a1 = "%s", cur
+    elseif havePct then fmt, a1 = "%.0f%%", pct end
+    if not fmt then fs:SetText(""); healthTextPath = "none"; return end
+    if type(fs.SetFormattedText) == "function" then
+        fs:SetFormattedText(fmt, a1, a2)
+    else
+        fs:SetText(string.format(fmt, a1, a2))
+    end
+    healthTextPath = "secret"
+end
+
+-- off / percent / current / both. Plain numbers are formatted here; hidden ones go to the client.
+local function UpdateHealthText(o, unit)
+    local fs, mode = o.htext, db.healthText
+    if mode == "off" then fs:SetText(""); return end
+    if Plain(UnitIsDeadOrGhost(unit)) == true then fs:SetText(""); return end
+    local mx, cur = UnitHealthMax(unit), UnitHealth(unit)
+    if Secret(cur, mx) then
+        fs:SetText("")
+        SecretHealthText(fs, unit, mode)
+        return
+    end
+    healthTextPath = "plain"
+    cur = type(cur) == "number" and cur or 0
+    mx = (type(mx) == "number" and mx > 0) and mx or 1
+    if cur <= 0 then fs:SetText(""); return end
+    local pct = math.floor(cur / mx * 100 + 0.5)
+    if mode == "current" then fs:SetText(Abbrev(cur))
+    elseif mode == "both" then fs:SetText(string.format("%s  %d%%", Abbrev(cur), pct))
+    else fs:SetText(pct .. "%") end
 end
 
 local function UpdateText(o, unit)
@@ -460,55 +529,199 @@ local function UpdateCast(o, unit)
     if not c:IsShown() then c:Show() end
 end
 
--- The player's own harmful auras on the unit. Returns found, icon, count, duration, expiration.
--- On a client that refuses the read ("auras cannot be accessed when secret while tainted") the
--- error goes up to Run, which switches debuffs off for the session with one message.
-local function ReadAura(unit, i)
+-- ---------------------------------------------------------------------------
+-- Your debuffs.
+--
+-- On this client auras are secret while you are in combat, and every aura read by index, slot or
+-- instance ID from addon code is then refused with a Lua error ("auras cannot be accessed when
+-- secret while tainted"). Casting a DoT puts you in combat, so a reader that only uses
+-- GetAuraDataByIndex sees your DoTs never - and 1.0 even switched the whole feature off for the
+-- session on that first refusal. Now:
+--   1. HARMFUL|PLAYER by index, one pcall per read. C_Secrets.ShouldUnitAuraIndexBeSecret is
+--      asked first where it exists, so the refusal is usually not even provoked.
+--   2. When the index read is refused, every spell you cast this session (UNIT_SPELLCAST_SUCCEEDED)
+--      is looked up by spell ID, which the client still allows for spells it does not keep
+--      secret. isFromPlayerOrPlayerPet is never secret and keeps the lookup to yours.
+--   3. Fields that come back secret go straight to widgets: the icon to SetTexture, the timing
+--      to a Cooldown frame through C_UnitAuras.GetAuraDuration, the stacks through
+--      C_UnitAuras.GetAuraApplicationDisplayCount. Nothing is compared or added.
+-- A refused read is counted for /bpf debug and tried again next pass; it never latches.
+-- ---------------------------------------------------------------------------
+
+local auraStats = { indexRefused = 0, spellRefused = 0, paintFailed = 0, lastError = nil }
+local mySpells, mySpellOrder = {}, {}   -- spell IDs you cast this session (at most MAX_SPELLS)
+
+local function RememberSpell(id)
+    id = Num(id)
+    if not id or id <= 0 or mySpells[id] then return end
+    mySpells[id] = true
+    mySpellOrder[#mySpellOrder + 1] = id
+    if #mySpellOrder > MAX_SPELLS then mySpells[table.remove(mySpellOrder, 1)] = nil end
+end
+
+local function NoteRefusal(kind, err)
+    auraStats[kind] = auraStats[kind] + 1
+    auraStats.lastError = tostring(err)
+end
+
+-- True only when the client says plainly that this index would be secret.
+local function IndexIsSecret(unit, i)
+    local S = _G.C_Secrets
+    if type(S) ~= "table" or type(S.ShouldUnitAuraIndexBeSecret) ~= "function" then return false end
+    local ok, secret = pcall(S.ShouldUnitAuraIndexBeSecret, unit, i, "HARMFUL|PLAYER")
+    return ok and Plain(secret) == true
+end
+
+-- An aura table, nil at the end of the list, or false when the client refused the read.
+local function IndexAura(unit, i)
     local C = _G.C_UnitAuras
     if type(C) == "table" and type(C.GetAuraDataByIndex) == "function" then
-        local a = C.GetAuraDataByIndex(unit, i, "HARMFUL|PLAYER")
-        if type(a) ~= "table" then return false end
-        return true, a.icon, a.applications, a.duration, a.expirationTime
+        local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HARMFUL|PLAYER")
+        if not ok then NoteRefusal("indexRefused", a); return false end
+        if type(a) ~= "table" then return nil end
+        return a
     end
     if type(_G.UnitAura) == "function" then
-        local name, icon, count, _, duration, expiration = _G.UnitAura(unit, i, "HARMFUL|PLAYER")
-        if Plain(name) == nil then return false end
-        return true, icon, count, duration, expiration
+        local ok, name, icon, count, _, duration, expiration = pcall(_G.UnitAura, unit, i, "HARMFUL|PLAYER")
+        if not ok then NoteRefusal("indexRefused", name); return false end
+        if Plain(name) == nil then return nil end
+        return { icon = icon, applications = count, duration = duration, expirationTime = expiration }
     end
-    return false
+    return nil
+end
+
+-- Your aura of this spell on the unit, or nil.
+local function SpellAura(unit, id)
+    local C = _G.C_UnitAuras
+    if type(C) ~= "table" or type(C.GetUnitAuraBySpellID) ~= "function" then return nil end
+    local ok, a = pcall(C.GetUnitAuraBySpellID, unit, id)
+    if not ok then NoteRefusal("spellRefused", a); return nil end
+    if type(a) ~= "table" then return nil end
+    local ok2, mine, src = pcall(function() return Plain(a.isFromPlayerOrPlayerPet), Plain(a.sourceUnit) end)
+    if not ok2 then return a end
+    if mine == false then return nil end
+    if mine == nil and type(src) == "string" and src ~= "player" and src ~= "pet" and src ~= "vehicle" then
+        return nil
+    end
+    return a
+end
+
+local function PaintCount(ic, unit, a)
+    local count = a.applications
+    if Secret(count) then
+        ic._cnt = nil
+        local C = _G.C_UnitAuras
+        local id = Plain(a.auraInstanceID)
+        if id and type(C) == "table" and type(C.GetAuraApplicationDisplayCount) == "function" then
+            local ok, txt = pcall(C.GetAuraApplicationDisplayCount, unit, id, 2, 99)
+            if ok then SetTextSafe(ic.cnt, txt); return end
+        end
+        ic.cnt:SetText("")
+        return
+    end
+    count = Num(count)
+    local cn = (count and count > 1) and count or 0
+    if ic._cnt ~= cn then ic.cnt:SetText(cn > 0 and cn or ""); ic._cnt = cn end
+end
+
+local function PaintTime(ic, unit, a, now)
+    local duration, expiration = a.duration, a.expirationTime
+    if Secret(duration, expiration) then
+        ic.timer:SetText("")
+        local cd, C = ic.cd, _G.C_UnitAuras
+        local id = Plain(a.auraInstanceID)
+        if cd and id and type(C) == "table" and type(C.GetAuraDuration) == "function"
+            and type(cd.SetCooldownFromDurationObject) == "function" then
+            local ok, obj = pcall(C.GetAuraDuration, unit, id)
+            if ok and obj ~= nil then
+                cd:SetCooldownFromDurationObject(obj)
+                if not cd:IsShown() then cd:Show() end
+                return
+            end
+        end
+        if cd then cd:Hide() end
+        return
+    end
+    if ic.cd and ic.cd:IsShown() then ic.cd:Hide() end
+    duration, expiration = Num(duration), Num(expiration)
+    local rem = (duration and duration > 0 and expiration) and (expiration - now) or 0
+    if rem > 0 then
+        if rem >= 60 then ic.timer:SetText(math.floor(rem / 60 + 0.5) .. "m")
+        else ic.timer:SetText(string.format("%d", rem + 0.5)) end
+        if rem <= 3 then ic.timer:SetTextColor(1, 0.2, 0.2)
+        elseif rem <= 8 then ic.timer:SetTextColor(1, 0.9, 0.2)
+        else ic.timer:SetTextColor(1, 1, 1) end
+    else
+        ic.timer:SetText("")
+    end
+end
+
+local function PaintIcon(ic, unit, a, now)
+    local icon = a.icon
+    if Secret(icon) then
+        ic.tex:SetTexture(icon); ic._icon = nil
+    elseif ic._icon ~= icon then
+        ic.tex:SetTexture(icon or QUESTION); ic._icon = icon
+    end
+    PaintCount(ic, unit, a)
+    PaintTime(ic, unit, a, now)
+    if not ic:IsShown() then ic:Show() end
 end
 
 local function UpdateAuras(o, unit)
-    local shown = 0
+    local now = GetTime()
+    if o._auraAt and now < o._auraAt then
+        -- Between scans only the plain countdowns move.
+        for i = 1, (o._lastShown or 0) do
+            local ic, a = o.auraIcons[i], o.auraData and o.auraData[i]
+            if a and ic:IsShown() then pcall(PaintTime, ic, unit, a, now) end
+        end
+        return
+    end
+    o._auraAt = now + AURA_TICK
+    o.auraData = o.auraData or {}
+    wipe(o.auraData)
+    local shown, seen, path = 0, {}, "none"
+    local function Add(a)
+        if shown >= AURA_N then return end
+        local id = Plain(a.auraInstanceID)
+        if id then
+            if seen[id] then return end
+            seen[id] = true
+        end
+        local ic = o.auraIcons[shown + 1]
+        local ok, err = pcall(PaintIcon, ic, unit, a, now)
+        if not ok then
+            auraStats.paintFailed = auraStats.paintFailed + 1
+            auraStats.lastError = tostring(err)
+            ic:Hide()
+            return
+        end
+        shown = shown + 1
+        o.auraData[shown] = a
+    end
     if db.debuffs then
-        local now = GetTime()
+        local refused = false
         for i = 1, 40 do
-            local found, icon, count, duration, expiration = ReadAura(unit, i)
-            if not found or shown >= AURA_N then break end
-            shown = shown + 1
-            local ic = o.auraIcons[shown]
-            if Secret(icon) then
-                ic.tex:SetTexture(icon); ic._icon = nil
-            elseif ic._icon ~= icon then
-                ic.tex:SetTexture(icon or QUESTION); ic._icon = icon
+            if shown >= AURA_N then break end
+            if IndexIsSecret(unit, i) then refused = true; break end
+            local a = IndexAura(unit, i)
+            if a == false then refused = true; break end
+            if not a then break end
+            path = "index"
+            pcall(function() RememberSpell(a.spellId) end)
+            Add(a)
+        end
+        if refused then
+            path = "spell ID (auras secret)"
+            for _, id in ipairs(mySpellOrder) do
+                if shown >= AURA_N then break end
+                local a = SpellAura(unit, id)
+                if a then Add(a) end
             end
-            count = Num(count)
-            local cn = (count and count > 1) and count or 0
-            if ic._cnt ~= cn then ic.cnt:SetText(cn > 0 and cn or ""); ic._cnt = cn end
-            duration, expiration = Num(duration), Num(expiration)
-            local rem = (duration and duration > 0 and expiration) and (expiration - now) or 0
-            if rem > 0 then
-                if rem >= 60 then ic.timer:SetText(math.floor(rem / 60 + 0.5) .. "m")
-                else ic.timer:SetText(string.format("%d", rem + 0.5)) end
-                if rem <= 3 then ic.timer:SetTextColor(1, 0.2, 0.2)
-                elseif rem <= 8 then ic.timer:SetTextColor(1, 0.9, 0.2)
-                else ic.timer:SetTextColor(1, 1, 1) end
-            else
-                ic.timer:SetText("")
-            end
-            if not ic:IsShown() then ic:Show() end
         end
     end
+    o.auraPath, o.auraShown = path, shown
     for i = shown + 1, AURA_N do
         if o.auraIcons[i]:IsShown() then o.auraIcons[i]:Hide() end
     end
@@ -550,17 +763,19 @@ local FEATURE_LABELS = {
     plates = "draw on nameplates",
     threat = "read threat on nameplates",
     health = "read health on nameplates",
+    healthtext = "write health text on nameplates",
     text = "read names and levels on nameplates",
     cast = "time cast bars on nameplates",
     debuffs = "read your debuffs on nameplates",
     emphasis = "scale or dim nameplates",
 }
-local FEATURE_ORDER = { "plates", "threat", "health", "text", "cast", "debuffs", "emphasis" }
+local FEATURE_ORDER = { "plates", "threat", "health", "healthtext", "text", "cast", "debuffs", "emphasis" }
 
 -- What each feature leaves behind once it is switched off.
 local CLEAR = {
     threat = function(o) o.ttext:SetText("") end,
     health = function(o) o.htext:SetText("") end,
+    healthtext = function(o) o.htext:SetText("") end,
     text = function(o) o.name:SetText(""); o.level:SetText(""); o.tot:SetText("") end,
     cast = function(o) o.cast:Hide() end,
     debuffs = function(o) for i = 1, AURA_N do o.auraIcons[i]:Hide() end end,
@@ -570,6 +785,7 @@ local CLEAR = {
 local function Latch(feature, err)
     if blocked[feature] then return end
     blocked[feature] = true
+    blockedWhy[feature] = tostring(err)
     local clear = CLEAR[feature]
     if clear then
         for _, o in pairs(overlays) do pcall(clear, o) end
@@ -588,6 +804,7 @@ end
 local function UpdatePlate(o, unit)
     local tanking, high = Run("threat", UpdateThreat, o, unit)
     Run("health", UpdateHealth, o, unit, tanking, high)
+    Run("healthtext", UpdateHealthText, o, unit)
     Run("text", UpdateText, o, unit)
     Run("cast", UpdateCast, o, unit)
     Run("debuffs", UpdateAuras, o, unit)
@@ -657,6 +874,7 @@ local function AddPlate(unit)
     if active[unit] and active[unit] ~= o then Release(active[unit]) end
     o.unit = unit
     active[unit] = o
+    o._auraAt = nil          -- a recycled plate scans its new unit at once
     HideBlizzard(o)
     o.frame:Show()
     UpdatePlate(o, unit)
@@ -667,6 +885,7 @@ local function RemovePlate(unit)
     if not o then return end
     active[unit] = nil
     o.unit = nil
+    o._auraAt = nil
     o.frame:Hide()
     -- Blizzard's art stays hidden on a plate going back to the pool; the next NAME_PLATE_UNIT_ADDED
     -- either styles it again or (for a friendly unit) shows it.
@@ -775,7 +994,7 @@ local function PrintHelp()
     Print("cleaner enemy nameplates. Commands:")
     Print("/bpf on | off - the whole addon; off gives every plate back to Blizzard (now: " .. OnOff(db and db.enabled) .. ")")
     Print("/bpf color reaction | class | health | solid - bar colour (now: " .. (db and db.colorMode or "?") .. ")")
-    Print("/bpf health off | percent | current - health text (now: " .. (db and db.healthText or "?") .. ")")
+    Print("/bpf health off | percent | current | both - health text (now: " .. (db and db.healthText or "?") .. ")")
     Print(string.format("/bpf size <width> <height> - health bar, %d-%d by %d-%d (now: %sx%s)",
         MIN_W, MAX_W, MIN_H, MAX_H, tostring(db and db.width), tostring(db and db.height)))
     local names = {}
@@ -783,9 +1002,60 @@ local function PrintHelp()
     Print("/bpf " .. table.concat(names, " | ") .. " on | off - switch a feature")
     Print("/bpf reset - every setting back to its default")
     Print("/bpf status - the current settings and what this client allows")
+    Print("/bpf debug - debuff and health text state, and your target's plate")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
+
+local function Has(ns, fn)
+    local t = _G[ns]
+    return type(t) == "table" and type(t[fn]) == "function"
+end
+
+-- The overlay on your target's plate, or nil.
+local function TargetOverlay()
+    if not HasPlateAPI() then return nil end
+    local plate = C_NamePlate.GetNamePlateForUnit("target")
+    local o = plate and overlays[plate]
+    if o and o.unit then return o end
+end
+
+local function FeatureState(f, on)
+    if blocked[f] then return "OFF (switched off: " .. (blockedWhy[f] or "?") .. ")" end
+    return on and "on" or "off (setting)"
+end
+
+-- One line each for the debuff icons and the health text.
+local function PrintFeatureState()
+    local o = TargetOverlay()
+    Print("debuffs: " .. FeatureState("debuffs", db.debuffs)
+        .. DOT .. "target plate: " .. (o and ((o.auraShown or 0) .. " icon(s) via " .. (o.auraPath or "none")) or "no target plate"))
+    Print("health text: " .. db.healthText .. DOT .. FeatureState("healthtext", db.healthText ~= "off")
+        .. DOT .. "last written from " .. healthTextPath .. " values")
+end
+
+local function PrintDebug()
+    PrintFeatureState()
+    Print(string.format("aura reads refused this session: by index %d, by spell ID %d; icons failed to draw: %d",
+        auraStats.indexRefused, auraStats.spellRefused, auraStats.paintFailed))
+    if auraStats.lastError then Print("last aura refusal: " .. auraStats.lastError) end
+    Print("spells remembered for the spell-ID lookup: " .. #mySpellOrder
+        .. (#mySpellOrder > 0 and (" (" .. table.concat(mySpellOrder, ", ") .. ")") or " - cast your DoT once"))
+    Print("aura API: GetAuraDataByIndex " .. Yes(Has("C_UnitAuras", "GetAuraDataByIndex"))
+        .. "   GetUnitAuraBySpellID " .. Yes(Has("C_UnitAuras", "GetUnitAuraBySpellID"))
+        .. "   GetAuraDuration " .. Yes(Has("C_UnitAuras", "GetAuraDuration"))
+        .. "   ShouldUnitAuraIndexBeSecret " .. Yes(Has("C_Secrets", "ShouldUnitAuraIndexBeSecret")))
+    local C = _G.CurveConstants
+    Print("health text API: UnitHealthPercent " .. Yes(type(_G.UnitHealthPercent) == "function")
+        .. "   ScaleTo100 " .. Yes(type(C) == "table" and C.ScaleTo100 ~= nil)
+        .. "   AbbreviateNumbers " .. Yes(type(_G.AbbreviateNumbers) == "function"))
+    local o = TargetOverlay()
+    if o then
+        local u = o.unit
+        local ok, mx, cur = pcall(function() return UnitHealthMax(u), UnitHealth(u) end)
+        Print("target health values: " .. ((ok and Secret(cur, mx)) and "hidden (secret)" or "plain"))
+    end
+end
 
 local function PrintStatus()
     Print("version " .. VERSION .. DOT .. (db.enabled and "on" or "off (Blizzard's plates)"))
@@ -803,7 +1073,11 @@ local function PrintStatus()
     Print("plates styled now: " .. CountActive())
     local off = {}
     for _, f in ipairs(FEATURE_ORDER) do if blocked[f] then off[#off + 1] = f end end
-    if #off > 0 then Print("switched off by this client this session: " .. table.concat(off, ", ")) end
+    if #off > 0 then
+        Print("switched off by this client this session: " .. table.concat(off, ", "))
+        for _, f in ipairs(off) do Print("  " .. f .. ": " .. (blockedWhy[f] or "?")) end
+    end
+    PrintFeatureState()
     Print("CVars: none are changed by this addon.")
     if AddOnLoaded("GaarPlates") then
         Print("GaarPlates is loaded too: both draw over the same nameplates. Use one of the two.")
@@ -819,6 +1093,8 @@ local function OnSlash(msg)
     local cmd, rest = msg:match("^(%S*)%s*(.-)$")
     if cmd == "status" then
         PrintStatus()
+    elseif cmd == "debug" then
+        PrintDebug()
     elseif cmd == "on" or cmd == "off" then
         SetEnabled(cmd == "on")
     elseif cmd == "color" or cmd == "colour" then
@@ -826,7 +1102,7 @@ local function OnSlash(msg)
         else Print("/bpf color reaction | class | health | solid (now: " .. db.colorMode .. ")") end
     elseif cmd == "health" then
         if IsIn(HEALTH_MODES, rest) then SetHealthText(rest)
-        else Print("/bpf health off | percent | current (now: " .. db.healthText .. ")") end
+        else Print("/bpf health off | percent | current | both (now: " .. db.healthText .. ")") end
     elseif cmd == "size" then
         local w, h = rest:match("^(%d+)%s*[x ]%s*(%d+)$")
         w, h = tonumber(w), tonumber(h)
@@ -963,7 +1239,15 @@ for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "P
                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
     pcall(events.RegisterEvent, events, e)
 end
-events:SetScript("OnEvent", function(_, event, arg1)
+-- Your own casts, remembered for the by-spell-ID debuff lookup (only "player" is wanted).
+if not (events.RegisterUnitEvent and pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_SUCCEEDED", "player")) then
+    pcall(events.RegisterEvent, events, "UNIT_SPELLCAST_SUCCEEDED")
+end
+events:SetScript("OnEvent", function(_, event, arg1, _, arg3)
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        if arg1 == "player" then pcall(RememberSpell, arg3) end
+        return
+    end
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then BindSavedVariables() end
         return

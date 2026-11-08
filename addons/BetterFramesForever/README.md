@@ -22,6 +22,11 @@ party, and switches Blizzard's off. It needs no other addon or library.
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
   border, rares a silver one. A unit without power (most beasts) has no power bar; the health
   bar takes its room.
+- **Aura timing** (1.2.1). Every aura icon (player buffs, target buffs and debuffs, party
+  auras, test mode) has a small outlined time-left number at its top (`45`, `12m`, `2h`),
+  clear of the stack count in the bottom-right corner, about 45% of the icon's size (7-10 px).
+  The swipe runs the other way round from 1.2, as on Blizzard's own aura buttons: bright when the
+  aura is fresh, darker as it runs out.
 - **Player buffs** (1.2, on by default: `/bff playerbuffs off` to hide). Your own buffs in rows
   under the player frame, X-Perl style: up to 20 icons of 20 px, 10 to a row, with the same look
   as the target's buffs (icon, stack count, remaining-time swipe, tooltip on hover). Buffs only,
@@ -52,7 +57,7 @@ party, and switches Blizzard's off. It needs no other addon or library.
   twelve made-up ones (two rows, some with a swipe) so the buff rows can be placed too. Out of
   combat only; entering combat ends it. Not saved.
 
-Not in 1.2: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
+Not in 1.2.1: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
 (use BetterCastbarsForever), click-casting.
 
 ## Commands
@@ -182,6 +187,19 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   a plain current power of 0 next to a hidden maximum counts as no power (`UnitPower` is plain
   only for a power the unit does not have, or a type flagged never secret). Otherwise the bar
   stays, with the secret-safe text. `/bff status` shows the values for the current target.
+- **Hidden 0/0 power** (1.2.1). In game a low beast in the Barrens still answered power type
+  RAGE, `UnitHasPowerType` true, `UnitPower` and `UnitPowerMax` both secret - and the maximum
+  is 0, so 1.2 wrote `0/0 0%`. Addon code cannot test a hidden 0, and cannot evaluate a curve on
+  it either (`LuaCurveObject:Evaluate` takes secrets only from untainted code). What the client
+  does take from addons: `C_StringUtil.TruncateWhenZero` (`""` for 0) and
+  `C_StringUtil.WrapString` (`""` when its middle part is `""`), so the power text is built round
+  the truncated maximum and comes out empty when it is 0; and `UnitPowerPercent(unit, nil, false,
+  curve)` with our own step curve (`C_CurveUtil.CreateCurve`, `Enum.LuaCurveType.Step`: 0 -> 0,
+  anything above -> 1) gives a hidden alpha for `SetAlpha`, so the bar is invisible while the
+  power is 0. Its room stays (a hidden value cannot move a layout), and an NPC with real power at
+  0 (rage out of combat) shows no bar until it has some. Where these helpers are missing, an
+  NPC's hidden rage gets no text. Each step runs in `pcall`; a refusal switches it off for the
+  session with one line. `/bff status` names the method in use and which helpers the client has.
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off

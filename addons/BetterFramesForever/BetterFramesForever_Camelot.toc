@@ -2,7 +2,7 @@
 ## Title: BetterFramesForever
 ## Notes: X-Perl-style unit frames of its own for player, target, target of target, focus, pet and party: portrait, health and power with cur/max and percent, class colours, auras (your own buffs under the player frame too), combo points, range fade. Blizzard's are switched off, never restyled. /bff
 ## Author: Gaar
-## Version: 1.2
+## Version: 1.2.1
 ## IconTexture: Interface\Icons\Spell_Holy_PrayerOfHealing
 ## SavedVariables: BetterFramesForeverDB
 

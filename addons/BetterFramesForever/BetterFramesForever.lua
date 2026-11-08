@@ -19,6 +19,8 @@
     * Player: your own buffs in rows under the frame (up to 20, two rows of 10, with the
       remaining-time swipe; option, on by default).
     * Party: small buffs and debuffs, faded to 50% when out of range.
+    * Every aura icon: a small time-left number at its top and a swipe that starts bright and
+      darkens as the aura runs out (1.2.1).
     * Icons: raid target, group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
       reset, and a test mode that shows every enabled frame with made-up data (party without a
@@ -59,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2"
+local VERSION = "1.2.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -368,6 +370,7 @@ local FEATURE_LABELS = {
     range = "read party range",
     combo = "read combo points",
     secrettext = "write hidden health and power values as text",
+    powerhide = "hide an empty power line from hidden values",
     blizzard = "switch Blizzard's unit frames off",
     frames = "build secure unit frames",
     editmode = "follow Blizzard's Edit Mode positions",
@@ -381,6 +384,7 @@ local CLEAR = {
     threat = function(f) f.threatStatus = nil; ApplyBorder(f) end,
     range = function(f) if not f.preview and not testing and not editFaded then f:SetAlpha(1) end end,
     combo = function(f) for _, p in ipairs(f.combo or {}) do p:Hide() end end,
+    powerhide = function(f) if f.power then f.power:SetAlpha(1) end end,
     icons = function(f)
         if f.raidIcon then f.raidIcon:Hide() end
         if f.leaderIcon then f.leaderIcon:Hide() end
@@ -559,6 +563,56 @@ local function AuraTooltip(icon)
     end)
 end
 
+-- Aura timing (1.2.1). The swipe runs reversed, as on Blizzard's own aura buttons
+-- (reverse="true" in TargetFrameAuraButton.xml, PartyFrameTemplates.xml): bright when the aura is
+-- fresh, darkening as it runs out. The time left is a small outlined number at the icon's top,
+-- clear of the stack count in the bottom-right corner: about 45% of the icon's size, 7 at least.
+local AuraTime = {}   -- FontSize, Text, Tick, SetEnd, Size
+do
+function AuraTime.FontSize(size)
+    return Clamp(math.floor(size * 0.45), 7, 10)
+end
+
+-- "45", "12m", "2h", "3d" - rounded up, so 0 never shows while the aura is still on.
+function AuraTime.Text(left)
+    if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
+    local s = math.ceil(left)
+    if s < 60 then return tostring(s) end
+    if s < 3600 then return math.ceil(s / 60) .. "m" end
+    if s < 86400 then return math.ceil(s / 3600) .. "h" end
+    return math.ceil(s / 86400) .. "d"
+end
+
+local function SetAuraTimeFont(fs, size)
+    fs:SetFont(_G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", AuraTime.FontSize(size), "OUTLINE")
+end
+
+-- Our own icons count down from a plain end time (icon.timeEnd, nil while the timing is hidden).
+function AuraTime.Tick(icon, elapsed)
+    icon.timeWait = (icon.timeWait or 0) - (elapsed or 0)
+    if icon.timeWait > 0 then return end
+    icon.timeWait = 0.2
+    local fin = icon.timeEnd
+    local now = type(_G.GetTime) == "function" and _G.GetTime() or nil
+    icon.time:SetText((fin and now) and AuraTime.Text(fin - now) or "")
+end
+
+function AuraTime.SetEnd(icon, fin)
+    icon.timeEnd = fin
+    icon.timeWait = 0
+    AuraTime.Tick(icon, 0)
+end
+
+-- Size of one of our own icons, with its time text to match.
+function AuraTime.Size(icon, size)
+    icon:SetSize(size, size)
+    if icon.timeSize ~= size then
+        icon.timeSize = size
+        SetAuraTimeFont(icon.time, size)
+    end
+end
+end
+
 local function NewAuraIcon(f)
     local icon = CreateFrame("Frame", nil, f.auraAnchor)
     icon:SetSize(16, 16)
@@ -576,10 +630,15 @@ local function NewAuraIcon(f)
         cd:SetAllPoints()
         if cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, true) end
         if cd.SetDrawEdge then pcall(cd.SetDrawEdge, cd, false) end
+        if cd.SetReverse then pcall(cd.SetReverse, cd, true) end
         icon.cd = cd
     end
     icon.count = NewFont(icon, 9)
     icon.count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -1)
+    icon.time = NewFont(icon, AuraTime.FontSize(16))
+    icon.time:SetPoint("TOP", icon, "TOP", 0, 1)
+    icon.timeSize = 16
+    icon:SetScript("OnUpdate", AuraTime.Tick)
     icon:EnableMouse(true)
     icon:SetScript("OnEnter", AuraTooltip)
     icon:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
@@ -873,6 +932,98 @@ local function NoPower(u, pType, cur, mx)
     return nil, "max hidden, nothing to tell"
 end
 
+-- An NPC whose maximum is a hidden 0 (BetterFramesForever 1.2.1). In game a low beast in the
+-- Barrens answers: power type RAGE, UnitHasPowerType true, UnitPower and UnitPowerMax both secret
+-- - so NoPower cannot tell, and 1.2 wrote "0/0 0%" from the hidden values. Nothing an addon may
+-- call turns a hidden 0 into a plain answer, and a curve cannot be evaluated on the maximum
+-- either (LuaCurveObject:Evaluate takes secret arguments only from untainted code). What the
+-- client does let tainted code do (Blizzard_APIDocumentationGenerated, Forever 1.60.1):
+--   * C_StringUtil.TruncateWhenZero(number) -> "" when the number is 0, and WrapString(infix,
+--     prefix, suffix) -> prefix..infix..suffix, or "" when infix is "". Both take secrets. So the
+--     text is "cur/max  NN%" built around TruncateWhenZero(max): empty when the maximum is 0.
+--   * UnitPowerPercent(unit, nil, false, curve) evaluates our own curve inside the client, and
+--     Region:SetAlpha takes the secret result. A step curve (0 -> 0, anything above -> 1) makes
+--     the bar invisible while the power is 0 - always so with a maximum of 0. The bar's room
+--     stays (a secret value cannot move a layout); an NPC with real power at 0 (rage out of
+--     combat) loses its empty bar until it has some.
+-- Where TruncateWhenZero or WrapString is missing: no text for an NPC's hidden RAGE (the type the
+-- beasts answer), the client's own hidden-value text for everything else.
+local PowerHide = {}   -- Method, Alpha, Text
+do
+local powerCurve   -- the step curve; false when this client cannot make one
+
+local function PowerAlphaCurve()
+    if powerCurve ~= nil then return powerCurve end
+    powerCurve = false
+    local CU, E = _G.C_CurveUtil, _G.Enum
+    if type(CU) ~= "table" or type(CU.CreateCurve) ~= "function" or type(_G.UnitPowerPercent) ~= "function"
+        or type(E) ~= "table" or type(E.LuaCurveType) ~= "table" or E.LuaCurveType.Step == nil then
+        return false
+    end
+    local ok, c = pcall(function()
+        local c = CU.CreateCurve()
+        c:SetType(E.LuaCurveType.Step)
+        c:AddPoint(0, 0)
+        c:AddPoint(0.000001, 1)
+        c:AddPoint(1, 1)
+        return c
+    end)
+    if ok and c then powerCurve = c
+    else Latch("powerhide", ok and "C_CurveUtil.CreateCurve returned nothing" or c) end
+    return powerCurve
+end
+
+local function HasStringGate()
+    local SU = _G.C_StringUtil
+    return type(SU) == "table" and type(SU.TruncateWhenZero) == "function" and type(SU.WrapString) == "function"
+end
+
+-- How a hidden power line is kept from showing 0/0: "curve+truncate", "curve", "truncate" or
+-- "fallback", for UpdatePower and /bff status.
+function PowerHide.Method()
+    if blocked.powerhide then return "fallback" end
+    local curve = PowerAlphaCurve() and true or false
+    local gate = HasStringGate()
+    if curve and gate then return "curve+truncate" end
+    if curve then return "curve" end
+    if gate then return "truncate" end
+    return "fallback"
+end
+
+-- The bar's alpha from the hidden percent: 0 while the power is 0, else 1. Nothing here reads it.
+function PowerHide.Alpha(bar, u)
+    bar:SetAlpha(_G.UnitPowerPercent(u, nil, false, PowerAlphaCurve()))
+end
+
+-- "cur/max  NN%" (the percent alone on compact frames), or "" when the hidden maximum is 0.
+-- Every piece goes from one client helper to the next; none is tested or joined here.
+function PowerHide.Text(fs, u, compact)
+    local SU = _G.C_StringUtil
+    local trunc, wrap = SU.TruncateWhenZero, SU.WrapString
+    local C = _G.CurveConstants
+    local pct
+    if type(C) == "table" and C.ScaleTo100 ~= nil and type(_G.UnitPowerPercent) == "function" then
+        pct = _G.UnitPowerPercent(u, nil, false, C.ScaleTo100)
+    end
+    if compact then
+        -- No room for the maximum, so the percent gates itself: nothing below 1%.
+        fs:SetText(pct ~= nil and wrap(trunc(pct), nil, "%") or "")
+        return
+    end
+    local maxS = trunc(UnitPowerMax(u))
+    local cur = UnitPower(u)
+    local curS
+    if type(SU.FloorToNearestString) == "function" then curS = SU.FloorToNearestString(cur)
+    elseif type(_G.AbbreviateNumbers) == "function" then curS = _G.AbbreviateNumbers(cur)
+    else curS = trunc(cur) end
+    local pctS
+    if pct ~= nil and type(SU.RoundToNearestString) == "function" then
+        pctS = wrap(SU.RoundToNearestString(pct), "  ", "%")
+    end
+    fs:SetText(wrap(maxS, wrap(curS, nil, "/"), pctS))
+end
+end
+
 local function UpdatePower(f)
     local u, bar = f.unit, f.power
     local pType, token = UnitPowerType(u)
@@ -884,6 +1035,8 @@ local function UpdatePower(f)
     f.powerWhy = why
     SetPowerShown(f, not none)
     if none then
+        f.powerHide = nil
+        bar:SetAlpha(1)
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         if fs then fs:SetText("") end
@@ -892,12 +1045,28 @@ local function UpdatePower(f)
     if Secret(cur, mx) then
         bar:SetMinMaxValues(0, mx)
         bar:SetValue(cur)
+        local method = PowerHide.Method()
+        f.powerHide = method
+        if method == "curve+truncate" or method == "curve" then Run("powerhide", PowerHide.Alpha, bar, u)
+        else bar:SetAlpha(1) end
         if fs then
             fs:SetText("")
-            if db.text then Run("secrettext", SecretText, fs, u, true, f.layout.compact) end
+            if db.text then
+                if method == "curve+truncate" or method == "truncate" then
+                    Run("powerhide", PowerHide.Text, fs, u, f.layout.compact)
+                elseif Plain(token) == "RAGE" and not (type(_G.UnitPlayerControlled) == "function"
+                    and Plain(_G.UnitPlayerControlled(u)) == true) then
+                    -- Fallback: an NPC's hidden rage is the beasts' 0/0; no text rather than that.
+                    f.powerHide = "fallback (no text for an NPC's hidden rage)"
+                else
+                    Run("secrettext", SecretText, fs, u, true, f.layout.compact)
+                end
+            end
         end
         return
     end
+    f.powerHide = nil
+    bar:SetAlpha(1)
     cur = type(cur) == "number" and cur or 0
     mx = type(mx) == "number" and mx or 0
     if mx <= 0 then
@@ -1146,8 +1315,10 @@ do
                 local okCd, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
                 if okCd and cd then
                     cd:SetAllPoints()
+                    -- Our own time text below replaces the cooldown's big numbers.
                     if cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, true) end
                     if cd.SetDrawEdge then pcall(cd.SetDrawEdge, cd, false) end
+                    if cd.SetReverse then pcall(cd.SetReverse, cd, true) end
                     button:SetDurationCooldown(cd)
                 end
                 local count = NewFont(button, 9)
@@ -1156,6 +1327,19 @@ do
             end)
             if not ok then
                 containerInfo.buttonError = tostring(err)
+                return
+            end
+            -- The time left: the client's duration binding writes it (secret or not) into our
+            -- font string. On its own, so a client without it still gets the rest.
+            local okTime, errTime = pcall(function()
+                local tm = NewFont(button, AuraTime.FontSize(g.size))
+                tm:SetPoint("TOP", button, "TOP", 0, 1)
+                button:SetDurationText(tm)
+            end)
+            if okTime then
+                containerInfo.timeText = true
+            else
+                containerInfo.timeError = tostring(errTime)
             end
         end
     end
@@ -1221,9 +1405,13 @@ do
     -- -----------------------------------------------------------------------
 
     local function SetAuraCooldown(icon, unit, a)
+        local dur, exp = a.duration, a.expirationTime
+        -- The time text only from plain values (out of combat); hidden timings get none.
+        local fin
+        if not Secret(dur, exp) and (Num(dur) or 0) > 0 and Num(exp) then fin = Num(exp) end
+        AuraTime.SetEnd(icon, fin)
         local cd = icon.cd
         if not cd then return end
-        local dur, exp = a.duration, a.expirationTime
         if not Secret(dur, exp) then
             dur, exp = Num(dur), Num(exp)
             if dur and exp and dur > 0 then
@@ -1307,7 +1495,7 @@ do
                 local ok, size = pcall(PaintAura, f, icon, row, a, i)
                 if ok then
                     if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
-                    icon:SetSize(size, size)
+                    AuraTime.Size(icon, size)
                     icon:ClearAllPoints()
                     icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
                     x = x + size + 2
@@ -1776,18 +1964,19 @@ local FAKE = {
     } },
     target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 },
         power = { 900, 1200, "MANA" }, reaction = { 0.85, 0.2, 0.2 }, combo = 3,
-        buffs = { "Interface\\Icons\\Spell_Holy_WordFortitude", "Interface\\Icons\\Spell_Nature_Regeneration" },
-        debuffs = { { "Interface\\Icons\\Spell_Shadow_ShadowWordPain", true },
-                    { "Interface\\Icons\\Ability_Rogue_Garrote", true },
-                    { "Interface\\Icons\\Spell_Frost_FrostNova", false } } },
+        buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 300, 1800 } },
+                  { "Interface\\Icons\\Spell_Nature_Regeneration", nil, { 1500, 1800 } } },
+        debuffs = { { "Interface\\Icons\\Spell_Shadow_ShadowWordPain", true, { 6, 18 } },
+                    { "Interface\\Icons\\Ability_Rogue_Garrote", true, { 3, 18 } },
+                    { "Interface\\Icons\\Spell_Frost_FrostNova", false, { 2, 8 } } } },
     targettarget = { name = "Gaar", level = 60, class = "WARRIOR", hp = { 4100, 5200 }, power = { 30, 100, "RAGE" } },
     focus = { name = "Hogger", level = 11, kind = "rare", hp = { 600, 666 }, power = { 0, 0 },
         reaction = { 0.85, 0.2, 0.2 } },
     pet = { name = "Wolf", level = 58, hp = { 800, 1000 }, power = { 70, 100, "FOCUS" }, reaction = { 0.2, 0.75, 0.25 } },
     party1 = { name = "Thrall", level = 60, class = "SHAMAN", hp = { 3900, 4200 }, power = { 3100, 4000, "MANA" }, leader = true,
-        buffs = { "Interface\\Icons\\Spell_Holy_WordFortitude" } },
+        buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 900, 1800 } } } },
     party2 = { name = "Jaina", level = 60, class = "MAGE", hp = { 1100, 3600 }, power = { 2500, 5200, "MANA" },
-        debuffs = { { "Interface\\Icons\\Spell_Shadow_CurseOfTounges" } } },
+        debuffs = { { "Interface\\Icons\\Spell_Shadow_CurseOfTounges", nil, { 10, 120 } } } },
     party3 = { name = "Uther", level = 60, class = "PALADIN", hp = { 600, 4800 }, power = { 1800, 4300, "MANA" }, far = true },
     party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" } },
 }
@@ -1811,7 +2000,7 @@ local function FakeAuras(f, d)
             if type(item) == "table" then path, own, cd = item[1], item[2], item[3] end
             local size = (own and row.own) or row.size
             if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
-            icon:SetSize(size, size)
+            AuraTime.Size(icon, size)
             icon:ClearAllPoints()
             icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
             x = x + size + 2
@@ -1824,6 +2013,7 @@ local function FakeAuras(f, d)
                 if cd and now then icon.cd:SetCooldown(now - cd[1], cd[2]); icon.cd:Show()
                 else icon.cd:Hide() end
             end
+            AuraTime.SetEnd(icon, (cd and now) and (now - cd[1] + cd[2]) or nil)
             icon.unit = nil
             icon:Show()
         end
@@ -2346,6 +2536,8 @@ local function PrintAuraStatus()
             or (containerInfo.failed and ("refused - " .. containerInfo.failed))
             or (containerInfo.missing and ("not on this client - " .. containerInfo.missing)) or "not tried yet")
         .. (containerInfo.buttonError and (DOT .. "button look failed: " .. containerInfo.buttonError) or "")
+        .. ((containerInfo.timeText and not containerInfo.timeError) and (DOT .. "time text on") or "")
+        .. (containerInfo.timeError and (DOT .. "time text refused: " .. containerInfo.timeError) or "")
         .. "   C_AuraContainerUtil " .. Yes(type(_G.C_AuraContainerUtil) == "table")
         .. "   CustomAuraContainerGroupDefaultOptions " .. Yes(type(_G.CustomAuraContainerGroupDefaultOptions) == "table"))
     Print("aura API: GetAuraDataByIndex " .. Yes(Has("C_UnitAuras", "GetAuraDataByIndex"))
@@ -2391,7 +2583,20 @@ local function PrintPowerStatus()
         .. DOT .. "ShouldUnitPowerBeSecret " .. Pred("ShouldUnitPowerBeSecret")
         .. DOT .. "ShouldUnitPowerMaxBeSecret " .. Pred("ShouldUnitPowerMaxBeSecret")
         .. DOT .. "bar " .. ((t and t.powerShown == false) and "hidden" or "shown")
-        .. " (" .. ((t and t.powerWhy) or "not drawn yet") .. ")")
+        .. " (" .. ((t and t.powerWhy) or "not drawn yet") .. ")"
+        .. DOT .. "hidden-zero hiding: " .. ((t and t.powerHide) or ("not in use, would be " .. PowerHide.Method()))
+        .. (blocked.powerhide and (" (off: " .. blocked.powerhide .. ")") or ""))
+    local E = _G.Enum
+    Print("target power helpers: C_CurveUtil.CreateCurve " .. Yes(Has("C_CurveUtil", "CreateCurve"))
+        .. "   Enum.LuaCurveType.Step " .. Yes(type(E) == "table" and type(E.LuaCurveType) == "table"
+            and E.LuaCurveType.Step ~= nil)
+        .. "   UnitPowerPercent " .. Yes(type(_G.UnitPowerPercent) == "function")
+        .. "   C_StringUtil.TruncateWhenZero " .. Yes(Has("C_StringUtil", "TruncateWhenZero"))
+        .. "   C_StringUtil.WrapString " .. Yes(Has("C_StringUtil", "WrapString"))
+        .. "   C_StringUtil.RoundToNearestString " .. Yes(Has("C_StringUtil", "RoundToNearestString"))
+        .. "   C_StringUtil.FloorToNearestString " .. Yes(Has("C_StringUtil", "FloorToNearestString"))
+        .. "   C_CurveUtil.EvaluateColorValueFromBoolean " .. Yes(Has("C_CurveUtil", "EvaluateColorValueFromBoolean"))
+        .. "   SetAlphaFromBoolean " .. Yes(real.target and type(real.target.SetAlphaFromBoolean) == "function"))
 end
 
 local function PrintStatus()

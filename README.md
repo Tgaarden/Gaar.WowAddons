@@ -106,13 +106,13 @@ reaction, class, health or one solid colour, grey when someone else tagged the m
 tint at 20% or less; purple with a ring when you hold aggro, amber when your threat is high, threat
 percent on the bar; name, level, health text and the unit's target; a cast bar with icon, spell
 name and time left, grey for uninterruptible casts; up to 8 of your own debuffs with stacks and a
-countdown; your target scaled to 115% and every other plate dimmed to 55%. Friendly plates are
+countdown, drawn by the client's own `AuraContainer` so they show in combat too; your target scaled to 115% and every other plate dimmed to 55%. Friendly plates are
 Blizzard's unless `/bpf friendly on`. **No CVars are changed**, so stacking, overlap and plate size
 stay as they were. Hidden (secret) values are guarded at the read, and each part of a plate's update
 runs in `pcall`: the first refusal switches only that part off for the session, with one message.
 `/bpf` for help, `/bpf status`, `/bpf on|off`, `/bpf color reaction|class|health|solid`,
 `/bpf health off|percent|current|both`, `/bpf size <w> <h>`, `/bpf friendly|threat|threattext|execute|
-debuffs|tot|dim|targetscale on|off`, `/bpf debug` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
+debuffs|native|tot|dim|targetscale on|off`, `/bpf debug` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
 once at login when both are loaded). It ships a `_Camelot` TOC and a plain fallback TOC, both at
 16001. Details in [`addons/BetterPlatesForever/README.md`](addons/BetterPlatesForever/README.md).
 

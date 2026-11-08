@@ -15,11 +15,13 @@
       the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
       "shield" look (grey bar, light steel edge round the icon).
-    * Your own debuffs (HARMFUL|PLAYER): up to 8 icons of 16px with stacks and a countdown that
-      turns yellow at 8 s and red at 3 s. While the client keeps auras secret (in combat) it
-      refuses reads by index; then each spell you cast this session is looked up by spell ID
-      instead, and hidden timings and stacks go straight to a Cooldown frame and the client's own
-      display count.
+    * Your own debuffs (HARMFUL|PLAYER), up to 8 icons of 16px under the bar. By default they are
+      drawn by the client itself: an AuraContainer from CustomAuraContainerTemplate (Blizzard's
+      12.1 aura API for addons), which reads auras in its secure code and so keeps working in
+      combat, where this client refuses every aura read from addon code. BPF only supplies the
+      icon, cooldown, count and time widgets. Where that API is missing or "native" is off, the
+      addon reads the auras itself as in 1.1 (by index, then by spell ID) - which in practice
+      only works out of combat - with a countdown that turns yellow at 8 s and red at 3 s.
     * Your target: scaled up to 115% with a faint ring; other plates dimmed to 55% while you have
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
@@ -56,7 +58,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -92,6 +94,7 @@ local TOGGLES = {
     { key = "threatText", cmd = "threattext", label = "Threat percent text" },
     { key = "execute", cmd = "execute", label = "Execute tint (20% or less)" },
     { key = "debuffs", cmd = "debuffs", label = "My debuffs" },
+    { key = "native", cmd = "native", label = "Debuffs drawn by the client (in combat too)" },
     { key = "tot", cmd = "tot", label = "Target of target" },
     { key = "dim", cmd = "dim", label = "Dim non-target plates" },
     { key = "targetScale", cmd = "targetscale", label = "Enlarge my target" },
@@ -108,6 +111,7 @@ local DEFAULTS = {
     threatText = true,
     execute = true,
     debuffs = true,
+    native = true,
     tot = true,
     dim = true,
     targetScale = true,
@@ -668,7 +672,135 @@ local function PaintIcon(ic, unit, a, now)
     if not ic:IsShown() then ic:Show() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Native debuff icons: the client's own AuraContainer.
+--
+-- Blizzard's nameplate AurasFrame lives inside plate.UnitFrame, which this addon hides, and it
+-- only lists auras flagged nameplateShowPersonal (unless a CVar says otherwise). Rather than
+-- un-hide or re-anchor Blizzard's frames, each overlay gets its own container made from
+-- CustomAuraContainerTemplate (Blizzard_AuraContainer, "allowUntaintedCreation"): the client
+-- reads the unit's HARMFUL|PLAYER auras in secure code and fills buttons that this file only
+-- dresses once, at creation (icon texture, Cooldown, count and time font strings). Nothing
+-- here reads an aura, so secrecy does not apply. No Blizzard frame is touched.
+-- ---------------------------------------------------------------------------
+
+local NATIVE_GROUP = "bpfMine"
+local nativeStats = { created = 0, failed = 0, buttonFailed = 0, lastError = nil }
+
+local function NativeError(kind, err)
+    nativeStats[kind] = nativeStats[kind] + 1
+    nativeStats.lastError = tostring(err)
+end
+
+-- Called by the container for each button it creates. Every part is optional: a button with only
+-- an icon is still worth having, so each step is guarded on its own and none may throw.
+local function InitNativeButton(btn)
+    local ok, err = pcall(function()
+        btn:SetSize(AURA_SZ, AURA_SZ)
+        local tex = btn:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints()
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        btn:SetIcon(tex)
+    end)
+    if not ok then NativeError("buttonFailed", err); return end
+    local cd
+    pcall(function()
+        cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+        cd:SetAllPoints()
+        if cd.SetReverse then cd:SetReverse(true) end
+        if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+        btn:SetDurationCooldown(cd)
+    end)
+    -- The time left as our own small text; the cooldown's big numbers only if that fails.
+    local timed = pcall(function()
+        local tm = btn:CreateFontString(nil, "OVERLAY")
+        tm:SetFont(_G.STANDARD_TEXT_FONT, 9, "OUTLINE")
+        tm:SetPoint("CENTER", btn, "CENTER", 0, 0)
+        btn:SetDurationText(tm)
+    end)
+    if cd and cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, timed and true or false) end
+    pcall(function()
+        local cnt = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+        cnt:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 1, 0)
+        btn:SetApplicationCount(cnt)
+    end)
+    pcall(BorderFrame, btn, btn:GetFrameLevel())
+end
+
+-- The overlay's container, built on first use; false once building it failed on this plate.
+local function NativeContainer(o)
+    if o.native ~= nil then return o.native end
+    local ok, c = pcall(CreateFrame, "AuraContainer", nil, o.frame, "CustomAuraContainerTemplate")
+    if not ok or not c then
+        NativeError("failed", ok and "CreateFrame returned nothing" or c)
+        o.native = false
+        return false
+    end
+    local ok2, err = pcall(function()
+        -- Anchored by its top centre where the addon's own icons sit; the container sizes
+        -- itself to its icons, so the row stays centred under the bar.
+        c:SetPoint("TOP", o.tot, "BOTTOM", 0, -2)
+        c:AddAuraGroup(NATIVE_GROUP, "HARMFUL|PLAYER", {
+            maxFrameCount = AURA_N,
+            initializeFrame = InitNativeButton,
+            layout = { elementSpacing = 2, elementWidth = AURA_SZ, elementHeight = AURA_SZ },
+        })
+    end)
+    if not ok2 then
+        NativeError("failed", err)
+        pcall(c.Hide, c)
+        o.native = false
+        return false
+    end
+    nativeStats.created = nativeStats.created + 1
+    o.native = c
+    return c
+end
+
+-- Points the container at the plate's unit (or at nothing) and switches it on or off.
+local function SyncNative(o, unit, on)
+    local c = o.native
+    if not c then return end
+    local want = (on and unit) or "none"
+    if o._nativeUnit ~= want then
+        local ok, err = pcall(c.SetUnit, c, want)
+        if not ok then NativeError("failed", err) end
+        o._nativeUnit = want
+    end
+    if o._nativeOn ~= on then
+        pcall(c.SetEnabled, c, on and true or false)
+        if on then pcall(c.Show, c) else pcall(c.Hide, c) end
+        o._nativeOn = on
+    end
+end
+
+-- How many icons the container shows on this plate: a number, "hidden" while the client keeps
+-- the count secret, or nil without a container.
+local function NativeCount(o)
+    local c = o and o.native
+    if not c then return nil end
+    local ok, n = pcall(c.GetAuraGroupFrameCount, c, NATIVE_GROUP)
+    if not ok then return "hidden" end
+    n = Num(n)
+    return n or "hidden"
+end
+
+local function HideOwnIcons(o)
+    for i = 1, AURA_N do
+        if o.auraIcons[i]:IsShown() then o.auraIcons[i]:Hide() end
+    end
+    o._lastShown = 0
+end
+
 local function UpdateAuras(o, unit)
+    -- The client draws them where it can; the addon's own reading is the fallback.
+    local useNative = db.debuffs and db.native and NativeContainer(o)
+    if o.native then SyncNative(o, unit, useNative and true or false) end
+    if useNative then
+        HideOwnIcons(o)
+        o.auraPath, o.auraShown = "client AuraContainer", nil
+        return
+    end
     local now = GetTime()
     if o._auraAt and now < o._auraAt then
         -- Between scans only the plain countdowns move.
@@ -778,7 +910,10 @@ local CLEAR = {
     healthtext = function(o) o.htext:SetText("") end,
     text = function(o) o.name:SetText(""); o.level:SetText(""); o.tot:SetText("") end,
     cast = function(o) o.cast:Hide() end,
-    debuffs = function(o) for i = 1, AURA_N do o.auraIcons[i]:Hide() end end,
+    debuffs = function(o)
+        for i = 1, AURA_N do o.auraIcons[i]:Hide() end
+        if o.native then o.native:Hide() end
+    end,
     emphasis = function(o) o.ring:Hide(); o.frame:SetScale(1); o.frame:SetAlpha(1) end,
 }
 
@@ -848,6 +983,7 @@ end
 local function Release(o)
     if o.unit and active[o.unit] == o then active[o.unit] = nil end
     o.unit = nil
+    if o.native then pcall(SyncNative, o, nil, false) end
     o.frame:Hide()
     ShowBlizzard(o)
 end
@@ -886,6 +1022,7 @@ local function RemovePlate(unit)
     active[unit] = nil
     o.unit = nil
     o._auraAt = nil
+    if o.native then pcall(SyncNative, o, nil, false) end
     o.frame:Hide()
     -- Blizzard's art stays hidden on a plate going back to the pool; the next NAME_PLATE_UNIT_ADDED
     -- either styles it again or (for a friendly unit) shows it.
@@ -1028,14 +1165,44 @@ end
 -- One line each for the debuff icons and the health text.
 local function PrintFeatureState()
     local o = TargetOverlay()
-    Print("debuffs: " .. FeatureState("debuffs", db.debuffs)
-        .. DOT .. "target plate: " .. (o and ((o.auraShown or 0) .. " icon(s) via " .. (o.auraPath or "none")) or "no target plate"))
+    local onPlate = "no target plate"
+    if o then
+        local n = o.auraShown
+        if o.auraPath == "client AuraContainer" then n = NativeCount(o) end
+        if n == "hidden" then n = "? (count kept secret by the client)" end
+        onPlate = tostring(n or 0) .. " icon(s) via " .. (o.auraPath or "none")
+    end
+    Print("debuffs: " .. FeatureState("debuffs", db.debuffs) .. DOT .. "native " .. OnOff(db.native)
+        .. DOT .. "target plate: " .. onPlate)
     Print("health text: " .. db.healthText .. DOT .. FeatureState("healthtext", db.healthText ~= "off")
         .. DOT .. "last written from " .. healthTextPath .. " values")
 end
 
+local function CVarValue(name)
+    local C = _G.C_CVar
+    if type(C) ~= "table" or type(C.GetCVar) ~= "function" then return "?" end
+    local ok, v = pcall(C.GetCVar, name)
+    v = ok and Plain(v) or nil
+    return v == nil and "?" or tostring(v)
+end
+
 local function PrintDebug()
     PrintFeatureState()
+    Print(string.format("client AuraContainer: template %s, AuraContainerSortMethod %s, C_AuraContainerUtil %s;"
+        .. " containers built %d, failed %d, buttons failed %d",
+        Yes(type(_G.CustomAuraContainerGroupDefaultOptions) == "table"),
+        Yes(type(_G.AuraContainerSortMethod) == "table"),
+        Yes(type(_G.C_AuraContainerUtil) == "table"),
+        nativeStats.created, nativeStats.failed, nativeStats.buttonFailed))
+    if nativeStats.lastError then Print("last AuraContainer error: " .. nativeStats.lastError) end
+    local o = TargetOverlay()
+    local uf = o and o.plate and o.plate.UnitFrame
+    local af = type(uf) == "table" and uf.AurasFrame
+    Print("Blizzard plate AurasFrame: " .. (af and "present, hidden with plate.UnitFrame (BPF does not touch it)"
+            or (o and "MISSING" or "no target plate"))
+        .. DOT .. "CVars (read only): nameplateEnemyNpcAuraDisplay " .. CVarValue("nameplateEnemyNpcAuraDisplay")
+        .. ", nameplateShowAllPersonalAuras " .. CVarValue("nameplateShowAllPersonalAuras")
+        .. ", nameplateAuraScale " .. CVarValue("nameplateAuraScale"))
     Print(string.format("aura reads refused this session: by index %d, by spell ID %d; icons failed to draw: %d",
         auraStats.indexRefused, auraStats.spellRefused, auraStats.paintFailed))
     if auraStats.lastError then Print("last aura refusal: " .. auraStats.lastError) end

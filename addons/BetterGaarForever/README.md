@@ -1,23 +1,25 @@
 # BetterGaarForever
 
 An optional hub for the WoW Forever client (`_forever_`, interface 16001): one minimap button
-whose menu holds the options of [BetterBagsForever](../BetterBagsForever/README.md) (1.6),
-[BetterQuestsForever](../BetterQuestsForever/README.md) (1.5) and
-[BetterMapsForever](../BetterMapsForever/README.md) (1.0),
-[BetterCastbarsForever](../BetterCastbarsForever/README.md) (1.0) and
-[BetterPlatesForever](../BetterPlatesForever/README.md). It needs no other addon or library, and
+whose menu holds the options of all six Better...Forever addons:
+[BetterBagsForever](../BetterBagsForever/README.md),
+[BetterQuestsForever](../BetterQuestsForever/README.md),
+[BetterMapsForever](../BetterMapsForever/README.md),
+[BetterCastbarsForever](../BetterCastbarsForever/README.md),
+[BetterPlatesForever](../BetterPlatesForever/README.md) and
+[BetterGpsForever](../BetterGpsForever/README.md). It needs no other addon or library, and
 it is not part of the Gaar suite.
 
-It carries no bag, quest, map, cast bar or nameplate code of its own. The addons stay fully independent: their logic,
+It carries no bag, quest, map, cast bar, nameplate or waypoint code of its own. The addons stay fully independent: their logic,
 their settings (`BetterBagsForeverDB`, `BetterQuestsForeverDB`, `BetterMapsForeverDB` and so on) and their
-slash commands (`/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`) stay in their own addon, and without the hub they behave
+slash commands (`/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps`) stay in their own addon, and without the hub they behave
 exactly as they do on their own. Install the hub next to them if you want one button instead of one
 per addon.
 
 ## Install
 
 Put the `BetterGaarForever` folder in `Interface/AddOns`, next to any of `BetterBagsForever`,
-`BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever` and `BetterPlatesForever`. Any of them can be missing: its entry in the menu
+`BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever` and `BetterGpsForever`. Any of them can be missing: its entry in the menu
 then says so.
 
 ## Minimap button
@@ -39,6 +41,9 @@ A click opens:
 - **Plates**: BetterPlatesForever's options (Enabled, Colour mode, Health text, Size, the
   friendly / threat / execute / debuffs / target-of-target / dim / target-scale toggles, Reset to
   defaults).
+- **GPS**: BetterGpsForever's options (Show arrow, Lock arrow, Reset arrow position, Clear
+  waypoint; the last is a grey line that cannot be clicked while there is no waypoint). The
+  tooltip line is the waypoint, its distance and the time to get there, or `no waypoint`.
 - **Hide minimap button** (`/bgf minimap` brings it back).
 
 Each submenu is filled by the addon itself, through its API, so it always has that addon's current
@@ -55,10 +60,10 @@ minimap's shape.
 ## One button, not several
 
 While the hub is loaded, BetterQuestsForever's own minimap button is hidden (BetterBagsForever and
-BetterMapsForever, BetterCastbarsForever and BetterPlatesForever have none). That is for the session only: the addon's saved minimap setting is never changed, so
+BetterMapsForever, BetterCastbarsForever, BetterPlatesForever and BetterGpsForever have none). That is for the session only: the addon's saved minimap setting is never changed, so
 without the hub its button is back as you left it. It holds whatever the load order:
 
-- the TOC lists all five addons under `## OptionalDeps`, so they load first;
+- the TOC lists all six addons under `## OptionalDeps`, so they load first;
 - at `PLAYER_LOGIN` the hub calls `SetMinimapHidden(true)` on each addon's API;
 - BetterQuestsForever also checks `C_AddOns.IsAddOnLoaded("BetterGaarForever")` (or the older
   `IsAddOnLoaded`) itself before it shows its button.
@@ -66,7 +71,7 @@ without the hub its button is back as you left it. It holds whatever the load or
 ## The API it uses
 
 Each addon exports a small global table, `BetterBagsForeverAPI`, `BetterQuestsForeverAPI`,
-`BetterMapsForeverAPI`, `BetterCastbarsForeverAPI` and `BetterPlatesForeverAPI`:
+`BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI` and `BetterGpsForeverAPI`:
 
 | Field | What it is |
 |---|---|
@@ -87,7 +92,7 @@ drift apart.
 | `/bgf status` | The hub's version, and each addon's version and state line, or `not installed` |
 | `/bgf minimap`, `/bgf minimap reset` | Show or hide the minimap button; back to its default place (285 degrees) and shown |
 
-`/bbf`, `/bqf`, `/bmf`, `/bcf` and `/bpf` belong to the addons themselves, as always.
+`/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf` and `/bgps` (and `/way`) belong to the addons themselves, as always.
 
 ## Saved variables
 
@@ -98,6 +103,12 @@ minimap = { hide = false, angle = 285 }
 ```
 
 Anything else is dropped on load, including 1.0's `bags`, `quests`, `modules` and `migrated`.
+
+## 2.3
+
+Adds the **GPS** submenu for BetterGpsForever 1.0 (through `BetterGpsForeverAPI`, the same code
+path as the others), lists it under `## OptionalDeps`, in `/bgf` help and in `/bgf status`.
+Nothing else changed.
 
 ## 2.2
 

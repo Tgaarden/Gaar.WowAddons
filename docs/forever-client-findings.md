@@ -622,3 +622,16 @@ What `GaarBags` does with it:
   `UseContainerItem`, stopping at once if the merchant closes or combat starts. Era gets the second
   path.
 
+
+# Map, waypoint and facing API in the binary (2026-11-08)
+
+Read from the strings of the Forever binary (build of 2026-11-07) for `BetterGpsForever`; the probe
+only lists four `C_Map` names. Present, with retail's usage lines: `C_Map.GetWorldPosFromMapPos`,
+`GetMapPosFromWorldPos`, `GetMapChildrenInfo`, `GetMapRectOnMap`, `GetMapInfoAtPosition`,
+`GetMapWorldSize`, `CanSetUserWaypointOnMap`, `SetUserWaypoint`, `GetUserWaypoint`, `HasUserWaypoint`,
+`ClearUserWaypoint`, `GetUserWaypointPositionForMap`; `C_SuperTrack.SetSuperTrackedUserWaypoint` and
+`IsSuperTrackingUserWaypoint`; `C_Minimap.GetViewRadius` (the probe confirms it as a function);
+`GetPlayerFacing`; the `rotateMinimap`, `minimapZoom` and `minimapInsideZoom` CVars and the
+`USER_WAYPOINT_UPDATED` event. Present in the binary is not the same as reachable from addons, and
+what `GetPlayerMapPosition` and `GetPlayerFacing` answer outdoors (and whether either is secret) is
+still to be seen in game; `/bgps status` prints which of them the addon found.

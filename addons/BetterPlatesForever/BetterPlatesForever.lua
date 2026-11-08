@@ -15,7 +15,7 @@
       the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
       "shield" look (grey bar, light steel edge round the icon).
-    * Your own debuffs (HARMFUL|PLAYER), up to 8 icons of 16px under the bar. By default they are
+    * Your own debuffs (HARMFUL|PLAYER), up to 8 icons of 20px under the bar. By default they are
       drawn by the client itself: an AuraContainer from CustomAuraContainerTemplate (Blizzard's
       12.1 aura API for addons), which reads auras in its secure code and so keeps working in
       combat, where this client refuses every aura read from addon code. BPF only supplies the
@@ -58,13 +58,14 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2"
+local VERSION = "1.2.1"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
-local AURA_N, AURA_SZ = 8, 16     -- debuff icons per plate, and their size
+local AURA_N, AURA_SZ = 8, 20     -- debuff icons per plate, and their size
+local AURA_GAP = 6                -- space between debuff icons
 local CAST_H = 9                  -- cast bar height
 local NAME_SIZE = 11              -- name font size
 local EXECUTE_PCT = 20            -- execute tint at or below this health percent
@@ -714,7 +715,7 @@ local function InitNativeButton(btn)
     -- The time left as our own small text; the cooldown's big numbers only if that fails.
     local timed = pcall(function()
         local tm = btn:CreateFontString(nil, "OVERLAY")
-        tm:SetFont(_G.STANDARD_TEXT_FONT, 9, "OUTLINE")
+        tm:SetFont(_G.STANDARD_TEXT_FONT, 10, "OUTLINE")
         tm:SetPoint("CENTER", btn, "CENTER", 0, 0)
         btn:SetDurationText(tm)
     end)
@@ -743,7 +744,7 @@ local function NativeContainer(o)
         c:AddAuraGroup(NATIVE_GROUP, "HARMFUL|PLAYER", {
             maxFrameCount = AURA_N,
             initializeFrame = InitNativeButton,
-            layout = { elementSpacing = 2, elementWidth = AURA_SZ, elementHeight = AURA_SZ },
+            layout = { elementSpacing = AURA_GAP, elementWidth = AURA_SZ, elementHeight = AURA_SZ },
         })
     end)
     if not ok2 then
@@ -859,8 +860,8 @@ local function UpdateAuras(o, unit)
     end
     if shown ~= o._lastShown then
         o._lastShown = shown
-        local step = AURA_SZ + 2
-        local startX = -((shown * step - 2) / 2) + AURA_SZ / 2
+        local step = AURA_SZ + AURA_GAP
+        local startX = -((shown * step - AURA_GAP) / 2) + AURA_SZ / 2
         for i = 1, shown do
             o.auraIcons[i]:ClearAllPoints()
             o.auraIcons[i]:SetPoint("CENTER", o.auraRow, "CENTER", startX + (i - 1) * step, 0)

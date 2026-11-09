@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -72,7 +72,7 @@ local LEADER_ICON = "Interface\\GroupFrame\\UI-Group-LeaderIcon"
 local STATE_ICON = "Interface\\CharacterFrame\\UI-StateIcon"
 
 local PAD = 3                -- inside the backdrop
-local PARTY_GAP = 34         -- room under each party frame for its aura rows
+local PARTY_GAP = 52         -- room under each party frame for its aura rows and their time text
 local OUT_OF_RANGE = 0.5     -- party alpha out of range
 local TICK = 0.2             -- seconds between target-of-target and range updates
 local MIN_SCALE, MAX_SCALE = 0.6, 1.5
@@ -113,7 +113,8 @@ local AURAS = {
 -- Default place of each frame's top-left corner, in UIParent units from UIParent's top-left.
 local DEFAULT_POS = {
     player = { 20, -40 }, target = { 276, -40 }, tot = { 520, -40 }, focus = { 520, -100 },
-    pet = { 20, -152 }, party = { 20, -210 },   -- pet under the player's two buff rows
+    -- pet under the player's two buff rows and their time text (1.2.2: was -152 / -210)
+    pet = { 20, -176 }, party = { 20, -234 },
 }
 
 -- Blizzard's frames each of ours replaces (feature-detected; missing names are skipped).
@@ -154,13 +155,14 @@ local DEFAULTS = {
     classColor = true,
     followEditMode = false,
     playerBuffs = true,
+    healPrediction = true,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
-    playerBuffs = true, frames = true, scales = true, positions = true,
+    playerBuffs = true, healPrediction = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- BetterFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -371,6 +373,8 @@ local FEATURE_LABELS = {
     combo = "read combo points",
     secrettext = "write hidden health and power values as text",
     powerhide = "hide an empty power line from hidden values",
+    healpred = "draw heal prediction and absorbs",
+    mana = "show the player's mana under a form's power",
     blizzard = "switch Blizzard's unit frames off",
     frames = "build secure unit frames",
     editmode = "follow Blizzard's Edit Mode positions",
@@ -385,6 +389,13 @@ local CLEAR = {
     range = function(f) if not f.preview and not testing and not editFaded then f:SetAlpha(1) end end,
     combo = function(f) for _, p in ipairs(f.combo or {}) do p:Hide() end end,
     powerhide = function(f) if f.power then f.power:SetAlpha(1) end end,
+    healpred = function(f) for _, b in pairs(f.healPred or {}) do b:Hide() end end,
+    mana = function(f)
+        if not f.mana then return end
+        f.mana:Hide()
+        f.manaShown = false
+        f.health:SetHeight(f.powerShown == false and (f.layout.hp + 1 + f.layout.mp) or f.layout.hp)
+    end,
     icons = function(f)
         if f.raidIcon then f.raidIcon:Hide() end
         if f.leaderIcon then f.leaderIcon:Hide() end
@@ -563,28 +574,65 @@ local function AuraTooltip(icon)
     end)
 end
 
--- Aura timing (1.2.1). The swipe runs reversed, as on Blizzard's own aura buttons
--- (reverse="true" in TargetFrameAuraButton.xml, PartyFrameTemplates.xml): bright when the aura is
--- fresh, darkening as it runs out. The time left is a small outlined number at the icon's top,
--- clear of the stack count in the bottom-right corner: about 45% of the icon's size, 7 at least.
-local AuraTime = {}   -- FontSize, Text, Tick, SetEnd, Size
+-- Aura timing (1.2.2): Blizzard's buff-frame look. The swipe runs reversed, as on Blizzard's own
+-- aura buttons (reverse="true" in TargetFrameAuraButton.xml, PartyFrameTemplates.xml): bright when
+-- the aura is fresh, darkening as it runs out. The time left sits UNDER the icon in Blizzard's
+-- small gold font, as BuffFrame's AuraButton.Duration (GameFontNormalSmall, anchored TOP to the
+-- icon's BOTTOM, white below BUFF_DURATION_WARNING_TIME) - but never with a seconds unit:
+-- "45", "9 m", "59 m", "1 h", "2 d" (SecondsToTimeAbbrev's "%d m" / "%d h" / "%d d", rounded up).
+-- Icons under 18 px (party) get the same font at 8 px. The rows leave room for the text.
+--
+-- Where the client draws the icons (AuraContainer) the remaining time is secret in combat, so it is
+-- formatted by the client: SetDurationText takes a NumericFormatter, and a NumericRuleFormatter
+-- (C_StringUtil.CreateNumericRuleFormatter) with one breakpoint per unit gives exactly the text
+-- above with no Lua arithmetic on the duration. The white-to-gold switch at 60 s is a step colour
+-- curve on the remaining duration (C_CurveUtil.CreateColorCurve), also evaluated by the client.
+local AuraTime = {}   -- FontSize, Below, GAP, NewText, Text, Tick, SetEnd, Size, Formatter, ColorOptions
 do
+local GOLD = { 1.0, 0.82, 0.0 }      -- NORMAL_FONT_COLOR
+local WHITE = { 1.0, 1.0, 1.0 }      -- HIGHLIGHT_FONT_COLOR
+local WARN = 60                      -- BUFF_DURATION_WARNING_TIME
+
+AuraTime.GAP = 3   -- between icons in a row: the text under each is wider than a small icon
+
 function AuraTime.FontSize(size)
-    return Clamp(math.floor(size * 0.45), 7, 10)
+    return (size or 0) >= 18 and 10 or 8
 end
 
--- "45", "12m", "2h", "3d" - rounded up, so 0 never shows while the aura is still on.
+-- Room under a row of icons this size: its text and a pixel either side.
+function AuraTime.Below(size)
+    return AuraTime.FontSize(size) + 3
+end
+
+local function Color(fs, r, g, b) fs:SetTextColor(r, g, b) end
+
+-- The time text under an icon, in GameFontNormalSmall where the client has it.
+function AuraTime.NewText(icon, size)
+    local fs
+    if _G.GameFontNormalSmall then
+        fs = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    else
+        fs = icon:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(_G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
+        if fs.SetShadowOffset then fs:SetShadowOffset(1, -1) end
+    end
+    local file, _, flags = fs:GetFont()
+    if file then fs:SetFont(file, AuraTime.FontSize(size), flags or "") end
+    Color(fs, GOLD[1], GOLD[2], GOLD[3])
+    if fs.SetWordWrap then fs:SetWordWrap(false) end
+    fs:SetPoint("TOP", icon, "BOTTOM", 0, -1)
+    return fs
+end
+
+-- "45", "9 m", "2 h", "3 d" from a plain number of seconds - rounded up, so 0 never shows while
+-- the aura is still on.
 function AuraTime.Text(left)
     if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
     local s = math.ceil(left)
     if s < 60 then return tostring(s) end
-    if s < 3600 then return math.ceil(s / 60) .. "m" end
-    if s < 86400 then return math.ceil(s / 3600) .. "h" end
-    return math.ceil(s / 86400) .. "d"
-end
-
-local function SetAuraTimeFont(fs, size)
-    fs:SetFont(_G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", AuraTime.FontSize(size), "OUTLINE")
+    if s < 3600 then return math.ceil(s / 60) .. " m" end
+    if s < 86400 then return math.ceil(s / 3600) .. " h" end
+    return math.ceil(s / 86400) .. " d"
 end
 
 -- Our own icons count down from a plain end time (icon.timeEnd, nil while the timing is hidden).
@@ -594,7 +642,10 @@ function AuraTime.Tick(icon, elapsed)
     icon.timeWait = 0.2
     local fin = icon.timeEnd
     local now = type(_G.GetTime) == "function" and _G.GetTime() or nil
-    icon.time:SetText((fin and now) and AuraTime.Text(fin - now) or "")
+    local left = (fin and now) and (fin - now) or nil
+    icon.time:SetText(AuraTime.Text(left))
+    local c = (left and left < WARN) and WHITE or GOLD
+    Color(icon.time, c[1], c[2], c[3])
 end
 
 function AuraTime.SetEnd(icon, fin)
@@ -608,8 +659,90 @@ function AuraTime.Size(icon, size)
     icon:SetSize(size, size)
     if icon.timeSize ~= size then
         icon.timeSize = size
-        SetAuraTimeFont(icon.time, size)
+        local file, _, flags = icon.time:GetFont()
+        if file then icon.time:SetFont(file, AuraTime.FontSize(size), flags or "") end
     end
+end
+
+-- The client-side formatter: built once, checked on plain numbers, false where it cannot be
+-- made or does not give the expected text (the container's own "45s" style is used then).
+local formatter, formatterWhy
+local UNITS = { { 60, "%d m" }, { 3600, "%d h" }, { 86400, "%d d" } }
+
+local function BuildRules(spec)
+    local SU, E = _G.C_StringUtil, _G.Enum
+    local up = type(E) == "table" and type(E.NumericRuleFormatRounding) == "table"
+        and E.NumericRuleFormatRounding.Up or 1
+    local fmt = SU.CreateNumericRuleFormatter()
+    local rules = { { threshold = 0, step = 1, rounding = up, format = spec } }
+    for _, u in ipairs(UNITS) do
+        rules[#rules + 1] = { threshold = u[1], format = (u[2]:gsub("%%d", function() return spec end)),
+            components = { { div = u[1], step = 1, rounding = up } } }
+    end
+    if type(fmt.SetBreakpoints) == "function" then
+        fmt:SetBreakpoints(rules)
+    else
+        for _, r in ipairs(rules) do fmt:AddBreakpoint(r) end
+    end
+    return fmt
+end
+
+local EXPECT = { { 44.2, "45" }, { 540, "9 m" }, { 3540, "59 m" }, { 3600, "1 h" } }
+
+function AuraTime.Formatter()
+    if formatter ~= nil then return formatter, formatterWhy end
+    formatter, formatterWhy = false, "C_StringUtil.CreateNumericRuleFormatter missing"
+    local SU = _G.C_StringUtil
+    if type(SU) ~= "table" or type(SU.CreateNumericRuleFormatter) ~= "function" then return false, formatterWhy end
+    for _, spec in ipairs({ "%d", "%.0f" }) do
+        local ok, fmt = pcall(BuildRules, spec)
+        if ok and fmt then
+            if type(fmt.FormatNumber) ~= "function" then
+                formatter, formatterWhy = fmt, "rule formatter " .. spec .. " (not checked: no FormatNumber)"
+                return formatter, formatterWhy
+            end
+            local good = true
+            for _, e in ipairs(EXPECT) do
+                local okF, txt = pcall(fmt.FormatNumber, fmt, e[1])
+                if not okF or txt ~= e[2] then
+                    good = false
+                    formatterWhy = "rule formatter " .. spec .. " gave " .. tostring(txt) .. " for " .. e[1]
+                    break
+                end
+            end
+            if good then
+                formatter, formatterWhy = fmt, "rule formatter " .. spec
+                return formatter, formatterWhy
+            end
+        else
+            formatterWhy = tostring(fmt)
+        end
+    end
+    return false, formatterWhy
+end
+
+-- White under a minute, gold above, as a step colour curve on the remaining duration; nil where
+-- the client has no colour curves.
+local colorOptions
+function AuraTime.ColorOptions()
+    if colorOptions ~= nil then return colorOptions or nil end
+    colorOptions = false
+    local CU, E = _G.C_CurveUtil, _G.Enum
+    if type(CU) ~= "table" or type(CU.CreateColorCurve) ~= "function" or type(_G.CreateColor) ~= "function"
+        or type(E) ~= "table" or type(E.DurationTextBindingProperty) ~= "table" then
+        return nil
+    end
+    local ok, c = pcall(function()
+        local c = CU.CreateColorCurve()
+        if E.LuaCurveType and E.LuaCurveType.Step ~= nil then c:SetType(E.LuaCurveType.Step) end
+        c:AddPoint(0, _G.CreateColor(WHITE[1], WHITE[2], WHITE[3], 1))
+        c:AddPoint(WARN, _G.CreateColor(GOLD[1], GOLD[2], GOLD[3], 1))
+        return c
+    end)
+    if ok and c then
+        colorOptions = { curve = c, property = E.DurationTextBindingProperty.RemainingDuration }
+    end
+    return colorOptions or nil
 end
 end
 
@@ -635,8 +768,7 @@ local function NewAuraIcon(f)
     end
     icon.count = NewFont(icon, 9)
     icon.count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -1)
-    icon.time = NewFont(icon, AuraTime.FontSize(16))
-    icon.time:SetPoint("TOP", icon, "TOP", 0, 1)
+    icon.time = AuraTime.NewText(icon, 16)
     icon.timeSize = 16
     icon:SetScript("OnUpdate", AuraTime.Tick)
     icon:EnableMouse(true)
@@ -664,6 +796,171 @@ end
 local function UnitTooltipHide(self)
     if self.hl then self.hl:Hide() end
     if _G.GameTooltip then _G.GameTooltip:Hide() end
+end
+
+-- ---------------------------------------------------------------------------
+-- Heal prediction (1.2.2), as on Blizzard's unit frames: incoming heals as an overlay from the
+-- health bar's fill edge into the missing health - yours in a stronger green over everyone's in a
+-- lighter green - then absorb shields in white after them, and heal absorbs (necrotic) in dark red
+-- drawn back over the fill from its edge.
+--
+-- Secret-safe: the values are never added, compared or tested here. Each overlay is a StatusBar the
+-- width of the health bar, anchored to the fill texture's right edge, with min/max and value set
+-- straight from the client (StatusBar takes secrets). The client's own calculator does the sums
+-- (CreateUnitHealPredictionCalculator + UnitGetDetailedHealPrediction, 12.x): incoming heals
+-- clamped to the missing health, absorbs to the missing health left after the heals, heal absorbs
+-- to the current health - so nothing reaches past the bar's end. "Yours over everyone's" needs no
+-- subtraction: both bars start at the fill edge and yours is drawn on top. Without the calculator
+-- the raw UnitGetIncomingHeals / UnitGetTotalAbsorbs / UnitGetTotalHealAbsorbs are used unclamped,
+-- and the health bar clips its children so nothing is drawn past its end either way.
+-- ---------------------------------------------------------------------------
+
+local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
+local HealPred = {}   -- Build, Update, Hide, Fake, Method
+do
+local MY = { 0.0, 0.83, 0.2, 0.85 }      -- your heals (Blizzard's myHealPrediction is a strong green)
+local ALL = { 0.55, 0.95, 0.45, 0.55 }   -- everyone's heals, lighter
+local ABSORB = { 1.0, 1.0, 1.0, 0.55 }   -- totalAbsorb: white, with Blizzard's stripes where found
+local HEAL_ABSORB = { 0.45, 0.0, 0.0, 0.75 }
+local SHIELD_OVERLAY = "Interface\\RaidFrame\\Shield-Overlay"
+
+local calc   -- the shared calculator; false where the client has none
+
+local function Calculator()
+    if calc ~= nil then return calc end
+    calc = false
+    local make, E = _G.CreateUnitHealPredictionCalculator, _G.Enum
+    if type(make) ~= "function" or type(_G.UnitGetDetailedHealPrediction) ~= "function" then return false end
+    local ok, c = pcall(make)
+    if not ok or not c then return false end
+    pcall(function()
+        if type(E) ~= "table" then return end
+        if E.UnitIncomingHealClampMode then c:SetIncomingHealClampMode(E.UnitIncomingHealClampMode.MissingHealth) end
+        if c.SetIncomingHealOverflowPercent then c:SetIncomingHealOverflowPercent(1) end
+        if E.UnitDamageAbsorbClampMode then c:SetDamageAbsorbClampMode(E.UnitDamageAbsorbClampMode.MissingHealth) end
+        if E.UnitHealAbsorbClampMode then c:SetHealAbsorbClampMode(E.UnitHealAbsorbClampMode.CurrentHealth) end
+        if E.UnitHealAbsorbMode then c:SetHealAbsorbMode(E.UnitHealAbsorbMode.ReducedByIncomingHeals) end
+    end)
+    calc = c
+    return calc
+end
+
+function HealPred.Method()
+    if Calculator() then return "client calculator (clamped)" end
+    if type(_G.UnitGetIncomingHeals) == "function" then return "raw values, clipped to the bar" end
+    return "none on this client"
+end
+
+local function Overlay(health, level, c, reverse)
+    local b = CreateFrame("StatusBar", nil, health)
+    b:SetStatusBarTexture(FLAT)
+    b:SetStatusBarColor(c[1], c[2], c[3], c[4])
+    b:SetFrameLevel(health:GetFrameLevel() + level)
+    if reverse and b.SetReverseFill then b:SetReverseFill(true) end
+    b:SetMinMaxValues(0, 1)
+    b:SetValue(0)
+    b:Hide()
+    return b
+end
+
+-- Anchors bar from the right edge of tex (or, reversed, back from it) at the health bar's width.
+local function Place(bar, tex, width, reverse)
+    bar:ClearAllPoints()
+    if reverse then
+        bar:SetPoint("TOPRIGHT", tex, "TOPRIGHT", 0, 0)
+        bar:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", 0, 0)
+    else
+        bar:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        bar:SetPoint("BOTTOMLEFT", tex, "BOTTOMRIGHT", 0, 0)
+    end
+    bar:SetWidth(width)
+end
+
+function HealPred.Build(f)
+    local h = f.health
+    if h.SetClipsChildren then pcall(h.SetClipsChildren, h, true) end
+    local hp = {}
+    hp.all = Overlay(h, 1, ALL)
+    hp.mine = Overlay(h, 2, MY)
+    hp.absorb = Overlay(h, 1, ABSORB)
+    hp.healAbsorb = Overlay(h, 3, HEAL_ABSORB, true)
+    local fill = h:GetStatusBarTexture()
+    Place(hp.all, fill, f.healthW)
+    Place(hp.mine, fill, f.healthW)
+    Place(hp.absorb, hp.all:GetStatusBarTexture(), f.healthW)
+    Place(hp.healAbsorb, fill, f.healthW, true)
+    local ov = hp.absorb:CreateTexture(nil, "OVERLAY")
+    ov:SetAllPoints(hp.absorb:GetStatusBarTexture())
+    local okTex = ov:SetTexture(SHIELD_OVERLAY, "REPEAT", "REPEAT")
+    if okTex == false then
+        ov:Hide()
+    else
+        if ov.SetHorizTile then ov:SetHorizTile(true) end
+        if ov.SetVertTile then ov:SetVertTile(true) end
+        ov:SetAlpha(0.6)
+    end
+    -- The health text above the overlays.
+    local tf = CreateFrame("Frame", nil, h)
+    tf:SetAllPoints(h)
+    tf:SetFrameLevel(h:GetFrameLevel() + 5)
+    if h.text then h.text:SetParent(tf) end
+    f.healPred = hp
+end
+
+function HealPred.Hide(f)
+    local hp = f.healPred
+    if not hp then return end
+    for _, b in pairs(hp) do b:Hide() end
+end
+
+local function Set(bar, mx, v)
+    if type(v) ~= "number" then bar:Hide(); return end   -- type() is allowed on a secret
+    bar:SetMinMaxValues(0, mx)
+    bar:SetValue(v)
+    bar:Show()
+end
+
+-- One frame's overlays from the client. Values go from one client call to the next.
+function HealPred.Update(f)
+    local hp = f.healPred
+    if not hp then return end
+    if f.preview or not db.healPrediction then HealPred.Hide(f); return end
+    local u = f.unit
+    local mx = UnitHealthMax(u)
+    if type(mx) ~= "number" then HealPred.Hide(f); return end
+    local all, mine, absorb, healAbsorb
+    local c = Calculator()
+    if c then
+        _G.UnitGetDetailedHealPrediction(u, "player", c)
+        all, mine = c:GetIncomingHeals()
+        if type(all) == "table" then all, mine = all.amount, all.amountFromHealer end
+        absorb = c:GetDamageAbsorbs()
+        if type(absorb) == "table" then absorb = absorb.amount end
+        healAbsorb = c:GetHealAbsorbs()
+        if type(healAbsorb) == "table" then healAbsorb = healAbsorb.amount end
+    else
+        local inc, tot, habs = _G.UnitGetIncomingHeals, _G.UnitGetTotalAbsorbs, _G.UnitGetTotalHealAbsorbs
+        if type(inc) == "function" then all, mine = inc(u), inc(u, "player") end
+        if type(tot) == "function" then absorb = tot(u) end
+        if type(habs) == "function" then healAbsorb = habs(u) end
+    end
+    Set(hp.all, mx, all)
+    Set(hp.mine, mx, mine)
+    Set(hp.absorb, mx, absorb)
+    Set(hp.healAbsorb, mx, healAbsorb)
+end
+
+-- Test mode: plain made-up values { mine, others, absorb } against the made-up maximum.
+function HealPred.Fake(f, d, mx)
+    local hp = f.healPred
+    if not hp then return end
+    if not db.healPrediction or not d.heal then HealPred.Hide(f); return end
+    local h = d.heal
+    Set(hp.all, mx, h[1] + h[2])
+    Set(hp.mine, mx, h[1])
+    Set(hp.absorb, mx, h[3])
+    hp.healAbsorb:Hide()
+end
 end
 
 local function FrameHeight(L)
@@ -765,6 +1062,19 @@ local function Build(key, unit, preview)
     f.power = NewBar(f, L.mp, L.powerText and math.max(7, L.mp - 3) or nil)
     f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, -1)
     f.power:SetPoint("TOPRIGHT", f.health, "BOTTOMRIGHT", 0, -1)
+    f.healthW = L.w - barsX - PAD
+    HealPred.Build(f)
+
+    -- The player's mana while a form shows another power (druid in bear or cat form): a thin
+    -- blue bar under the power bar, as Blizzard's alternate mana bar. Hidden until needed; it
+    -- takes its room from the health bar, since the secure frame cannot grow in combat.
+    if key == "player" then
+        f.mana = NewBar(f, Mana.H, 7)
+        f.mana:SetPoint("TOPLEFT", f.power, "BOTTOMLEFT", 0, -1)
+        f.mana:SetPoint("TOPRIGHT", f.power, "BOTTOMRIGHT", 0, -1)
+        f.mana:SetStatusBarColor(POWER_COLORS.MANA[1], POWER_COLORS.MANA[2], POWER_COLORS.MANA[3])
+        f.mana:Hide()
+    end
 
     -- Icons.
     local ri = f:CreateTexture(nil, "OVERLAY")
@@ -896,18 +1206,102 @@ end
 
 -- Shows or hides the power bar; without it the health bar takes the power bar's height too.
 -- Both are plain child bars of our frame, so this is allowed in combat.
+-- The health bar's height from what sits under it: the power bar's room when there is no power,
+-- less the player's extra mana bar while that shows.
+function Mana.Heights(f)
+    local L = f.layout
+    local h = L.hp
+    if f.powerShown == false then h = h + 1 + L.mp end
+    if f.manaShown then h = h - (Mana.H + 1) end
+    f.health:SetHeight(h)
+end
+
 local function SetPowerShown(f, on)
     on = on and true or false
     if f.powerShown == on then return end
     f.powerShown = on
-    local L = f.layout
-    if on then
-        f.health:SetHeight(L.hp)
-        f.power:Show()
-    else
-        f.power:Hide()
-        f.health:SetHeight(L.hp + 1 + L.mp)
+    if on then f.power:Show() else f.power:Hide() end
+    Mana.Heights(f)
+end
+
+-- ---------------------------------------------------------------------------
+-- The player's mana under a form's power (1.2.2). Shown only while the display power is not mana
+-- and the player has mana: a plain maximum above 0, or - where the maximum is hidden - the
+-- client's UnitHasPowerType. The text is "cur/max  NN%", from plain numbers or through the same
+-- secret-safe helpers as the other bars. Player frame only.
+-- ---------------------------------------------------------------------------
+
+do
+local function ManaType()
+    local E = _G.Enum
+    return type(E) == "table" and type(E.PowerType) == "table" and E.PowerType.Mana or 0
+end
+
+local function SetManaShown(f, on)
+    on = on and true or false
+    if f.manaShown == on then return end
+    f.manaShown = on
+    if on then f.mana:Show() else f.mana:Hide() end
+    Mana.Heights(f)
+end
+
+-- Hidden mana values as "cur/max  NN%" (or less, where a helper is missing). Nothing is tested.
+local function ManaSecretText(fs, u, mt)
+    local C = _G.CurveConstants
+    local pct
+    if type(C) == "table" and C.ScaleTo100 ~= nil and type(_G.UnitPowerPercent) == "function" then
+        pct = _G.UnitPowerPercent(u, mt, false, C.ScaleTo100)
     end
+    local abbr = type(_G.AbbreviateNumbers) == "function" and _G.AbbreviateNumbers or nil
+    if abbr and pct ~= nil then
+        fs:SetFormattedText("%s/%s  %.0f%%", abbr(UnitPower(u, mt)), abbr(UnitPowerMax(u, mt)), pct)
+    elseif abbr then
+        fs:SetFormattedText("%s/%s", abbr(UnitPower(u, mt)), abbr(UnitPowerMax(u, mt)))
+    elseif pct ~= nil then
+        fs:SetFormattedText("%.0f%%", pct)
+    else
+        fs:SetText("")
+    end
+end
+
+function Mana.Update(f)
+    if not f.mana then return end
+    local u, mt = f.unit, ManaType()
+    local pType = Num(UnitPowerType(u))
+    local cur, mx = UnitPower(u, mt), UnitPowerMax(u, mt)
+    local has
+    local plainMax = Num(mx)
+    if plainMax then
+        has = plainMax > 0
+    elseif type(_G.UnitHasPowerType) == "function" then
+        local ok, v = pcall(_G.UnitHasPowerType, u, mt)
+        has = ok and Plain(v) == true
+    end
+    local want = has and pType ~= nil and pType ~= mt
+    f.manaWhy = (pType == mt and "display power is mana")
+        or (pType == nil and "display power hidden")
+        or (has and "shown") or (plainMax and "no mana") or "mana maximum hidden"
+    SetManaShown(f, want)
+    if not want then return end
+    local bar, fs = f.mana, f.mana.text
+    if Secret(cur, mx) then
+        bar:SetMinMaxValues(0, mx)
+        bar:SetValue(cur)
+        fs:SetText("")
+        if db.text then Run("secrettext", ManaSecretText, fs, u, mt) end
+        return
+    end
+    cur = Num(cur) or 0
+    if not plainMax or plainMax <= 0 then
+        bar:SetMinMaxValues(0, 1)
+        bar:SetValue(0)
+        fs:SetText("")
+        return
+    end
+    bar:SetMinMaxValues(0, plainMax)
+    bar:SetValue(cur)
+    if db.text then PlainText(f, bar, cur, plainMax) else fs:SetText("") end
+end
 end
 
 -- Whether a unit has no power to show: true (none), false (it has power) or nil (cannot tell),
@@ -928,7 +1322,10 @@ local function NoPower(u, pType, cur, mx)
             return not has, "UnitHasPowerType " .. tostring(has)
         end
     end
-    if Num(cur) == 0 then return true, "power 0 plain, max hidden" end
+    -- Not for the player or anything player-controlled: a bear at 0 rage has rage (1.2.2).
+    local pc = u == "player"
+        or (type(_G.UnitPlayerControlled) == "function" and Plain(_G.UnitPlayerControlled(u)) == true)
+    if Num(cur) == 0 and not pc then return true, "power 0 plain, max hidden" end
     return nil, "max hidden, nothing to tell"
 end
 
@@ -1047,7 +1444,17 @@ local function UpdatePower(f)
         bar:SetValue(cur)
         local method = PowerHide.Method()
         f.powerHide = method
-        if method == "curve+truncate" or method == "curve" then Run("powerhide", PowerHide.Alpha, bar, u)
+        -- The alpha curve is only for the hidden 0 maximum of an NPC. A unit whose maximum is
+        -- known (plain and above 0) or that is player-controlled (the player, a pet, a party
+        -- member: their maximum is never the hidden 0) keeps its bar at 0 rage or energy
+        -- (1.2.2: a bear at 0 rage had no rage bar).
+        local plainMax = Num(mx)
+        local knownMax = (plainMax and plainMax > 0) or u == "player"
+            or (type(_G.UnitPlayerControlled) == "function" and Plain(_G.UnitPlayerControlled(u)) == true)
+        if knownMax then
+            bar:SetAlpha(1)
+            f.powerHide = method .. " (alpha kept: max known)"
+        elseif method == "curve+truncate" or method == "curve" then Run("powerhide", PowerHide.Alpha, bar, u)
         else bar:SetAlpha(1) end
         if fs then
             fs:SetText("")
@@ -1329,12 +1736,25 @@ do
                 containerInfo.buttonError = tostring(err)
                 return
             end
-            -- The time left: the client's duration binding writes it (secret or not) into our
-            -- font string. On its own, so a client without it still gets the rest.
+            -- The time left under the icon: the client's duration binding writes it (secret or
+            -- not) into our font string, through our rule formatter ("45", "9 m", "1 h") and the
+            -- white/gold colour curve. Without them (or if the client refuses the options) the
+            -- container's own formatter is used ("45s", "9m"). On its own, so a client without
+            -- SetDurationText still gets the rest.
             local okTime, errTime = pcall(function()
-                local tm = NewFont(button, AuraTime.FontSize(g.size))
-                tm:SetPoint("TOP", button, "TOP", 0, 1)
-                button:SetDurationText(tm)
+                local tm = AuraTime.NewText(button, g.size)
+                local fmt = AuraTime.Formatter()
+                local opts
+                if fmt then opts = { textFormatter = fmt, textColor = AuraTime.ColorOptions() } end
+                local okOpts, errOpts = true, nil
+                if opts then okOpts, errOpts = pcall(button.SetDurationText, button, tm, opts) end
+                if not opts or not okOpts then
+                    if errOpts then containerInfo.timeFormatError = tostring(errOpts) end
+                    button:SetDurationText(tm)
+                    containerInfo.timeFormat = "client default (45s, 9m)"
+                else
+                    containerInfo.timeFormat = "45 / 9 m / 1 h"
+                end
             end)
             if okTime then
                 containerInfo.timeText = true
@@ -1358,12 +1778,16 @@ do
         local ok, err = pcall(function()
             c:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", 0, 0)
             if type(c.SetFlowLayoutMaximumLineSize) == "function" then c:SetFlowLayoutMaximumLineSize(f.layout.w) end
+            -- Room under each line for the time text of the frame's largest icons.
+            local below = 0
+            for _, g in ipairs(groups) do below = math.max(below, AuraTime.Below(g.size)) end
             for i, g in ipairs(groups) do
                 c:AddAuraGroup(g.key, g.filter, {
                     maxFrameCount = g.max,
                     candidateFilters = g.others and { isFromPlayerOrPlayerPet = false } or nil,
                     initializeFrame = ButtonLook(g),
-                    layout = { elementSpacing = 2, lineSpacing = 2, groupSpacing = 4, groupLineSpacing = 2,
+                    layout = { elementSpacing = AuraTime.GAP, lineSpacing = below, groupSpacing = 4,
+                        groupLineSpacing = below,
                         forceNewLine = g.newLine or nil, elementWidth = g.size, elementHeight = g.size,
                         layoutIndex = i },
                 })
@@ -1483,7 +1907,7 @@ do
         f.auraShown = f.auraShown or {}
         f.auraPath = "index"
         for _, row in ipairs(rows) do
-            if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
+            if x > 0 then x = 0; y = y - rowH - AuraTime.Below(rowH); rowH = 0 end
             local shown = 0
             for i = 1, 40 do
                 if shown >= row.max then break end
@@ -1494,11 +1918,11 @@ do
                 if not icon then icon = NewAuraIcon(f); icons[n + 1] = icon end
                 local ok, size = pcall(PaintAura, f, icon, row, a, i)
                 if ok then
-                    if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
+                    if x > 0 and x + size > width then x = 0; y = y - rowH - AuraTime.Below(rowH); rowH = 0 end
                     AuraTime.Size(icon, size)
                     icon:ClearAllPoints()
                     icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
-                    x = x + size + 2
+                    x = x + size + AuraTime.GAP
                     if size > rowH then rowH = size end
                     n = n + 1
                     shown = shown + 1
@@ -1605,7 +2029,9 @@ UpdateFrame = function(f)
     if not db or f.preview then return end
     if Plain(UnitExists(f.unit)) ~= true then return end
     Run("health", UpdateHealth, f)
+    Run("healpred", HealPred.Update, f)
     Run("power", UpdatePower, f)
+    if f.mana then Run("mana", Mana.Update, f) end
     Run("name", UpdateName, f)
     Run("portrait", UpdatePortrait, f)
     Run("icons", UpdateIcons, f)
@@ -1962,7 +2388,7 @@ local FAKE = {
         { "Interface\\Icons\\Spell_Nature_LightningShield", nil, { 60, 600 } },
         "Interface\\Icons\\Spell_Holy_SealOfWisdom",
     } },
-    target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 },
+    target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 }, heal = { 300, 200, 250 },
         power = { 900, 1200, "MANA" }, reaction = { 0.85, 0.2, 0.2 }, combo = 3,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 300, 1800 } },
                   { "Interface\\Icons\\Spell_Nature_Regeneration", nil, { 1500, 1800 } } },
@@ -1976,6 +2402,7 @@ local FAKE = {
     party1 = { name = "Thrall", level = 60, class = "SHAMAN", hp = { 3900, 4200 }, power = { 3100, 4000, "MANA" }, leader = true,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 900, 1800 } } } },
     party2 = { name = "Jaina", level = 60, class = "MAGE", hp = { 1100, 3600 }, power = { 2500, 5200, "MANA" },
+        heal = { 500, 400, 600 },   -- your heal, others' heals, absorb shield (heal prediction)
         debuffs = { { "Interface\\Icons\\Spell_Shadow_CurseOfTounges", nil, { 10, 120 } } } },
     party3 = { name = "Uther", level = 60, class = "PALADIN", hp = { 600, 4800 }, power = { 1800, 4300, "MANA" }, far = true },
     party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" } },
@@ -1990,7 +2417,7 @@ local function FakeAuras(f, d)
     if rows[1].filter == "HARMFUL" then lists = { d.debuffs or {}, d.buffs or {} } end
     local now = type(_G.GetTime) == "function" and _G.GetTime() or nil
     for ri, row in ipairs(rows) do
-        if x > 0 then x = 0; y = y - rowH - 2; rowH = 0 end
+        if x > 0 then x = 0; y = y - rowH - AuraTime.Below(rowH); rowH = 0 end
         for k, item in ipairs(lists[ri]) do
             if k > row.max then break end
             n = n + 1
@@ -1999,11 +2426,11 @@ local function FakeAuras(f, d)
             local path, own, cd = item, nil, nil
             if type(item) == "table" then path, own, cd = item[1], item[2], item[3] end
             local size = (own and row.own) or row.size
-            if x > 0 and x + size > width then x = 0; y = y - rowH - 2; rowH = 0 end
+            if x > 0 and x + size > width then x = 0; y = y - rowH - AuraTime.Below(rowH); rowH = 0 end
             AuraTime.Size(icon, size)
             icon:ClearAllPoints()
             icon:SetPoint("TOPLEFT", f.auraAnchor, "TOPLEFT", x, y)
-            x = x + size + 2
+            x = x + size + AuraTime.GAP
             if size > rowH then rowH = size end
             icon.tex:SetTexture(path)
             icon.tex:SetDesaturated(row.own ~= nil and own == false)
@@ -2039,6 +2466,7 @@ local function FillFake(f)
     end
     f.health:SetStatusBarColor(r, g, b)
     if db.text then PlainText(f, f.health, hp, mx) else f.health.text:SetText("") end
+    HealPred.Fake(f, d, mx)
     local pc, pm, token = d.power[1], d.power[2], d.power[3]
     SetPowerShown(f, pm > 0)
     f.power:SetMinMaxValues(0, pm > 0 and pm or 1)
@@ -2434,6 +2862,7 @@ local SETTING_TOGGLES = {
     { key = "lowhp", cmd = "lowhp", label = "Low-health colour" },
     { key = "classColor", cmd = "classcolor", label = "Class colour" },
     { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
+    { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
 }
 
 local function SetToggle(t, on)
@@ -2474,6 +2903,8 @@ local function PrintHelp()
     Print("/bff text | lowhp | classcolor on | off - bar text, low-health colour, class colour")
     Print("/bff playerbuffs on | off - your buffs in rows under the player frame (now: "
         .. OnOff(db and db.playerBuffs) .. ")")
+    Print("/bff healpred on | off - incoming heals and absorbs on the health bars (now: "
+        .. OnOff(db and db.healPrediction) .. ")")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -2538,8 +2969,13 @@ local function PrintAuraStatus()
         .. (containerInfo.buttonError and (DOT .. "button look failed: " .. containerInfo.buttonError) or "")
         .. ((containerInfo.timeText and not containerInfo.timeError) and (DOT .. "time text on") or "")
         .. (containerInfo.timeError and (DOT .. "time text refused: " .. containerInfo.timeError) or "")
+        .. (containerInfo.timeFormat and (DOT .. "time format " .. containerInfo.timeFormat) or "")
+        .. (containerInfo.timeFormatError and (" (options refused: " .. containerInfo.timeFormatError .. ")") or "")
         .. "   C_AuraContainerUtil " .. Yes(type(_G.C_AuraContainerUtil) == "table")
         .. "   CustomAuraContainerGroupDefaultOptions " .. Yes(type(_G.CustomAuraContainerGroupDefaultOptions) == "table"))
+    local _, fmtWhy = AuraTime.Formatter()
+    Print("aura time text: " .. tostring(fmtWhy) .. DOT .. "colour curve "
+        .. (AuraTime.ColorOptions() and "yes" or "no (gold only)"))
     Print("aura API: GetAuraDataByIndex " .. Yes(Has("C_UnitAuras", "GetAuraDataByIndex"))
         .. "   GetUnitAuras " .. Yes(Has("C_UnitAuras", "GetUnitAuras"))
         .. "   GetAuraDuration " .. Yes(Has("C_UnitAuras", "GetAuraDuration"))
@@ -2624,6 +3060,15 @@ local function PrintStatus()
     PrintAuraStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "low-health colour " .. OnOff(db.lowhp)
         .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
+    Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
+        .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
+    local p = real.player
+    Print("player mana bar: " .. ((p and p.manaShown) and "shown" or "hidden")
+        .. " (" .. ((p and p.manaWhy) or "not drawn yet") .. ")"
+        .. (blocked.mana and (" (off: " .. blocked.mana .. ")") or "")
+        .. DOT .. "player power bar " .. ((p and p.powerShown == false) and "hidden" or "shown")
+        .. " (" .. ((p and p.powerWhy) or "not drawn yet") .. ")"
+        .. ((p and p.powerHide) and (DOT .. p.powerHide) or ""))
     PrintPowerStatus()
     Print("SecureUnitButtonTemplate frames: " .. (unsupported and ("no - " .. unsupported) or (started and "built" or "not built yet"))
         .. "   RegisterUnitWatch: " .. Yes(type(_G.RegisterUnitWatch) == "function")
@@ -2851,9 +3296,11 @@ local UNIT_EVENTS = {
     UNIT_AURA = UpdateAuras,
     UNIT_PORTRAIT_UPDATE = UpdatePortrait, UNIT_MODEL_CHANGED = UpdatePortrait,
     UNIT_NAME_UPDATE = UpdateName, UNIT_LEVEL = UpdateName, UNIT_CLASSIFICATION_CHANGED = UpdateName,
+    UNIT_HEAL_PREDICTION = HealPred.Update, UNIT_ABSORB_AMOUNT_CHANGED = HealPred.Update,
+    UNIT_HEAL_ABSORB_AMOUNT_CHANGED = HealPred.Update,
 }
 local UNIT_EVENT_FEATURE = {
-    [UpdateHealth] = "health", [UpdatePower] = "power", [UpdateAuras] = "auras",
+    [UpdateHealth] = "health", [UpdatePower] = "power", [UpdateAuras] = "auras", [HealPred.Update] = "healpred",
     [UpdatePortrait] = "portrait", [UpdateName] = "name",
 }
 
@@ -2884,7 +3331,11 @@ local function OnUnitEvent(event, unit, arg2)
     end
     local fn = UNIT_EVENTS[event]
     local f = fn and real[unit]
-    if Visible(f) then Run(UNIT_EVENT_FEATURE[fn], fn, f) end
+    if not Visible(f) then return end
+    Run(UNIT_EVENT_FEATURE[fn], fn, f)
+    -- Health changes move the clamps of the heal overlays; power changes the player's mana bar.
+    if fn == UpdateHealth then Run("healpred", HealPred.Update, f) end
+    if fn == UpdatePower and f.mana then Run("mana", Mana.Update, f) end
 end
 
 local events = CreateFrame("Frame")
@@ -2894,7 +3345,7 @@ for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_R
     "PLAYER_TARGET_CHANGED", "PLAYER_UPDATE_RESTING", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
     "RAID_TARGET_UPDATE", "UNIT_FACTION", "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
     "UNIT_TARGET", "UNIT_PET", "UNIT_COMBO_POINTS", "EDIT_MODE_LAYOUTS_UPDATED", "DISPLAY_SIZE_CHANGED",
-    "UI_SCALE_CHANGED" }) do
+    "UI_SCALE_CHANGED", "UPDATE_SHAPESHIFT_FORM" }) do
     pcall(events.RegisterEvent, events, e)
 end
 if HAS_FOCUS then pcall(events.RegisterEvent, events, "PLAYER_FOCUS_CHANGED") end
@@ -2945,6 +3396,12 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         UpdateUnit("targettarget")
     elseif event == "PLAYER_FOCUS_CHANGED" then
         UpdateUnit("focus")
+    elseif event == "UPDATE_SHAPESHIFT_FORM" then
+        local p = real.player
+        if Visible(p) then
+            Run("power", UpdatePower, p)
+            Run("mana", Mana.Update, p)
+        end
     elseif event == "PLAYER_UPDATE_RESTING" then
         local p = real.player
         if Visible(p) then Run("icons", UpdateIcons, p) end

@@ -29,14 +29,21 @@ exactly what the game, or you, set them to.
   An **uninterruptible** cast gets the grey "shield" look from `GaarCast`: grey bar and a light
   steel edge round the icon.
 - **Your debuffs.** Up to 8 of your own debuffs (`HARMFUL|PLAYER`) as 20px icons above the name,
-  with stacks, a cooldown swipe and the time left. In combat this client keeps auras secret and
+  with stacks, a cooldown swipe and the time left. Since 1.2.3 the time left looks like an action
+  button's cooldown count: a white outlined number centred on the icon, never with a seconds unit
+  - `56` under a minute, then `2m`, `59m`, `1h` (rounded up). In combat the time is secret, so it
+  is formatted by the client: a `C_StringUtil.CreateNumericRuleFormatter` with one breakpoint per
+  unit, given to each button's `SetDurationText` as its `textFormatter` (and to the fallback
+  icons' `Cooldown:SetCountdownFormatter`). It is checked on a few plain numbers when built; where
+  it is missing or gives other text, the client's default is used (`56s`, `2m`) and
+  `/bpf debug` says so. In combat this client keeps auras secret and
   refuses every aura read from addon code, so since 1.2 the icons are **drawn by the client**
   (`native`, on by default): each plate gets an `AuraContainer` made from Blizzard's
   `CustomAuraContainerTemplate`, the 12.1 aura API for addons. The client reads the auras in its
   own secure code and fills the buttons; the addon only gives each button its icon texture,
   `Cooldown`, count and time text once, when it is created. With `native off`, or on a client
   without that API, the addon reads the auras itself as in 1.1 (by index, then by spell ID for the
-  spells you cast), with a countdown that turns yellow at 8 s and red at 3 s - but in combat the
+  spells you cast), with the same white countdown - but in combat the
   client refuses those reads, so that fallback in practice shows debuffs out of combat only.
 - **Your target.** Its plate is scaled to 115% with a faint grey ring (`targetscale`, on by
   default), and every other plate is dimmed to 55% while you have a target (`dim`, on by default).
@@ -150,7 +157,8 @@ and without the old `nameSubtext`), `C_UnitAuras.GetAuraDataByIndex` (or `UnitAu
 `CurveConstants.ScaleTo100`, `AbbreviateNumbers`, `UnitIsDeadOrGhost`,
 `CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")` with `AddAuraGroup`,
 `SetUnit`, `SetEnabled`, `GetAuraGroupFrameCount` and, on its buttons, `SetIcon`,
-`SetDurationCooldown`, `SetDurationText`, `SetApplicationCount` (`Blizzard_AuraContainer`),
+`SetDurationCooldown`, `SetDurationText` (with `textFormatter`), `SetApplicationCount` (`Blizzard_AuraContainer`),
+`C_StringUtil.CreateNumericRuleFormatter`, `Enum.NumericRuleFormatRounding`, `Cooldown:SetCountdownFormatter`,
 `C_CVar.GetCVar` (read only),
 `issecretvalue` where it exists, `RAID_CLASS_COLORS`, `AbbreviateLargeNumbers`, `STANDARD_TEXT_FONT`,
 `BackdropTemplate`, `C_AddOns.IsAddOnLoaded` (or `IsAddOnLoaded`).

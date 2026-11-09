@@ -27,7 +27,7 @@ of the code.
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
-| `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, class/reaction/low-health colours, target buffs and debuffs with combo points, your own buffs under the player frame, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
+| `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, heal prediction and absorbs, a druid mana bar in forms, class/reaction/low-health colours, target buffs and debuffs with combo points, your own buffs under the player frame, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
 | `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or shift-click the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all seven Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever` and `BetterFramesForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint or unit-frame code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
@@ -185,7 +185,9 @@ default) has player, target, focus and party follow Blizzard's own frames placed
 pet and target of target move along - without anchoring to them: Blizzard's frames are given back
 while Edit Mode is open and their place is copied when it closes. 1.1 also draws target and party
 auras through Blizzard's aura container where the client has one, since this client refuses
-addon aura reads in combat, and hides the power bar of a unit without power. It exists because `GaarFrames`
+addon aura reads in combat, and hides the power bar of a unit without power. 1.2.2 adds heal
+prediction and absorbs on the health bars (`/bff healpred on|off`), the player's mana under a
+druid form's power, and Blizzard buff-frame aura times under the icons (`45`, `9 m`, `1 h`). It exists because `GaarFrames`
 cannot run on Forever: restyling Blizzard's unit frames taints them. So the frames are
 `SecureUnitButtonTemplate` buttons of its own (attributes set once, `RegisterUnitWatch` for
 show/hide, every change to them out of combat, queued to `PLAYER_REGEN_ENABLED` otherwise), and
@@ -195,7 +197,7 @@ bars; the text uses the client's secret-safe helpers where it has them, otherwis
 alone, and every part of an update runs in `pcall` and switches itself off after its first
 refusal with one line in chat. `/bff` for help, `status`, `lock`, `unlock`, `test`, `reset`,
 `scale <frame> <0.6-1.5>`, `frame <frame> on|off`, `editmode on|off`, `portrait 2d|3d`, `text`,
-`lowhp` and `classcolor on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
+`lowhp`, `classcolor` and `healpred on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
 a Frames row for it. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Use it
 instead of GaarFrames, X-Perl, ShadowedUnitFrames or PitBull4, not next to them (it warns once at
 login). Details in [`addons/BetterFramesForever/README.md`](addons/BetterFramesForever/README.md).

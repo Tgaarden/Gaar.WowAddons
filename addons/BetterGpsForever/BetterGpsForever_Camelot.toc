@@ -7,5 +7,6 @@
 ## Version: 1.1
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_02
 ## SavedVariables: BetterGpsForeverDB
+## X-Curse-Project-ID: 1793611
 
 BetterGpsForever.lua

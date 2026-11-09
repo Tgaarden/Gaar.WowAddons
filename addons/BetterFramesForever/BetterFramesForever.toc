@@ -7,5 +7,6 @@
 ## Version: 1.2.1
 ## IconTexture: Interface\Icons\Spell_Holy_PrayerOfHealing
 ## SavedVariables: BetterFramesForeverDB
+## X-Curse-Project-ID: 1793613
 
 BetterFramesForever.lua

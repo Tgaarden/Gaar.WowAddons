@@ -55,7 +55,7 @@ local ADDON_NAME = ... or "BetterCastbarsForever"
 local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -1038,13 +1038,15 @@ local function MakeSwingRow(hand)
     return r
 end
 
--- The rows hang off the player bar's bottom edge, the same width, so they move, resize and
--- follow Edit Mode with it. Parented to UIParent: they show while the cast bar is idle.
+-- The rows hang off the player bar's bottom edge, from the spell icon's left edge to the bar's
+-- right edge, so they move, resize and follow Edit Mode with it. Parented to UIParent: they show while the cast bar is idle.
 local function MakeSwingHolder()
     swingHolder = CreateFrame("Frame", "BetterCastbarsForever_swing", _G.UIParent)
     swingHolder:SetFrameStrata("MEDIUM")
     swingHolder:EnableMouse(false)
-    swingHolder:SetPoint("TOPLEFT", bars.player, "BOTTOMLEFT", 0, -1)
+    -- The icon border sits 1 px outside the icon, which is as tall as the bar: its bottom-left
+    -- corner is the bar's bottom edge minus 1, the same gap as on the right.
+    swingHolder:SetPoint("TOPLEFT", bars.player.iconBorder, "BOTTOMLEFT", 0, 0)
     swingHolder:SetPoint("TOPRIGHT", bars.player, "BOTTOMRIGHT", 0, -1)
     swingHolder:SetHeight(SWING_H)
     for _, hand in ipairs(SWING_ORDER) do swingRows[hand] = MakeSwingRow(hand) end

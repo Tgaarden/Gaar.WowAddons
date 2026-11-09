@@ -1,6 +1,8 @@
 ## Interface: 16001
 ## Title: BetterBagsForever
 ## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm. /bbf
+## Category: Better Forever
+## Category-enUS: Better Forever
 ## Author: Gaar
 ## Version: 1.7
 ## X-Curse-Project-ID: 1766812

@@ -1,6 +1,8 @@
 ## Interface: 16001
 ## Title: BetterGaarForever
 ## Notes: Optional hub for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever and BetterFramesForever: one minimap button whose menu holds their options. Each addon keeps its own settings and commands. /bgf
+## Category: Better Forever
+## Category-enUS: Better Forever
 ## Author: Gaar
 ## Version: 2.4
 ## X-Curse-Project-ID: 1790363

@@ -1,6 +1,8 @@
 ## Interface: 16001
 ## Title: BetterMapsForever
 ## Notes: Move, scale and fade the world map (Map & Quest Log) on WoW Forever: drag the title bar, resize from the corner grip, fade while moving. /bmf
+## Category: Better Forever
+## Category-enUS: Better Forever
 ## Author: Gaar
 ## Version: 1.1
 ## X-Curse-Project-ID: 1790375

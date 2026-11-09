@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -579,7 +579,7 @@ end
 -- the aura is fresh, darkening as it runs out. The time left sits UNDER the icon in Blizzard's
 -- small gold font, as BuffFrame's AuraButton.Duration (GameFontNormalSmall, anchored TOP to the
 -- icon's BOTTOM, white below BUFF_DURATION_WARNING_TIME) - but never with a seconds unit:
--- "45", "9 m", "59 m", "1 h", "2 d" (SecondsToTimeAbbrev's "%d m" / "%d h" / "%d d", rounded up).
+-- "45", "9m", "59m", "1h", "2d" (no space between number and unit, rounded up).
 -- Icons under 18 px (party) get the same font at 8 px. The rows leave room for the text.
 --
 -- Where the client draws the icons (AuraContainer) the remaining time is secret in combat, so it is
@@ -624,15 +624,15 @@ function AuraTime.NewText(icon, size)
     return fs
 end
 
--- "45", "9 m", "2 h", "3 d" from a plain number of seconds - rounded up, so 0 never shows while
+-- "45", "9m", "2h", "3d" from a plain number of seconds - rounded up, so 0 never shows while
 -- the aura is still on.
 function AuraTime.Text(left)
     if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
     local s = math.ceil(left)
     if s < 60 then return tostring(s) end
-    if s < 3600 then return math.ceil(s / 60) .. " m" end
-    if s < 86400 then return math.ceil(s / 3600) .. " h" end
-    return math.ceil(s / 86400) .. " d"
+    if s < 3600 then return math.ceil(s / 60) .. "m" end
+    if s < 86400 then return math.ceil(s / 3600) .. "h" end
+    return math.ceil(s / 86400) .. "d"
 end
 
 -- Our own icons count down from a plain end time (icon.timeEnd, nil while the timing is hidden).
@@ -667,7 +667,7 @@ end
 -- The client-side formatter: built once, checked on plain numbers, false where it cannot be
 -- made or does not give the expected text (the container's own "45s" style is used then).
 local formatter, formatterWhy
-local UNITS = { { 60, "%d m" }, { 3600, "%d h" }, { 86400, "%d d" } }
+local UNITS = { { 60, "%dm" }, { 3600, "%dh" }, { 86400, "%dd" } }
 
 local function BuildRules(spec)
     local SU, E = _G.C_StringUtil, _G.Enum
@@ -687,7 +687,7 @@ local function BuildRules(spec)
     return fmt
 end
 
-local EXPECT = { { 44.2, "45" }, { 540, "9 m" }, { 3540, "59 m" }, { 3600, "1 h" } }
+local EXPECT = { { 44.2, "45" }, { 540, "9m" }, { 3540, "59m" }, { 3600, "1h" } }
 
 function AuraTime.Formatter()
     if formatter ~= nil then return formatter, formatterWhy end
@@ -1737,7 +1737,7 @@ do
                 return
             end
             -- The time left under the icon: the client's duration binding writes it (secret or
-            -- not) into our font string, through our rule formatter ("45", "9 m", "1 h") and the
+            -- not) into our font string, through our rule formatter ("45", "9m", "1h") and the
             -- white/gold colour curve. Without them (or if the client refuses the options) the
             -- container's own formatter is used ("45s", "9m"). On its own, so a client without
             -- SetDurationText still gets the rest.
@@ -1753,7 +1753,7 @@ do
                     button:SetDurationText(tm)
                     containerInfo.timeFormat = "client default (45s, 9m)"
                 else
-                    containerInfo.timeFormat = "45 / 9 m / 1 h"
+                    containerInfo.timeFormat = "45 / 9m / 1h"
                 end
             end)
             if okTime then

@@ -22,6 +22,8 @@ party, and switches Blizzard's off. It needs no other addon or library.
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
   border, rares a silver one. A unit without power (most beasts) has no power bar; the health
   bar takes its room.
+  Switching target (or a party slot changing hands) rebuilds the aura rows, so they never keep
+  the previous unit's buffs and debuffs (1.2.4).
 - **Aura timing** (1.2.2, Blizzard buff-frame style). Every aura icon (player buffs, target
   buffs and debuffs, party auras, test mode) has its time left **under** the icon, in Blizzard's
   small gold buff-duration font (`GameFontNormalSmall`, 10 px; 8 px under the small party icons),

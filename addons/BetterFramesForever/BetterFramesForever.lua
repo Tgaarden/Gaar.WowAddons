@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -1955,7 +1955,24 @@ do
         return db.playerBuffs and not testing
     end
 
-    UpdateAuras = function(f)
+    -- Has the container rebuild its list from the unit's current auras. It follows the unit's
+    -- UNIT_AURA events by itself, but those only add, change and remove single auras: when the
+    -- unit token points at someone else (a new target, a party slot after a roster change) it
+    -- gets no event and keeps the previous unit's auras, buffs and debuffs both, until it is
+    -- hidden. Blizzard's own target frame calls UpdateAllAuras on PLAYER_TARGET_CHANGED for the
+    -- same reason. A client without it gets a hide and show, which rebuild it too.
+    local function RebuildContainer(f)
+        local c = f.auraContainer
+        if type(c.UpdateAllAuras) == "function" then
+            local ok = pcall(c.UpdateAllAuras, c)
+            if ok then return end
+        end
+        pcall(c.Hide, c)
+        pcall(c.Show, c)
+    end
+
+    -- full: the frame's unit may be someone else now (UpdateFrame), not just an aura event.
+    UpdateAuras = function(f, full)
         if not AURAS[f.key] or not f.auraIcons then return end
         local wanted = Wanted(f)
         if f.auraContainer then SetContainerShown(f, wanted) end
@@ -1971,6 +1988,7 @@ do
         if f.auraContainer then
             -- The client draws them; it follows the unit and its aura events itself.
             f.auraPath = "Blizzard aura container"
+            if full then RebuildContainer(f) end
             for _, icon in ipairs(f.auraIcons) do icon:Hide() end
             return
         end
@@ -2036,7 +2054,7 @@ UpdateFrame = function(f)
     Run("portrait", UpdatePortrait, f)
     Run("icons", UpdateIcons, f)
     Run("threat", UpdateThreat, f)
-    if f.auraIcons then Run("auras", UpdateAuras, f) end
+    if f.auraIcons then Run("auras", UpdateAuras, f, true) end
     if f.key == "party" then Run("range", UpdateRange, f) end
     if f.combo then Run("combo", UpdateCombo, f) end
 end

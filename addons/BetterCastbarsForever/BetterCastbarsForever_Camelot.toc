@@ -7,5 +7,6 @@
 ## Version: 1.1.1
 ## IconTexture: Interface\Icons\Spell_Fire_FlameBolt
 ## SavedVariables: BetterCastbarsForeverDB
+## X-Curse-Project-ID: 1793607
 
 BetterCastbarsForever.lua

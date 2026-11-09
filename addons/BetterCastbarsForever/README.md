@@ -50,6 +50,7 @@ GaarCast learnt about secret values.
   "Main Hand" swing bar is left alone; turn it off yourself (Edit Mode) if you use this one.
 
 1.1.1: PLAYER_SWING payload is (duration, swingType), so OffHand and Ranged swings now drive the right bars with the real duration.
+1.1.2: the swing rows start at the spell icon's left edge instead of the bar's.
 
 Not in 1.1: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
 

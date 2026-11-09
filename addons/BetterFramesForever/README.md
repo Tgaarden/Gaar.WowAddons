@@ -22,18 +22,33 @@ party, and switches Blizzard's off. It needs no other addon or library.
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
   border, rares a silver one. A unit without power (most beasts) has no power bar; the health
   bar takes its room.
-- **Aura timing** (1.2.1). Every aura icon (player buffs, target buffs and debuffs, party
-  auras, test mode) has a small outlined time-left number at its top (`45`, `12m`, `2h`),
-  clear of the stack count in the bottom-right corner, about 45% of the icon's size (7-10 px).
-  The swipe runs the other way round from 1.2, as on Blizzard's own aura buttons: bright when the
-  aura is fresh, darker as it runs out.
+- **Aura timing** (1.2.2, Blizzard buff-frame style). Every aura icon (player buffs, target
+  buffs and debuffs, party auras, test mode) has its time left **under** the icon, in Blizzard's
+  small gold buff-duration font (`GameFontNormalSmall`, 10 px; 8 px under the small party icons),
+  white below a minute as on Blizzard's buff frame. Never a seconds unit: `45` under a minute,
+  then `9 m`, `59 m`, `1 h`, `2 d` (rounded up, as Blizzard's `SecondsToTimeAbbrev`). The icon
+  rows are spaced to leave room for the text. The swipe runs as on Blizzard's own aura buttons
+  (since 1.2.1): bright when the aura is fresh, darker as it runs out.
+- **Heal prediction** (1.2.2, on by default: `/bff healpred off` to hide). On every health bar
+  (player, pet, target, target of target, focus, party), as on Blizzard's frames: incoming heals
+  from the health edge into the missing health, your own in a strong green over everyone's in a
+  lighter green, then absorb shields in white (with Blizzard's shield stripes where the client has
+  the texture), and heal absorbs (necrotic and the like) in dark red drawn back over the health.
+  Nothing is drawn past the end of the bar.
+- **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
+  mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
+  Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays
+  as it is - and since 1.2.2 it also stays at 0 rage or energy (1.2.1 hid the player's empty bar).
 - **Player buffs** (1.2, on by default: `/bff playerbuffs off` to hide). Your own buffs in rows
   under the player frame, X-Perl style: up to 20 icons of 20 px, 10 to a row, with the same look
   as the target's buffs (icon, stack count, remaining-time swipe, tooltip on hover). Buffs only,
   no debuffs; right-click to cancel a buff is not there (that needs Blizzard's secure buff
   buttons). They move and scale with the player frame and follow Edit Mode with it. To make room
   the pet frame's default place is now under the two buff rows, and the party block's below it
-  (a position you dragged yourself is kept).
+  (a position you dragged yourself is kept). 1.2.2 moves those defaults down again to make room
+  for the time text under the icons (pet at -176, party at -234; party frames 52 px apart); a
+  position you saved yourself is not moved, so after updating check that pet and party do not
+  overlap the buff rows (`/bff test`).
 - **Party.** Small debuffs and buffs under each frame (up to 8 each), and the frame fades to 50%
   when the member is out of range.
 - **Icons.** Raid target icon on every frame, group leader on the player and party frames, combat
@@ -57,7 +72,7 @@ party, and switches Blizzard's off. It needs no other addon or library.
   twelve made-up ones (two rows, some with a swipe) so the buff rows can be placed too. Out of
   combat only; entering combat ends it. Not saved.
 
-Not in 1.2.1: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
+Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
 (use BetterCastbarsForever), click-casting.
 
 ## Commands
@@ -65,7 +80,7 @@ Not in 1.2.1: raid frames, an XP bar, an options panel, a minimap button, cast b
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs) and which aura API and templates this client has, the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
 | `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
 | `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
@@ -77,6 +92,7 @@ Not in 1.2.1: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/bff lowhp on\|off` | Orange under 35%, red under 20% (on by default) |
 | `/bff classcolor on\|off` | Class colour for players (on by default; off: green) |
 | `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
+| `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
 
@@ -200,6 +216,27 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   0 (rage out of combat) shows no bar until it has some. Where these helpers are missing, an
   NPC's hidden rage gets no text. Each step runs in `pcall`; a refusal switches it off for the
   session with one line. `/bff status` names the method in use and which helpers the client has.
+  Since 1.2.2 this hiding is only for a hidden maximum: a unit whose maximum is plain and above 0,
+  the player, and anything player-controlled keep the bar at 0 (a bear at 0 rage showed no rage
+  bar in 1.2.1), and the "plain 0 next to a hidden maximum means no power" fallback no longer
+  applies to them either.
+- **Aura time text in combat** (1.2.2). Where the client draws the icons, the remaining time is
+  secret in combat, so it cannot be formatted in Lua. The button's `SetDurationText` takes a
+  `NumericFormatter`: this addon gives it a `C_StringUtil.CreateNumericRuleFormatter` with one
+  breakpoint per unit (`%d` below 60, then the value divided by 60, 3600 or 86400, rounded up,
+  with ` m`, ` h` or ` d`), and a step colour curve on the remaining duration
+  (`C_CurveUtil.CreateColorCurve`, white below 60 s, gold above). The client evaluates both. The
+  formatter is checked on a few plain numbers when it is built; where it is missing or gives other
+  text, the container's own formatter is used (`45s`, `9m`), and `/bff status` says which.
+- **Heal prediction without sums** (1.2.2). Each overlay is a `StatusBar` as wide as the health
+  bar, anchored to the health fill texture's right edge (the heal absorb one reversed, back from
+  it), with its min/max and value set straight from the client. The client's calculator
+  (`CreateUnitHealPredictionCalculator`, `UnitGetDetailedHealPrediction(unit, "player", calc)`)
+  clamps incoming heals to the missing health, absorbs to what is left after them and heal absorbs
+  to the current health. Your heals are drawn over everyone's from the same edge, so no
+  subtraction is needed. Without the calculator the raw `UnitGetIncomingHeals`,
+  `UnitGetTotalAbsorbs` and `UnitGetTotalHealAbsorbs` are used, and the health bar clips its
+  children (`SetClipsChildren`) so nothing shows past its end.
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
@@ -216,7 +253,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   ticker; everything else is event-driven.
 - Party frames follow `RegisterUnitWatch`, so in a raid they show your own subgroup.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `portrait`,
-  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `frames`, `scales` and `positions` are kept, each type-checked
+  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `healPrediction`, `frames`, `scales` and `positions` are kept, each type-checked
   (scales clamped to 0.6-1.5, positions with a missing field dropped); anything else is cleared
   on load. A position is saved only when none of its numbers is secret. Test mode is never saved.
 
@@ -233,7 +270,7 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 (`EditMode.Enter`, `EditMode.Exit`) and `EditModeManagerFrame:IsEditModeActive()`; the
 `AuraContainer` frame type with `CustomAuraContainerTemplate` (`SetUnit`, `AddAuraGroup`,
 `SetFlowLayoutMaximumLineSize`, `GetAuraGroupFrame`, `SetEnabled`; buttons: `SetIcon`, `SetDurationCooldown`,
-`SetApplicationCount`).
+`SetDurationText` with `textFormatter` / `textColor`, `SetApplicationCount`); `GameFontNormalSmall`, `CreateColor`.
 
 Unit API (every one of these is a string in Forever's client binary, build 70790; the FrameXML names above cannot be read off disk and are feature-detected): `UnitHealth`,
 `UnitHealthMax`, `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitHasPowerType`, `UnitHealthPercent`,
@@ -246,7 +283,11 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `SetPortraitTexture`, `C_UnitAuras.GetAuraDataByIndex` (or `UnitAura`),
 `C_UnitAuras.GetAuraDuration`, `C_UnitAuras.GetAuraApplicationDisplayCount`,
 `C_Secrets.ShouldUnitAuraIndexBeSecret`, `C_Secrets.ShouldUnitPowerBeSecret` and
-`C_Secrets.ShouldUnitPowerMaxBeSecret` (status only), `C_AuraContainerUtil` (detected only), `issecretvalue`, `InCombatLockdown`,
+`C_Secrets.ShouldUnitPowerMaxBeSecret` (status only), `C_AuraContainerUtil` (detected only),
+`C_StringUtil.CreateNumericRuleFormatter`, `C_CurveUtil.CreateColorCurve`, `Enum.NumericRuleFormatRounding`,
+`Enum.DurationTextBindingProperty`, `CreateUnitHealPredictionCalculator`, `UnitGetDetailedHealPrediction`
+(or `UnitGetIncomingHeals`, `UnitGetTotalAbsorbs`, `UnitGetTotalHealAbsorbs`), `UnitPlayerControlled`,
+`Enum.PowerType.Mana`, `issecretvalue`, `InCombatLockdown`,
 `C_AddOns.IsAddOnLoaded` / `IsAddOnLoaded`; widget methods `SetFormattedText`,
 `SetAlphaFromBoolean`, `SetCooldownFromDurationObject` where they exist. Events:
 `UNIT_HEALTH`, `UNIT_MAXHEALTH`, `UNIT_CONNECTION`, `UNIT_POWER_UPDATE`, `UNIT_POWER_FREQUENT`,
@@ -256,9 +297,10 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `RAID_TARGET_UPDATE`, `PARTY_LEADER_CHANGED`, `GROUP_ROSTER_UPDATE`,
 `PLAYER_TARGET_CHANGED`, `PLAYER_FOCUS_CHANGED`, `PLAYER_REGEN_DISABLED`,
 `PLAYER_REGEN_ENABLED`, `PLAYER_UPDATE_RESTING`, `PLAYER_ENTERING_WORLD`,
-`EDIT_MODE_LAYOUTS_UPDATED`, `DISPLAY_SIZE_CHANGED`, `UI_SCALE_CHANGED`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-StatusBar`,
+`EDIT_MODE_LAYOUTS_UPDATED`, `DISPLAY_SIZE_CHANGED`, `UI_SCALE_CHANGED`, `UNIT_HEAL_PREDICTION`,
+`UNIT_ABSORB_AMOUNT_CHANGED`, `UNIT_HEAL_ABSORB_AMOUNT_CHANGED`, `UPDATE_SHAPESHIFT_FORM`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-StatusBar`,
 `UI-Classes-Circles`, `UI-RaidTargetingIcons`, `Interface\GroupFrame\UI-Group-LeaderIcon`,
-`Interface\CharacterFrame\UI-StateIcon`, `Interface\Buttons\WHITE8x8`.
+`Interface\CharacterFrame\UI-StateIcon`, `Interface\Buttons\WHITE8x8`, `Interface\RaidFrame\Shield-Overlay`.
 
 ## Layout
 

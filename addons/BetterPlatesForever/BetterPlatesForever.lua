@@ -58,7 +58,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -78,6 +78,7 @@ local MAX_SPELLS = 24             -- spell IDs remembered for the by-spell-ID de
 local MIN_W, MAX_W = 60, 250      -- health bar width bounds for /bpf size
 local MIN_H, MAX_H = 6, 30        -- health bar height bounds
 local SOLID = { 0.2, 0.6, 1.0 }   -- colour mode "solid"
+local TIME_SIZE = 11              -- debuff time text, centred on the icon
 
 local COLOR_MODES = { "reaction", "class", "health", "solid" }
 local COLOR_LABELS = { reaction = "Reaction", class = "Class", health = "Health", solid = "Solid" }
@@ -88,6 +89,82 @@ local SIZE_PRESETS = {
     { label = "Medium", w = 120, h = 12 },
     { label = "Large", w = 140, h = 16 },
 }
+
+-- Debuff time text (1.2.3): the action-bar cooldown look - a white outlined number centred on the
+-- icon, never with a seconds unit: "56", "2m", "1h", "2d" (rounded up, so 0 never shows while the
+-- debuff is still on). Plain times are formatted here. Hidden (secret) times are formatted by the
+-- client: a NumericRuleFormatter (C_StringUtil.CreateNumericRuleFormatter) with one breakpoint per
+-- unit, handed to the AuraContainer button's duration text (SetDurationText's textFormatter) and,
+-- on the fallback icons, to the Cooldown's own countdown (SetCountdownFormatter). No Lua arithmetic
+-- or comparison touches a hidden duration. Where the formatter cannot be made, or does not give
+-- the text expected for a few plain numbers, the client's default ("56s", "2m") is used.
+local TimeText = {}   -- Plain, Formatter
+do
+local UNITS = { { 60, "m" }, { 3600, "h" }, { 86400, "d" } }
+
+function TimeText.Plain(left)
+    if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
+    local s = math.ceil(left)
+    if s < 60 then return tostring(s) end
+    if s < 3600 then return math.ceil(s / 60) .. "m" end
+    if s < 86400 then return math.ceil(s / 3600) .. "h" end
+    return math.ceil(s / 86400) .. "d"
+end
+
+local function Build(spec)
+    local SU, E = _G.C_StringUtil, _G.Enum
+    local up = type(E) == "table" and type(E.NumericRuleFormatRounding) == "table"
+        and E.NumericRuleFormatRounding.Up or 1
+    local fmt = SU.CreateNumericRuleFormatter()
+    local rules = { { threshold = 0, step = 1, rounding = up, format = spec } }
+    for _, u in ipairs(UNITS) do
+        rules[#rules + 1] = { threshold = u[1], format = spec .. u[2],
+            components = { { div = u[1], step = 1, rounding = up } } }
+    end
+    if type(fmt.SetBreakpoints) == "function" then
+        fmt:SetBreakpoints(rules)
+    else
+        for _, r in ipairs(rules) do fmt:AddBreakpoint(r) end
+    end
+    return fmt
+end
+
+local EXPECT = { { 55.3, "56" }, { 61, "2m" }, { 3540, "59m" }, { 3600, "1h" } }
+local formatter, why
+
+-- The formatter, or false; and a line for /bpf status.
+function TimeText.Formatter()
+    if formatter ~= nil then return formatter, why end
+    formatter, why = false, "C_StringUtil.CreateNumericRuleFormatter missing"
+    local SU = _G.C_StringUtil
+    if type(SU) ~= "table" or type(SU.CreateNumericRuleFormatter) ~= "function" then return false, why end
+    for _, spec in ipairs({ "%d", "%.0f" }) do
+        local ok, fmt = pcall(Build, spec)
+        if ok and fmt then
+            if type(fmt.FormatNumber) ~= "function" then
+                formatter, why = fmt, "rule formatter " .. spec .. " (not checked: no FormatNumber)"
+                return formatter, why
+            end
+            local good = true
+            for _, e in ipairs(EXPECT) do
+                local okF, txt = pcall(fmt.FormatNumber, fmt, e[1])
+                if not okF or txt ~= e[2] then
+                    good = false
+                    why = "rule formatter " .. spec .. " gave " .. tostring(txt) .. " for " .. e[1]
+                    break
+                end
+            end
+            if good then
+                formatter, why = fmt, "rule formatter " .. spec .. " (56 / 2m / 1h)"
+                return formatter, why
+            end
+        else
+            why = tostring(fmt)
+        end
+    end
+    return false, why
+end
+end
 
 -- The on/off settings, shared by the slash command, the status and the menu.
 local TOGGLES = {
@@ -302,7 +379,7 @@ local function BuildOverlay(plate)
         cnt:SetPoint("BOTTOMRIGHT", 1, 0); ic.cnt = cnt
         local tm = ic:CreateFontString(nil, "OVERLAY")
         tm:SetPoint("CENTER", ic, "CENTER", 0, 0)
-        tm:SetFont(_G.STANDARD_TEXT_FONT, 10, "OUTLINE"); ic.timer = tm
+        tm:SetFont(_G.STANDARD_TEXT_FONT, TIME_SIZE, "OUTLINE"); tm:SetTextColor(1, 1, 1); ic.timer = tm
         -- For hidden timings only: the client draws the swipe and countdown from its own duration
         -- object. Optional, so a client without the template still gets icons.
         local okc, cd = pcall(CreateFrame, "Cooldown", nil, ic, "CooldownFrameTemplate")
@@ -311,6 +388,11 @@ local function BuildOverlay(plate)
             if cd.SetReverse then cd:SetReverse(true) end
             if cd.SetDrawEdge then cd:SetDrawEdge(false) end
             if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(false) end
+            -- Its countdown numbers in the same "56 / 2m / 1h" form, where the client allows.
+            if cd.SetCountdownFormatter then
+                local fmt = TimeText.Formatter()
+                if fmt then pcall(cd.SetCountdownFormatter, cd, fmt) end
+            end
             cd:Hide()
             ic.cd = cd
         end
@@ -653,15 +735,7 @@ local function PaintTime(ic, unit, a, now)
     if ic.cd and ic.cd:IsShown() then ic.cd:Hide() end
     duration, expiration = Num(duration), Num(expiration)
     local rem = (duration and duration > 0 and expiration) and (expiration - now) or 0
-    if rem > 0 then
-        if rem >= 60 then ic.timer:SetText(math.floor(rem / 60 + 0.5) .. "m")
-        else ic.timer:SetText(string.format("%d", rem + 0.5)) end
-        if rem <= 3 then ic.timer:SetTextColor(1, 0.2, 0.2)
-        elseif rem <= 8 then ic.timer:SetTextColor(1, 0.9, 0.2)
-        else ic.timer:SetTextColor(1, 1, 1) end
-    else
-        ic.timer:SetText("")
-    end
+    ic.timer:SetText(rem > 0 and TimeText.Plain(rem) or "")
 end
 
 local function PaintIcon(ic, unit, a, now)
@@ -715,12 +789,25 @@ local function InitNativeButton(btn)
         if cd.SetDrawEdge then cd:SetDrawEdge(false) end
         btn:SetDurationCooldown(cd)
     end)
-    -- The time left as our own small text; the cooldown's big numbers only if that fails.
+    -- The time left as our own text, centred and white like an action button's cooldown count,
+    -- formatted by the client through TimeText's rule formatter ("56", "2m", "1h"); the
+    -- container's default formatter ("56s") if the client refuses that, and the cooldown's own
+    -- numbers only if the text fails altogether.
     local timed = pcall(function()
         local tm = btn:CreateFontString(nil, "OVERLAY")
-        tm:SetFont(_G.STANDARD_TEXT_FONT, 10, "OUTLINE")
+        tm:SetFont(_G.STANDARD_TEXT_FONT, TIME_SIZE, "OUTLINE")
+        tm:SetTextColor(1, 1, 1)
         tm:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        btn:SetDurationText(tm)
+        local fmt = TimeText.Formatter()
+        local ok, err = false, nil
+        if fmt then ok, err = pcall(btn.SetDurationText, btn, tm, { textFormatter = fmt }) end
+        if ok then
+            nativeStats.timeFormat = "56 / 2m / 1h"
+        else
+            if err then nativeStats.timeFormatError = tostring(err) end
+            btn:SetDurationText(tm)
+            nativeStats.timeFormat = "client default (56s, 2m)"
+        end
     end)
     if cd and cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, timed and true or false) end
     pcall(function()
@@ -1200,6 +1287,10 @@ local function PrintDebug()
         Yes(type(_G.C_AuraContainerUtil) == "table"),
         nativeStats.created, nativeStats.failed, nativeStats.buttonFailed))
     if nativeStats.lastError then Print("last AuraContainer error: " .. nativeStats.lastError) end
+    local _, fmtWhy = TimeText.Formatter()
+    Print("debuff time text: " .. tostring(fmtWhy)
+        .. (nativeStats.timeFormat and (DOT .. "on the client's icons: " .. nativeStats.timeFormat) or "")
+        .. (nativeStats.timeFormatError and (" (formatter refused: " .. nativeStats.timeFormatError .. ")") or ""))
     local o = TargetOverlay()
     local uf = o and o.plate and o.plate.UnitFrame
     local af = type(uf) == "table" and uf.AurasFrame

@@ -187,7 +187,7 @@ while Edit Mode is open and their place is copied when it closes. 1.1 also draws
 auras through Blizzard's aura container where the client has one, since this client refuses
 addon aura reads in combat, and hides the power bar of a unit without power. 1.2.2 adds heal
 prediction and absorbs on the health bars (`/bff healpred on|off`), the player's mana under a
-druid form's power, and Blizzard buff-frame aura times under the icons (`45`, `9 m`, `1 h`). It exists because `GaarFrames`
+druid form's power, and Blizzard buff-frame aura times under the icons (`45`, `9m`, `1h`). It exists because `GaarFrames`
 cannot run on Forever: restyling Blizzard's unit frames taints them. So the frames are
 `SecureUnitButtonTemplate` buttons of its own (attributes set once, `RegisterUnitWatch` for
 show/hide, every change to them out of combat, queued to `PLAYER_REGEN_ENABLED` otherwise), and

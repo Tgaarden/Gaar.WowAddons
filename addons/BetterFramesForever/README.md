@@ -26,7 +26,7 @@ party, and switches Blizzard's off. It needs no other addon or library.
   buffs and debuffs, party auras, test mode) has its time left **under** the icon, in Blizzard's
   small gold buff-duration font (`GameFontNormalSmall`, 10 px; 8 px under the small party icons),
   white below a minute as on Blizzard's buff frame. Never a seconds unit: `45` under a minute,
-  then `9 m`, `59 m`, `1 h`, `2 d` (rounded up, as Blizzard's `SecondsToTimeAbbrev`). The icon
+  then `9m`, `59m`, `1h`, `2d` (rounded up, no space before the unit; 1.2.3). The icon
   rows are spaced to leave room for the text. The swipe runs as on Blizzard's own aura buttons
   (since 1.2.1): bright when the aura is fresh, darker as it runs out.
 - **Heal prediction** (1.2.2, on by default: `/bff healpred off` to hide). On every health bar
@@ -224,7 +224,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   secret in combat, so it cannot be formatted in Lua. The button's `SetDurationText` takes a
   `NumericFormatter`: this addon gives it a `C_StringUtil.CreateNumericRuleFormatter` with one
   breakpoint per unit (`%d` below 60, then the value divided by 60, 3600 or 86400, rounded up,
-  with ` m`, ` h` or ` d`), and a step colour curve on the remaining duration
+  with `m`, `h` or `d`), and a step colour curve on the remaining duration
   (`C_CurveUtil.CreateColorCurve`, white below 60 s, gold above). The client evaluates both. The
   formatter is checked on a few plain numbers when it is built; where it is missing or gives other
   text, the container's own formatter is used (`45s`, `9m`), and `/bff status` says which.

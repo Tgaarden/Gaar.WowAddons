@@ -24,6 +24,14 @@ party, and switches Blizzard's off. It needs no other addon or library.
   bar takes its room.
   Switching target (or a party slot changing hands) rebuilds the aura rows, so they never keep
   the previous unit's buffs and debuffs (1.2.4).
+  Other players' debuffs and DoTs show too (1.2.5): your own in one group (`HARMFUL|PLAYER`,
+  large, red border), everyone else's in the other (`HARMFUL|!PLAYER`, small, grey), so each
+  debuff appears once. Up to 1.2.4 the "other" group used the candidate filter
+  `isFromPlayerOrPlayerPet = false`, but that flag is true for every player's aura (not only
+  yours), so only the mob's own debuffs got through and a group mate's DoTs never showed. On a
+  client without the `!` filter negation (before retail 12.1) the two groups become one plain
+  `HARMFUL` group: every debuff once, yours not set apart. Buffs and HoTs on the player, party
+  and a friendly target were already shown from everyone (`HELPFUL`, no caster filter).
 - **Aura timing** (1.2.2, Blizzard buff-frame style). Every aura icon (player buffs, target
   buffs and debuffs, party auras, test mode) has its time left **under** the icon, in Blizzard's
   small gold buff-duration font (`GameFontNormalSmall`, 10 px; 8 px under the small party icons),

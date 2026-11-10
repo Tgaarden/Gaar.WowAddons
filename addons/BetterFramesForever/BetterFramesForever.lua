@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.4"
+local VERSION = "1.2.5"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -1672,12 +1672,13 @@ do
         return nil
     end
 
-    -- true / false when known, nil when the client hides it.
+    -- true / false when known, nil when the client hides it. isFromPlayerOrPlayerPet means
+    -- "cast by a player or a player's pet" - any player, not only you (Blizzard's target frame
+    -- tests the caster against "player" for that) - so it can only rule an aura out.
     local function OwnAura(a)
-        local mine = Plain(a.isFromPlayerOrPlayerPet)
-        if mine ~= nil then return mine and true or false end
         local src = Plain(a.sourceUnit)
         if type(src) == "string" then return src == "player" or src == "pet" or src == "vehicle" end
+        if Plain(a.isFromPlayerOrPlayerPet) == false then return false end
         return nil
     end
 
@@ -1685,16 +1686,33 @@ do
     -- 1. The Blizzard aura container
     -- -----------------------------------------------------------------------
 
-    -- The groups each kind of frame gets, in layout order. own = only your auras, others = only
-    -- other people's; grey = drawn desaturated.
+    -- "HARMFUL|!PLAYER" where this client has filter negation (retail 12.1: AuraUtil.
+    -- AuraFilterNegationPrefix): every debuff not cast by you, your pet or vehicle - other
+    -- players' DoTs as well as the mob's own. With "HARMFUL|PLAYER" next to it each debuff is in
+    -- exactly one group. nil where the client lacks it.
+    local NOT_MINE = "HARMFUL|!PLAYER"
+    local function NotMineSupported()
+        local U = _G.AuraUtil
+        if type(U) ~= "table" or type(U.IsValidFilterString) ~= "function" then return false end
+        local ok, valid = pcall(U.IsValidFilterString, NOT_MINE)
+        return ok and valid == true
+    end
+
+    -- The groups each kind of frame gets, in layout order. mine = only your auras ("PLAYER");
+    -- others = everyone else's ("!PLAYER"); grey = drawn desaturated. Up to 1.2.4 "others" was
+    -- HARMFUL with the candidate filter isFromPlayerOrPlayerPet = false, but that flag is true
+    -- for every player's aura, so it kept only the mob's own debuffs: another player's DoTs
+    -- never showed. Where "!PLAYER" is missing, the two debuff groups become one plain HARMFUL
+    -- group (all debuffs once, yours not set apart) rather than showing yours twice.
     local GROUPS = {
         player = {
             { key = "buffs", filter = "HELPFUL", max = 20, size = 20 },
         },
         target = {
             { key = "buffs", filter = "HELPFUL", max = 16, size = 18 },
-            { key = "mine", filter = "HARMFUL|PLAYER", max = 16, size = 24, newLine = true, border = { 0.9, 0.1, 0.1 } },
-            { key = "debuffs", filter = "HARMFUL", max = 16, size = 18, others = true, grey = true,
+            { key = "mine", filter = "HARMFUL|PLAYER", max = 16, size = 24, newLine = true, mine = true,
+              border = { 0.9, 0.1, 0.1 } },
+            { key = "debuffs", filter = NOT_MINE, max = 16, size = 18, others = true, grey = true,
               border = { 0.35, 0, 0 } },
         },
         party = {
@@ -1767,8 +1785,26 @@ do
     -- The container for one frame, or false where the client has none (or refuses it). Missing
     -- on this client is quiet (it shows in /bff status); a client that has the template but
     -- refuses our setup says so once in chat.
+    -- The frame's groups as this client can draw them (see GROUPS).
+    local function EffectiveGroups(key)
+        local groups = GROUPS[key]
+        if not groups then return nil end
+        if containerInfo.notMine == nil then containerInfo.notMine = NotMineSupported() end
+        if containerInfo.notMine then return groups end
+        local out = {}
+        for _, g in ipairs(groups) do
+            if g.others then
+                out[#out + 1] = { key = g.key, filter = "HARMFUL", max = g.max, size = 20, newLine = true,
+                    border = g.border }
+            elseif not g.mine then
+                out[#out + 1] = g
+            end
+        end
+        return out
+    end
+
     local function BuildContainer(f)
-        local groups = GROUPS[f.key]
+        local groups = EffectiveGroups(f.key)
         if not groups or containerInfo.missing or containerInfo.failed then return false end
         local okMake, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
         if not okMake or type(c) ~= "table" or type(c.AddAuraGroup) ~= "function" then
@@ -1784,7 +1820,6 @@ do
             for i, g in ipairs(groups) do
                 c:AddAuraGroup(g.key, g.filter, {
                     maxFrameCount = g.max,
-                    candidateFilters = g.others and { isFromPlayerOrPlayerPet = false } or nil,
                     initializeFrame = ButtonLook(g),
                     layout = { elementSpacing = AuraTime.GAP, lineSpacing = below, groupSpacing = 4,
                         groupLineSpacing = below,
@@ -2952,8 +2987,14 @@ local function PrintAuraStatus()
     elseif t and t.auraContainer then
         local b, mine, other = containerInfo.Shown(t, "buffs"), containerInfo.Shown(t, "mine"), containerInfo.Shown(t, "debuffs")
         local function N(v) return v and tostring(v) or "hidden" end
-        how = "on, drawn by Blizzard's aura container" .. DOT .. "target shows " .. N(b) .. " buff(s), "
-            .. N(mine) .. " of your debuffs, " .. N(other) .. " other debuff(s)"
+        if containerInfo.notMine == false then
+            how = "on, drawn by Blizzard's aura container" .. DOT .. "target shows " .. N(b) .. " buff(s), "
+                .. N(other) .. " debuff(s), yours not set apart (no \"!PLAYER\" filter on this client)"
+        else
+            how = "on, drawn by Blizzard's aura container" .. DOT .. "target shows " .. N(b) .. " buff(s), "
+                .. N(mine) .. " of your debuffs (HARMFUL|PLAYER), " .. N(other)
+                .. " from others (HARMFUL|!PLAYER)"
+        end
     else
         local shown = t and t.auraShown or {}
         how = "on, read by this addon (" .. ((t and t.auraPath) or "not drawn yet") .. ")" .. DOT .. "target shows "

@@ -45,6 +45,16 @@ exactly what the game, or you, set them to.
   without that API, the addon reads the auras itself as in 1.1 (by index, then by spell ID for the
   spells you cast), with the same white countdown - but in combat the
   client refuses those reads, so that fallback in practice shows debuffs out of combat only.
+- **Other players' debuffs** (1.2.4, `others`, on by default). On enemy plates, after your own
+  icons on the same row: up to 6 debuffs that are not yours - a group mate's DoTs, and the mob's
+  own debuffs - as smaller (15px) grey icons with the same time text. The client draws them in a
+  second group of the same `AuraContainer`, filter `HARMFUL|!PLAYER` (every harmful aura not cast
+  by you, your pet or vehicle), so with `HARMFUL|PLAYER` next to it each debuff is shown once.
+  `!` negates a filter component since retail 12.1; on a client without it there is no way to
+  tell yours from theirs in the container (its caster flag `isFromPlayerOrPlayerPet` is true for
+  every player's aura), and plain `HARMFUL` would show yours twice, so the group is left out and
+  only yours are shown; `/bpf status` says which. Only with `native` on (the addon's own fallback
+  reading stays yours-only), and not on friendly plates: BPF draws no buffs or HoTs on plates.
 - **Your target.** Its plate is scaled to 115% with a faint grey ring (`targetscale`, on by
   default), and every other plate is dimmed to 55% while you have a target (`dim`, on by default).
 - **Plates update 12.5 times a second**, the same loop as `GaarPlates`, over the plates being
@@ -68,6 +78,7 @@ exactly what the game, or you, set them to.
 | `/bpf threattext on\|off` | Threat percent on the bar |
 | `/bpf execute on\|off` | Execute tint at 20% or less |
 | `/bpf debuffs on\|off` | Your debuffs on the plate |
+| `/bpf others on\|off` | Other players' debuffs (and the mob's own) after yours, smaller and grey, on enemy plates (on by default) |
 | `/bpf native on\|off` | Debuffs drawn by the client's `AuraContainer` (on by default; works in combat). Off uses the addon's own reading, which this client refuses in combat |
 | `/bpf tot on\|off` | The unit's target under the bar |
 | `/bpf dim on\|off` | Dim non-target plates to 55% |
@@ -82,7 +93,7 @@ A switch without `on` or `off` toggles it. `/betterplatesforever` is the long fo
 menu holds the options of the Better...Forever addons. Its **Plates** submenu is in
 BetterGaarForever 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
 **Health text** (Off / Percent / Current / Both), **Size** (Small 100x10 / Medium 120x12 / Large 140x16),
-a checkbox for each of friendly, threat, threat text, execute, debuffs, native debuffs, target of target, dim and
+a checkbox for each of friendly, threat, threat text, execute, debuffs, other players' debuffs, native debuffs, target of target, dim and
 target scale, and **Reset to defaults**: the same settings as `/bpf`, through the same functions.
 This addon has no minimap button or menu of its own, so nothing here changes with or without the
 hub: the settings stay in `BetterPlatesForeverDB` and `/bpf` stays as it is.
@@ -137,7 +148,7 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   warning is printed at login and `/bpf status` says so. Nothing is disabled; use one of the two.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled`, `colorMode`,
   `healthText`, `width`, `height`, `friendly`, `threat`, `threatText`, `execute`, `debuffs`,
-  `native`, `tot`, `dim` and `targetScale` are kept, each checked for its type and range on load; anything
+  `others`, `native`, `tot`, `dim` and `targetScale` are kept, each checked for its type and range on load; anything
   else is cleared.
 
 ## Names it relies on

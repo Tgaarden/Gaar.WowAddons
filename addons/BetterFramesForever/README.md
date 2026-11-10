@@ -14,6 +14,13 @@ party, and switches Blizzard's off. It needs no other addon or library.
   health and power bars on the right with `cur/max  NN%` text, all on a dark see-through
   backdrop with a thin border. Target of target and pet are smaller, the party frames are a
   compact version of the same. A unit that is dead, a ghost or offline says so in its health bar.
+  Since 1.2.6 the current health in that text (and the bar) is the same reading as the percent:
+  1.2.5 showed a mob near death as `1/473  4%`, the number read with the client's health
+  prediction (`UnitHealth(unit)`, `usePredicted` on by default) and the percent without it
+  (`UnitHealthPercent(unit, false, ...)`). Bar, number and percent now all use
+  `UnitHealth(unit, false)` / `UnitHealthPercent(unit, false, ...)`, on every frame (player,
+  target, target of target, focus, pet, party). Hidden numbers are now written with
+  `AbbreviateLargeNumbers`, as Blizzard's own unit frames do (`AbbreviateNumbers` as fallback).
 - **Colours.** Class colour for players, reaction colour for NPCs, grey when someone else tagged
   the mob. Under 35% health the bar turns orange, under 20% red (option, on by default). The
   power bar is coloured by power type (mana, rage, energy, focus).
@@ -90,7 +97,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
 | `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
 | `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
@@ -183,7 +190,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   `SetValue(cur)`): a StatusBar takes a secret. Nothing is worked out from a secret: no
   comparison, no sum, no boolean test, not even `x or y`. The `cur/max  NN%` text is written from
   plain numbers when they are plain. When they are hidden, the client's own secret-safe helpers
-  are used where it has them (`AbbreviateNumbers` for `cur/max`, `UnitHealthPercent` /
+  are used where it has them (`AbbreviateLargeNumbers`, else `AbbreviateNumbers`, for `cur/max`, `UnitHealthPercent` /
   `UnitPowerPercent` with `CurveConstants.ScaleTo100` for the percent, written with
   `SetFormattedText`); without them the text is left empty and the bar alone shows the value.
   The low-health and class colours are used only when they can be worked out; a hidden threat

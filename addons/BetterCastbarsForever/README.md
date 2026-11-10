@@ -51,6 +51,7 @@ GaarCast learnt about secret values.
 
 1.1.1: PLAYER_SWING payload is (duration, swingType), so OffHand and Ranged swings now drive the right bars with the real duration.
 1.1.2: the swing rows start at the spell icon's left edge instead of the bar's.
+1.1.3: enemy casts show again: their secret timings drive the bar through `SetTimerDuration` (or `SetMinMaxValues`) instead of being dropped; `/bcf debug` explains each target/focus cast.
 
 Not in 1.1: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
 
@@ -101,6 +102,7 @@ it parries you does not apply (only your own timer is tracked).
 | `/bcf swing on\|off` | Swing timer under the player bar (on by default; without `on`/`off`: toggle) |
 | `/bcf swing offhand on\|off` | Off-hand swing bar while dual-wielding (on by default) |
 | `/bcf swing ranged on\|off` | Ranged swing bar for Auto Shot / Shoot (on by default) |
+| `/bcf debug`, `/bcf debug on\|off` | Print, for every cast event on target, focus and pet, what was read and why a cast was or was not shown (not saved); `/bcf status` shows the last one |
 | `/bcf swing debug` | Print every `PLAYER_SWING` payload and `Enum.PlayerSwingType` (not saved) |
 
 `/bettercastbarsforever` works the same as `/bcf`.
@@ -137,8 +139,11 @@ The hub talks to this addon only through `BetterCastbarsForeverAPI`:
   leaves Blizzard's bar alone.
 - **Secret values are checked before they are touched.** Cast timings, the interruptible flag,
   `GetNetStats` and every number read from a frame are passed through `issecretvalue` first
-  (where the client has it) and a secret is treated as no value at all. A cast whose timings are
-  secret is not drawn. Not even `x or default` is used on a value that could be secret, since `or`
+  (where the client has it) and a secret is treated as no value at all. The one exception is an
+  enemy's cast timings, which are secret for hostile units: they are handed untouched to the
+  client's `StatusBar:SetTimerDuration` (a duration object from `UnitCastingDuration` /
+  `UnitChannelDuration`) or, failing that, `SetMinMaxValues`, so the client moves the bar and the
+  addon never does a sum on them. Such a bar ends on the stop events. Not even `x or default` is used on a value that could be secret, since `or`
   is a boolean test.
 - **Blizzard's geometry is never copied unchecked.** Following anchors to Blizzard's bar only
   when its size and centre are readable; the default places under the unit frames copy numbers

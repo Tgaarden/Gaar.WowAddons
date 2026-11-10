@@ -18,6 +18,9 @@
       BetterBagsForeverDB.inventory. Item tooltips list each character that has the item, and
       hovering the gold in the bag window lists every character's gold. /bbf counts on|off,
       /bbf gold, /bbf forget <name>.
+    * Auto clean-up (since 1.8, on by default): opening the bag window runs the same clean-up as
+      the button. Player bags only; skipped in combat, while a clean-up runs, or with a locked
+      item or an item on the cursor. /bbf autosort on|off.
     * /bbf for help, reset, lock, unlock, native, reverse, counts, gold, forget, stop and status.
     * BetterBagsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -57,11 +60,12 @@ local DEFAULTS = {
     hideNativeButton = false,
     reverse = false,
     showCounts = true,
+    autoSort = true,
 }
 
 -- Every key BetterBagsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
-                     showCounts = true, inventory = true }
+                     showCounts = true, inventory = true, autoSort = true }
 
 local db                -- BetterBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -1603,6 +1607,13 @@ local function SetCounts(on)
     Print("item counts in tooltip: " .. OnOff(db.showCounts))
 end
 
+local function SetAutoSort(on)
+    if not db then return end
+    if on == nil then on = not db.autoSort end
+    db.autoSort = on and true or false
+    Print("auto clean-up when the bags open: " .. OnOff(db.autoSort))
+end
+
 local function PrintGold()
     local rows, total = GoldRows()
     if #rows == 0 then
@@ -1687,6 +1698,31 @@ end
 
 -- Alt-drag anywhere on the frame's own surface. Item buttons keep their own drag (picking up the
 -- item), so this only fires on the border, the background and the empty strips.
+-- Auto clean-up (since 1.8): when the bag window is opened, run the same clean-up as the button.
+-- Called only from the frame's OnShow, never from a bag event, so a sort that fires BAG_UPDATE
+-- cannot start another one. It stays silent when it cannot run: combat, a clean-up already
+-- running, an item on the cursor or a locked item (a sort or a move is in progress).
+local function AnyBagItemLocked()
+    local numSlots = ContainerFunction("GetContainerNumSlots")
+    if not numSlots then return false end
+    for bag = 0, (tonumber(_G.NUM_BAG_SLOTS) or 4) do
+        local n = tonumber(numSlots(bag)) or 0
+        for slot = 1, n do
+            local _, busy = ReadSlot(bag, slot)
+            if busy then return true end
+        end
+    end
+    return false
+end
+
+local function AutoCleanUp()
+    if not (db and db.autoSort) then return end
+    if cleanupRun or InCombat() or not GetSortFunction() then return end
+    if type(_G.GetCursorInfo) == "function" and _G.GetCursorInfo() then return end
+    if AnyBagItemLocked() then return end
+    CleanUpBags()
+end
+
 local function OnBagFrameDragStart()
     local alt = type(_G.IsAltKeyDown) == "function" and _G.IsAltKeyDown()
     if alt then StartDrag() end
@@ -1703,7 +1739,10 @@ local function HookBlizzard()
     if not bagFrame then return false end
     frameHooked = true
 
-    bagFrame:HookScript("OnShow", OnBagFrameShown)
+    bagFrame:HookScript("OnShow", function()
+        OnBagFrameShown()
+        AutoCleanUp()
+    end)
     bagFrame:HookScript("OnHide", OnBagFrameHidden)
     if bagFrame.RegisterForDrag then
         bagFrame:RegisterForDrag("LeftButton")
@@ -1763,6 +1802,7 @@ local function PrintHelp()
     Print("/bbf native hide | /bbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
     Print("Clean Up button (left of the search box): left-click = Blizzard's own clean-up, the same as Forever's own button; right-click = toggle Reverse.")
     Print("/bbf reverse - toggle Reverse; /bbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
+    Print("/bbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
     Print("/bbf stop - stop a running reversal")
     Print("/bbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
     Print("/bbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
@@ -1779,6 +1819,7 @@ local function PrintStatus()
     Print("reverse (PickupContainerItem, GetCursorInfo, C_Timer): " .. Yes(CanReverse()))
     Print("combined bags in use: " .. (UsingCombinedBags() and "yes" or "no"))
     Print("Reverse: " .. OnOff(ReverseOn()))
+    Print("auto clean-up on open: " .. OnOff(db and db.autoSort))
     Print("next clean-up: " .. (WillReverse() and "Blizzard's sort, then the whole Combined Backpack order mirrored"
         or "Blizzard's sort only"))
     local slots, reason = BuildVisualSlots()
@@ -1812,6 +1853,10 @@ local function OnSlash(msg)
         SetReverse(nil)
     elseif msg == "reverse on" or msg == "reverse off" then
         SetReverse(msg == "reverse on")
+    elseif msg == "autosort" then
+        SetAutoSort(nil)
+    elseif msg == "autosort on" or msg == "autosort off" then
+        SetAutoSort(msg == "autosort on")
     elseif msg == "stop" then
         if not (cleanupRun and StopRun(StopMessage(cleanupRun, "stopped."))) then
             Print("nothing is running.")
@@ -1846,13 +1891,14 @@ end
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.7"
+local VERSION = "1.8"
 
 local function StatusLine()
     if not db then return "not loaded yet" end
     return "Reverse " .. OnOff(ReverseOn()) .. " \194\183 " .. (db.locked and "locked" or "unlocked")
         .. " \194\183 " .. (db.position and "moved" or "default position")
         .. " \194\183 counts " .. OnOff(CountsOn())
+        .. " \194\183 auto-sort " .. OnOff(db.autoSort)
 end
 
 local function MenuEntries()
@@ -1863,6 +1909,9 @@ local function MenuEntries()
         { text = "Reset position", func = ResetPosition },
         { text = "Reverse", checkbox = true, checked = ReverseOn,
           func = function() SetReverse(not ReverseOn()) end },
+        { text = "Auto clean-up when bags open", checkbox = true,
+          checked = function() return db.autoSort end,
+          func = function() SetAutoSort(not db.autoSort) end },
         { text = "Hide Blizzard's own Clean Up button", checkbox = true,
           checked = function() return db.hideNativeButton end,
           func = function() SetNativeHidden(not db.hideNativeButton) end },
@@ -1912,6 +1961,7 @@ local function BindSavedVariables()
     end
     if type(db.reverse) ~= "boolean" then db.reverse = false end
     if type(db.showCounts) ~= "boolean" then db.showCounts = true end
+    if type(db.autoSort) ~= "boolean" then db.autoSort = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then

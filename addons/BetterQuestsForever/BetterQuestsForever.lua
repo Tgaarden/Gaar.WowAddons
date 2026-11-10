@@ -109,6 +109,9 @@ local hooked            -- our hooksecurefunc hooks are in place
 local layoutProblem     -- why the last pass could not order/limit the section, for /bqf status
 local pending           -- an evaluation is waiting (throttle or combat)
 local heightSet         -- the section's frame has a height other than Blizzard's
+local extraHeight = 0   -- pixels added to the objective container's height so Blizzard lays out every quest
+local containerBase     -- the container's height as Blizzard set it, without extraHeight
+local growRounds = 0    -- consecutive passes that grew extraHeight (capped, so it cannot run away)
 local shownCount        -- quest blocks visible after the last pass
 local orderedCount      -- quest blocks sorted in the last pass
 local prevOrder         -- quest IDs in the order of the last distance-mode pass (for hysteresis)
@@ -860,6 +863,47 @@ local function SetSectionHeight(h)
     end
 end
 
+-- Blizzard lays the Quests section out in its own watch order and stops at the first quest block
+-- that does not fit the container's height (ObjectiveTrackerModuleMixin:AddBlock/CanFitBlock);
+-- the blocks after it are never created, so no amount of sorting afterwards can show them. A
+-- low-level quest that Blizzard put late in its list then stays invisible while higher-level
+-- ones are drawn. When that happens the container is made taller (SetHeight, a widget method),
+-- so Blizzard lays out every quest, and the pass below sorts them and hides all but the first N.
+-- Blizzard's own UpdateHeight is hooked so the extra survives its resets.
+local EXTRA_STEP_MIN, EXTRA_MAX, MAX_GROW_ROUNDS = 60, 2400, 8
+
+local function Container()
+    local c = tracker and tracker.parentContainer
+    if IsFrame(c) and type(c.GetHeight) == "function" and type(c.SetHeight) == "function"
+        and not IsProtectedFrame(c) then
+        return c
+    end
+end
+
+local function ApplyContainerHeight()
+    local c = Container()
+    if not c or InCombat() then return end
+    if type(containerBase) ~= "number" then return end
+    local want = containerBase + extraHeight
+    local cur = pcall1(c.GetHeight, c)
+    if type(cur) == "number" and math.abs(cur - want) > 0.5 then pcall(c.SetHeight, c, want) end
+end
+
+-- After Blizzard's UpdateHeight: what it just set is the base; put our extra on top.
+local function OnContainerHeight()
+    local c = Container()
+    if not c then return end
+    local h = pcall1(c.GetHeight, c)
+    if type(h) == "number" and not IsSecret(h) then containerBase = h end
+    if extraHeight > 0 and db and db.enabled then ApplyContainerHeight() end
+end
+
+local function ResetExtraHeight()
+    if extraHeight == 0 and growRounds == 0 then return end
+    extraHeight, growRounds = 0, 0
+    pcall(ApplyContainerHeight)
+end
+
 -- Shows again what we hid, except the blocks in keep. A frame is shown only while Blizzard
 -- still uses it for the same block, so nothing it released to a pool comes back.
 local function Restore(keep)
@@ -880,6 +924,7 @@ end
 -- Hands the section back to Blizzard exactly as it laid it out.
 local function RestoreAll()
     if not tracker then return end
+    ResetExtraHeight()
     pcall(RestoreAnchors)
     Restore({})
     if heightSet then SetSectionHeight(nil) end
@@ -942,6 +987,43 @@ local function ApplyLayout()
         end
     end
     OrderQuests(sortable)
+
+    -- Quests Blizzard did not lay out (no block) that belong among the first N by our order.
+    local laidOut = {}
+    for _, d in ipairs(sortable) do laidOut[d.id] = true end
+    for _, b in ipairs(fixed) do if IsQuestBlock(b) then laidOut[b.id] = true end end
+    local everyone = {}
+    for _, d in ipairs(sortable) do everyone[#everyone + 1] = d end
+    for questID in pairs(watched) do
+        if not laidOut[questID] then
+            local d = QuestData(questID)
+            if d.inLog and d.inQuestsSection then
+                d.dropped = true
+                everyone[#everyone + 1] = d
+            end
+        end
+    end
+    local needed = 0
+    if #everyone > #sortable then
+        table.sort(everyone, Compare)
+        for i, d in ipairs(everyone) do
+            if d.dropped and i <= db.max then needed = needed + 1 end
+        end
+    end
+    if needed > 0 and growRounds < MAX_GROW_ROUNDS and extraHeight < EXTRA_MAX and Container() then
+        local total = 0
+        for _, b in ipairs(chain) do total = total + BlockHeight(b) end
+        local avg = #chain > 0 and total / #chain or 80
+        extraHeight = math.min(EXTRA_MAX, extraHeight + math.max(EXTRA_STEP_MIN, math.ceil(needed * avg)))
+        growRounds = growRounds + 1
+        if type(containerBase) ~= "number" then
+            local h = pcall1(Container().GetHeight, Container())
+            if type(h) == "number" and not IsSecret(h) then containerBase = h end
+        end
+        ApplyContainerHeight() -- Blizzard re-lays out on the size change; this pass finishes below
+    elseif needed == 0 then
+        growRounds = 0
+    end
 
     local visible, hide = {}, {}
     for _, b in ipairs(fixed) do visible[#visible + 1] = b end
@@ -1017,6 +1099,10 @@ local function HookTracker()
     -- Instance hooks only: the Campaign section and every other module keep their own methods.
     hooksecurefunc(tracker, "Update", OnTrackerLaidOut)
     hooksecurefunc(tracker, "UpdateHeight", OnTrackerLaidOut)
+    local container = Container()
+    if container and type(container.UpdateHeight) == "function" then
+        pcall(hooksecurefunc, container, "UpdateHeight", OnContainerHeight)
+    end
     hooked = true
     return true
 end
@@ -2027,7 +2113,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.6"
+local VERSION = "1.7"
 
 local function ApiEntries()
     if not db then return {} end

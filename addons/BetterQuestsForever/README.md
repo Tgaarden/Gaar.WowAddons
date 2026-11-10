@@ -28,6 +28,14 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 - **Every tracked quest stays tracked, and the watch list is never touched.** The addon does not
   call `AddQuestWatch`, `RemoveQuestWatch` or `SortQuestWatches`. The order and the limit only
   change what the tracker draws. The quest log, the map and the watch count still see all of them.
+- **Lowest levels win, even when Blizzard runs out of room (1.7).** Blizzard lays the quests
+  out in its own watch order and stops at the first block that does not fit the tracker's height;
+  the rest never get a block, so sorting alone left a low-level quest invisible while higher-level
+  ones were drawn. When a quest that belongs among the first N by level has no block, the
+  tracker's container is made taller (`SetHeight`, re-applied after Blizzard's `UpdateHeight`)
+  until Blizzard lays every quest out; the addon then sorts and hides all but the first N. Quests
+  are still never tracked or untracked by the addon, so manual untracking is respected. The extra
+  height is dropped in combat and on `/bqf off`.
 - **Only the Quests section.** Campaign quests, world quests, bonus objectives, achievements,
   professions and every other section are left alone.
 - It re-evaluates after every layout of the Quests section, and also (throttled to once per

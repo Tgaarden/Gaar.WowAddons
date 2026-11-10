@@ -20,6 +20,11 @@ needs no other addon or library.
 - **What a clean-up does.** A left-click always starts with exactly what Forever's own button
   does: it plays the sort sound and calls `C_Container.SortBags()`. Blizzard decides where every
   item goes.
+- **Auto clean-up (since 1.8, on by default).** When you open your bags, the same clean-up as the
+  button runs by itself (including Reverse, if on). It only triggers on the bag window's `OnShow`,
+  never on bag events, so it cannot loop, and it is skipped for the bank, in combat, while a
+  clean-up is running, and when an item is locked or on the cursor. Turn it off with
+  `/bbf autosort off`; saved in `BetterBagsForeverDB.autoSort`.
 - **Reverse (optional, off by default).** Right-click the button (or `/bbf reverse`) to turn it
   on or off; it is saved in `BetterBagsForeverDB.reverse` and the tooltip shows the current
   value. With Reverse on and the Combined Backpack in use, a left-click waits for Blizzard's sort
@@ -110,6 +115,7 @@ needs no other addon or library.
 | `/bbf lock`, `/bbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
 | `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
 | `/bbf reverse`, `/bbf reverse on`, `/bbf reverse off` | Toggle or set Reverse (same as right-clicking the button) |
+| `/bbf autosort`, `/bbf autosort on`, `/bbf autosort off` | Toggle or set the automatic clean-up when the bags open (on by default) |
 | `/bbf stop` | Stop a running reversal |
 | `/bbf counts`, `/bbf counts on`, `/bbf counts off` | Toggle or set the item counts in tooltips (on by default) |
 | `/bbf gold` | Print every character's gold on this realm, and the total |
@@ -119,7 +125,7 @@ needs no other addon or library.
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
-menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Hide
+menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Auto clean-up when bags open**, **Hide
 Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as
 `/bbf lock|unlock`, `/bbf reset`, `/bbf reverse`, `/bbf native hide|show` and `/bbf counts on|off`
 (both go through the same functions). This addon has
@@ -157,7 +163,7 @@ The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
   off instead of raising an error.
 - If the bag frame is protected and a move falls in combat, it waits for `PLAYER_REGEN_ENABLED`.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`,
-  `hideNativeButton`, `position`, `reverse`, `showCounts` and `inventory` are kept; anything older
+  `hideNativeButton`, `position`, `reverse`, `showCounts`, `autoSort` and `inventory` are kept; anything older
   versions saved is cleared on load.
 
 ## Names it relies on

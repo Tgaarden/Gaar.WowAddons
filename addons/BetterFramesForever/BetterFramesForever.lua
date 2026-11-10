@@ -50,7 +50,7 @@
   Secret values: the bars get the raw values (a StatusBar takes a secret), nothing is worked
   out from a secret, and every comparison or boolean test is made on a value checked first.
   The "cur/max  NN%" text is written from plain numbers; where they are secret the client's
-  own secret-safe helpers are used if it has them (AbbreviateNumbers, UnitHealthPercent with
+  own secret-safe helpers are used if it has them (AbbreviateLargeNumbers, UnitHealthPercent with
   CurveConstants.ScaleTo100, SetFormattedText), otherwise the text is left empty and the bar
   alone shows the value. Every feature of a frame's update runs in pcall: the first refusal
   switches that feature off for the session, with one line in chat.
@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -1130,9 +1130,27 @@ end
 -- is plain unless it has been checked.
 -- ---------------------------------------------------------------------------
 
+-- Current health without the client's prediction. UnitHealth's second argument, usePredicted,
+-- defaults to true, while the percent below has always been read with usePredicted = false, so
+-- 1.2.5 put two different readings side by side: on a mob near death it showed "1/473  4%",
+-- the number far below the percent. Bar, number and percent now all read the same value.
+local ValueText = {}   -- Read, Abbrev, Secret, Status: the numbers in the bar text
+
+function ValueText.Read(unit)
+    return UnitHealth(unit, false)
+end
+
+-- The number formatter for hidden values: AbbreviateLargeNumbers, what Blizzard's own unit
+-- frames use (TextStatusBar with capNumericDisplay, set by UnitFrame_Initialize on every
+-- health and mana bar), else AbbreviateNumbers. Both take a secret and give a secret string.
+function ValueText.Abbrev()
+    if type(_G.AbbreviateLargeNumbers) == "function" then return _G.AbbreviateLargeNumbers, "AbbreviateLargeNumbers" end
+    if type(_G.AbbreviateNumbers) == "function" then return _G.AbbreviateNumbers, "AbbreviateNumbers" end
+end
+
 -- Hidden values written through the client's own secret-safe helpers, where it has them.
 -- Nothing here compares, adds or tests the values: they go straight to the client.
-local function SecretText(fs, unit, power, compact)
+function ValueText.Secret(fs, unit, power, compact)
     local C = _G.CurveConstants
     local curve = type(C) == "table" and C.ScaleTo100 or nil
     local pct, havePct
@@ -1143,12 +1161,12 @@ local function SecretText(fs, unit, power, compact)
             pct, havePct = _G.UnitHealthPercent(unit, false, curve), true
         end
     end
-    local abbr = type(_G.AbbreviateNumbers) == "function" and _G.AbbreviateNumbers or nil
+    local abbr = ValueText.Abbrev()
     local fmt, a1, a2, a3
     if abbr and not compact then
         local cur, mx
         if power then cur, mx = UnitPower(unit), UnitPowerMax(unit)
-        else cur, mx = UnitHealth(unit), UnitHealthMax(unit) end
+        else cur, mx = ValueText.Read(unit), UnitHealthMax(unit) end
         if havePct then fmt, a1, a2, a3 = "%s/%s  %.0f%%", abbr(cur), abbr(mx), pct
         else fmt, a1, a2 = "%s/%s", abbr(cur), abbr(mx) end
     elseif havePct then
@@ -1175,7 +1193,7 @@ end
 
 local function UpdateHealth(f)
     local u, bar = f.unit, f.health
-    local cur, mx = UnitHealth(u), UnitHealthMax(u)
+    local cur, mx = ValueText.Read(u), UnitHealthMax(u)
     local pct
     local secret = Secret(cur, mx)
     if secret then
@@ -1201,7 +1219,7 @@ local function UpdateHealth(f)
     end
     if not secret then PlainText(f, bar, cur, mx); return end
     fs:SetText("")
-    Run("secrettext", SecretText, fs, u, false, f.layout.compact)
+    Run("secrettext", ValueText.Secret, fs, u, false, f.layout.compact)
 end
 
 -- Shows or hides the power bar; without it the health bar takes the power bar's height too.
@@ -1252,7 +1270,7 @@ local function ManaSecretText(fs, u, mt)
     if type(C) == "table" and C.ScaleTo100 ~= nil and type(_G.UnitPowerPercent) == "function" then
         pct = _G.UnitPowerPercent(u, mt, false, C.ScaleTo100)
     end
-    local abbr = type(_G.AbbreviateNumbers) == "function" and _G.AbbreviateNumbers or nil
+    local abbr = ValueText.Abbrev()
     if abbr and pct ~= nil then
         fs:SetFormattedText("%s/%s  %.0f%%", abbr(UnitPower(u, mt)), abbr(UnitPowerMax(u, mt)), pct)
     elseif abbr then
@@ -1410,8 +1428,9 @@ function PowerHide.Text(fs, u, compact)
     local maxS = trunc(UnitPowerMax(u))
     local cur = UnitPower(u)
     local curS
+    local abbr = ValueText.Abbrev()
     if type(SU.FloorToNearestString) == "function" then curS = SU.FloorToNearestString(cur)
-    elseif type(_G.AbbreviateNumbers) == "function" then curS = _G.AbbreviateNumbers(cur)
+    elseif abbr then curS = abbr(cur)
     else curS = trunc(cur) end
     local pctS
     if pct ~= nil and type(SU.RoundToNearestString) == "function" then
@@ -1466,7 +1485,7 @@ local function UpdatePower(f)
                     -- Fallback: an NPC's hidden rage is the beasts' 0/0; no text rather than that.
                     f.powerHide = "fallback (no text for an NPC's hidden rage)"
                 else
-                    Run("secrettext", SecretText, fs, u, true, f.layout.compact)
+                    Run("secrettext", ValueText.Secret, fs, u, true, f.layout.compact)
                 end
             end
         end
@@ -2965,10 +2984,10 @@ local function Yes(v) return v and "yes" or "MISSING" end
 local function SecretTextSupport()
     local C = _G.CurveConstants
     local pct = type(C) == "table" and C.ScaleTo100 ~= nil and type(_G.UnitHealthPercent) == "function"
-    local abbr = type(_G.AbbreviateNumbers) == "function"
-    if pct and abbr then return "cur/max and percent (AbbreviateNumbers, UnitHealthPercent)" end
+    local _, abbr = ValueText.Abbrev()
+    if pct and abbr then return "cur/max and percent (" .. abbr .. ", UnitHealthPercent)" end
     if pct then return "percent only (UnitHealthPercent)" end
-    if abbr then return "cur/max only (AbbreviateNumbers)" end
+    if abbr then return "cur/max only (" .. abbr .. ")" end
     return "none - bars only while values are hidden"
 end
 
@@ -3044,6 +3063,43 @@ local function PrintAuraStatus()
     Print(string.format("aura reads refused this session: %d; icons failed to draw: %d",
         auraStats.indexRefused, auraStats.paintFailed)
         .. (auraStats.lastError and (" - last: " .. auraStats.lastError) or ""))
+end
+
+-- The target's health readings and the number formatters, for /bff status. Hidden values are
+-- named, never shown; the formatters are tried on plain numbers only.
+function ValueText.Status()
+    local u = "target"
+    local function Show(v)
+        if IsSecret(v) then return "hidden" end
+        return tostring(v)
+    end
+    local function Try(name, n)
+        local fn = _G[name]
+        if type(fn) ~= "function" then return name .. " MISSING" end
+        local ok, v = pcall(fn, n)
+        return name .. "(" .. n .. ") = " .. (ok and Show(v) or "error")
+    end
+    local _, abbr = ValueText.Abbrev()
+    Print("health text formatter: " .. (abbr or "none") .. DOT .. Try("AbbreviateLargeNumbers", 19)
+        .. DOT .. Try("AbbreviateLargeNumbers", 12345) .. DOT .. Try("AbbreviateNumbers", 19)
+        .. DOT .. Try("AbbreviateNumbers", 12345))
+    if Plain(UnitExists(u)) ~= true then
+        Print("target health: no target (target a mob and ask again)")
+        return
+    end
+    local S = _G.C_Secrets
+    local maxSecret = "MISSING"
+    if type(S) == "table" and type(S.ShouldUnitHealthMaxBeSecret) == "function" then
+        local ok, v = pcall(S.ShouldUnitHealthMaxBeSecret, u)
+        maxSecret = ok and Show(v) or "error"
+    end
+    local okP, pred = pcall(UnitHealth, u)
+    local okS, server = pcall(UnitHealth, u, false)
+    Print("target health: UnitHealth " .. (okP and Show(pred) or "error")
+        .. DOT .. "UnitHealth(unit, false) " .. (okS and Show(server) or "error")
+        .. DOT .. "UnitHealthMax " .. Show(UnitHealthMax(u))
+        .. DOT .. "ShouldUnitHealthMaxBeSecret " .. maxSecret
+        .. DOT .. "text and bar use UnitHealth(unit, false)")
 end
 
 -- Target power: the values that decide whether the power bar shows, so the next test in game
@@ -3129,6 +3185,7 @@ local function PrintStatus()
         .. " (" .. ((p and p.powerWhy) or "not drawn yet") .. ")"
         .. ((p and p.powerHide) and (DOT .. p.powerHide) or ""))
     PrintPowerStatus()
+    ValueText.Status()
     Print("SecureUnitButtonTemplate frames: " .. (unsupported and ("no - " .. unsupported) or (started and "built" or "not built yet"))
         .. "   RegisterUnitWatch: " .. Yes(type(_G.RegisterUnitWatch) == "function")
         .. "   focus: " .. (HAS_FOCUS and "yes" or "no (no focus unit)"))

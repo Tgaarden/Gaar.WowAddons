@@ -35,6 +35,10 @@
     * Cast timings, GetNetStats and frame geometry can come back secret. Each is checked with
       issecretvalue before it is compared, added or tested for truth (`w or 140` is a boolean
       test too), and a secret is treated as no value at all.
+    * Except an enemy's cast timings (1.1.3): those are secret for every hostile unit, and
+      treating them as no value hid every enemy cast (with Blizzard's bar hidden too). They now go
+      untouched to widgets that accept secrets - a duration object into StatusBar:SetTimerDuration,
+      or the raw start and end into SetMinMaxValues - see StartSecretBar. /bcf debug says which.
     * Blizzard's geometry is never copied without that check. Copying a secret size or anchoring
       to a frame whose geometry is secret makes our own frame's geometry secret, and Blizzard's
       Backdrop code then fails inside their file. Where Blizzard's geometry is missing or secret
@@ -55,7 +59,7 @@ local ADDON_NAME = ... or "BetterCastbarsForever"
 local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -137,6 +141,7 @@ local bars = {}          -- [unit] = our bar frame
 local blocked = {}       -- [unit] = error text, once the client has refused that bar
 local hooked = {}        -- [Blizzard frame] = true, once its OnShow is hooked
 local testing = false
+local castDebug = false  -- /bcf debug, not saved
 local conflictWarned = false
 local driver             -- the one OnUpdate frame that runs every bar
 
@@ -324,40 +329,70 @@ end
 -- Reading a cast
 -- ---------------------------------------------------------------------------
 
--- Returns: name, icon, startMs, endMs, notInterruptible, castID - or nil for no cast, or for a
--- cast whose timings this client will not show (secret timings cannot be timed, so the bar
--- stays hidden rather than erroring). Detects the return shape instead of assuming it:
+-- Reads one kind of cast. Returns a table, or nil and why there is nothing to show:
+--   { name, icon, channel, castID, notInt, notIntSecret, startMs, endMs }   plain timings
+--   { name, icon, channel, castID, notInt, notIntSecret, secret = true, rawS, rawE }
+-- An enemy's timings (and often its name and interrupt flag) come back secret on this client.
+-- Up to 1.1.2 such a cast was dropped here, so with Blizzard's bar hidden no enemy cast showed
+-- at all. Secret timings are now kept, untouched, for widgets that accept them (see
+-- StartSecretBar); they are never compared, added or tested for truth.
+-- Detects the return shape instead of assuming it:
 --   modern:   name, text, texture, startMs, endMs, isTradeSkill, castID, notInterruptible
 --             (channel: name, text, texture, startMs, endMs, isTradeSkill, notInterruptible)
 --   pre-Cata: name, nameSubtext, text, texture, startMs, endMs, isTradeSkill, castID, notInterruptible
+local function Pack(...) return { n = select("#", ...), ... } end
+
 local function ReadCast(unit, channel)
     local fn = channel and _G.UnitChannelInfo or _G.UnitCastingInfo
-    if type(fn) ~= "function" then return nil end
-    local r = { fn(unit) }
+    local what = channel and "channel" or "cast"
+    if type(fn) ~= "function" then return nil, "no " .. (channel and "UnitChannelInfo" or "UnitCastingInfo") end
+    local ok, r = pcall(function() return Pack(fn(unit)) end)
+    if not ok then return nil, what .. " read refused: " .. tostring(r) end
+    if r.n == 0 then return nil, "no " .. what end
     local name = r[1]
-    if not IsSecret(name) and not name then return nil end
+    if not IsSecret(name) and not name then return nil, "no " .. what end
     local icon, startMs, endMs, notInt, castID
-    if type(r[4]) == "number" and type(r[5]) == "number" then
+    -- Only a plain, non-number 4th return (a texture path) means the old shape; a secret there
+    -- is a start time.
+    if IsSecret(r[4]) or type(r[4]) == "number" then
         icon, startMs, endMs = r[3], r[4], r[5]
         if channel then notInt = r[7] else castID, notInt = r[7], r[8] end
     else
         icon, startMs, endMs = r[4], r[5], r[6]
         if channel then notInt = r[8] else castID, notInt = r[8], r[9] end
     end
-    startMs, endMs = Num(startMs), Num(endMs)
-    if not startMs or not endMs then return nil end
-    -- A secret boolean cannot even be tested; read it as "interruptible".
-    if IsSecret(notInt) then notInt = nil end
-    if IsSecret(castID) then castID = nil end
-    return name, icon, startMs, endMs, notInt and true or false, castID
+    local c = { name = name, icon = icon, channel = channel }
+    if not IsSecret(castID) then c.castID = castID end
+    -- A secret boolean cannot even be tested: it is kept for the *FromBoolean widget calls only.
+    if IsSecret(notInt) then c.notInt, c.notIntSecret = false, notInt
+    else c.notInt = notInt and true or false end
+    local s, e = Num(startMs), Num(endMs)
+    if s and e then
+        c.startMs, c.endMs = s, e
+        return c
+    end
+    if Secret(startMs, endMs) then
+        c.secret, c.rawS, c.rawE = true, startMs, endMs
+        return c
+    end
+    return nil, what .. " without timings"
 end
 
 local function CastInfo(unit)
-    local name, icon, s, e, notInt, castID = ReadCast(unit, false)
-    if s then return name, icon, s, e, notInt, false, castID end
-    name, icon, s, e, notInt = ReadCast(unit, true)
-    if s then return name, icon, s, e, notInt, true, nil end
-    return nil
+    local c, why = ReadCast(unit, false)
+    if c then return c end
+    local c2, why2 = ReadCast(unit, true)
+    if c2 then return c2 end
+    return nil, why .. ", " .. why2
+end
+
+-- Whether the unit still reports a cast (or channel): only the number of returns is looked at,
+-- which is never secret.
+local function CastPresent(unit, channel)
+    local fn = channel and _G.UnitChannelInfo or _G.UnitCastingInfo
+    if type(fn) ~= "function" then return false end
+    local ok, n = pcall(function() return select("#", fn(unit)) end)
+    return not ok or n > 0
 end
 
 -- No API for a cast's target on this client: best effort is the unit's own target.
@@ -385,6 +420,7 @@ end
 
 local function ApplyTexture(f)
     f.bar:SetStatusBarTexture(TexturePath(db and db.texture))
+    f.tbar:SetStatusBarTexture(TexturePath(db and db.texture))
 end
 
 -- Icon and spark follow the bar's height. Our frame's size is always set from our own numbers,
@@ -405,6 +441,7 @@ end
 local function SetIconLook(f, notInt)
     local c = notInt and BORDER_STEEL or BORDER_NORMAL
     f.iconBorder:SetBackdropBorderColor(c[1], c[2], c[3], 1)
+    f.shield:SetAlpha(1)
     if notInt then f.shield:Show() else f.shield:Hide() end
 end
 
@@ -415,6 +452,25 @@ local function SetBarColor(f)
     elseif f.channel then c = COLOR_CHANNEL
     else c = COLOR_CAST end
     f.bar:SetStatusBarColor(c[1], c[2], c[3])
+    f.tbar:SetStatusBarColor(c[1], c[2], c[3])
+end
+
+-- An enemy's "not interruptible" can be secret. It is never tested: the client's *FromBoolean
+-- calls pick the shield's alpha and the bar's colour from it. Where they are missing or refused,
+-- the cast is shown as interruptible, as before.
+local function ApplySecretNotInt(f, flag)
+    f.shield:Show()
+    if type(f.shield.SetAlphaFromBoolean) ~= "function"
+        or not pcall(f.shield.SetAlphaFromBoolean, f.shield, flag, 1, 0) then
+        f.shield:Hide()
+    end
+    local tex = f.tbar:GetStatusBarTexture()
+    local mk = _G.CreateColor
+    if tex and type(tex.SetVertexColorFromBoolean) == "function" and type(mk) == "function" then
+        local base = f.channel and COLOR_CHANNEL or COLOR_CAST
+        pcall(tex.SetVertexColorFromBoolean, tex, flag,
+            mk(COLOR_LOCKED[1], COLOR_LOCKED[2], COLOR_LOCKED[3], 1), mk(base[1], base[2], base[3], 1))
+    end
 end
 
 -- Where a non-player bar sits by default: centred under its unit frame, if that frame's place
@@ -558,9 +614,19 @@ local function MakeBar(u)
     f.shield:SetPoint("BOTTOMRIGHT", f.icon, "BOTTOMRIGHT", 3, -3)
     f.shield:Hide()
 
+    -- The timer bar: driven by the client for a cast whose timings are secret (an enemy's).
+    -- It sits under f.bar, which carries the texts and the spark and stays empty meanwhile.
+    f.tbar = CreateFrame("StatusBar", nil, f)
+    f.tbar:SetPoint("TOPLEFT", 1, -1)
+    f.tbar:SetPoint("BOTTOMRIGHT", -1, 1)
+    f.tbar:SetMinMaxValues(0, 1)
+    f.tbar:SetValue(0)
+    f.tbar:Hide()
+
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
     f.bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    f.bar:SetFrameLevel(f.tbar:GetFrameLevel() + 1)
     f.bar:SetMinMaxValues(0, 1)
     f.bar:SetValue(0)
 
@@ -626,6 +692,8 @@ end
 
 local function ClearBar(f)
     f.state, f.test, f.startMs, f.endMs, f.lagFrac, f.castID = nil, nil, nil, nil, nil, nil
+    f.secret, f.secretHow, f.dur, f.timeOff, f.nextPoll = nil, nil, nil, nil, nil
+    f.tbar:Hide()
     f.lag:Hide()
     f.spark:Hide()
     f:SetAlpha(1)
@@ -641,29 +709,114 @@ local function LatencyFraction(durMs)
     return math.min(lag / durMs, 1)
 end
 
-local function BeginCast(f, name, icon, startMs, endMs, notInt, channel, castID, test)
+local function EnumValue(group, key, fallback)
+    local e = _G.Enum and _G.Enum[group]
+    local v = type(e) == "table" and e[key]
+    if type(v) == "number" then return v end
+    return fallback
+end
+
+-- A cast whose timings are secret: the client, not our arithmetic, moves the bar. Blizzard's
+-- own cast bar only manages because its untainted code may do sums on secrets; ours may not.
+-- Three ways, the first the client accepts wins (f.secretHow):
+--   "timer"   UnitCastingDuration / UnitChannelDuration hand back a duration object and
+--             StatusBar:SetTimerDuration runs the bar from it (channels drain).
+--   "minmax"  StatusBar:SetMinMaxValues takes the secret start and end and SetValue(now) moves
+--             it each frame. Channels fill here instead of draining (no sum allowed).
+--   "static"  neither: a full bar with name and icon, ended by the stop events.
+-- The time text comes from the duration object where there is one (SetFormattedText takes a
+-- secret); otherwise it stays empty. Secret timings carry no end we can compare against, so the
+-- bar ends on UNIT_SPELLCAST_STOP / _CHANNEL_STOP / _INTERRUPTED, or when the unit no longer
+-- reports a cast (checked five times a second).
+local function StartSecretBar(f, c)
+    local tb = f.tbar
+    f.secret, f.secretHow, f.dur, f.timeOff, f.nextPoll = true, nil, nil, nil, nil
+    f.bar:SetValue(0)
+    f.time:SetText("")
+    local why = {}
+    local durFn = c.channel and _G.UnitChannelDuration or _G.UnitCastingDuration
+    if type(durFn) == "function" then
+        local ok, d = pcall(durFn, f.unit)
+        if ok and d ~= nil then f.dur = d
+        else why[#why + 1] = ok and "no duration object" or ("duration refused: " .. tostring(d)) end
+    else
+        why[#why + 1] = c.channel and "no UnitChannelDuration" or "no UnitCastingDuration"
+    end
+    if f.dur then
+        if type(tb.SetTimerDuration) == "function" then
+            local dir = c.channel and EnumValue("StatusBarTimerDirection", "RemainingTime", 1)
+                or EnumValue("StatusBarTimerDirection", "ElapsedTime", 0)
+            local ok, err = pcall(tb.SetTimerDuration, tb, f.dur,
+                EnumValue("StatusBarInterpolation", "Immediate", 0), dir)
+            if ok then f.secretHow = "timer" else why[#why + 1] = "SetTimerDuration refused: " .. tostring(err) end
+        else
+            why[#why + 1] = "no SetTimerDuration"
+        end
+    end
+    if not f.secretHow then
+        local ok, err = pcall(tb.SetMinMaxValues, tb, c.rawS, c.rawE)
+        if ok then ok, err = pcall(tb.SetValue, tb, GetTime() * 1000) end
+        if ok then f.secretHow = "minmax" else why[#why + 1] = "SetMinMaxValues refused: " .. tostring(err) end
+    end
+    if not f.secretHow then
+        f.secretHow = "static"
+        pcall(tb.SetMinMaxValues, tb, 0, 1)
+        pcall(tb.SetValue, tb, 1)
+    end
+    tb:Show()
+    f.spark:ClearAllPoints()
+    if f.secretHow ~= "static" then
+        f.spark:SetPoint("CENTER", tb:GetStatusBarTexture(), "RIGHT", 0, 0)
+        f.spark:Show()
+    else
+        f.spark:Hide()
+    end
+    return f.secretHow, (#why > 0) and table.concat(why, "; ") or nil
+end
+
+local function BeginCast(f, c, test)
     f.state, f.test = "cast", test
-    f.startMs, f.endMs, f.channel, f.notInt, f.castID = startMs, endMs, channel, notInt, castID
+    f.startMs, f.endMs, f.channel, f.notInt, f.castID = c.startMs, c.endMs, c.channel, c.notInt, c.castID
+    f.secret, f.secretHow, f.dur, f.timeOff = nil, nil, nil, nil
     f:SetAlpha(1)
     ApplyTexture(f)
+    local icon = c.icon
     if IsSecret(icon) or icon then f.icon:SetTexture(icon) else f.icon:SetTexture(QUESTION) end
-    f.name:SetText(name)
+    f.name:SetText(c.name)
     SetBarColor(f)
-    SetIconLook(f, notInt)
+    SetIconLook(f, f.notInt)
     f.lagFrac = nil
-    if f.unit == "player" and not channel then f.lagFrac = LatencyFraction(endMs - startMs) end
+    local how, why
+    if c.secret then
+        how, why = StartSecretBar(f, c)
+    else
+        f.tbar:Hide()
+        if f.unit == "player" and not c.channel then f.lagFrac = LatencyFraction(c.endMs - c.startMs) end
+        f.bar:SetValue(c.channel and 1 or 0)
+    end
+    if c.notIntSecret ~= nil then ApplySecretNotInt(f, c.notIntSecret) end
     if not f.lagFrac then f.lag:Hide() end
-    f.bar:SetValue(channel and 1 or 0)
     f:Show()
+    if not test then
+        local kind = c.channel and "channel" or "cast"
+        if c.secret then
+            f.lastRead = string.format("%s with secret timings%s - %s bar%s", kind,
+                IsSecret(c.name) and ", secret name" or "", how, why and (" (" .. why .. ")") or "")
+        else
+            f.lastRead = kind .. " with plain timings - normal bar"
+        end
+        f.lastReadAt = GetTime()
+    end
 end
 
 local function StartCast(f)
-    local name, icon, startMs, endMs, notInt, channel, castID = CastInfo(f.unit)
-    if not startMs then
+    local c, why = CastInfo(f.unit)
+    if not c then
+        f.lastRead, f.lastReadAt = "nothing shown: " .. why, GetTime()
         if f.state == "cast" and not f.test then ClearBar(f) end
         return
     end
-    BeginCast(f, name, icon, startMs, endMs, notInt, channel, castID, nil)
+    BeginCast(f, c, nil)
     f.target:SetText(CastTargetName(f.unit))
 end
 
@@ -677,8 +830,8 @@ local TEST_STYLE = {
 local function StartTestCast(f)
     local now = GetTime() * 1000
     local style = TEST_STYLE[f.unit]
-    BeginCast(f, "Test: " .. LABEL[f.unit], TEST_ICON, now, now + TEST_CAST * 1000,
-        style.notInt, style.channel, nil, true)
+    BeginCast(f, { name = "Test: " .. LABEL[f.unit], icon = TEST_ICON, startMs = now,
+        endMs = now + TEST_CAST * 1000, notInt = style.notInt, channel = style.channel }, true)
     f.target:SetText("Target Dummy")
 end
 
@@ -703,6 +856,32 @@ local function FailCast(f, text)
     f:Show()
 end
 
+local function SecretTimeText(f)
+    local d = f.dur
+    if db.timer == "remain" then
+        f.time:SetFormattedText("%.1f", d:GetRemainingDuration())
+    else
+        f.time:SetFormattedText("%.1f / %.1f", d:GetRemainingDuration(), d:GetTotalDuration())
+    end
+end
+
+-- One frame of a secret-timed cast: nothing here compares or adds a secret.
+local function OnUpdateSecret(f)
+    local now = GetTime()
+    if f.secretHow == "minmax" then f.tbar:SetValue(now * 1000) end
+    if f.dur and not f.timeOff then
+        local ok, err = pcall(SecretTimeText, f)
+        if not ok then
+            f.timeOff = tostring(err)
+            f.time:SetText("")
+        end
+    end
+    if now >= (f.nextPoll or 0) then
+        f.nextPoll = now + 0.2
+        if not CastPresent(f.unit, f.channel) then FinishCast(f) end
+    end
+end
+
 local function OnUpdateBar(f)
     local st = f.state
     if st == "fade" then
@@ -715,6 +894,7 @@ local function OnUpdateBar(f)
         return
     end
     if st ~= "cast" then return end
+    if f.secret then OnUpdateSecret(f); return end
 
     local now = GetTime() * 1000
     local dur = f.endMs - f.startMs
@@ -1242,8 +1422,12 @@ local function Refresh(u)
     local f = bars[u]
     if not f or blocked[u] then return end
     if not BarEnabled(u) then ClearBar(f); return end
-    if CastInfo(u) then StartCast(f)
-    elseif not f.test then ClearBar(f) end
+    local c, why = CastInfo(u)
+    if c then StartCast(f)
+    else
+        f.lastRead, f.lastReadAt = "nothing shown: " .. why, GetTime()
+        if not f.test then ClearBar(f) end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1436,12 +1620,52 @@ local function PrintHelp()
     Print("/bcf texture blizzard|smooth|flat (now: " .. (db and db.texture or DEFAULTS.texture) .. ")")
     Print("/bcf font 9|11|13 (now: " .. (db and db.fontSize or DEFAULTS.fontSize) .. ")")
     Print("/bcf timer total|remain - \"remain / total\" or just remain (now: " .. (db and db.timer or DEFAULTS.timer) .. ")")
+    Print("/bcf debug - print what each target/focus/pet cast event read, and why a cast was or was not shown (now: " .. OnOff(castDebug) .. ")")
     Print("/bcf swing on|off - swing timer under the player bar (now: " .. OnOff(db and db.swingTimer) .. ")")
     Print("/bcf swing offhand on|off, /bcf swing ranged on|off - its off-hand and ranged bars (now: "
         .. OnOff(db and db.swingOffhand) .. ", " .. OnOff(db and db.swingRanged) .. "); /bcf swing debug prints each swing event")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
+
+-- What C_Secrets says about a unit's casts, where the client has it.
+local function SpellCastSecretText(u)
+    local cs = _G.C_Secrets
+    if type(cs) ~= "table" or type(cs.ShouldUnitSpellCastingBeSecret) ~= "function" then return "n/a" end
+    local ok, v = pcall(cs.ShouldUnitSpellCastingBeSecret, u)
+    if not ok then return "refused" end
+    if IsSecret(v) then return "secret" end
+    return v and "yes" or "no"
+end
+
+local function CastStateText(u)
+    local f = bars[u]
+    if not f then return "no bar" end
+    local st = f.state or "idle"
+    if f.test then st = st .. " (test)" end
+    if f.secret then st = st .. ", secret timings - " .. tostring(f.secretHow) .. " bar" end
+    if f.timeOff then st = st .. ", no time text (" .. f.timeOff .. ")" end
+    local last = "none yet"
+    if f.lastRead then
+        last = string.format("%s, %.0f s ago", f.lastRead, GetTime() - (f.lastReadAt or GetTime()))
+    end
+    return st .. "; last live read: " .. last
+end
+
+local function CastApiLine()
+    local sb = bars.target and bars.target.tbar
+    return "UnitCastingDuration: " .. Yes(type(_G.UnitCastingDuration) == "function")
+        .. "   UnitChannelDuration: " .. Yes(type(_G.UnitChannelDuration) == "function")
+        .. "   SetTimerDuration: " .. Yes(sb ~= nil and type(sb.SetTimerDuration) == "function")
+        .. "   secret casts (target): " .. SpellCastSecretText("target")
+end
+
+local function SetCastDebug(on)
+    castDebug = on and true or false
+    if not castDebug then Print("cast debug off."); return end
+    Print("cast debug on: every cast event on target, focus and pet prints what was read and why a cast was or was not shown. /bcf debug again to stop.")
+    Print(CastApiLine())
+end
 
 local function PrintStatus()
     Print("version " .. VERSION)
@@ -1461,7 +1685,9 @@ local function PrintStatus()
             bf and ((hooked[bf] and BarEnabled(u)) and "found, hidden while ours is on" or "found") or "not found")
         if blocked[u] then line = line .. "; OFF - the client refused it: " .. blocked[u] end
         Print(line)
+        if u ~= "player" then Print("  " .. u .. " cast: " .. CastStateText(u)) end
     end
+    Print(CastApiLine())
     local swingLine = "swing timer: " .. OnOff(db and db.swingTimer) .. "   off hand: " .. OnOff(db and db.swingOffhand)
         .. "   ranged: " .. OnOff(db and db.swingRanged) .. "   UnitAttackSpeed: " .. Yes(type(_G.UnitAttackSpeed) == "function")
         .. "   swings from: " .. SwingSourceText()
@@ -1482,6 +1708,10 @@ local function OnSlash(msg)
         PrintHelp()
     elseif cmd == "status" then
         PrintStatus()
+    elseif cmd == "debug" then
+        if rest == "on" then SetCastDebug(true)
+        elseif rest == "off" then SetCastDebug(false)
+        else SetCastDebug(not castDebug) end
     elseif cmd == "lock" then
         SetLocked(true)
     elseif cmd == "unlock" then
@@ -1744,6 +1974,13 @@ local function OnCastEvent(f, kind, castGUID)
     end
 end
 
+-- /bcf debug: one line per event on a non-player bar. Never prints a secret, only its kind.
+local function DebugCast(u, event, note)
+    if not castDebug or u == "player" or not bars[u] then return end
+    if blocked[u] then note = "OFF - the client refused it: " .. blocked[u] end
+    Print(string.format("%s %s: %s", u, event, note or CastStateText(u)))
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
@@ -1778,14 +2015,21 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         SwingGuard(SwingSync)
     elseif event == "PLAYER_TARGET_CHANGED" then
         Guard("target", Refresh, "target")
+        DebugCast("target", event)
     elseif event == "PLAYER_FOCUS_CHANGED" then
         Guard("focus", Refresh, "focus")
+        DebugCast("focus", event)
     elseif event == "UNIT_PET" then
         if arg1 == "player" then Guard("pet", Refresh, "pet") end
     else
         local kind = CAST_EVENTS[event]
         local f = kind and bars[arg1]
-        if f and BarEnabled(arg1) then Guard(arg1, OnCastEvent, f, kind, arg2) end
+        if f and BarEnabled(arg1) then
+            Guard(arg1, OnCastEvent, f, kind, arg2)
+            DebugCast(arg1, event)
+        elseif f then
+            DebugCast(arg1, event, "bar is off (/bcf bar " .. arg1 .. " on)")
+        end
     end
 end)
 

@@ -22,11 +22,14 @@
       icon, cooldown, count and time widgets. Where that API is missing or "native" is off, the
       addon reads the auras itself as in 1.1 (by index, then by spell ID) - which in practice
       only works out of combat - with a countdown that turns yellow at 8 s and red at 3 s.
+    * Other players' debuffs (1.2.4, option "others", on by default): on enemy plates, after
+      yours on the same row, up to 6 smaller grey icons - a second group of the same container
+      with HARMFUL|!PLAYER, so no debuff is shown twice. Not where the client lacks "!".
     * Your target: scaled up to 115% with a faint ring; other plates dimmed to 55% while you have
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
     * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
-      threat, threattext, execute, debuffs, tot, dim, targetscale, reset and debug.
+      threat, threattext, execute, debuffs, others, native, tot, dim, targetscale, reset and debug.
     * BetterPlatesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -58,13 +61,15 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local AURA_N, AURA_SZ = 8, 20     -- debuff icons per plate, and their size
+local OTHERS_N, OTHERS_SZ = 6, 15 -- other players' (and the mob's own) debuffs, after yours
+local OTHERS_TIME_SIZE = 9        -- their time text
 local AURA_GAP = 6                -- space between debuff icons
 local AURA_ABOVE_GAP = 3        -- gap between the name text and the debuff row above it
 local CAST_H = 9                  -- cast bar height
@@ -173,6 +178,7 @@ local TOGGLES = {
     { key = "threatText", cmd = "threattext", label = "Threat percent text" },
     { key = "execute", cmd = "execute", label = "Execute tint (20% or less)" },
     { key = "debuffs", cmd = "debuffs", label = "My debuffs" },
+    { key = "others", cmd = "others", label = "Other players' debuffs (smaller, grey)" },
     { key = "native", cmd = "native", label = "Debuffs drawn by the client (in combat too)" },
     { key = "tot", cmd = "tot", label = "Target of target" },
     { key = "dim", cmd = "dim", label = "Dim non-target plates" },
@@ -190,6 +196,7 @@ local DEFAULTS = {
     threatText = true,
     execute = true,
     debuffs = true,
+    others = true,
     native = true,
     tot = true,
     dim = true,
@@ -687,12 +694,15 @@ local function SpellAura(unit, id)
     local ok, a = pcall(C.GetUnitAuraBySpellID, unit, id)
     if not ok then NoteRefusal("spellRefused", a); return nil end
     if type(a) ~= "table" then return nil end
-    local ok2, mine, src = pcall(function() return Plain(a.isFromPlayerOrPlayerPet), Plain(a.sourceUnit) end)
+    -- isFromPlayerOrPlayerPet is true for any player's aura, not only yours, so the caster
+    -- decides where it is known; the flag can only rule an aura out.
+    local ok2, fromPlayer, src = pcall(function() return Plain(a.isFromPlayerOrPlayerPet), Plain(a.sourceUnit) end)
     if not ok2 then return a end
-    if mine == false then return nil end
-    if mine == nil and type(src) == "string" and src ~= "player" and src ~= "pet" and src ~= "vehicle" then
-        return nil
+    if type(src) == "string" then
+        if src ~= "player" and src ~= "pet" and src ~= "vehicle" then return nil end
+        return a
     end
+    if fromPlayer == false then return nil end
     return a
 end
 
@@ -763,7 +773,28 @@ end
 -- ---------------------------------------------------------------------------
 
 local NATIVE_GROUP = "bpfMine"
-local nativeStats = { created = 0, failed = 0, buttonFailed = 0, lastError = nil }
+local OTHERS_GROUP = "bpfOthers"
+local nativeStats = { created = 0, failed = 0, buttonFailed = 0, othersFailed = 0, lastError = nil }
+
+-- Other people's debuffs: "HARMFUL|!PLAYER", every debuff not cast by you, your pet or vehicle
+-- (other players' DoTs and the mob's own), where this client has filter negation (retail 12.1,
+-- AuraUtil.AuraFilterNegationPrefix). Next to HARMFUL|PLAYER each debuff is in exactly one
+-- group. Without it there is no way to tell yours from theirs in the container - its caster
+-- flag isFromPlayerOrPlayerPet is true for every player - so plain HARMFUL would show yours
+-- twice; the group is then left out and only yours are shown, as before.
+local NOT_MINE = "HARMFUL|!PLAYER"
+local notMineOK   -- nil until asked, then true / false
+local function NotMineSupported()
+    if notMineOK == nil then
+        local U = _G.AuraUtil
+        local ok, valid = false, nil
+        if type(U) == "table" and type(U.IsValidFilterString) == "function" then
+            ok, valid = pcall(U.IsValidFilterString, NOT_MINE)
+        end
+        notMineOK = (ok and valid == true) and true or false
+    end
+    return notMineOK
+end
 
 local function NativeError(kind, err)
     nativeStats[kind] = nativeStats[kind] + 1
@@ -772,50 +803,54 @@ end
 
 -- Called by the container for each button it creates. Every part is optional: a button with only
 -- an icon is still worth having, so each step is guarded on its own and none may throw.
-local function InitNativeButton(btn)
-    local ok, err = pcall(function()
-        btn:SetSize(AURA_SZ, AURA_SZ)
-        local tex = btn:CreateTexture(nil, "ARTWORK")
-        tex:SetAllPoints()
-        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        btn:SetIcon(tex)
-    end)
-    if not ok then NativeError("buttonFailed", err); return end
-    local cd
-    pcall(function()
-        cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
-        cd:SetAllPoints()
-        if cd.SetReverse then cd:SetReverse(true) end
-        if cd.SetDrawEdge then cd:SetDrawEdge(false) end
-        btn:SetDurationCooldown(cd)
-    end)
-    -- The time left as our own text, centred and white like an action button's cooldown count,
-    -- formatted by the client through TimeText's rule formatter ("56", "2m", "1h"); the
-    -- container's default formatter ("56s") if the client refuses that, and the cooldown's own
-    -- numbers only if the text fails altogether.
-    local timed = pcall(function()
-        local tm = btn:CreateFontString(nil, "OVERLAY")
-        tm:SetFont(_G.STANDARD_TEXT_FONT, TIME_SIZE, "OUTLINE")
-        tm:SetTextColor(1, 1, 1)
-        tm:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        local fmt = TimeText.Formatter()
-        local ok, err = false, nil
-        if fmt then ok, err = pcall(btn.SetDurationText, btn, tm, { textFormatter = fmt }) end
-        if ok then
-            nativeStats.timeFormat = "56 / 2m / 1h"
-        else
-            if err then nativeStats.timeFormatError = tostring(err) end
-            btn:SetDurationText(tm)
-            nativeStats.timeFormat = "client default (56s, 2m)"
-        end
-    end)
-    if cd and cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, timed and true or false) end
-    pcall(function()
-        local cnt = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-        cnt:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 1, 0)
-        btn:SetApplicationCount(cnt)
-    end)
-    pcall(BorderFrame, btn, btn:GetFrameLevel())
+-- size and timeSize per group; grey draws the icon desaturated (other people's debuffs).
+local function NativeButtonInit(size, timeSize, grey)
+    return function(btn)
+        local ok, err = pcall(function()
+            btn:SetSize(size, size)
+            local tex = btn:CreateTexture(nil, "ARTWORK")
+            tex:SetAllPoints()
+            tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            if grey then tex:SetDesaturated(true) end
+            btn:SetIcon(tex)
+        end)
+        if not ok then NativeError("buttonFailed", err); return end
+        local cd
+        pcall(function()
+            cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+            cd:SetAllPoints()
+            if cd.SetReverse then cd:SetReverse(true) end
+            if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+            btn:SetDurationCooldown(cd)
+        end)
+        -- The time left as our own text, centred and white like an action button's cooldown count,
+        -- formatted by the client through TimeText's rule formatter ("56", "2m", "1h"); the
+        -- container's default formatter ("56s") if the client refuses that, and the cooldown's own
+        -- numbers only if the text fails altogether.
+        local timed = pcall(function()
+            local tm = btn:CreateFontString(nil, "OVERLAY")
+            tm:SetFont(_G.STANDARD_TEXT_FONT, timeSize, "OUTLINE")
+            tm:SetTextColor(1, 1, 1)
+            tm:SetPoint("CENTER", btn, "CENTER", 0, 0)
+            local fmt = TimeText.Formatter()
+            local ok, err = false, nil
+            if fmt then ok, err = pcall(btn.SetDurationText, btn, tm, { textFormatter = fmt }) end
+            if ok then
+                nativeStats.timeFormat = "56 / 2m / 1h"
+            else
+                if err then nativeStats.timeFormatError = tostring(err) end
+                btn:SetDurationText(tm)
+                nativeStats.timeFormat = "client default (56s, 2m)"
+            end
+        end)
+        if cd and cd.SetHideCountdownNumbers then pcall(cd.SetHideCountdownNumbers, cd, timed and true or false) end
+        pcall(function()
+            local cnt = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+            cnt:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 1, 0)
+            btn:SetApplicationCount(cnt)
+        end)
+        pcall(BorderFrame, btn, btn:GetFrameLevel())
+    end
 end
 
 -- The overlay's container, built on first use; false once building it failed on this plate.
@@ -834,8 +869,9 @@ local function NativeContainer(o)
         c:SetFrameLevel(o.health:GetFrameLevel() + 6)
         c:AddAuraGroup(NATIVE_GROUP, "HARMFUL|PLAYER", {
             maxFrameCount = AURA_N,
-            initializeFrame = InitNativeButton,
-            layout = { elementSpacing = AURA_GAP, elementWidth = AURA_SZ, elementHeight = AURA_SZ },
+            initializeFrame = NativeButtonInit(AURA_SZ, TIME_SIZE, false),
+            layout = { elementSpacing = AURA_GAP, elementWidth = AURA_SZ, elementHeight = AURA_SZ,
+                groupSpacing = AURA_GAP, layoutIndex = 1 },
         })
     end)
     if not ok2 then
@@ -843,6 +879,23 @@ local function NativeContainer(o)
         pcall(c.Hide, c)
         o.native = false
         return false
+    end
+    -- Other people's debuffs: on the same row, after yours, smaller and grey. Its own pcall, so a
+    -- client that refuses it still shows yours. Switched on per plate in SyncNative.
+    if NotMineSupported() then
+        local ok3, err3 = pcall(function()
+            c:AddAuraGroup(OTHERS_GROUP, NOT_MINE, {
+                maxFrameCount = OTHERS_N,
+                initializeFrame = NativeButtonInit(OTHERS_SZ, OTHERS_TIME_SIZE, true),
+                layout = { elementSpacing = AURA_GAP - 2, elementWidth = OTHERS_SZ, elementHeight = OTHERS_SZ,
+                    groupSpacing = AURA_GAP, layoutIndex = 2 },
+            })
+        end)
+        if ok3 then
+            o.nativeOthers = true
+        else
+            NativeError("othersFailed", err3)
+        end
     end
     nativeStats.created = nativeStats.created + 1
     o.native = c
@@ -864,14 +917,23 @@ local function SyncNative(o, unit, on)
         if on then pcall(c.Show, c) else pcall(c.Hide, c) end
         o._nativeOn = on
     end
+    -- Other people's debuffs only on enemy plates, and only with the "others" option on.
+    if o.nativeOthers then
+        local others = (on and unit and db.others and Plain(UnitCanAttack("player", unit))) and true or false
+        if o._othersOn ~= others then
+            local ok, err = pcall(c.SetAuraGroupEnabled, c, OTHERS_GROUP, others)
+            if not ok then NativeError("othersFailed", err) end
+            o._othersOn = others
+        end
+    end
 end
 
--- How many icons the container shows on this plate: a number, "hidden" while the client keeps
--- the count secret, or nil without a container.
-local function NativeCount(o)
+-- How many icons the container shows on this plate in a group (yours by default): a number,
+-- "hidden" while the client keeps the count secret, or nil without a container.
+local function NativeCount(o, group)
     local c = o and o.native
     if not c then return nil end
-    local ok, n = pcall(c.GetAuraGroupFrameCount, c, NATIVE_GROUP)
+    local ok, n = pcall(c.GetAuraGroupFrameCount, c, group or NATIVE_GROUP)
     if not ok then return "hidden" end
     n = Num(n)
     return n or "hidden"
@@ -1266,6 +1328,26 @@ local function PrintFeatureState()
     end
     Print("debuffs: " .. FeatureState("debuffs", db.debuffs) .. DOT .. "native " .. OnOff(db.native)
         .. DOT .. "target plate: " .. onPlate)
+    local others
+    if not NotMineSupported() then
+        others = "not on this client (no \"!PLAYER\" filter; plain HARMFUL would show yours twice)"
+    elseif not db.others then
+        others = "off (setting)"
+    elseif not (db.debuffs and db.native) then
+        others = "on, but only drawn by the client's container (debuffs and native on)"
+    else
+        local n = "no target plate"
+        if o and o.nativeOthers then
+            n = NativeCount(o, OTHERS_GROUP)
+            if n == "hidden" then n = "?" end
+            n = tostring(n or 0) .. " icon(s) on the target plate"
+            if not o._othersOn then n = n .. " (not an enemy)" end
+        elseif o then
+            n = "group refused on this plate"
+        end
+        others = "on (" .. NOT_MINE .. ")" .. DOT .. n
+    end
+    Print("other players' debuffs: " .. others)
     Print("health text: " .. db.healthText .. DOT .. FeatureState("healthtext", db.healthText ~= "off")
         .. DOT .. "last written from " .. healthTextPath .. " values")
 end
@@ -1286,6 +1368,7 @@ local function PrintDebug()
         Yes(type(_G.AuraContainerSortMethod) == "table"),
         Yes(type(_G.C_AuraContainerUtil) == "table"),
         nativeStats.created, nativeStats.failed, nativeStats.buttonFailed))
+    if nativeStats.othersFailed > 0 then Print("other-debuff group refused: " .. nativeStats.othersFailed .. " time(s)") end
     if nativeStats.lastError then Print("last AuraContainer error: " .. nativeStats.lastError) end
     local _, fmtWhy = TimeText.Formatter()
     Print("debuff time text: " .. tostring(fmtWhy)

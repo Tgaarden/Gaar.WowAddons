@@ -52,6 +52,15 @@ party, and switches Blizzard's off. It needs no other addon or library.
   lighter green, then absorb shields in white (with Blizzard's shield stripes where the client has
   the texture), and heal absorbs (necrotic and the like) in dark red drawn back over the health.
   Nothing is drawn past the end of the bar.
+- **HoT prediction** (1.2.7, on by default: `/bff hotpred off` to hide). After the green incoming
+  heals, a soft yellow segment shows what every active HoT on the unit (Renew, Rejuvenation,
+  Regrowth's HoT, Lifebloom where the client has it, First Aid bandages; from any healer) will
+  still heal before it runs out, so you can see whether the HoTs already cover the missing health.
+  It is cut like the green: health + incoming heals + HoTs never go past the end of the bar. The
+  client's heal prediction has no HoT part, so the sum comes from the buffs themselves (per-tick
+  amount times the ticks left). On Forever auras are secret in combat, and then the yellow
+  segment is simply not drawn; `/bff status` says so (`unavailable (auras secret)`). Out of
+  combat - topping someone up, resting - it is.
 - **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
   mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
   Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays
@@ -97,7 +106,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), HoT prediction (on/off, what it showed last or why it is unavailable, its source, and any HoT method the client's heal prediction calculator has), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
 | `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
 | `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
@@ -110,6 +119,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/bff classcolor on\|off` | Class colour for players (on by default; off: green) |
 | `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 | `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
+| `/bff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
 
@@ -119,7 +129,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 menu has a submenu per Better...Forever addon. Its **Frames** row is in BetterGaarForever 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
 **Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**, **Low-health colour**,
-**Class colour**, **Player buffs** and **Reset positions & scales**, the same settings as `/bff` (both go through
+**Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/bff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here
 changes with or without the hub.
 
@@ -254,6 +264,15 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   subtraction is needed. Without the calculator the raw `UnitGetIncomingHeals`,
   `UnitGetTotalAbsorbs` and `UnitGetTotalHealAbsorbs` are used, and the health bar clips its
   children (`SetClipsChildren`) so nothing shows past its end.
+- **HoT prediction from the buffs** (1.2.7). Retail's calculator and `UnitGetIncomingHeals` only
+  predict cast heals (classic HealComm's HoT flags were a library, not the client), so the yellow
+  segment is summed in Lua: `C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")`, and for each
+  known HoT spell ID (a small table with its tick interval and which effect is the periodic one)
+  `points` per tick times the ticks left from `expirationTime - GetTime()`. Only plain values are
+  used; a secret spell ID, amount or expiration, or a refused read, hides the segment instead.
+  It is anchored to the green bar's fill edge, and the absorb bar now to its edge. Where health,
+  maximum and incoming heals are plain the sum is cut to the missing health after the incoming
+  heals; otherwise the clipping health bar cuts it. `UNIT_AURA` refreshes it as well.
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
@@ -270,7 +289,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   ticker; everything else is event-driven.
 - Party frames follow `RegisterUnitWatch`, so in a raid they show your own subgroup.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `portrait`,
-  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `healPrediction`, `frames`, `scales` and `positions` are kept, each type-checked
+  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `healPrediction`, `hotPred`, `frames`, `scales` and `positions` are kept, each type-checked
   (scales clamped to 0.6-1.5, positions with a missing field dropped); anything else is cleared
   on load. A position is saved only when none of its numbers is secret. Test mode is never saved.
 

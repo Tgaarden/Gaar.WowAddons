@@ -10,7 +10,11 @@
       luminance so nothing reads as harsh pure red. Mobs tagged by someone else are grey.
       Execute tint at 20% health or less (option).
     * Threat on every plate: purple when you hold aggro (with a purple ring), amber when your
-      threat is high (status 2 or more), threat percent on the bar (option).
+      threat is higher than the tank's (status 1), threat percent on the bar (option). Aggro is
+      read from the first source that answers plainly (1.2.5): UnitDetailedThreatSituation,
+      UnitThreatSituation, then "the mob is in combat and targeting you". Where all of them are
+      secret, the client colours the bar itself from its secret boolean
+      (Texture:SetVertexColorFromBoolean), where it has that.
     * Name above the bar, level right of it, health text (off, percent, current or both) in it,
       the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
@@ -49,11 +53,13 @@
   straight back to a widget is allowed - but nothing is worked out from them: no execute tint, no
   colour by health. The health text then comes from the client's own secret-safe helpers
   (UnitHealthPercent with CurveConstants.ScaleTo100, AbbreviateNumbers, SetFormattedText) where
-  it has them. Threat and level secrets are dropped to nil at the read. And because secrecy
-  travels further than issecretvalue reports, every part of a plate's update runs inside pcall:
-  the first refusal switches that one part off for the session with one message, instead of an
-  error twelve times a second per plate. An aura read the client refuses is not such a refusal:
-  it is expected in combat, is counted (/bpf debug) and tried again on the next pass.
+  it has them. Level secrets are dropped to nil at the read; threat secrets too, except the one
+  "you hold aggro" boolean, which goes straight to SetVertexColorFromBoolean (see ReadThreat).
+  And because secrecy travels further than issecretvalue reports, every part of a plate's update
+  runs inside pcall: the first refusal switches that one part off for the session with one
+  message, instead of an error twelve times a second per plate. An aura read the client refuses
+  is not such a refusal: it is expected in combat, is counted (/bpf debug) and tried again on the
+  next pass.
 ]]
 
 local _G = _G
@@ -61,7 +67,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.4"
+local VERSION = "1.2.5"
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -424,18 +430,95 @@ end
 -- value is plain unless it has been checked.
 -- ---------------------------------------------------------------------------
 
--- Threat: returns whether you hold aggro and whether your threat is high.
+-- Threat status (UnitThreatSituation, and the second return of UnitDetailedThreatSituation):
+--   nil  you are not on the mob's threat list
+--   0    on the list, not tanking, your threat is below the tank's
+--   1    not tanking, but your threat is higher than the tank's (you are about to pull it)
+--   2    tanking insecurely: the mob is on you, but someone else has more threat
+--   3    tanking securely: the mob is on you and nobody has more threat
+-- So 2 and 3 are aggro (purple) and 1 is high threat (amber). Up to 1.2.4 "high" was status 2 or
+-- more, which is the same as aggro, so amber never showed on its own.
+
+-- "secret", "nil" or the plain value as text, for /bpf status. Never compares a secret.
+local function Kind(v)
+    if issecretvalue and issecretvalue(v) then return "secret" end
+    if v == nil then return "nil" end
+    return tostring(v)
+end
+
+local function Call(fn, ...)
+    if type(fn) ~= "function" then return false, "MISSING" end
+    return pcall(fn, ...)
+end
+
+-- Whether you hold aggro on unit, from the first source that answers plainly:
+--   a. UnitDetailedThreatSituation("player", unit): isTanking, or its status
+--   b. UnitThreatSituation("player", unit): the status alone
+--   c. the mob is in combat (UnitAffectingCombat) and targeting you (UnitIsUnit(unit.."target"))
+-- Returns tanking, high (both true / false), pct (a plain number or nil), source (text), and,
+-- only when none of them answered plainly, flag + hasFlag: the client's own secret "you hold
+-- aggro" boolean (from a, else c). hasFlag says whether there is one, because a secret may not
+-- even be compared with nil.
+local function ReadThreat(unit)
+    local flag, hasFlag, pct
+    local ok, isTanking, status, p = Call(_G.UnitDetailedThreatSituation, "player", unit)
+    if ok then
+        pct = Num(p)
+        local s = Num(status)
+        if not Secret(isTanking) and isTanking ~= nil then
+            local t = isTanking and true or false
+            return t, (not t and s == 1) or false, pct, "UnitDetailedThreatSituation"
+        end
+        if s then return s >= 2, s == 1, pct, "UnitDetailedThreatSituation (status)" end
+        if Secret(isTanking) then flag, hasFlag = isTanking, true end
+    end
+
+    local ok2, st = Call(_G.UnitThreatSituation, "player", unit)
+    if ok2 then
+        local s = Num(st)
+        if s then return s >= 2, s == 1, pct, "UnitThreatSituation" end
+    end
+
+    local okC, combat = Call(_G.UnitAffectingCombat, unit)
+    local okT, onMe = Call(_G.UnitIsUnit, unit .. "target", "player")
+    if okC and not Secret(combat) then
+        if not combat then return false, false, pct, "mob's target (mob not in combat)" end
+        if okT and not Secret(onMe) then
+            return onMe and true or false, false, pct, "mob's target"
+        end
+        if okT and not hasFlag then flag, hasFlag = onMe, true end
+    end
+
+    if hasFlag then return false, false, pct, "secret: the client colours the bar", flag, true end
+    return false, false, pct, "none (no source answered)"
+end
+
+-- What each source returns for unit right now - "secret", "nil" or the value - for /bpf status.
+local function ThreatDiag(unit)
+    local function Show(ok, ...)
+        if not ok then return "error: " .. tostring((...)) end
+        local out = {}
+        for i = 1, select("#", ...) do out[i] = Kind((select(i, ...))) end
+        return #out > 0 and table.concat(out, "/") or "nil"
+    end
+    return Show(Call(_G.UnitDetailedThreatSituation, "player", unit)),
+        Show(Call(_G.UnitThreatSituation, "player", unit)),
+        Show(Call(_G.UnitAffectingCombat, unit)),
+        Show(Call(_G.UnitIsUnit, unit .. "target", "player"))
+end
+
+-- Threat: whether you hold aggro and whether your threat is high, plus the secret flag (above).
 local function UpdateThreat(o, unit)
     o.ttext:SetText("")
-    if not db.threat or not Plain(UnitCanAttack("player", unit)) then return false, false end
-    local tanking, status, pct = UnitDetailedThreatSituation("player", unit)
-    -- Threat comes back secret where the client hides it, and a secret boolean cannot even be
-    -- tested for truth. Dropped to nil here, every test below is an ordinary one.
-    tanking, status, pct = Plain(tanking), Num(status), Num(pct)
+    if not db.threat then o.threatSource = "off (setting)"; return false, false end
+    local canAttack = UnitCanAttack("player", unit)
+    if not Secret(canAttack) and not canAttack then o.threatSource = "not attackable"; return false, false end
+    local tanking, high, pct, source, flag, hasFlag = ReadThreat(unit)
+    o.threatSource = source
     if db.threatText and pct and pct > 0 then
         o.ttext:SetText(string.format("%d%%", pct + 0.5))
     end
-    return tanking and true or false, (status ~= nil and status >= 2) or false
+    return tanking, high, flag, hasFlag
 end
 
 local function ReactionColor(unit)
@@ -471,7 +554,43 @@ local function BaseColor(unit, pct)
     return ReactionColor(unit)
 end
 
-local function UpdateHealth(o, unit, tanking, high)
+-- Pull a colour toward its own luminance so nothing reads as harsh pure red or purple.
+local function Soften(r, g, b)
+    local lum = 0.3 * r + 0.59 * g + 0.11 * b
+    local m = 0.28
+    return r + (lum - r) * m, g + (lum - g) * m, b + (lum - b) * m
+end
+
+local AGGRO_R, AGGRO_G, AGGRO_B = 0.55, 0.38, 0.68
+
+-- The bar coloured by the client from a secret "you hold aggro" boolean: purple when true, the
+-- plate's own colour when false. Texture:SetVertexColorFromBoolean (12.x) takes the secret as it
+-- is, so nothing here tests it. Counted for /bpf status; a refusal is retried next pass.
+local tintStats = { used = 0, failed = 0, lastError = nil }
+local aggroColor
+
+local function SecretTint(o, flag, r, g, b)
+    local h = o.health
+    local tex = type(h.GetStatusBarTexture) == "function" and h:GetStatusBarTexture()
+    if not tex or type(tex.SetVertexColorFromBoolean) ~= "function" or type(_G.CreateColor) ~= "function" then
+        return false
+    end
+    if not aggroColor then aggroColor = _G.CreateColor(Soften(AGGRO_R, AGGRO_G, AGGRO_B)) end
+    local c = o._tintColor
+    if c and type(c.SetRGBA) == "function" then c:SetRGBA(r, g, b, 1)
+    else c = _G.CreateColor(r, g, b, 1); o._tintColor = c end
+    local ok, err = pcall(tex.SetVertexColorFromBoolean, tex, flag, aggroColor, c)
+    if ok then
+        tintStats.used = tintStats.used + 1
+        o._secretTint = tex
+        return true
+    end
+    tintStats.failed = tintStats.failed + 1
+    tintStats.lastError = tostring(err)
+    return false
+end
+
+local function UpdateHealth(o, unit, tanking, high, flag, hasFlag)
     local mx, cur = UnitHealthMax(unit), UnitHealth(unit)
     local pct
     if Secret(cur, mx) then
@@ -489,12 +608,16 @@ local function UpdateHealth(o, unit, tanking, high)
 
     local r, g, b = BaseColor(unit, pct)
     if pct and db.execute and pct * 100 <= EXECUTE_PCT then r, g, b = 0.5, 0.22, 0.22 end
-    if tanking then r, g, b = 0.55, 0.38, 0.68          -- you hold aggro
+    if tanking then r, g, b = AGGRO_R, AGGRO_G, AGGRO_B -- you hold aggro
     elseif high then r, g, b = 0.8, 0.6, 0.35 end      -- high threat
-    -- Pull the colour toward its own luminance so nothing reads as harsh pure red or purple.
-    local lum = 0.3 * r + 0.59 * g + 0.11 * b
-    local m = 0.28
-    o.health:SetStatusBarColor(r + (lum - r) * m, g + (lum - g) * m, b + (lum - b) * m)
+    r, g, b = Soften(r, g, b)
+    o.health:SetStatusBarColor(r, g, b)
+    -- No plain answer on aggro: the client picks purple or this colour from its secret flag.
+    local tinted = hasFlag and not tanking and SecretTint(o, flag, r, g, b)
+    if not tinted and o._secretTint then
+        -- Back from the secret tint: set the texture itself too, in case the bar keeps its colour.
+        o._secretTint:SetVertexColor(r, g, b); o._secretTint = nil
+    end
     if pct and cur <= 0 then o.ttext:SetText("") end
 end
 
@@ -1023,16 +1146,24 @@ local function UpdateAuras(o, unit)
 end
 
 -- Target scale, rings and dimming.
-local function UpdateEmphasis(o, unit, tanking)
+local function UpdateEmphasis(o, unit, tanking, flag, hasFlag)
     local isTarget = Plain(UnitIsUnit(unit, "target")) and true or false
+    local ring, fromFlag = o.ring, false
     -- The aggro ring stays bold, since that one is a warning; the target ring is only a hint.
     if tanking then
-        o.ring:SetBackdropBorderColor(0.55, 0.38, 0.68, 1); o.ring:Show()
+        ring:SetBackdropBorderColor(AGGRO_R, AGGRO_G, AGGRO_B, 1); ring:Show()
     elseif db.targetScale and isTarget then
-        o.ring:SetBackdropBorderColor(0.7, 0.7, 0.75, 0.35); o.ring:Show()
+        ring:SetBackdropBorderColor(0.7, 0.7, 0.75, 0.35); ring:Show()
+    elseif hasFlag and type(ring.SetAlphaFromBoolean) == "function"
+        and pcall(ring.SetAlphaFromBoolean, ring, flag, 1, 0) then
+        -- Aggro known only as a secret: the client shows the purple ring or hides it (alpha 0).
+        ring:SetBackdropBorderColor(AGGRO_R, AGGRO_G, AGGRO_B, 1); ring:Show()
+        fromFlag = true
     else
-        o.ring:Hide()
+        ring:Hide()
     end
+    if o._ringFromFlag and not fromFlag then ring:SetAlpha(1) end
+    o._ringFromFlag = fromFlag
     o.frame:SetScale((db.targetScale and isTarget) and TARGET_SCALE or 1)
     if db.dim and not isTarget and Plain(UnitExists("target")) then
         o.frame:SetAlpha(DIM_ALPHA)
@@ -1068,7 +1199,7 @@ local CLEAR = {
         for i = 1, AURA_N do o.auraIcons[i]:Hide() end
         if o.native then o.native:Hide() end
     end,
-    emphasis = function(o) o.ring:Hide(); o.frame:SetScale(1); o.frame:SetAlpha(1) end,
+    emphasis = function(o) o.ring:Hide(); o.ring:SetAlpha(1); o.frame:SetScale(1); o.frame:SetAlpha(1) end,
 }
 
 local function Latch(feature, err)
@@ -1083,21 +1214,25 @@ local function Latch(feature, err)
         .. " - that part is off for this session. (" .. tostring(err) .. ")")
 end
 
-local function Run(feature, fn, o, unit, a, b)
+local function Finish(feature, ok, ...)
+    if ok then return ... end
+    Latch(feature, (...))
+end
+
+local function Run(feature, fn, ...)
     if blocked[feature] then return end
-    local ok, r1, r2 = pcall(fn, o, unit, a, b)
-    if ok then return r1, r2 end
-    Latch(feature, r1)
+    return Finish(feature, pcall(fn, ...))
 end
 
 local function UpdatePlate(o, unit)
-    local tanking, high = Run("threat", UpdateThreat, o, unit)
-    Run("health", UpdateHealth, o, unit, tanking, high)
+    -- flag is a secret boolean when hasFlag is true; it is only ever handed to the client.
+    local tanking, high, flag, hasFlag = Run("threat", UpdateThreat, o, unit)
+    Run("health", UpdateHealth, o, unit, tanking, high, flag, hasFlag)
     Run("healthtext", UpdateHealthText, o, unit)
     Run("text", UpdateText, o, unit)
     Run("cast", UpdateCast, o, unit)
     Run("debuffs", UpdateAuras, o, unit)
-    Run("emphasis", UpdateEmphasis, o, unit, tanking)
+    Run("emphasis", UpdateEmphasis, o, unit, tanking, flag, hasFlag)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1316,7 +1451,30 @@ local function FeatureState(f, on)
     return on and "on" or "off (setting)"
 end
 
--- One line each for the debuff icons and the health text.
+-- Threat on your target's plate: which source the plate used, and what each source returns now
+-- (secret, nil or the plain value). Worth running in combat, with the mob targeted.
+local function PrintThreatState(o)
+    local line
+    if not o then
+        line = "no target plate (target an enemy, in combat)"
+    else
+        local ok, detailed, situation, combat, onMe = pcall(ThreatDiag, o.unit)
+        line = "plate uses " .. tostring(o.threatSource or "?") .. DOT .. (ok and (
+            "UnitDetailedThreatSituation " .. detailed .. " (tanking/status/pct/raw/value)"
+            .. DOT .. "UnitThreatSituation " .. situation
+            .. DOT .. "mob in combat " .. combat .. ", targeting you " .. onMe)
+            or ("read failed: " .. tostring(detailed)))
+    end
+    Print("threat: " .. FeatureState("threat", db.threat) .. DOT .. line)
+    local tex = o and type(o.health.GetStatusBarTexture) == "function" and o.health:GetStatusBarTexture()
+    Print("threat from a secret: SetVertexColorFromBoolean "
+        .. (o and Yes(tex and type(tex.SetVertexColorFromBoolean) == "function") or "?")
+        .. ", SetAlphaFromBoolean " .. (o and Yes(type(o.ring.SetAlphaFromBoolean) == "function") or "?")
+        .. DOT .. string.format("bar tinted %d, refused %d", tintStats.used, tintStats.failed)
+        .. (tintStats.lastError and (" (" .. tintStats.lastError .. ")") or ""))
+end
+
+-- One line each for the debuff icons and the health text, and two for threat.
 local function PrintFeatureState()
     local o = TargetOverlay()
     local onPlate = "no target plate"
@@ -1350,6 +1508,7 @@ local function PrintFeatureState()
     Print("other players' debuffs: " .. others)
     Print("health text: " .. db.healthText .. DOT .. FeatureState("healthtext", db.healthText ~= "off")
         .. DOT .. "last written from " .. healthTextPath .. " values")
+    PrintThreatState(o)
 end
 
 local function CVarValue(name)
@@ -1415,6 +1574,7 @@ local function PrintStatus()
         .. "   auras: " .. ((type(C) == "table" and type(C.GetAuraDataByIndex) == "function") and "C_UnitAuras"
             or (type(_G.UnitAura) == "function" and "UnitAura" or "MISSING"))
         .. "   threat: " .. Yes(type(_G.UnitDetailedThreatSituation) == "function")
+        .. "/" .. Yes(type(_G.UnitThreatSituation) == "function")
         .. "   hidden values: " .. (issecretvalue and "possible" or "no"))
     Print("plates styled now: " .. CountActive())
     local off = {}
@@ -1582,7 +1742,8 @@ end
 
 local events = CreateFrame("Frame")
 for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
-                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
+                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
+                     "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE" }) do
     pcall(events.RegisterEvent, events, e)
 end
 -- Your own casts, remembered for the by-spell-ID debuff lookup (only "player" is wanted).
@@ -1615,6 +1776,15 @@ events:SetScript("OnEvent", function(_, event, arg1, _, arg3)
         RefreshPlates()
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateAll()
+    elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" then
+        -- At once rather than on the next tick: that plate, or every plate for "player" / no unit.
+        if Secret(arg1) then UpdateAll(); return end
+        local o = type(arg1) == "string" and active[arg1]
+        if o then
+            UpdatePlate(o, arg1)
+        elseif arg1 == nil or arg1 == "player" then
+            UpdateAll()
+        end
     end
 end)
 

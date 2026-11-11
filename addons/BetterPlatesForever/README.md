@@ -62,6 +62,9 @@ exactly what the game, or you, set them to.
   every player's aura), and plain `HARMFUL` would show yours twice, so the group is left out and
   only yours are shown; `/bpf status` says which. Only with `native` on (the addon's own fallback
   reading stays yours-only), and not on friendly plates: BPF draws no buffs or HoTs on plates.
+- **Raid target marks** (1.2.6, `marks`, on by default). A 20 px icon left of the bar, as on Blizzard's
+  plates, updated at once on `RAID_TARGET_UPDATE`. A hidden (secret) mark index is only passed to
+  `SetRaidTargetIconTexture` inside a `pcall`; if the client refuses it the icon is hidden.
 - **Your target.** Its plate is scaled to 115% with a faint grey ring (`targetscale`, on by
   default), and every other plate is dimmed to 55% while you have a target (`dim`, on by default).
 - **Plates update 12.5 times a second**, the same loop as `GaarPlates`, over the plates being
@@ -90,6 +93,7 @@ exactly what the game, or you, set them to.
 | `/bpf tot on\|off` | The unit's target under the bar |
 | `/bpf dim on\|off` | Dim non-target plates to 55% |
 | `/bpf targetscale on\|off` | Scale your target's plate to 115% and ring it |
+| `/bpf marks on\|off` | Raid target marks (skull, cross ...) as a 20 px icon left of the bar (on by default) |
 | `/bpf reset` | Every setting back to its default |
 
 A switch without `on` or `off` toggles it. `/betterplatesforever` is the long form of `/bpf`.
@@ -155,7 +159,7 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   warning is printed at login and `/bpf status` says so. Nothing is disabled; use one of the two.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled`, `colorMode`,
   `healthText`, `width`, `height`, `friendly`, `threat`, `threatText`, `execute`, `debuffs`,
-  `others`, `native`, `tot`, `dim` and `targetScale` are kept, each checked for its type and range on load; anything
+  `others`, `native`, `tot`, `dim`, `targetScale` and `raidMark` are kept, each checked for its type and range on load; anything
   else is cleared.
 
 ## Names it relies on

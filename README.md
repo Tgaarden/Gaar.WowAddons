@@ -74,7 +74,9 @@ or library needed, and not listed in `GaarUI`. It orders the tracked quests by q
 lowest first, ties by title, with quests that are ready to turn in at the bottom (or `top`, or
 sorted by `level`), and shows only the first N of them (default 10). Every quest stays tracked
 and the watch list is never changed: after Blizzard's own layout, out of combat, the quest blocks
-are re-anchored in the sorted order with Blizzard's own spacing and the ones past N are hidden.
+are re-anchored in the sorted order with Blizzard's own spacing and the ones past N are hidden
+(only as many as fit the tracker's Edit Mode height; since 1.7.1 the tracker is never made taller
+in Edit Mode).
 During combat the section is Blizzard's own. Other tracker sections are not touched. `/bqf` for
 help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bqf minimap
 [reset]` and `/bqf status`; a minimap button opens the same options as a menu. Since 1.6, with

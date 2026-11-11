@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.6"
+local VERSION = "1.2.7"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -156,13 +156,14 @@ local DEFAULTS = {
     followEditMode = false,
     playerBuffs = true,
     healPrediction = true,
+    hotPred = true,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
-    playerBuffs = true, healPrediction = true, frames = true, scales = true, positions = true,
+    playerBuffs = true, healPrediction = true, hotPred = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- BetterFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -816,10 +817,11 @@ end
 -- ---------------------------------------------------------------------------
 
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
-local HealPred = {}   -- Build, Update, Hide, Fake, Method
+local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotStatus
 do
 local MY = { 0.0, 0.83, 0.2, 0.85 }      -- your heals (Blizzard's myHealPrediction is a strong green)
 local ALL = { 0.55, 0.95, 0.45, 0.55 }   -- everyone's heals, lighter
+local HOT = { 0.95, 0.80, 0.30, 0.55 }   -- what active HoTs will still heal (1.2.7), soft yellow
 local ABSORB = { 1.0, 1.0, 1.0, 0.55 }   -- totalAbsorb: white, with Blizzard's stripes where found
 local HEAL_ABSORB = { 0.45, 0.0, 0.0, 0.75 }
 local SHIELD_OVERLAY = "Interface\\RaidFrame\\Shield-Overlay"
@@ -849,6 +851,134 @@ function HealPred.Method()
     if Calculator() then return "client calculator (clamped)" end
     if type(_G.UnitGetIncomingHeals) == "function" then return "raw values, clipped to the bar" end
     return "none on this client"
+end
+
+-- ---------------------------------------------------------------------------
+-- HoT prediction (1.2.7): a yellow segment after the green incoming heals, the healing every
+-- active HoT on the unit (from any healer) will still do before it runs out.
+--
+-- Where the number comes from, best source first:
+--   1. The client's own heal prediction. Retail's calculator (12.x) and UnitGetIncomingHeals
+--      only predict cast heals - the green - and have no HoT split: no HoT clamp mode, no HoT
+--      getter, no HoT flag on UnitGetIncomingHeals (classic HealComm's DIRECT / HOT flags are a
+--      library of its own, not in the client). /bff status lists any calculator method whose
+--      name says HoT or periodic, so a client that grows one shows it.
+--   2. So it is summed from the unit's buffs: C_UnitAuras.GetAuraDataByIndex(unit, i,
+--      "HELPFUL"), and for each known HoT (HOTS below, by spell ID: the tick interval and which
+--      effect is the periodic one) the per-tick amount from aura.points times the ticks left
+--      from expirationTime - GetTime(). Only when spell ID, points and expiration are plain.
+--   3. On this client auras are secret while you are in combat (see Auras below), and reading
+--      them by index is then refused. The yellow segment is simply hidden then - nothing else
+--      changes - and /bff status says why ("unavailable (auras secret)"). Out of combat (a
+--      healer topping up, resting) it is drawn.
+-- Clamped as the green: when health, maximum and incoming heals are plain the sum is cut to the
+-- missing health left after the incoming heals; otherwise the health bar clips its children,
+-- so nothing is drawn past its end either way.
+-- ---------------------------------------------------------------------------
+
+-- [spellId] = { tick interval in seconds, index of the periodic effect in aura.points }
+local HOTS = {}
+local function AddHots(interval, effect, ids)
+    for _, id in ipairs(ids) do HOTS[id] = { interval, effect } end
+end
+-- Renew, ranks 1-10
+AddHots(3, 1, { 139, 6074, 6075, 6076, 6077, 6078, 10927, 10928, 10929, 25315 })
+-- Rejuvenation, ranks 1-11
+AddHots(3, 1, { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299 })
+-- Regrowth, ranks 1-9: effect 1 is the direct heal, the HoT is effect 2
+AddHots(3, 2, { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 })
+-- Lifebloom, where the client has it
+AddHots(1, 1, { 33763 })
+-- First Aid bandages (a channelled HoT on the target), Linen to Heavy Runecloth
+AddHots(1, 1, { 746, 1159, 3267, 3268, 7926, 7927, 10838, 10839, 18608, 18610 })
+
+local MAX_AURAS = 40
+local hotWhy = "not read yet"   -- the last outcome, for /bff status
+
+-- The plain per-tick amount of one HoT aura, or nil.
+local function TickAmount(points, effect)
+    points = Plain(points)
+    if type(points) ~= "table" then return nil end
+    -- A list of only the aura's own effects has the HoT first, even for Regrowth.
+    local v = points[effect]
+    if v == nil then v = points[1] end
+    v = Num(v)
+    if v and v > 0 then return v end
+    return nil
+end
+
+-- The healing every known HoT on unit will still do, or nil and why not.
+local function HotTotal(unit)
+    local C = _G.C_UnitAuras
+    if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then return nil, "no aura API" end
+    local now = Num(type(_G.GetTime) == "function" and _G.GetTime() or nil)
+    if not now then return nil, "no clock" end
+    local S = _G.C_Secrets
+    local ask = type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function"
+        and S.ShouldUnitAuraIndexBeSecret or nil
+    local total, hots, hidden = 0, 0, false
+    for i = 1, MAX_AURAS do
+        if ask then
+            local ok, s = pcall(ask, unit, i, "HELPFUL")
+            if ok and Plain(s) == true then return nil, "auras secret" end
+        end
+        local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HELPFUL")
+        if not ok then return nil, "auras secret" end
+        if type(a) ~= "table" then break end
+        local id = Num(a.spellId)
+        local hot = id and HOTS[id]
+        if hot then
+            hots = hots + 1
+            local per, exp = TickAmount(a.points, hot[2]), Num(a.expirationTime)
+            if per and exp then
+                local left = exp - now
+                -- Ticks land at left = 2*interval, interval, 0: ceil, less a hair so a tick
+                -- that has just landed is not counted again.
+                local ticks = left > 0 and math.ceil(left / hot[1] - 0.05) or 0
+                if ticks > 0 then total = total + per * ticks end
+            else
+                hidden = true
+            end
+        elseif IsSecret(a.spellId) then
+            hidden = true   -- a secret spell ID: could be a HoT
+        end
+    end
+    if hidden and total == 0 then return nil, "aura amounts secret" end
+    if hots == 0 then return 0, "no known HoT on the unit" end
+    return total, nil
+end
+
+-- Calculator methods whose name says HoT or periodic: none on retail 12.x, so the aura sum.
+local function CalculatorHotMethods()
+    local c = Calculator()
+    if not c then return "no calculator" end
+    local names, seen = {}, {}
+    local function Scan(t)
+        if type(t) ~= "table" then return end
+        for k, v in pairs(t) do
+            if type(k) == "string" and type(v) == "function" and not seen[k] then
+                local l = k:lower()
+                if l:find("hot", 1, true) or l:find("periodic", 1, true) or l:find("overtime", 1, true) then
+                    seen[k] = true
+                    names[#names + 1] = k
+                end
+            end
+        end
+    end
+    pcall(function()
+        local mt = getmetatable(c)
+        Scan(type(mt) == "table" and mt.__index or nil)
+        Scan(c)
+    end)
+    table.sort(names)
+    return #names > 0 and table.concat(names, ", ") or "none"
+end
+
+-- For /bff status: what the yellow segment showed last, and where it comes from.
+function HealPred.HotStatus()
+    return hotWhy .. DOT .. "source: aura amounts of Renew, Rejuvenation, Regrowth, Lifebloom and"
+        .. " bandages (plain only, so out of combat on this client)" .. DOT .. "calculator HoT methods: "
+        .. CalculatorHotMethods()
 end
 
 local function Overlay(health, level, c, reverse)
@@ -882,12 +1012,15 @@ function HealPred.Build(f)
     local hp = {}
     hp.all = Overlay(h, 1, ALL)
     hp.mine = Overlay(h, 2, MY)
+    hp.hot = Overlay(h, 1, HOT)
     hp.absorb = Overlay(h, 1, ABSORB)
     hp.healAbsorb = Overlay(h, 3, HEAL_ABSORB, true)
     local fill = h:GetStatusBarTexture()
     Place(hp.all, fill, f.healthW)
     Place(hp.mine, fill, f.healthW)
-    Place(hp.absorb, hp.all:GetStatusBarTexture(), f.healthW)
+    -- health | incoming heals (green) | HoTs (yellow) | absorbs (white)
+    Place(hp.hot, hp.all:GetStatusBarTexture(), f.healthW)
+    Place(hp.absorb, hp.hot:GetStatusBarTexture(), f.healthW)
     Place(hp.healAbsorb, fill, f.healthW, true)
     local ov = hp.absorb:CreateTexture(nil, "OVERLAY")
     ov:SetAllPoints(hp.absorb:GetStatusBarTexture())
@@ -920,6 +1053,29 @@ local function Set(bar, mx, v)
     bar:Show()
 end
 
+-- The yellow HoT segment. Hidden, value 0, it still anchors the absorb bar at the green's edge.
+local function SetHot(hp, mx, v)
+    if type(v) ~= "number" or v <= 0 then   -- v is ours: plain, never secret
+        hp.hot:SetMinMaxValues(0, 1)
+        hp.hot:SetValue(0)
+        hp.hot:Hide()
+        return
+    end
+    Set(hp.hot, mx, v)
+end
+
+-- The HoT sum for unit, cut to the missing health after the incoming heals where all of those
+-- are plain (otherwise the clipping health bar does it). Also notes the outcome for /bff status.
+local function HotValue(u, mx, all)
+    if not db.hotPred then hotWhy = "off"; return nil end
+    local total, why = HotTotal(u)
+    if not total then hotWhy = "unavailable (" .. why .. ")"; return nil end
+    if why then hotWhy = "nothing to show (" .. why .. ")"; return nil end
+    local m, cur, inc = Num(mx), Num(UnitHealth(u, false)), Num(all or 0)
+    if m and cur and inc then total = Clamp(m - cur - inc, 0, total) end
+    hotWhy = string.format("shown (%d on %s)", total, u)
+    return total
+end
 -- One frame's overlays from the client. Values go from one client call to the next.
 function HealPred.Update(f)
     local hp = f.healPred
@@ -946,6 +1102,7 @@ function HealPred.Update(f)
     end
     Set(hp.all, mx, all)
     Set(hp.mine, mx, mine)
+    SetHot(hp, mx, HotValue(u, mx, all))
     Set(hp.absorb, mx, absorb)
     Set(hp.healAbsorb, mx, healAbsorb)
 end
@@ -958,6 +1115,7 @@ function HealPred.Fake(f, d, mx)
     local h = d.heal
     Set(hp.all, mx, h[1] + h[2])
     Set(hp.mine, mx, h[1])
+    SetHot(hp, mx, db.hotPred and h[4] or nil)
     Set(hp.absorb, mx, h[3])
     hp.healAbsorb:Hide()
 end
@@ -2460,7 +2618,7 @@ local FAKE = {
         { "Interface\\Icons\\Spell_Nature_LightningShield", nil, { 60, 600 } },
         "Interface\\Icons\\Spell_Holy_SealOfWisdom",
     } },
-    target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 }, heal = { 300, 200, 250 },
+    target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 }, heal = { 300, 200, 250, 150 },
         power = { 900, 1200, "MANA" }, reaction = { 0.85, 0.2, 0.2 }, combo = 3,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 300, 1800 } },
                   { "Interface\\Icons\\Spell_Nature_Regeneration", nil, { 1500, 1800 } } },
@@ -2474,7 +2632,7 @@ local FAKE = {
     party1 = { name = "Thrall", level = 60, class = "SHAMAN", hp = { 3900, 4200 }, power = { 3100, 4000, "MANA" }, leader = true,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 900, 1800 } } } },
     party2 = { name = "Jaina", level = 60, class = "MAGE", hp = { 1100, 3600 }, power = { 2500, 5200, "MANA" },
-        heal = { 500, 400, 600 },   -- your heal, others' heals, absorb shield (heal prediction)
+        heal = { 500, 400, 600, 700 },   -- your heal, others' heals, absorb shield, HoTs (heal prediction)
         debuffs = { { "Interface\\Icons\\Spell_Shadow_CurseOfTounges", nil, { 10, 120 } } } },
     party3 = { name = "Uther", level = 60, class = "PALADIN", hp = { 600, 4800 }, power = { 1800, 4300, "MANA" }, far = true },
     party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" } },
@@ -2935,6 +3093,7 @@ local SETTING_TOGGLES = {
     { key = "classColor", cmd = "classcolor", label = "Class colour" },
     { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
+    { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
 }
 
 local function SetToggle(t, on)
@@ -2977,6 +3136,8 @@ local function PrintHelp()
         .. OnOff(db and db.playerBuffs) .. ")")
     Print("/bff healpred on | off - incoming heals and absorbs on the health bars (now: "
         .. OnOff(db and db.healPrediction) .. ")")
+    Print("/bff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
+        .. OnOff(db and db.hotPred) .. ")")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -3177,6 +3338,8 @@ local function PrintStatus()
         .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
+    Print("hot prediction " .. OnOff(db.hotPred) .. (db.healPrediction and "" or " (needs heal prediction)")
+        .. DOT .. "now: " .. HealPred.HotStatus())
     local p = real.player
     Print("player mana bar: " .. ((p and p.manaShown) and "shown" or "hidden")
         .. " (" .. ((p and p.manaWhy) or "not drawn yet") .. ")"
@@ -3451,6 +3614,8 @@ local function OnUnitEvent(event, unit, arg2)
     Run(UNIT_EVENT_FEATURE[fn], fn, f)
     -- Health changes move the clamps of the heal overlays; power changes the player's mana bar.
     if fn == UpdateHealth then Run("healpred", HealPred.Update, f) end
+    -- HoTs coming and going move the yellow HoT segment.
+    if fn == UpdateAuras and db.hotPred then Run("healpred", HealPred.Update, f) end
     if fn == UpdatePower and f.mana then Run("mana", Mana.Update, f) end
 end
 

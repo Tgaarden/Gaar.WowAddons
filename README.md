@@ -23,7 +23,7 @@ of the code.
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
 | `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), and hovering the bag gold shows every character's gold | `/bbf` |
-| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); every quest stays tracked, the watch list is never changed; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
+| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); auto-watch (default on) watches the lowest quests that fit the tracker's Edit Mode height and un-watches the rest; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
 | `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
@@ -73,14 +73,15 @@ plain fallback TOC, both at 16001. Details in
 A standalone addon for the **Quests** section of Forever's own objective tracker - no Gaar addon
 or library needed, and not listed in `GaarUI`. It orders the tracked quests by quest level,
 lowest first, ties by title, with quests that are ready to turn in at the bottom (or `top`, or
-sorted by `level`), and shows only the first N of them (default 10). Every quest stays tracked
-and the watch list is never changed: after Blizzard's own layout, out of combat, the quest blocks
-are re-anchored in the sorted order with Blizzard's own spacing and the ones past N are hidden
-(only as many as fit the tracker's Edit Mode height; since 1.7.1 the tracker is never made taller
-in Edit Mode).
+sorted by `level`), and shows only the first N of them (default 10). After Blizzard's own layout,
+out of combat, the quest blocks are re-anchored in the sorted order with Blizzard's own spacing.
+Since 1.9 **auto-watch** (default on) manages which quests are watched: the lowest quests (in that
+order) that fit the tracker's height are watched and the rest un-watched, so Blizzard draws
+exactly those; the tracker's height is always Blizzard's (Edit Mode) and is never changed.
+`/bqf autowatch off` hands the watch list back untouched.
 During combat the section is Blizzard's own. Other tracker sections are not touched. `/bqf` for
-help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf on|off`, `/bqf minimap
-[reset]` and `/bqf status`; a minimap button opens the same options as a menu. Since 1.6, with
+help, `/bqf max <n>|all`, `/bqf completed top|level|bottom`, `/bqf autowatch on|off`, `/bqf on|off`,
+`/bqf minimap [reset]` and `/bqf status`; a minimap button opens the same options as a menu. Since 1.6, with
 BetterGpsForever 1.1 loaded, the tracker's right-click menu for a quest has **Set GPS target**
 after Focus: the waypoint goes to Blizzard's point for the quest (next waypoint, else its POI or
 turn-in point), titled with the quest's name, and is greyed out when there is none. It ships a

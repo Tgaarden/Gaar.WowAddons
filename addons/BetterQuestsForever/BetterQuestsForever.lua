@@ -12,11 +12,14 @@
       C_QuestLog.GetDistanceSqToQuest; quests without a distance go last. The order is worked
       out again every few seconds out of combat, with hysteresis so near-equal quests do not
       jump around, and applied through the same hook-time code as the level order.
-    * Limit: only the first N quests of that order are shown (default 10). The rest stay tracked;
-      they are only not drawn.
-
-  Every tracked quest stays tracked, and the watch list is never touched: the addon does not call
-  AddQuestWatch, RemoveQuestWatch or SortQuestWatches at all.
+    * Limit: only the first N quests of that order are shown (default 10).
+    * Auto-watch (1.9, default on): the addon decides WHICH quests are watched. It watches the
+      quests of the Quests section that come first in the order above and fit in the tracker's
+      height, and un-watches the rest, so the quests Blizzard draws are exactly the addon's top
+      quests that fit. The tracker's height is never changed: it is Blizzard's (the Edit Mode
+      Height). See "Auto-watch" above AutoWatch.Run for how the fit is measured and why it settles.
+      Off (/bqf autowatch off), the watch list is the player's and is never touched; the order and
+      the limit then only change what is drawn of it.
 
   How, and why it is taint-safe (the Quests section carries quest item buttons, and the click
   on one calls the protected UseQuestLogSpecialItem):
@@ -47,11 +50,15 @@
       and everything the addon hid is shown again, so for the whole fight the Quests section is
       exactly Blizzard's own. On PLAYER_REGEN_ENABLED the order and the limit are applied again.
 
-  Height (1.7, 1.7.1): Blizzard only lays out the quests that fit, in its own watch order. When a
-  low-level quest gets no block, the tracker's container frame is made taller (SetHeight) so it
-  does; the quests shown are only those that fit Blizzard's own height (the Edit Mode Height),
-  the extra is trimmed to what the shown blocks need, and there is none in Edit Mode. See the
-  comment above Container().
+  Height (1.9): the tracker's container is never resized and Blizzard's UpdateHeight is never
+  topped up; 1.7/1.7.1 did that and are gone. The only SetHeight left is on the Quests section
+  itself, and only to make it shorter when the limit hides blocks (see SetSectionHeight); with
+  auto-watch on, the limit has nothing to hide once the watch list has settled.
+
+  Auto-watch and taint: C_QuestLog.AddQuestWatch/RemoveQuestWatch are not protected. They are
+  called only from this addon's own throttle frame (never from inside a Blizzard function or one
+  of our hooks on it), out of combat and outside Edit Mode. Blizzard's tracker learns of the
+  change from the client's QUEST_WATCH_LIST_CHANGED event, as when the player clicks Track.
 
   Hide in combat (default on): the whole objective tracker (ObjectiveTrackerFrame) and the
   backdrop are hidden for the length of a fight. The tracker is hidden and shown by Blizzard's
@@ -98,12 +105,13 @@ local DEFAULTS = {
     completed = "bottom",
     sort = "level",
     hideInCombat = true,
+    autoWatch = true,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
-    hideInCombat = true, distanceProbe = true, sort = true }
+    hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -114,10 +122,7 @@ local trackerProblem    -- why the tracker was not recognised, for /bqf status
 local hooked            -- our hooksecurefunc hooks are in place
 local layoutProblem     -- why the last pass could not order/limit the section, for /bqf status
 local pending           -- an evaluation is waiting (throttle or combat)
-local heightSet         -- the section's frame has a height other than Blizzard's
-local extraHeight = 0   -- pixels added to the objective container's height so Blizzard lays out every quest
-local containerBase     -- the container's height as Blizzard set it, without extraHeight
-local growRounds = 0    -- consecutive passes that grew extraHeight (capped, so it cannot run away)
+local heightSet         -- the section's frame is shorter than Blizzard's (the limit hid blocks)
 local shownCount        -- quest blocks visible after the last pass
 local orderedCount      -- quest blocks sorted in the last pass
 local prevOrder         -- quest IDs in the order of the last distance-mode pass (for hysteresis)
@@ -860,107 +865,14 @@ local function SetSectionHeight(h)
     end
     local full = FullHeight()
     if not full then return end
-    if h and math.abs(h - full) > 0.001 then
+    -- Only ever shorter than Blizzard's: never taller than what Blizzard laid out.
+    if h and h < full - 0.001 then
         tracker:SetHeight(math.max(h, 1))
         heightSet = true
     elseif heightSet then
         tracker:SetHeight(full)
         heightSet = false
     end
-end
-
--- Blizzard lays the Quests section out in its own watch order and stops at the first quest block
--- that does not fit the container's height (ObjectiveTrackerModuleMixin:AddBlock/CanFitBlock);
--- the blocks after it are never created, so no amount of sorting afterwards can show them. A
--- low-level quest that Blizzard put late in its list then stays invisible while higher-level
--- ones are drawn. When that happens the container is made taller (SetHeight, a widget method),
--- so Blizzard creates the missing blocks, and the pass below sorts them and hides the rest.
---
--- 1.7.1: the taller frame is never what you see, and never what Edit Mode sees.
---   * The extra cannot be dropped again right after the layout: every size change of the
---     container re-runs its Update (ObjectiveTrackerContainerMixin:OnSizeChanged -> MarkDirty),
---     and at Blizzard's height the Quests section no longer fits (contentsHeight > available), so
---     Blizzard truncates it again and the low-level blocks are gone. So the frame keeps just
---     enough extra for the blocks that are shown, and no more (TrimExtra).
---   * What is drawn always fits Blizzard's own height: the quests shown are the lowest-level ones
---     (up to N) that fit the room Blizzard would have given the section at the height it set
---     (the Edit Mode Height, or the screen bottom in the default position). The extra room is
---     empty; the background (NineSlice) follows the last section, so it ends where the quests do.
---   * In Edit Mode there is no extra at all: it is dropped on EditMode.Enter, Blizzard's
---     UpdateHeight is no longer topped up, and it comes back on EditMode.Exit. The selection box
---     and the Height slider are Blizzard's own.
-local EXTRA_STEP_MIN, EXTRA_MAX, MAX_GROW_ROUNDS = 60, 2400, 8
--- Height state and helpers of 1.7.1, in one table to stay under Lua's 200 locals per chunk.
-local Grow = {
-    TRIM_MARGIN = 8,   -- px left below the last kept block
-    TRIM_MIN = 16,     -- smallest trim worth a re-layout
-    -- fitLimited: the last pass showed fewer than N quests because more do not fit Blizzard's height
-    -- layoutAvail, layoutContainerH: see OnLayoutContents
-    -- editModeHook: how Edit Mode is followed, for /bqf status
-}
-
-local function Container()
-    local c = tracker and tracker.parentContainer
-    if IsFrame(c) and type(c.GetHeight) == "function" and type(c.SetHeight) == "function"
-        and not IsProtectedFrame(c) then
-        return c
-    end
-end
-
-function Grow.ContainerHeight()
-    local c = Container()
-    local h = c and pcall1(c.GetHeight, c)
-    if type(h) == "number" and not IsSecret(h) then return h end
-end
-
-function Grow.IsEditMode()
-    local em = _G.EditModeManagerFrame
-    if type(em) ~= "table" or type(em.IsEditModeActive) ~= "function" then return false end
-    return pcall1(em.IsEditModeActive, em) and true or false
-end
-
--- The room Blizzard's last real layout of the Quests section had, and the container height it was
--- worked out from; read in a hook on LayoutContents, which only runs when the section is laid out.
-function Grow.OnLayoutContents()
-    local a = tracker and tracker.availableHeight
-    local h = Grow.ContainerHeight()
-    if type(a) == "number" and not IsSecret(a) and h then
-        Grow.layoutAvail, Grow.layoutContainerH = a, h
-    end
-end
-
--- The room the Quests section gets at Blizzard's own container height (without our extra).
-function Grow.BaseAvail()
-    if type(Grow.layoutAvail) ~= "number" or type(Grow.layoutContainerH) ~= "number" then return end
-    if type(containerBase) ~= "number" then
-        if extraHeight ~= 0 then return end
-        containerBase = Grow.ContainerHeight()
-        if not containerBase then return end
-    end
-    return Grow.layoutAvail - (Grow.layoutContainerH - containerBase)
-end
-
-local function ApplyContainerHeight()
-    local c = Container()
-    if not c or InCombat() then return end
-    if type(containerBase) ~= "number" then return end
-    local want = containerBase + extraHeight
-    local cur = Grow.ContainerHeight()
-    if cur and math.abs(cur - want) > 0.5 then pcall(c.SetHeight, c, want) end
-end
-
--- After Blizzard's UpdateHeight: what it just set is the base; put our extra on top (never in
--- Edit Mode, so the Height slider and the selection box are Blizzard's).
-local function OnContainerHeight()
-    local h = Grow.ContainerHeight()
-    if h then containerBase = h end
-    if extraHeight > 0 and db and db.enabled and not Grow.IsEditMode() then ApplyContainerHeight() end
-end
-
-local function ResetExtraHeight()
-    if extraHeight == 0 and growRounds == 0 then return end
-    extraHeight, growRounds = 0, 0
-    pcall(ApplyContainerHeight)
 end
 
 -- Shows again what we hid, except the blocks in keep. A frame is shown only while Blizzard
@@ -983,11 +895,10 @@ end
 -- Hands the section back to Blizzard exactly as it laid it out.
 local function RestoreAll()
     if not tracker then return end
-    ResetExtraHeight()
     pcall(RestoreAnchors)
     Restore({})
     if heightSet then SetSectionHeight(nil) end
-    shownCount, orderedCount, Grow.fitLimited = nil, nil, nil
+    shownCount, orderedCount = nil, nil
 end
 
 local function Skip(reason)
@@ -1047,119 +958,17 @@ local function ApplyLayout()
     end
     OrderQuests(sortable)
 
-    -- What one block costs in Blizzard's accounting at position slot (InternalAddBlock:
-    -- contentsHeight += block.height - offsetY), with the offset Blizzard used at that position.
-    local function Cost(height, slot)
-        local a = anchors[math.min(slot, #anchors)]
-        return height - a.y
-    end
-    -- The section's header part of Blizzard's contentsHeight (what is left without the blocks), and
-    -- the room the section would get at Blizzard's own container height. Without both, the fit
-    -- check is off and the limit is N, as in 1.7.
-    local header
-    local contents = tracker.contentsHeight
-    if type(contents) == "number" and not IsSecret(contents) then
-        header = contents
-        for k, b in ipairs(chain) do header = header - Cost(BlockHeight(b), k) end
-    end
-    local base = Grow.BaseAvail()
-    local fit = header ~= nil and base ~= nil
-    local editMode = Grow.IsEditMode()
-
-    -- Shown: Blizzard's fixed blocks, then quests in our order, at most N, and only while they fit
-    -- the room Blizzard would have given the section; the first that does not fit ends the list
-    -- (the "boundary" block), so a lower-level quest is never skipped for a shorter higher one.
-    local visible, hide, isVisible = {}, {}, {}
-    local used = header or 0
-    for _, b in ipairs(fixed) do
-        visible[#visible + 1] = b
-        isVisible[b] = true
-        used = used + Cost(BlockHeight(b), #visible)
-    end
-    local shownQuests, boundary = 0, nil
+    -- Shown: Blizzard's fixed blocks, then the quests in our order, at most N. Blizzard only drew
+    -- what fits its own height, so everything shown fits it too.
+    local visible, hide = {}, {}
+    for _, b in ipairs(fixed) do visible[#visible + 1] = b end
+    local shownQuests = 0
     for _, d in ipairs(sortable) do
-        local b = d.block
-        local show = shownQuests < db.max and not boundary
-        if show and fit then
-            local c = Cost(BlockHeight(b), #visible + 1)
-            if used + c > base + 0.5 then
-                show, boundary = false, b
-            else
-                used = used + c
-            end
-        end
-        if show then
-            visible[#visible + 1] = b
-            isVisible[b] = true
+        if shownQuests < db.max then
+            visible[#visible + 1] = d.block
             shownQuests = shownQuests + 1
         else
-            hide[b] = true
-        end
-    end
-    Grow.fitLimited = boundary ~= nil
-
-    -- Quests Blizzard did not lay out (no block) that belong among the shown ones by our order:
-    -- among the first N and, with the fit check, starting while there is room left.
-    local laidOut = {}
-    for _, d in ipairs(sortable) do laidOut[d.id] = true end
-    for _, b in ipairs(fixed) do if IsQuestBlock(b) then laidOut[b.id] = true end end
-    local everyone = {}
-    for _, d in ipairs(sortable) do everyone[#everyone + 1] = d end
-    for questID in pairs(watched) do
-        if not laidOut[questID] then
-            local d = QuestData(questID)
-            if d.inLog and d.inQuestsSection then
-                d.dropped = true
-                everyone[#everyone + 1] = d
-            end
-        end
-    end
-    -- The same walk in plain level/distance order (no hysteresis), with an estimate for a quest
-    -- without a block. Every block it reaches is kept when the extra is trimmed below, so the
-    -- trim can never drop a block this walk would then ask for again.
-    local needed, reached = 0, {}
-    local total = 0
-    for _, b in ipairs(chain) do total = total + BlockHeight(b) end
-    local avg = #chain > 0 and total / #chain or 80
-    table.sort(everyone, Compare)
-    local u, slot = header or 0, #fixed
-    for k = 1, #fixed do u = u + Cost(BlockHeight(fixed[k]), k) end
-    for i, d in ipairs(everyone) do
-        if i > db.max then break end
-        slot = slot + 1
-        local c = Cost(d.dropped and avg or BlockHeight(d.block), slot)
-        if d.block then reached[d.block] = true end
-        if fit and (d.dropped and u >= base or not d.dropped and u + c > base + 0.5) then break end
-        if d.dropped then needed = needed + 1 end
-        u = u + c
-    end
-
-    if editMode then
-        -- Edit Mode: Blizzard's height only. The quests that fit it are still sorted and limited.
-        if extraHeight > 0 or growRounds > 0 then ResetExtraHeight() end
-    elseif needed > 0 and growRounds < MAX_GROW_ROUNDS and extraHeight < EXTRA_MAX and Container() then
-        extraHeight = math.min(EXTRA_MAX, extraHeight + math.max(EXTRA_STEP_MIN, math.ceil(needed * avg)))
-        growRounds = growRounds + 1
-        if type(containerBase) ~= "number" then containerBase = Grow.ContainerHeight() end
-        ApplyContainerHeight() -- Blizzard re-lays out on the size change; this pass finishes below
-    elseif needed == 0 then
-        growRounds = 0
-        -- Keep only the extra the shown blocks (and the boundary block) need: Blizzard's room for
-        -- the section down to the last of them in its own chain, plus a small margin.
-        if extraHeight > 0 and header and type(Grow.layoutAvail) == "number" and type(Grow.layoutContainerH) == "number"
-            and type(containerBase) == "number" then
-            local last = 0
-            for k, b in ipairs(chain) do
-                if isVisible[b] or b == boundary or reached[b] then last = k end
-            end
-            local through = header
-            for k = 1, last do through = through + Cost(BlockHeight(chain[k]), k) end
-            local want = Grow.layoutContainerH - (Grow.layoutAvail - (through + Grow.TRIM_MARGIN)) - containerBase
-            want = math.max(0, math.ceil(want))
-            if want < extraHeight and (want == 0 or extraHeight - want >= Grow.TRIM_MIN) then
-                extraHeight = want
-                ApplyContainerHeight()
-            end
+            hide[d.block] = true
         end
     end
 
@@ -1222,6 +1031,452 @@ local function OnTrackerLaidOut()
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- Auto-watch (1.9)
+--
+-- Blizzard lays the Quests section out in its own watch order and stops at the first quest that
+-- does not fit the room the container gives the section (ObjectiveTrackerModuleMixin:AddBlock /
+-- CanFitBlock: contentsHeight + block.height - offsetY <= availableHeight). That quest and every
+-- one after it get no block, so no sorting afterwards can draw them. Which quests are drawn
+-- therefore depends on which are watched, and auto-watch manages exactly that - never the
+-- height: the container's height is Blizzard's (the Edit Mode Height), nothing here resizes it.
+--
+-- The fit is read, never written, after each update of the QuestObjectiveTracker instance (a
+-- hooksecurefunc post-hook on Update, see Observe):
+--   * the availableHeight argument Blizzard passed to Update: the room for the section,
+--   * contentsHeight (header and drawn blocks), hasSkippedBlocks (a quest did not fit), the block
+--     chain (firstBlock/nextBlock: which quests got a block, and each block's height),
+--   * fromHeaderOffsetY / fromBlockOffsetY: the spacing Blizzard adds per block.
+-- Per quest it keeps the height of its block when it was last drawn, and for the quest that did
+-- not fit (the first watched quest, in watch order, without a block) a lower bound on its height:
+-- more than the room that was left.
+--
+-- A pass (out of combat, outside Edit Mode, throttled, from this addon's own throttle frame, and
+-- only once Blizzard has laid out the previous change) ranks every quest of the Quests section in
+-- the quest log with the addon's order (level or distance, completed quests as set), then walks
+-- that ranking from the top, adding each quest's cost (its measured height, else an estimate from
+-- its objective count, raised to its lower bound) to what the header and pop-ups take. It stops at the
+-- first quest that does not fit, so a lower-ranked short quest never jumps a higher-ranked tall
+-- one, and at N quests (Max quests shown) and Blizzard's watch cap. Those quests are watched, the
+-- other quests of the section are un-watched. The focused (super-tracked) quest is never
+-- un-watched and counts first; at least one quest stays watched. Campaign quests, world quests,
+-- bonus objectives and anything else outside the Quests section are never touched.
+--
+-- Why it settles instead of oscillating:
+--   * A quest that is not watched is added only when it fits with ADD_MARGIN px to spare; a
+--     watched one stays while it fits at all (hysteresis at the edge).
+--   * When an added quest does not fit after all, Blizzard's layout says so: it got no block (its
+--     lower bound is now above the room that was left), or another quest got none and the added
+--     one now has a measured height. Either way the next walk stops before it, and keeps doing so
+--     until the room grows or the quest changes (a completed quest is measured afresh).
+--   * Nothing is changed until Blizzard has laid out the last change (or SETTLE seconds passed).
+--   * At most MAX_CHANGES watch changes per pass; more than THRASH_PASSES changing passes within
+--     THRASH_WINDOW seconds pause auto-watch for THRASH_PAUSE seconds (said in chat and status).
+--   * In distance mode the ranking keeps the distance order's own hysteresis (SortByDistance).
+--
+-- Manual tracking: while auto-watch is on, a quest tracked or untracked by hand is set back the
+-- way the ranking wants on the next pass. /bqf autowatch off hands the watch list back; nothing
+-- is restored or changed when it goes off (or when the addon is switched off).
+-- ---------------------------------------------------------------------------
+
+local AutoWatch = {
+    ADD_MARGIN = 4,       -- px a quest that is not watched must leave free before it is added
+    MAX_CHANGES = 10,     -- watch changes per pass
+    THRASH_PASSES = 10, THRASH_WINDOW = 30, THRASH_PAUSE = 60,
+    SETTLE = 2,           -- s to wait for Blizzard's layout of a change
+    HEIGHT_TTL = 1800,    -- s a measured height is used for a quest that is not drawn now
+    MIN_TTL = 600,        -- s a "did not fit" lower bound is kept
+    REFUSED_TTL = 60,     -- s before a quest the client would not watch is tried again
+    DEFAULT_LINE = 16,    -- px per text line for a quest never measured, before any block was seen
+    heights = {},         -- questID -> { h, t, complete } of its last drawn block
+    minHeights = {},      -- questID -> { h, t }: it did not fit, its block is taller than h
+    refused = {},         -- questID -> time the client did not watch it
+    passTimes = {},       -- times of passes that changed the watch list (thrash guard)
+    changeSeq = 0,        -- bumped on every change; an observation carries the value it saw
+    changedAt = -1000,
+    -- snap: the last observation; plan: the last walk; last: the last change; state: for status;
+    -- prevOrder: the distance ranking of the last pass; editModeHook: how Edit Mode is followed
+}
+
+function AutoWatch.Now()
+    return pcall1(_G.GetTime) or 0
+end
+
+function AutoWatch.IsEditMode()
+    local em = _G.EditModeManagerFrame
+    if type(em) ~= "table" or type(em.IsEditModeActive) ~= "function" then return false end
+    return pcall1(em.IsEditModeActive, em) and true or false
+end
+
+-- The C_QuestLog functions auto-watch needs; the first missing name, or nil.
+function AutoWatch.MissingApi()
+    local ql = QuestLog()
+    if not ql then return "C_QuestLog" end
+    for _, name in ipairs({ "AddQuestWatch", "RemoveQuestWatch", "GetNumQuestLogEntries", "GetInfo",
+        "GetNumQuestWatches", "GetQuestIDForQuestWatchIndex", "GetLogIndexForQuestID" }) do
+        if type(ql[name]) ~= "function" then return "C_QuestLog." .. name end
+    end
+end
+
+-- Blizzard's cap on watched quests (retail constant, else the old global, else 25).
+function AutoWatch.Cap()
+    local c = _G.Constants
+    local n = type(c) == "table" and type(c.QuestWatchConsts) == "table" and c.QuestWatchConsts.MAX_QUEST_WATCHES
+    if type(n) ~= "number" then n = _G.MAX_WATCHABLE_QUESTS end
+    if type(n) ~= "number" or IsSecret(n) or n < 1 then n = 25 end
+    return n
+end
+
+function AutoWatch.Collapsed()
+    local otf = _G.ObjectiveTrackerFrame
+    if type(otf) == "table" and otf.isCollapsed == true then return true end
+    local c = tracker and tracker.parentContainer
+    if type(c) == "table" and c.isCollapsed == true then return true end
+    return tracker ~= nil and tracker.isCollapsed == true
+end
+
+function AutoWatch.Focused()
+    local st = _G.C_SuperTrack
+    local id = type(st) == "table" and pcall1(st.GetSuperTrackedQuestID) or nil
+    if type(id) == "number" and not IsSecret(id) and id > 0 then return id end
+end
+
+-- Text lines of a quest's block: its title and one per objective, or title and the completion line.
+function AutoWatch.Lines(d)
+    if d.complete then return 2 end
+    local ql = QuestLog()
+    local objectives = ql and pcall1(ql.GetQuestObjectives, d.id)
+    local n = type(objectives) == "table" and not IsSecret(objectives) and #objectives or 1
+    return 1 + math.max(n, 1)
+end
+
+local function QuestLabel(d)
+    return "[" .. (d.level or 0) .. "] " .. (d.title ~= "" and d.title or ("quest " .. d.id))
+end
+
+-- Reads Blizzard's last layout of the section. Runs in the post-hook on Update, read-only.
+function AutoWatch.Observe(avail)
+    if not tracker or not db then return end
+    local now = AutoWatch.Now()
+    avail = Num(avail)
+    local contents = Num(tracker.contentsHeight)
+    local firstOff = Num(tracker.fromHeaderOffsetY) or 0
+    local nextOff = Num(tracker.fromBlockOffsetY) or 0
+    local watches = GetWatches()
+    local watched = {}
+    for _, id in ipairs(watches) do watched[id] = true end
+
+    local chain = BlockChain()
+    local drawn, ids, nDrawn, nFixed, linePx = {}, {}, 0, 0, nil
+    local base = contents -- what the header and the blocks that are not ours take
+    for k, b in ipairs(chain) do
+        local d = IsQuestBlock(b) and watched[b.id] and QuestData(b.id)
+        if d and d.inLog and d.inQuestsSection then
+            local h = BlockHeight(b)
+            drawn[b.id] = h
+            ids[#ids + 1] = b.id
+            nDrawn = nDrawn + 1
+            if base then base = base - (h - (k == 1 and firstOff or nextOff)) end
+            AutoWatch.heights[b.id] = { h = h, t = now, complete = d.complete }
+            AutoWatch.minHeights[b.id] = nil
+            local perLine = h / AutoWatch.Lines(d)
+            if perLine > 0 and (not linePx or perLine < linePx) then linePx = perLine end
+        else
+            nFixed = nFixed + 1
+        end
+    end
+    if linePx then AutoWatch.linePx = linePx end
+
+    -- The quest Blizzard tried and could not fit: the first watched one in watch order without a
+    -- block (BuildQuestWatchInfos keeps watch order). Its block is taller than the room left.
+    local skipped = tracker.hasSkippedBlocks == true
+    local failed
+    if skipped and avail and contents then
+        for _, id in ipairs(watches) do
+            if not drawn[id] then
+                local d = QuestData(id)
+                if d.inLog and d.inQuestsSection then
+                    failed = d
+                    local low = avail - contents + (#chain == 0 and firstOff or nextOff) + 0.5
+                    local m = AutoWatch.minHeights[id]
+                    if low > 0 and (not m or m.h < low or now - m.t > AutoWatch.MIN_TTL) then
+                        AutoWatch.minHeights[id] = { h = low, t = now }
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    local collapsed = AutoWatch.Collapsed()
+    AutoWatch.snap = { avail = avail, contents = contents, base = base, firstOff = firstOff, nextOff = nextOff,
+        nFixed = nFixed, drawn = drawn, nDrawn = nDrawn, skipped = skipped, failed = failed,
+        collapsed = collapsed, seq = AutoWatch.changeSeq }
+    local key = string.format("%s:%s:%s:%s:%s", avail and math.floor(avail + 0.5) or "-",
+        contents and math.floor(contents + 0.5) or "-", tostring(skipped), tostring(collapsed), table.concat(ids, ","))
+    if key ~= AutoWatch.snapKey or AutoWatch.seenSeq ~= AutoWatch.changeSeq then
+        AutoWatch.snapKey, AutoWatch.seenSeq = key, AutoWatch.changeSeq
+        if db.enabled and db.autoWatch and AutoWatch.Schedule then AutoWatch.Schedule() end
+    end
+end
+
+-- Every quest of the Quests section in the quest log, in the addon's order.
+function AutoWatch.Pool()
+    local ql = QuestLog()
+    local pool, seen = {}, {}
+    local ok, n = Try(ql.GetNumQuestLogEntries)
+    if not ok or type(n) ~= "number" then return pool end
+    for i = 1, n do
+        local info = pcall1(ql.GetInfo, i)
+        local id = type(info) == "table" and not info.isHeader and not info.isHidden and info.questID
+        if type(id) == "number" and id > 0 and not seen[id] then
+            seen[id] = true
+            local d = QuestData(id)
+            if d.inLog and d.inQuestsSection then pool[#pool + 1] = d end
+        end
+    end
+    if SortMode() == "distance" then
+        for _, d in ipairs(pool) do d.dist = QuestDistance(d.id) end
+        SortByDistance(pool, AutoWatch.prevOrder)
+        AutoWatch.prevOrder = {}
+        for i, d in ipairs(pool) do AutoWatch.prevOrder[i] = d.id end
+    else
+        table.sort(pool, Compare)
+    end
+    return pool
+end
+
+-- The height a quest's block is expected to have: measured when it was drawn, else its text lines
+-- times the smallest height per line seen in drawn blocks (on the low side on purpose: a quest
+-- that then does not fit gets a measured height or a lower bound, and is not tried again).
+function AutoWatch.Estimate(d, snap, now)
+    local h = snap.drawn[d.id]
+    if not h then
+        local known = AutoWatch.heights[d.id]
+        if known and now - known.t <= AutoWatch.HEIGHT_TTL and known.complete == d.complete then h = known.h end
+    end
+    h = h or AutoWatch.Lines(d) * (AutoWatch.linePx or AutoWatch.DEFAULT_LINE)
+    local m = AutoWatch.minHeights[d.id]
+    if m and now - m.t <= AutoWatch.MIN_TTL and m.h > h then h = m.h end
+    return h
+end
+
+-- The set of quests that should be watched: the top of the ranking that fits (see above).
+function AutoWatch.Plan(snap, pool, watched, now)
+    local inPool = {}
+    for _, d in ipairs(pool) do inPool[d.id] = true end
+    local others = 0
+    for id in pairs(watched) do
+        if not inPool[id] then others = others + 1 end
+    end
+    local cap = AutoWatch.Cap() - others
+    if db.max < MAX_MAX then cap = math.min(cap, db.max) end
+    cap = math.max(cap, 1)
+
+    local focused = AutoWatch.Focused()
+    if not (focused and inPool[focused] and watched[focused]) then focused = nil end
+
+    local target, count = {}, 0
+    local used, slot = snap.base or 0, snap.nFixed
+    local function cost(d)
+        return AutoWatch.Estimate(d, snap, now) - (slot == 0 and snap.firstOff or snap.nextOff)
+    end
+    for _, d in ipairs(pool) do
+        if d.id == focused then
+            used, slot, count = used + cost(d), slot + 1, 1
+            target[d.id] = true
+            break
+        end
+    end
+    local nextCost
+    for _, d in ipairs(pool) do
+        if not target[d.id] then
+            if count >= cap then break end
+            local c = cost(d)
+            local need = watched[d.id] and c or (c + AutoWatch.ADD_MARGIN)
+            if used + need > snap.avail + 0.01 then
+                nextCost = c
+                break
+            end
+            used, slot, count = used + c, slot + 1, count + 1
+            target[d.id] = true
+        end
+    end
+    if count == 0 and pool[1] then
+        target[pool[1].id] = true
+        count = 1
+    end
+    AutoWatch.plan = { count = count, cap = cap, used = used, avail = snap.avail, nextCost = nextCost }
+    return target
+end
+
+-- Makes the watch list match target for the quests of the pool. Returns true when it changed.
+function AutoWatch.Apply(pool, target, watched, now)
+    local removes, adds = {}, {}
+    for _, d in ipairs(pool) do
+        if watched[d.id] and not target[d.id] then
+            removes[#removes + 1] = d
+        elseif target[d.id] and not watched[d.id] then
+            local r = AutoWatch.refused[d.id]
+            if not (r and now - r <= AutoWatch.REFUSED_TTL) then adds[#adds + 1] = d end
+        end
+    end
+    if #removes == 0 and #adds == 0 then return false end
+
+    local recent = {}
+    for _, t in ipairs(AutoWatch.passTimes) do
+        if now - t <= AutoWatch.THRASH_WINDOW then recent[#recent + 1] = t end
+    end
+    AutoWatch.passTimes = recent
+    if #recent >= AutoWatch.THRASH_PASSES then
+        AutoWatch.pausedUntil = now + AutoWatch.THRASH_PAUSE
+        Print("auto-watch paused for " .. AutoWatch.THRASH_PAUSE .. " s: the watch list kept changing. /bqf status shows the last change.")
+        return false
+    end
+    recent[#recent + 1] = now
+
+    local ql = QuestLog()
+    local enum = _G.Enum
+    local manual = type(enum) == "table" and type(enum.QuestWatchType) == "table" and enum.QuestWatchType.Manual or nil
+    local done, removed, added = 0, {}, {}
+    -- Lowest-ranked first, then the adds in ranking order.
+    for i = #removes, 1, -1 do
+        if done >= AutoWatch.MAX_CHANGES then break end
+        Try(ql.RemoveQuestWatch, removes[i].id)
+        removed[#removed + 1] = removes[i]
+        done = done + 1
+    end
+    for _, d in ipairs(adds) do
+        if done >= AutoWatch.MAX_CHANGES then break end
+        if manual ~= nil then Try(ql.AddQuestWatch, d.id, manual) else Try(ql.AddQuestWatch, d.id) end
+        added[#added + 1] = d
+        done = done + 1
+    end
+
+    local nowWatched = {}
+    for _, id in ipairs(GetWatches()) do nowWatched[id] = true end
+    local last = { at = type(_G.date) == "function" and _G.date("%H:%M:%S") or "", added = {}, removed = {}, refused = {} }
+    for _, d in ipairs(added) do
+        if nowWatched[d.id] then
+            last.added[#last.added + 1] = QuestLabel(d)
+        else
+            AutoWatch.refused[d.id] = now
+            last.refused[#last.refused + 1] = QuestLabel(d)
+        end
+    end
+    for _, d in ipairs(removed) do
+        if not nowWatched[d.id] then last.removed[#last.removed + 1] = QuestLabel(d) end
+    end
+    AutoWatch.last = last
+    AutoWatch.changeSeq = AutoWatch.changeSeq + 1
+    AutoWatch.changedAt = now
+    -- In case Blizzard does not lay the tracker out again (nothing it draws changed).
+    if type(_G.C_Timer) == "table" and type(_G.C_Timer.After) == "function" and AutoWatch.Schedule then
+        pcall(_G.C_Timer.After, AutoWatch.SETTLE + 0.1, AutoWatch.Schedule)
+    end
+    return true
+end
+
+-- One pass. Called from Evaluate on this addon's throttle frame, never from a Blizzard hook.
+function AutoWatch.Run()
+    local function state(s) AutoWatch.state = s end
+    if not db then return end
+    if not db.enabled then return state("off - BetterQuestsForever is off") end
+    if not db.autoWatch then return state("off - the watch list is yours (/bqf autowatch on)") end
+    if InCombat() then return state("waiting for the end of combat") end
+    if AutoWatch.IsEditMode() then return state("paused while Edit Mode is open") end
+    if not tracker then return state("waiting for the tracker") end
+    local missing = AutoWatch.MissingApi()
+    if missing then return state("not available - " .. missing .. " missing") end
+    local now = AutoWatch.Now()
+    if AutoWatch.pausedUntil then
+        if now < AutoWatch.pausedUntil then
+            return state(string.format("paused for %d s more: the watch list kept changing", AutoWatch.pausedUntil - now))
+        end
+        AutoWatch.pausedUntil = nil
+        AutoWatch.passTimes = {}
+    end
+    local snap = AutoWatch.snap
+    if not snap or not snap.avail or not snap.contents then return state("waiting for the tracker's first layout") end
+    if snap.collapsed then return state("tracker collapsed - watches left alone") end
+    if snap.avail <= 0 then
+        return state("no room for the Quests section (the sections above use it all) - watches left alone")
+    end
+    if snap.seq ~= AutoWatch.changeSeq and now - AutoWatch.changedAt < AutoWatch.SETTLE then
+        return state("waiting for Blizzard's layout of the last change")
+    end
+    local watched = {}
+    for _, id in ipairs(GetWatches()) do watched[id] = true end
+    local pool = AutoWatch.Pool()
+    if #pool == 0 then return state("no quests for the Quests section in the quest log") end
+    local target = AutoWatch.Plan(snap, pool, watched, now)
+    if AutoWatch.Apply(pool, target, watched, now) then
+        state("changed the watch list; checking Blizzard's new layout")
+    elseif AutoWatch.pausedUntil then
+        state(string.format("paused for %d s: the watch list kept changing", AutoWatch.THRASH_PAUSE))
+    else
+        state("settled")
+    end
+end
+
+-- Edit Mode: the watch list is left alone while it is open (Run checks), and looked at again when
+-- it closes. EditModeManagerFrame:EnterEditMode/ExitEditMode end with EventRegistry's
+-- "EditMode.Enter"/"EditMode.Exit"; without EventRegistry the two methods are hooked instead.
+-- Either way the addon only reacts, after Blizzard's own code.
+function AutoWatch.OnEditMode()
+    if AutoWatch.Schedule then AutoWatch.Schedule() end
+end
+
+function AutoWatch.HookEditMode()
+    if AutoWatch.editModeHook then return end
+    local reg = _G.EventRegistry
+    if type(reg) == "table" and type(reg.RegisterCallback) == "function" then
+        local owner = {}
+        if pcall(reg.RegisterCallback, reg, "EditMode.Enter", AutoWatch.OnEditMode, owner)
+            and pcall(reg.RegisterCallback, reg, "EditMode.Exit", AutoWatch.OnEditMode, owner) then
+            AutoWatch.editModeHook = "EventRegistry EditMode.Enter/Exit"
+            return
+        end
+    end
+    local em = _G.EditModeManagerFrame
+    if type(em) == "table" and type(em.EnterEditMode) == "function" and type(em.ExitEditMode) == "function"
+        and type(_G.hooksecurefunc) == "function" then
+        if pcall(hooksecurefunc, em, "EnterEditMode", AutoWatch.OnEditMode)
+            and pcall(hooksecurefunc, em, "ExitEditMode", AutoWatch.OnEditMode) then
+            AutoWatch.editModeHook = "hooksecurefunc on EditModeManagerFrame Enter/ExitEditMode"
+        end
+    end
+end
+
+-- /bqf status lines.
+function AutoWatch.StatusLines(inSection)
+    local lines = {}
+    lines[1] = "auto-watch: " .. (db.autoWatch and "on" or "off") .. " - " .. (AutoWatch.state or "not run yet")
+    local snap = AutoWatch.snap
+    if snap and snap.avail and snap.contents then
+        lines[#lines + 1] = string.format("  Quests section: %d watched, %d drawn; room %.0f px (Blizzard's height), used %.0f%s",
+            inSection, snap.nDrawn, snap.avail, snap.contents,
+            snap.skipped and ("; did not fit: " .. (snap.failed and QuestLabel(snap.failed) or "a block")) or "")
+    end
+    local plan = AutoWatch.plan
+    if plan and db.autoWatch then
+        local line = string.format("  fit: %d quests (limit %d)", plan.count, plan.cap)
+        if plan.nextCost and plan.avail then
+            line = line .. string.format("; next in line needs ~%.0f px, %.0f px free", plan.nextCost, plan.avail - plan.used)
+        end
+        lines[#lines + 1] = line
+    end
+    local last = AutoWatch.last
+    if last then
+        local function list(t) return #t > 0 and table.concat(t, ", ") or "none" end
+        lines[#lines + 1] = "  last change " .. last.at .. ": watched " .. list(last.added) .. "; un-watched " .. list(last.removed)
+            .. (#last.refused > 0 and ("; the client would not watch " .. list(last.refused)) or "")
+    elseif db.autoWatch then
+        lines[#lines + 1] = "  last change: none this session"
+    end
+    return lines
+end
+
 local function HookTracker()
     if hooked then return true end
     if type(_G.hooksecurefunc) ~= "function" then
@@ -1230,15 +1485,13 @@ local function HookTracker()
     end
     if not RecogniseTracker() then return false end
     -- Instance hooks only: the Campaign section and every other module keep their own methods.
-    hooksecurefunc(tracker, "Update", OnTrackerLaidOut)
+    -- Update gets the room the container gives the section (its availableHeight argument); auto-watch
+    -- reads it, with the result of Blizzard's layout, before the order is applied.
+    hooksecurefunc(tracker, "Update", function(_, availableHeight)
+        pcall(AutoWatch.Observe, availableHeight)
+        OnTrackerLaidOut()
+    end)
     hooksecurefunc(tracker, "UpdateHeight", OnTrackerLaidOut)
-    if type(tracker.LayoutContents) == "function" then
-        pcall(hooksecurefunc, tracker, "LayoutContents", Grow.OnLayoutContents)
-    end
-    local container = Container()
-    if container and type(container.UpdateHeight) == "function" then
-        pcall(hooksecurefunc, container, "UpdateHeight", OnContainerHeight)
-    end
     hooked = true
     return true
 end
@@ -1247,7 +1500,9 @@ end
 -- Evaluation
 -- ---------------------------------------------------------------------------
 
-local function Evaluate()
+-- runWatch: also run an auto-watch pass. Only the throttle frame passes it, so the watch list is
+-- only ever changed from this addon's own OnUpdate.
+local function Evaluate(runWatch)
     pending = false
     if not db then return end
     if InCombat() then
@@ -1259,6 +1514,10 @@ local function Evaluate()
     -- The hooks apply the layout after every Blizzard update; this pass covers a settings change
     -- or an event that needs no new Blizzard layout.
     OnTrackerLaidOut()
+    if runWatch then
+        local ok, err = pcall(AutoWatch.Run)
+        if not ok then AutoWatch.state = "error: " .. tostring(err) end
+    end
 end
 
 -- Distance mode: the quests' distances change as the player moves, so every DISTANCE_TICK
@@ -1286,6 +1545,8 @@ local function DistanceTick()
         end
     end
     if not same then OnTrackerLaidOut() end
+    -- Auto-watch ranks the whole quest log by distance; its pass decides whether anything changes.
+    if db.autoWatch and AutoWatch.Schedule then AutoWatch.Schedule() end
 end
 
 -- One ticker, running only while the addon is on and sorts by distance.
@@ -1298,7 +1559,7 @@ local function UpdateDistanceTicker()
         pcall(distanceTicker.Cancel, distanceTicker)
         distanceTicker = nil
     end
-    if SortMode() ~= "distance" or not (db and db.enabled) then prevOrder = nil end
+    if SortMode() ~= "distance" or not (db and db.enabled) then prevOrder, AutoWatch.prevOrder = nil, nil end
 end
 
 local throttle = CreateFrame("Frame")
@@ -1308,7 +1569,7 @@ throttle:SetScript("OnUpdate", function(self, elapsed)
     throttleLeft = throttleLeft - (elapsed or 0)
     if throttleLeft <= 0 then
         self:Hide()
-        Evaluate()
+        Evaluate(true)
     end
 end)
 
@@ -1320,71 +1581,10 @@ local function Schedule()
     throttle:Show()
 end
 
--- Edit Mode (1.7.1): no extra container height while it is open, so the selection box and the
--- Height slider are Blizzard's own. EditModeManagerFrame:EnterEditMode/ExitEditMode end with
--- EventRegistry:TriggerEvent("EditMode.Enter"/"EditMode.Exit"); with no EventRegistry the two
--- methods are hooked instead. Either way the addon only reacts, after Blizzard's own code.
-function Grow.OnEditModeEnter()
-    extraHeight, growRounds = 0, 0
-    pcall(ApplyContainerHeight) -- back to the height Blizzard set
-    Schedule()
-end
+AutoWatch.Schedule = Schedule
 
-function Grow.OnEditModeExit()
-    Schedule()
-end
-
-function Grow.HookEditMode()
-    if Grow.editModeHook then return end
-    local reg = _G.EventRegistry
-    if type(reg) == "table" and type(reg.RegisterCallback) == "function" then
-        local owner = {}
-        if pcall(reg.RegisterCallback, reg, "EditMode.Enter", Grow.OnEditModeEnter, owner)
-            and pcall(reg.RegisterCallback, reg, "EditMode.Exit", Grow.OnEditModeExit, owner) then
-            Grow.editModeHook = "EventRegistry EditMode.Enter/Exit"
-            return
-        end
-    end
-    local em = _G.EditModeManagerFrame
-    if type(em) == "table" and type(em.EnterEditMode) == "function" and type(em.ExitEditMode) == "function"
-        and type(_G.hooksecurefunc) == "function" then
-        if pcall(hooksecurefunc, em, "EnterEditMode", Grow.OnEditModeEnter)
-            and pcall(hooksecurefunc, em, "ExitEditMode", Grow.OnEditModeExit) then
-            Grow.editModeHook = "hooksecurefunc on EditModeManagerFrame Enter/ExitEditMode"
-        end
-    end
-end
-
--- /bqf status: the container's height against Blizzard's own, and what the addon adds.
-function Grow.Status()
-    local c = Container()
-    if not c then return "objective tracker container not found" end
-    local cur = Grow.ContainerHeight()
-    local line = "container " .. (cur and string.format("%.0f", cur) or "?")
-        .. "   Blizzard's: " .. (type(containerBase) == "number" and string.format("%.0f", containerBase) or "not seen yet")
-    local setting = c.editModeHeight
-    if type(setting) == "number" and not IsSecret(setting) then
-        line = line .. "   Edit Mode Height: " .. string.format("%.0f", setting)
-    end
-    local grow
-    if not db.enabled then
-        grow = "off"
-    elseif Grow.IsEditMode() then
-        grow = "Edit Mode - not growing"
-    elseif extraHeight > 0 then
-        grow = string.format("+%.0f (frame only, so Blizzard lays out the lowest-level quests; nothing is drawn there)", extraHeight)
-    else
-        grow = "not growing"
-    end
-    line = line .. "   extra: " .. grow
-    if type(containerBase) == "number" and cur and cur > containerBase + extraHeight + 0.5 then
-        line = line .. "   (taller than expected)"
-    end
-    if Grow.fitLimited then line = line .. "   shown: limited to what fits Blizzard's height" end
-    return line
-end
-
--- A settings change: applied at once out of combat, after combat otherwise.
+-- A settings change: the order and the limit at once, the auto-watch pass from the throttle
+-- frame a moment later; both after combat when in one.
 local function ApplyNow()
     if not db then return end
     if InCombat() then
@@ -1392,6 +1592,7 @@ local function ApplyNow()
         return
     end
     Evaluate()
+    Schedule()
 end
 
 -- ---------------------------------------------------------------------------
@@ -1430,7 +1631,7 @@ end
 
 local function SetSort(mode)
     db.sort = mode
-    prevOrder = nil
+    prevOrder, AutoWatch.prevOrder = nil, nil
     UpdateDistanceTicker()
     Print("sort by " .. mode .. "." .. (InCombat() and " Applied after combat." or ""))
     ApplyNow()
@@ -1444,6 +1645,19 @@ local function SetHideInCombat(on)
         if not on and combatHidden then note = " The tracker comes back when this fight ends." end
     end
     Print("hide in combat " .. (on and "on" or "off") .. "." .. note)
+end
+
+local function SetAutoWatch(on)
+    db.autoWatch = on and true or false
+    if on then
+        Print("auto-watch on: the lowest quests that fit the tracker are watched, the rest un-watched."
+            .. (InCombat() and " Applied after combat." or ""))
+        ApplyNow()
+    else
+        -- Nothing is restored: the watch list stays as it is and is the player's again.
+        AutoWatch.state = "off - the watch list is yours (/bqf autowatch on)"
+        Print("auto-watch off: the watch list is yours again; it is left as it is.")
+    end
 end
 
 local function AlphaPercent()
@@ -1565,6 +1779,8 @@ local function OptionEntries()
     local list = {
         { text = "Enabled", checkbox = true, checked = function() return db.enabled end,
           func = function() SetEnabled(not db.enabled) end },
+        { text = "Auto-watch quests that fit", checkbox = true, checked = function() return db.autoWatch end,
+          func = function() SetAutoWatch(not db.autoWatch) end },
     }
     local maxItems = {}
     for _, n in ipairs(MENU_MAX) do
@@ -1799,6 +2015,7 @@ local function StateLine()
     if not db then return "not loaded yet" end
     return (db.enabled and "On" or "Off") .. " \194\183 " .. SortMode() .. " \194\183 max " .. MaxLabel(db.max)
         .. " \194\183 completed: " .. db.completed
+        .. (db.autoWatch and " \194\183 auto-watch" or "")
         .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
 end
 
@@ -2200,13 +2417,15 @@ local function DistanceProbe()
 end
 
 local function PrintHelp()
-    Print("orders the Quests section of the objective tracker by level or distance and shows only the first N.")
+    Print("orders the Quests section of the objective tracker by level or distance, watches the lowest quests that fit and shows at most N.")
     Print("/bqf sort level | distance - order by quest level or by how near the quest is (now: "
         .. (db and db.sort or DEFAULTS.sort) .. ")")
     Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
         .. MaxLabel(db and db.max or DEFAULTS.max) .. ")")
     Print("/bqf completed top | level | bottom - where quests ready to turn in go (now: "
         .. (db and db.completed or DEFAULTS.completed) .. ")")
+    Print("/bqf autowatch on | off - watch the lowest quests that fit the tracker's height and un-watch the rest (now: "
+        .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
     Print("/bqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
     Print("/bqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
@@ -2254,9 +2473,9 @@ local function PrintStatus()
             .. "   protected: " .. (IsProtectedFrame(otf) and "yes" or "no"))
     end
     Print("tracker: " .. (tracker and "QuestObjectiveTracker recognised" or ("not recognised - " .. (trackerProblem or "not checked yet"))))
-    Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight + LayoutContents" or "none")
-        .. "   Edit Mode: " .. (Grow.editModeHook or "not followed"))
-    Print("height: " .. Grow.Status())
+    Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none")
+        .. "   Edit Mode: " .. (AutoWatch.editModeHook or "not followed"))
+    for _, line in ipairs(AutoWatch.StatusLines(inSection)) do Print(line) end
     local order
     if not db.enabled then
         order = "off (Blizzard's own)"
@@ -2270,7 +2489,8 @@ local function PrintStatus()
         order = "visual (waiting for the tracker's next layout)"
     end
     Print("order: " .. order)
-    Print("watch list: never changed by this addon")
+    Print("height: Blizzard's own (Edit Mode Height); the addon never resizes the tracker"
+        .. (heightSet and " - the Quests section is shorter while the limit hides quests" or ""))
     Print("C_QuestLog (GetNumQuestWatches, GetQuestIDForQuestWatchIndex, GetLogIndexForQuestID, GetInfo): "
         .. Yes(not MissingQuestApi()) .. "   IsComplete: " .. Yes(ql and type(ql.IsComplete) == "function"))
     local qis = _G.C_QuestInfoSystem
@@ -2335,6 +2555,12 @@ local function OnSlash(msg)
             return
         end
         SetBackdropAlpha(pct)
+    elseif msg == "autowatch on" then
+        SetAutoWatch(true)
+    elseif msg == "autowatch off" then
+        SetAutoWatch(false)
+    elseif msg == "autowatch" or msg:match("^autowatch ") then
+        Print("use /bqf autowatch on or off (now: " .. (db.autoWatch and "on" or "off") .. ").")
     elseif msg == "combat on" then
         SetHideInCombat(true)
     elseif msg == "combat off" then
@@ -2370,7 +2596,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.8"
+local VERSION = "1.9"
 
 local function ApiEntries()
     if not db then return {} end
@@ -2407,6 +2633,7 @@ local function BindSavedVariables()
     if not COMPLETED_MODES[db.completed] then db.completed = DEFAULTS.completed end
     if not SORT_MODES[db.sort] then db.sort = DEFAULTS.sort end
     if type(db.hideInCombat) ~= "boolean" then db.hideInCombat = DEFAULTS.hideInCombat end
+    if type(db.autoWatch) ~= "boolean" then db.autoWatch = DEFAULTS.autoWatch end
     MinimapDB()
     BackdropDB()
 end
@@ -2415,7 +2642,7 @@ local events = CreateFrame("Frame")
 -- RegisterEvent raises on an event the client does not know, so each one is tried on its own.
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
-    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED" }) do
+    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED", "SUPER_TRACKING_CHANGED" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
@@ -2427,7 +2654,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             pcall(HookBackdropTargets)
             pcall(HookTrackerHeaders)
             pcall(RegisterGpsMenu)
-            pcall(Grow.HookEditMode)
+            pcall(AutoWatch.HookEditMode)
             MarkBackdrop()
             Schedule()
         elseif db and arg1 == "Blizzard_ObjectiveTracker" then
@@ -2449,7 +2676,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if db then pcall(ApplyMinimap) end
         if db then pcall(RegisterGpsMenu) end
         if db then pcall(HookTrackerHeaders) end
-        pcall(Grow.HookEditMode)
+        pcall(AutoWatch.HookEditMode)
         Schedule()
     else
         Schedule()

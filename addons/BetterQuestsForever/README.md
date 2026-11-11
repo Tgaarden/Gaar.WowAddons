@@ -2,7 +2,8 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It
 changes how the **Quests** section of Blizzard's own objective tracker (`QuestObjectiveTracker`)
-orders and limits the tracked quests, and does nothing else. It needs no other addon or library.
+orders and limits the tracked quests, and (with auto-watch, default on) which quests are tracked
+so that the lowest ones fill the tracker's height. It needs no other addon or library.
 
 ## What it does
 
@@ -25,38 +26,35 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
   With 30 tracked quests and N = 10, you see the 10 lowest-level quests that are not complete.
   When one of them completes it moves to the bottom, out of the 10, and the next tracked quest
   takes its place.
-- **Every tracked quest stays tracked, and the watch list is never touched.** The addon does not
-  call `AddQuestWatch`, `RemoveQuestWatch` or `SortQuestWatches`. The order and the limit only
-  change what the tracker draws. The quest log, the map and the watch count still see all of them.
-- **Lowest levels win, even when Blizzard runs out of room (1.7, 1.7.1).** Blizzard lays the
-  quests out in its own watch order and stops at the first block that does not fit the tracker's
-  height; the rest never get a block, so sorting alone left a low-level quest invisible while
-  higher-level ones were drawn. When a quest that belongs among the shown ones by level has no
-  block, the tracker's container frame is made taller (`SetHeight`, re-applied after Blizzard's
-  `UpdateHeight`) until Blizzard lays it out; the addon then sorts and hides the rest. Quests are
-  still never tracked or untracked by the addon, so manual untracking is respected.
-- **Never taller than your tracker (1.7.1).** 1.7 left the whole extra on the frame, so in Edit
-  Mode the tracker's selection box reached the bottom of the screen and the Height slider could
-  not make it smaller. Now:
-  - **What is drawn fits the height Blizzard set** (the Edit Mode **Height**, or down to the
-    screen bottom in the default position). The quests shown are the lowest-level ones, at most
-    N, that fit the room Blizzard would have given the section at that height; the first one
-    that does not fit ends the list, so a lower-level quest is never skipped for a shorter one.
-    The extra frame height is empty (the tracker's background ends at the last shown section).
-  - **Only the extra the shown blocks need.** After Blizzard has laid them out, the extra is
-    trimmed to what keeps those blocks (plus 8 px). It cannot be dropped altogether: every
-    size change makes Blizzard lay the tracker out again, and at its own height it would cut the
-    low-level blocks again.
-  - **None in Edit Mode.** Entering Edit Mode drops the extra at once and Blizzard's
-    `UpdateHeight` is no longer topped up, so the selection box and the Height slider are
-    Blizzard's own; leaving Edit Mode applies it again. The quests are still sorted there.
-  - The extra is also dropped in combat and on `/bqf off`. `/bqf status` shows the container's
-    height, Blizzard's height, the Edit Mode Height and the extra (`height:` line).
+- **Auto-watch (1.9, default on): the quests that fit are the lowest ones.** Blizzard lays the
+  Quests section out in its own watch order and stops at the first quest that does not fit the
+  tracker's height; that quest and every one after it get no block, so no sorting can show them.
+  So the addon now decides *which* quests are watched: it watches the quests that come first in
+  its order (level or distance, completed quests where you put them) as long as they fit the
+  tracker's height, at most N (**Max quests shown**) and within Blizzard's watch cap, and
+  un-watches the other quests of the Quests section. What Blizzard draws is then exactly the
+  addon's top quests that fit, and the order above sorts them. See [Auto-watch](#auto-watch).
+  - **The height is Blizzard's, always.** The tracker's height is the Edit Mode **Height** (or down
+    to the screen bottom in the default position). The addon never resizes the tracker, never tops
+    up Blizzard's `UpdateHeight` and does nothing different in Edit Mode; the tracker looks the
+    same in and out of Edit Mode. (1.7 and 1.7.1 made the container taller; that is gone.)
+  - **Not in combat, not in Edit Mode.** The watch list is only changed out of combat (queued to
+    the end of the fight) and not while Edit Mode is open (looked at again when it closes).
+  - **Your focused quest stays.** The super-tracked quest (Focus / the waypoint) is never
+    un-watched and counts first. Super-tracking itself is never touched. At least one quest stays
+    watched.
+  - **Manual tracking is overridden.** While auto-watch is on, a quest you track or untrack by
+    hand is set back the way the order wants on the next pass (a fraction of a second later). Turn
+    auto-watch off to manage the watch list yourself.
+  - **Off** (`/bqf autowatch off`, the menu's **Auto-watch quests that fit**, or `/bqf off`): the
+    watch list is left exactly as it is and is yours again; nothing is restored or re-tracked. The
+    order and the limit then only change what is drawn of the quests you track, as before 1.7.
 - **Only the Quests section.** Campaign quests, world quests, bonus objectives, achievements,
   professions and every other section are left alone.
 - It re-evaluates after every layout of the Quests section, and also (throttled to once per
   0.3 s) after `QUEST_LOG_UPDATE`, `QUEST_WATCH_LIST_CHANGED`, `QUEST_ACCEPTED`,
-  `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, login and the end of combat. A
+  `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, `SUPER_TRACKING_CHANGED`, login, the end
+  of combat and leaving Edit Mode. A
   settings change is applied at once (after combat if you are in one).
 
 - **Backdrop.** An optional plain dark rectangle (black, 50% opacity by default) behind the
@@ -99,13 +97,14 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 | `/bqf max <n>`, `/bqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
 | `/bqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
 | `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
+| `/bqf autowatch on`, `/bqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
 | `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
 | `/bqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
 | `/bqf combat on`, `/bqf combat off` | Hide the whole objective tracker during combat (default on) |
 | `/bqf minimap` | Show or hide the minimap button |
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
-| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), the tracker container's height against Blizzard's own and the Edit Mode Height with the extra the addon adds (`height:`), `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
+| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), auto-watch: its state (`settled`, waiting, paused and why), the Quests section's room from Blizzard's layout (watched, drawn, room and used px, which quest did not fit), how many quests fit and what the next one would need, and which quests the last pass watched and un-watched; `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
 ## Right-click the tracker headers (1.8)
 
@@ -117,7 +116,8 @@ collapse button) and hooks nothing on Blizzard's frames. It also works in combat
 
 ## Minimap button
 
-Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests
+Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Auto-watch
+quests that fit** (checkbox), **Max quests
 shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
 (checkbox) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
@@ -129,7 +129,7 @@ code is a copy of GaarVanguard's, so this addon still has no dependencies; its d
 `BetterQuestsForever_PlaceMinimapButton()` re-places it, for an addon that changes the minimap's
 shape.
 
-Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`,
+Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`, `autoWatch`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## With BetterGaarForever (optional)
@@ -196,10 +196,46 @@ purely visual, applied on top of Blizzard's layout:
   order). On `PLAYER_REGEN_ENABLED` the order and the limit are applied again.
 
 **Height.** Blizzard only lays out as many quests as fit in the tracker's height, in its own
-watch order. Since 1.7 the container frame is made taller, out of combat and out of Edit Mode,
-until the lowest-level quests have a block; since 1.7.1 only the quests that fit Blizzard's own
-height are shown, the extra is trimmed to what the shown blocks need, and there is none in Edit
-Mode. See "Never taller than your tracker" above.
+watch order. The addon does not change that height (1.7/1.7.1 did; 1.9 removed it): with
+auto-watch it changes which quests are watched instead, see [Auto-watch](#auto-watch). The only
+`SetHeight` left is on the Quests section, to make it shorter while the limit hides blocks (with
+auto-watch on that only happens until the watch list has settled).
+
+## Auto-watch
+
+How the fit is measured, without writing anything of Blizzard's:
+
+- **Read after Blizzard's layout.** A `hooksecurefunc` post-hook on the `QuestObjectiveTracker`
+  instance's `Update` gets the `availableHeight` Blizzard passed in (the room the container gives
+  the section, from its Edit Mode height minus the sections above) and reads `contentsHeight`,
+  `hasSkippedBlocks` (set by `ObjectiveTrackerModuleMixin:AddBlock` when `CanFitBlock` says no),
+  the block chain (`firstBlock`/`nextBlock`, each block's `id` and `height`) and
+  `fromHeaderOffsetY`/`fromBlockOffsetY`. Blizzard's fit test is
+  `contentsHeight + block.height - offsetY <= availableHeight`.
+- **What it learns.** The height of every quest's block when it was drawn (kept 30 minutes, and
+  measured afresh when the quest completes), and for the quest that did not fit - the first
+  watched quest in watch order without a block, the one Blizzard tried last - a lower bound: its
+  block is taller than the room that was left (kept 10 minutes). A quest never drawn is estimated
+  from its objective count (`C_QuestLog.GetQuestObjectives`) times the smallest height per line
+  seen, on the low side on purpose: if it then does not fit, the next layout says so.
+- **The pass.** All quests of the Quests section in the quest log (not campaign, world, bonus,
+  task or bounty quests, which are never touched) are ranked with the addon's order. Walking down
+  that ranking it adds each quest's cost to what the header and quest pop-ups take, and stops at
+  the first quest that does not fit, so a short quest further down never takes the place of a
+  taller one above it. The quests before that point (at most N, within Blizzard's watch cap
+  `Constants.QuestWatchConsts.MAX_QUEST_WATCHES`, else 25) are watched (`C_QuestLog.AddQuestWatch`
+  with the manual watch type), the other quests of the section un-watched
+  (`C_QuestLog.RemoveQuestWatch`). The order of the watch list is not relied on: Forever keeps its
+  own (a re-added watch is not appended), so only *which* quests are watched matters.
+- **No oscillation.** A quest that is not watched is only added with 4 px to spare; a watched one
+  stays while it fits at all. A quest that turns out not to fit gets a measured height or a lower
+  bound, so it is not tried again until there is more room or it changes. Nothing changes until
+  Blizzard has laid out the previous change (or 2 s passed), at most 10 watch changes per pass,
+  and more than 10 changing passes in 30 s pause auto-watch for a minute (said in chat and in
+  `/bqf status`). In distance mode the ranking uses the same 50 yd / 10 % hysteresis as the order.
+- **When it leaves things alone.** In combat (queued to `PLAYER_REGEN_ENABLED`), while Edit Mode is
+  open (re-run on `EditMode.Exit`), while the tracker or the section is collapsed, and when the
+  sections above leave the Quests section no room at all.
 
 ## Backdrop
 
@@ -277,8 +313,12 @@ calls the protected `UseQuestLogSpecialItem`. That attribute is set by Blizzard'
 inside that layout, or left a value Blizzard's layout reads, the attribute would be set from
 tainted code and the click would be blocked (`ADDON_ACTION_BLOCKED`). So:
 
-- No Blizzard function is replaced, global or method, and the watch list is never changed, so
-  no client event is raised from addon code.
+- No Blizzard function is replaced, global or method. Auto-watch changes the watch list with
+  `C_QuestLog.AddQuestWatch`/`RemoveQuestWatch`, which are not protected, only from the addon's
+  own throttle frame (never from inside Blizzard's code or one of the hooks on it), out of combat
+  and outside Edit Mode. Blizzard's tracker hears of it through the client's
+  `QUEST_WATCH_LIST_CHANGED` event, as when you click Track yourself. With auto-watch off the watch
+  list is never changed.
 - The addon never writes a field into a Blizzard table, never calls a Blizzard Lua function of
   the tracker (`MarkDirty`, `Update`, `UpdateHeight`, ...), never sets an attribute and never
   calls a protected function. Hide in combat goes through Blizzard's public
@@ -301,7 +341,11 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `fromBlockOffsetY`), the blocks' `nextBlock`, `template`, `id`, `height`, `used`,
 `parentModule`, `addedRegions`; `C_QuestLog.GetNumQuestWatches`,
 `GetQuestIDForQuestWatchIndex`, `GetLogIndexForQuestID`, `GetInfo`, `IsComplete`,
-`IsQuestDisabledForSession`; `C_QuestInfoSystem.GetQuestClassification` with
+`IsQuestDisabledForSession`; for auto-watch the section's `availableHeight` (the argument of
+`Update`), `hasSkippedBlocks`, `isCollapsed` and `parentContainer`, `C_QuestLog.AddQuestWatch`,
+`RemoveQuestWatch`, `GetNumQuestLogEntries`, `GetQuestObjectives`, `Enum.QuestWatchType.Manual`,
+`Constants.QuestWatchConsts.MAX_QUEST_WATCHES`, `C_SuperTrack.GetSuperTrackedQuestID`,
+`EditModeManagerFrame:IsEditModeActive` and `EventRegistry` (`EditMode.Enter`/`Exit`); `C_QuestInfoSystem.GetQuestClassification` with
 `Enum.QuestClassification.Campaign`; `ObjectiveTrackerFrame`, `RegisterStateDriver`,
 `UnregisterStateDriver`; `MenuUtil.CreateContextMenu`, `Minimap`, `GetMinimapShape`. For Set GPS
 target: `Menu.ModifyMenu`, `MenuUtil.CreateButton` and `GetElementText`, the description's

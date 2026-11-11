@@ -13,6 +13,8 @@
       with a thin border. The party frames are a compact version of the same.
     * Colours: class colour for players, reaction colour for NPCs, grey when someone else tagged
       the mob; orange under 35% and red under 20% health (option). Power bar by power type.
+      Every bar is a soft vertical gradient in its colour, from a richer, softer palette, and the
+      health bar has a thin dark border with a faint shadow (1.2.8).
     * Target: combo points (rogues and druids), a row of buffs and one of debuffs (up to 16
       each; your own debuffs larger, the rest smaller and greyed), a gold border for elites and
       bosses, silver for rares.
@@ -61,10 +63,9 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
-local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CLASS_ICONS = "Interface\\TargetingFrame\\UI-Classes-Circles"
 local RAID_ICONS = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
@@ -135,9 +136,20 @@ local FOLLOW_CHILD = { player = "pet", target = "tot" }
 
 local CONFLICTS = { "GaarFrames", "XPerl", "XPerl_Player", "ShadowedUnitFrames", "PitBull4" }
 
+-- The palette (1.2.8): deeper, slightly less saturated tones made for the bar gradient. Class
+-- colours are used as the client gives them.
+local Look = {   -- the palette, and SetBarColor and Edge below
+    HOSTILE = { 0.78, 0.25, 0.22 },
+    NEUTRAL = { 0.85, 0.72, 0.25 },
+    FRIENDLY = { 0.30, 0.68, 0.32 },   -- friendly NPCs, and players without class colour
+    TAPPED = { 0.52, 0.52, 0.55 },     -- tagged by someone else; offline too
+    DEAD = { 0.40, 0.40, 0.42 },
+    LOW = { 0.92, 0.55, 0.18 },        -- under 35% health
+    CRIT = { 0.90, 0.16, 0.14 },       -- under 20% health
+}
 local POWER_COLORS = {
-    MANA = { 0.25, 0.45, 1.0 }, RAGE = { 0.9, 0.15, 0.15 }, FOCUS = { 1.0, 0.5, 0.25 },
-    ENERGY = { 1.0, 0.85, 0.1 }, RUNIC_POWER = { 0.0, 0.82, 1.0 },
+    MANA = { 0.24, 0.44, 0.88 }, RAGE = { 0.80, 0.22, 0.20 }, FOCUS = { 0.90, 0.52, 0.26 },
+    ENERGY = { 0.92, 0.78, 0.22 }, RUNIC_POWER = { 0.18, 0.72, 0.90 },
 }
 local THREAT_COLORS = { { 1.0, 1.0, 0.47 }, { 1.0, 0.6, 0.0 }, { 1.0, 0.0, 0.0 } }
 local BORDER = { 0.3, 0.3, 0.35 }
@@ -242,6 +254,69 @@ end
 
 local function SetSolid(tex, r, g, b, a)
     if tex.SetColorTexture then tex:SetColorTexture(r, g, b, a) else tex:SetTexture(r, g, b, a) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Bar look (1.2.8): every bar colour (health, power, mana, heal prediction) goes through
+-- SetBarColor, which paints the bar's white texture with a soft vertical gradient in that colour
+-- - lifted toward white at the top, darker at the bottom - with Texture:SetGradient and two Color
+-- objects cached on the bar, so an update allocates nothing. SetStatusBarColor would set one flat
+-- vertex colour over the gradient, so it is used only where SetGradient or CreateColor is
+-- missing. The last colour is cached on the bar and an unchanged colour is skipped; bar textures
+-- are set once, when the bar is built, so nothing else repaints them.
+-- ---------------------------------------------------------------------------
+
+do
+local GRAD_LIFT, GRAD_SHADE = 0.18, 0.22
+local gradientOK = true
+
+function Look.SetBarColor(bar, r, g, b, a)
+    a = a or 1
+    if bar.barR == r and bar.barG == g and bar.barB == b and bar.barA == a then return end
+    bar.barR, bar.barG, bar.barB, bar.barA = r, g, b, a
+    local tex = gradientOK and type(_G.CreateColor) == "function" and bar:GetStatusBarTexture()
+    if tex and type(tex.SetGradient) == "function" then
+        local top, bottom = bar.gradTop, bar.gradBottom
+        if not top then
+            top, bottom = _G.CreateColor(r, g, b, a), _G.CreateColor(r, g, b, a)
+            bar.gradTop, bar.gradBottom = top, bottom
+        end
+        top:SetRGBA(r + (1 - r) * GRAD_LIFT, g + (1 - g) * GRAD_LIFT, b + (1 - b) * GRAD_LIFT, a)
+        bottom:SetRGBA(r * (1 - GRAD_SHADE), g * (1 - GRAD_SHADE), b * (1 - GRAD_SHADE), a)
+        if pcall(tex.SetGradient, tex, "VERTICAL", bottom, top) then return end
+        gradientOK = false
+    end
+    bar:SetStatusBarColor(r, g, b, a)
+end
+
+-- A 1px ring k px outside box, black at alpha a: four textures, top and bottom spanning the
+-- corners.
+local function RingLines(f, box, k, a)
+    local t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPLEFT", box, "TOPLEFT", -k, k); t:SetPoint("TOPRIGHT", box, "TOPRIGHT", k, k)
+    t:SetHeight(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", -k, -k); t:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", k, -k)
+    t:SetHeight(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPLEFT", box, "TOPLEFT", -k, k - 1); t:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", -k, 1 - k)
+    t:SetWidth(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPRIGHT", box, "TOPRIGHT", k, k - 1); t:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", k, 1 - k)
+    t:SetWidth(1); SetSolid(t, 0, 0, 0, a)
+end
+
+-- A 1px near-black border round bar and a faint shadow fading out over 2 px outside it, on a
+-- frame of its own at the given level (under the bars, which sit one level higher).
+function Look.Edge(parent, bar, level)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetFrameLevel(level)
+    f:SetAllPoints(bar)
+    RingLines(f, bar, 1, 0.8)
+    RingLines(f, bar, 2, 0.22)
+    RingLines(f, bar, 3, 0.08)
+    return f
+end
 end
 
 local function InCombat()
@@ -425,33 +500,31 @@ end
 -- Colours
 -- ---------------------------------------------------------------------------
 
+-- Our own palette by reaction (1.2.8; up to 1.2.7 Blizzard's FACTION_BAR_COLORS came first).
 local function ReactionRGB(unit)
     local r = Num(UnitReaction(unit, "player"))
-    local fc = r and type(_G.FACTION_BAR_COLORS) == "table" and _G.FACTION_BAR_COLORS[r]
-    if type(fc) == "table" and type(fc.r) == "number" then return fc.r, fc.g, fc.b end
-    if not r or r == 4 then return 0.9, 0.8, 0.2 end
-    if r < 4 then return 0.85, 0.2, 0.2 end
-    return 0.2, 0.75, 0.25
+    local c = (not r or r == 4) and Look.NEUTRAL or (r < 4 and Look.HOSTILE) or Look.FRIENDLY
+    return c[1], c[2], c[3]
 end
 
 -- pct is nil when the health is secret: then there is no low-health colour.
 local function HealthRGB(unit, pct)
-    if Plain(UnitIsConnected(unit)) == false then return 0.5, 0.5, 0.5 end
-    if Plain(UnitIsDeadOrGhost(unit)) == true then return 0.4, 0.4, 0.4 end
+    if Plain(UnitIsConnected(unit)) == false then return Look.TAPPED[1], Look.TAPPED[2], Look.TAPPED[3] end
+    if Plain(UnitIsDeadOrGhost(unit)) == true then return Look.DEAD[1], Look.DEAD[2], Look.DEAD[3] end
     local isPlayer = Plain(UnitIsPlayer(unit)) == true
     if not isPlayer and type(_G.UnitIsTapDenied) == "function" and Plain(UnitIsTapDenied(unit)) == true then
-        return 0.5, 0.5, 0.5
+        return Look.TAPPED[1], Look.TAPPED[2], Look.TAPPED[3]
     end
     if db.lowhp and pct then
-        if pct < CRIT_HP then return 0.95, 0.12, 0.12 end
-        if pct < LOW_HP then return 1.0, 0.55, 0.0 end
+        if pct < CRIT_HP then return Look.CRIT[1], Look.CRIT[2], Look.CRIT[3] end
+        if pct < LOW_HP then return Look.LOW[1], Look.LOW[2], Look.LOW[3] end
     end
     if isPlayer then
         if db.classColor then
             local r, g, b = ClassRGB(ClassToken(unit))
             if r then return r, g, b end
         end
-        return 0.2, 0.75, 0.25
+        return Look.FRIENDLY[1], Look.FRIENDLY[2], Look.FRIENDLY[3]
     end
     return ReactionRGB(unit)
 end
@@ -545,7 +618,9 @@ end
 
 local function NewBar(parent, height, fontSize)
     local bar = CreateFrame("StatusBar", nil, parent)
-    bar:SetStatusBarTexture(BAR_TEX)
+    -- Plain white, coloured as a vertical gradient (Look.SetBarColor, 1.2.8); up to 1.2.7 this was
+    -- Interface\TargetingFrame\UI-StatusBar with one flat colour.
+    bar:SetStatusBarTexture(FLAT)
     bar:SetHeight(height)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
@@ -819,11 +894,11 @@ end
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
 local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotStatus
 do
-local MY = { 0.0, 0.83, 0.2, 0.85 }      -- your heals (Blizzard's myHealPrediction is a strong green)
-local ALL = { 0.55, 0.95, 0.45, 0.55 }   -- everyone's heals, lighter
+local MY = { 0.18, 0.78, 0.30, 0.85 }    -- your heals (Blizzard's myHealPrediction is a strong green)
+local ALL = { 0.55, 0.88, 0.48, 0.55 }   -- everyone's heals, lighter
 local HOT = { 0.95, 0.80, 0.30, 0.55 }   -- what active HoTs will still heal (1.2.7), soft yellow
 local ABSORB = { 1.0, 1.0, 1.0, 0.55 }   -- totalAbsorb: white, with Blizzard's stripes where found
-local HEAL_ABSORB = { 0.45, 0.0, 0.0, 0.75 }
+local HEAL_ABSORB = { 0.45, 0.08, 0.08, 0.75 }
 local SHIELD_OVERLAY = "Interface\\RaidFrame\\Shield-Overlay"
 
 local calc   -- the shared calculator; false where the client has none
@@ -984,7 +1059,7 @@ end
 local function Overlay(health, level, c, reverse)
     local b = CreateFrame("StatusBar", nil, health)
     b:SetStatusBarTexture(FLAT)
-    b:SetStatusBarColor(c[1], c[2], c[3], c[4])
+    Look.SetBarColor(b, c[1], c[2], c[3], c[4])
     b:SetFrameLevel(health:GetFrameLevel() + level)
     if reverse and b.SetReverseFill then b:SetReverseFill(true) end
     b:SetMinMaxValues(0, 1)
@@ -1220,6 +1295,13 @@ local function Build(key, unit, preview)
     f.power = NewBar(f, L.mp, L.powerText and math.max(7, L.mp - 3) or nil)
     f.power:SetPoint("TOPLEFT", f.health, "BOTTOMLEFT", 0, -1)
     f.power:SetPoint("TOPRIGHT", f.health, "BOTTOMRIGHT", 0, -1)
+    -- 1px near-black border and a faint shadow round the health bar (1.2.8), one level under the
+    -- bars so the power bar, the portrait gap and the name bar are never covered by more than
+    -- the faint shadow.
+    local lvl = f:GetFrameLevel()
+    f.health:SetFrameLevel(lvl + 2)
+    f.power:SetFrameLevel(lvl + 2)
+    Look.Edge(f, f.health, lvl + 1)
     f.healthW = L.w - barsX - PAD
     HealPred.Build(f)
 
@@ -1230,7 +1312,7 @@ local function Build(key, unit, preview)
         f.mana = NewBar(f, Mana.H, 7)
         f.mana:SetPoint("TOPLEFT", f.power, "BOTTOMLEFT", 0, -1)
         f.mana:SetPoint("TOPRIGHT", f.power, "BOTTOMRIGHT", 0, -1)
-        f.mana:SetStatusBarColor(POWER_COLORS.MANA[1], POWER_COLORS.MANA[2], POWER_COLORS.MANA[3])
+        Look.SetBarColor(f.mana, POWER_COLORS.MANA[1], POWER_COLORS.MANA[2], POWER_COLORS.MANA[3])
         f.mana:Hide()
     end
 
@@ -1365,7 +1447,8 @@ local function UpdateHealth(f)
         bar:SetValue(cur)
         pct = cur / mx
     end
-    bar:SetStatusBarColor(HealthRGB(u, pct))
+    local r, g, b = HealthRGB(u, pct)
+    Look.SetBarColor(bar, r, g, b)
 
     local fs = bar.text
     if not db.text then fs:SetText(""); return end
@@ -1601,7 +1684,8 @@ end
 local function UpdatePower(f)
     local u, bar = f.unit, f.power
     local pType, token = UnitPowerType(u)
-    bar:SetStatusBarColor(PowerRGB(Plain(token)))
+    local r, g, b = PowerRGB(Plain(token))
+    Look.SetBarColor(bar, r, g, b)
     local cur, mx = UnitPower(u), UnitPowerMax(u)
     local fs = bar.text
     -- No power at all (a beast, most warrior-type NPCs): the bar goes and health takes its room.
@@ -2619,7 +2703,7 @@ local FAKE = {
         "Interface\\Icons\\Spell_Holy_SealOfWisdom",
     } },
     target = { name = "Defias Pillager", level = 18, kind = "elite", hp = { 2400, 3300 }, heal = { 300, 200, 250, 150 },
-        power = { 900, 1200, "MANA" }, reaction = { 0.85, 0.2, 0.2 }, combo = 3,
+        power = { 900, 1200, "MANA" }, reaction = Look.HOSTILE, combo = 3,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 300, 1800 } },
                   { "Interface\\Icons\\Spell_Nature_Regeneration", nil, { 1500, 1800 } } },
         debuffs = { { "Interface\\Icons\\Spell_Shadow_ShadowWordPain", true, { 6, 18 } },
@@ -2627,8 +2711,8 @@ local FAKE = {
                     { "Interface\\Icons\\Spell_Frost_FrostNova", false, { 2, 8 } } } },
     targettarget = { name = "Gaar", level = 60, class = "WARRIOR", hp = { 4100, 5200 }, power = { 30, 100, "RAGE" } },
     focus = { name = "Hogger", level = 11, kind = "rare", hp = { 600, 666 }, power = { 0, 0 },
-        reaction = { 0.85, 0.2, 0.2 } },
-    pet = { name = "Wolf", level = 58, hp = { 800, 1000 }, power = { 70, 100, "FOCUS" }, reaction = { 0.2, 0.75, 0.25 } },
+        reaction = Look.HOSTILE },
+    pet = { name = "Wolf", level = 58, hp = { 800, 1000 }, power = { 70, 100, "FOCUS" }, reaction = Look.FRIENDLY },
     party1 = { name = "Thrall", level = 60, class = "SHAMAN", hp = { 3900, 4200 }, power = { 3100, 4000, "MANA" }, leader = true,
         buffs = { { "Interface\\Icons\\Spell_Holy_WordFortitude", nil, { 900, 1800 } } } },
     party2 = { name = "Jaina", level = 60, class = "MAGE", hp = { 1100, 3600 }, power = { 2500, 5200, "MANA" },
@@ -2686,22 +2770,23 @@ local function FillFake(f)
     f.health:SetValue(hp)
     local pct = hp / mx
     local r, g, b
-    if db.lowhp and pct < CRIT_HP then r, g, b = 0.95, 0.12, 0.12
-    elseif db.lowhp and pct < LOW_HP then r, g, b = 1.0, 0.55, 0.0
+    if db.lowhp and pct < CRIT_HP then r, g, b = Look.CRIT[1], Look.CRIT[2], Look.CRIT[3]
+    elseif db.lowhp and pct < LOW_HP then r, g, b = Look.LOW[1], Look.LOW[2], Look.LOW[3]
     elseif d.class then
         if db.classColor then r, g, b = ClassRGB(d.class) end
-        if not r then r, g, b = 0.2, 0.75, 0.25 end
+        if not r then r, g, b = Look.FRIENDLY[1], Look.FRIENDLY[2], Look.FRIENDLY[3] end
     else
         r, g, b = d.reaction[1], d.reaction[2], d.reaction[3]
     end
-    f.health:SetStatusBarColor(r, g, b)
+    Look.SetBarColor(f.health, r, g, b)
     if db.text then PlainText(f, f.health, hp, mx) else f.health.text:SetText("") end
     HealPred.Fake(f, d, mx)
     local pc, pm, token = d.power[1], d.power[2], d.power[3]
     SetPowerShown(f, pm > 0)
     f.power:SetMinMaxValues(0, pm > 0 and pm or 1)
     f.power:SetValue(pc)
-    f.power:SetStatusBarColor(PowerRGB(token))
+    local pr, pg, pb = PowerRGB(token)
+    Look.SetBarColor(f.power, pr, pg, pb)
     if f.power.text then
         if db.text and pm > 0 then PlainText(f, f.power, pc, pm) else f.power.text:SetText("") end
     end

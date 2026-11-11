@@ -15,6 +15,8 @@
       UnitThreatSituation, then "the mob is in combat and targeting you". Where all of them are
       secret, the client colours the bar itself from its secret boolean
       (Texture:SetVertexColorFromBoolean), where it has that.
+    * Raid target mark (skull, cross ...) 20 px left of the bar (1.2.6, option /bpf marks); a secret
+      index is only handed to SetRaidTargetIconTexture inside a pcall, else the mark is hidden.
     * Name above the bar, level right of it, health text (off, percent, current or both) in it,
       the unit's target under it (option).
     * Cast bar with spell icon, spell name and the time left; uninterruptible casts get the grey
@@ -67,7 +69,10 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
+
+local MARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
+local MARK_SZ, MARK_GAP = 20, 3
 
 local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
@@ -189,6 +194,7 @@ local TOGGLES = {
     { key = "tot", cmd = "tot", label = "Target of target" },
     { key = "dim", cmd = "dim", label = "Dim non-target plates" },
     { key = "targetScale", cmd = "targetscale", label = "Enlarge my target" },
+    { key = "raidMark", cmd = "marks", label = "Raid target marks (skull, cross ...)" },
 }
 
 local DEFAULTS = {
@@ -207,6 +213,7 @@ local DEFAULTS = {
     tot = true,
     dim = true,
     targetScale = true,
+    raidMark = true,
 }
 
 -- Every key BetterPlatesForeverDB may hold; anything else is cleared on load.
@@ -354,6 +361,17 @@ local function BuildOverlay(plate)
     o.level = h:CreateFontString(nil, "OVERLAY"); o.level:SetPoint("LEFT", h, "RIGHT", 3, 0)
     o.htext = h:CreateFontString(nil, "OVERLAY"); o.htext:SetPoint("CENTER", h, "CENTER", 0, 0)
     o.ttext = h:CreateFontString(nil, "OVERLAY"); o.ttext:SetPoint("RIGHT", h, "RIGHT", -2, 0)
+
+    -- Raid target mark, left of the bar. Its own frame, above the bar and ring.
+    local mf = CreateFrame("Frame", nil, f)
+    mf:SetFrameLevel(h:GetFrameLevel() + 5)
+    mf:SetSize(MARK_SZ, MARK_SZ)
+    mf:SetPoint("RIGHT", h, "LEFT", -MARK_GAP, 0)
+    local mt = mf:CreateTexture(nil, "OVERLAY")
+    mt:SetAllPoints(mf)
+    mt:SetTexture(MARK_TEX)
+    mf:Hide()
+    o.mark, o.markTex = mf, mt
 
     -- Cast bar over the name row, as in GaarPlates: icon left of it, spell name left inside,
     -- time left right inside.
@@ -1145,6 +1163,38 @@ local function UpdateAuras(o, unit)
     end
 end
 
+-- Raid target mark left of the bar. The index may be secret: it is never tested here, only handed
+-- to the client's setter inside a pcall; if that refuses it, the mark is hidden.
+local function UpdateMark(o, unit)
+    local mark = o.mark
+    if not db.raidMark or type(_G.GetRaidTargetIndex) ~= "function" then mark:Hide(); return end
+    local idx = _G.GetRaidTargetIndex(unit)
+    local plain = Plain(idx)
+    local tex = o.markTex
+    if type(idx) == "nil" then mark:Hide(); return end   -- no mark
+    if plain ~= nil then
+        -- Plain value: an ordinary number from 1 to 8, else no mark.
+        if type(plain) ~= "number" or plain < 1 or plain > 8 then mark:Hide(); return end
+        if type(_G.SetRaidTargetIconTexture) == "function" then
+            tex:SetTexture(MARK_TEX)
+            _G.SetRaidTargetIconTexture(tex, plain)
+        else
+            local i = math.floor(plain) - 1
+            local col, row = i % 4, math.floor(i / 4)
+            tex:SetTexture(MARK_TEX)
+            tex:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.25, (row + 1) * 0.25)
+        end
+        mark:Show()
+        return
+    end
+    -- Secret index: only the client's own setter may take it.
+    if type(_G.SetRaidTargetIconTexture) == "function" then
+        tex:SetTexture(MARK_TEX)
+        if pcall(_G.SetRaidTargetIconTexture, tex, idx) then mark:Show(); return end
+    end
+    mark:Hide()
+end
+
 -- Target scale, rings and dimming.
 local function UpdateEmphasis(o, unit, tanking, flag, hasFlag)
     local isTarget = Plain(UnitIsUnit(unit, "target")) and true or false
@@ -1185,8 +1235,9 @@ local FEATURE_LABELS = {
     cast = "time cast bars on nameplates",
     debuffs = "read your debuffs on nameplates",
     emphasis = "scale or dim nameplates",
+    marks = "show raid target marks on nameplates",
 }
-local FEATURE_ORDER = { "plates", "threat", "health", "healthtext", "text", "cast", "debuffs", "emphasis" }
+local FEATURE_ORDER = { "plates", "threat", "health", "healthtext", "text", "cast", "debuffs", "emphasis", "marks" }
 
 -- What each feature leaves behind once it is switched off.
 local CLEAR = {
@@ -1199,6 +1250,7 @@ local CLEAR = {
         for i = 1, AURA_N do o.auraIcons[i]:Hide() end
         if o.native then o.native:Hide() end
     end,
+    marks = function(o) o.mark:Hide() end,
     emphasis = function(o) o.ring:Hide(); o.ring:SetAlpha(1); o.frame:SetScale(1); o.frame:SetAlpha(1) end,
 }
 
@@ -1233,6 +1285,7 @@ local function UpdatePlate(o, unit)
     Run("cast", UpdateCast, o, unit)
     Run("debuffs", UpdateAuras, o, unit)
     Run("emphasis", UpdateEmphasis, o, unit, tanking, flag, hasFlag)
+    Run("marks", UpdateMark, o, unit)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1743,7 +1796,8 @@ end
 local events = CreateFrame("Frame")
 for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
-                     "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE" }) do
+                     "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
+                     "RAID_TARGET_UPDATE" }) do
     pcall(events.RegisterEvent, events, e)
 end
 -- Your own casts, remembered for the by-spell-ID debuff lookup (only "player" is wanted).
@@ -1775,6 +1829,8 @@ events:SetScript("OnEvent", function(_, event, arg1, _, arg3)
     elseif event == "PLAYER_ENTERING_WORLD" then
         RefreshPlates()
     elseif event == "PLAYER_TARGET_CHANGED" then
+        UpdateAll()
+    elseif event == "RAID_TARGET_UPDATE" then
         UpdateAll()
     elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" then
         -- At once rather than on the next tick: that plate, or every plate for "player" / no unit.

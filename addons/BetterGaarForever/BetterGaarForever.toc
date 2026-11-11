@@ -1,13 +1,13 @@
 ## Interface: 16001
 ## Title: BetterGaarForever
-## Notes: Optional hub for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever and BetterFramesForever: one minimap button whose menu holds their options. Each addon keeps its own settings and commands. /bgf
+## Notes: Optional hub for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever and BetterWindowsForever: one minimap button whose menu holds their options. Each addon keeps its own settings and commands. /bgf
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
 ## Version: 2.4
 ## X-Curse-Project-ID: 1790363
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
-## OptionalDeps: BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever
+## OptionalDeps: BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever, BetterWindowsForever
 ## SavedVariables: BetterGaarForeverDB
 
 Core.lua

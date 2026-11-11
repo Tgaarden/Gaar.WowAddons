@@ -1,17 +1,17 @@
 --[[
   BetterGaarForever - an optional hub for BetterBagsForever, BetterQuestsForever,
-  BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever and
-  BetterFramesForever, for WoW Forever.
+  BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever,
+  BetterFramesForever and BetterWindowsForever, for WoW Forever.
 
   It carries no bag, quest, map, waypoint or unit-frame code of its own. The addons stay fully independent: their logic,
   their settings (BetterBagsForeverDB, BetterQuestsForeverDB, BetterMapsForeverDB, ...) and their slash
-  commands (/bbf, /bqf, /bmf, /bcf, /bpf, /bgps, /bff) stay in their own addon, and without this hub they behave exactly as
+  commands (/bbf, /bqf, /bmf, /bcf, /bpf, /bgps, /bff, /bwf) stay in their own addon, and without this hub they behave exactly as
   they do on their own. What the hub adds is one minimap button whose menu has a "Bags", a
-  "Quests", a "Maps", a "Castbars", a "Plates", a "GPS" and a "Frames" submenu, filled by each addon through the small API table it exports:
+  "Quests", a "Maps", a "Castbars", a "Plates", a "GPS", a "Frames" and a "Windows" submenu, filled by each addon through the small API table it exports:
 
     BetterBagsForeverAPI, BetterQuestsForeverAPI, BetterMapsForeverAPI,
     BetterCastbarsForeverAPI, BetterPlatesForeverAPI, BetterGpsForeverAPI,
-    BetterFramesForeverAPI = {
+    BetterFramesForeverAPI, BetterWindowsForeverAPI = {
         version,              the addon's version, a string
         StatusLine(),         one short line of state, shown in the tooltip and /bgf status
         MenuEntries(),        the options as plain data, for the menu drawn without MenuUtil
@@ -20,7 +20,7 @@
     }
 
   While the hub is loaded, the addons' own minimap buttons are hidden, so there is one button: the
-  TOC lists all seven as OptionalDeps, so they load first and their API is there at our
+  TOC lists all eight as OptionalDeps, so they load first and their API is there at our
   PLAYER_LOGIN, where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
   itself before it shows its button, so the order does not matter. Their saved minimap settings
   are never changed.
@@ -50,6 +50,7 @@ local ADDONS = {
     { key = "plates", label = "Plates", name = "BetterPlatesForever", api = "BetterPlatesForeverAPI", slash = "/bpf" },
     { key = "gps", label = "GPS", name = "BetterGpsForever", api = "BetterGpsForeverAPI", slash = "/bgps" },
     { key = "frames", label = "Frames", name = "BetterFramesForever", api = "BetterFramesForeverAPI", slash = "/bff" },
+    { key = "windows", label = "Windows", name = "BetterWindowsForever", api = "BetterWindowsForeverAPI", slash = "/bwf" },
 }
 
 local db          -- BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -502,10 +503,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function PrintHelp()
-    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever and BetterFramesForever.")
+    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever and BetterWindowsForever.")
     Print("/bgf status - this version and each addon's state")
     Print("/bgf minimap - show or hide the minimap button; /bgf minimap reset - default place, shown")
-    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever), /bmf (BetterMapsForever), /bcf (BetterCastbarsForever), /bpf (BetterPlatesForever), /bgps (BetterGpsForever) and /bff (BetterFramesForever).")
+    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever), /bmf (BetterMapsForever), /bcf (BetterCastbarsForever), /bpf (BetterPlatesForever), /bgps (BetterGpsForever), /bff (BetterFramesForever) and /bwf (BetterWindowsForever).")
 end
 
 local function PrintStatus()

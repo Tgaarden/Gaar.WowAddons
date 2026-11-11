@@ -49,11 +49,17 @@ so that the lowest ones fill the tracker's height. It needs no other addon or li
   - **Off** (`/bqf autowatch off`, the menu's **Auto-watch quests that fit**, or `/bqf off`): the
     watch list is left exactly as it is and is yours again; nothing is restored or re-tracked. The
     order and the limit then only change what is drawn of the quests you track, as before 1.7.
+- **Dungeon filter (1.10, default off).** `/bqf dungeon on` (or **Dungeon filter** in the menus).
+  Inside a dungeon or raid instance only that instance's quests are watched, in the usual order;
+  the other quests of the Quests section are un-watched. If no quest matches, nothing changes (the
+  normal order and auto-watch). Outside instances it does nothing. See
+  [Dungeon filter](#dungeon-filter).
 - **Only the Quests section.** Campaign quests, world quests, bonus objectives, achievements,
   professions and every other section are left alone.
 - It re-evaluates after every layout of the Quests section, and also (throttled to once per
   0.3 s) after `QUEST_LOG_UPDATE`, `QUEST_WATCH_LIST_CHANGED`, `QUEST_ACCEPTED`,
-  `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, `SUPER_TRACKING_CHANGED`, login, the end
+  `QUEST_REMOVED`, `QUEST_TURNED_IN`, `PLAYER_LEVEL_UP`, `SUPER_TRACKING_CHANGED`,
+  `ZONE_CHANGED_NEW_AREA`, login and every loading screen (`PLAYER_ENTERING_WORLD`), the end
   of combat and leaving Edit Mode. A
   settings change is applied at once (after combat if you are in one).
 
@@ -98,13 +104,14 @@ so that the lowest ones fill the tracker's height. It needs no other addon or li
 | `/bqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
 | `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/bqf autowatch on`, `/bqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
+| `/bqf dungeon on`, `/bqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
 | `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
 | `/bqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
 | `/bqf combat on`, `/bqf combat off` | Hide the whole objective tracker during combat (default on) |
 | `/bqf minimap` | Show or hide the minimap button |
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
-| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), auto-watch: its state (`settled`, waiting, paused and why), the Quests section's room from Blizzard's layout (watched, drawn, room and used px, which quest did not fit), how many quests fit and what the next one would need, and which quests the last pass watched and un-watched; `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
+| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), auto-watch: its state (`settled`, waiting, paused and why), the Quests section's room from Blizzard's layout (watched, drawn, room and used px, which quest did not fit), how many quests fit and what the next one would need, and which quests the last pass watched and un-watched; the dungeon filter (`dungeon filter: on - in The Deadmines, 3 quests match` and which, `... no match, normal sort`, `... not in an instance`, how many of its changes are still to be undone, and which instance/quest-tag/quest-map/quest-text functions the client has); `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
 ## Right-click the tracker headers (1.8)
 
@@ -117,7 +124,7 @@ collapse button) and hooks nothing on Blizzard's frames. It also works in combat
 ## Minimap button
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Auto-watch
-quests that fit** (checkbox), **Max quests
+quests that fit** (checkbox), **Dungeon filter** (checkbox), **Max quests
 shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
 (checkbox) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
@@ -236,6 +243,39 @@ How the fit is measured, without writing anything of Blizzard's:
 - **When it leaves things alone.** In combat (queued to `PLAYER_REGEN_ENABLED`), while Edit Mode is
   open (re-run on `EditMode.Exit`), while the tracker or the section is collapsed, and when the
   sections above leave the Quests section no room at all.
+
+## Dungeon filter
+
+Off by default; `/bqf dungeon on|off` or the **Dungeon filter** checkbox. It acts only while
+`IsInInstance()` says `party` or `raid`. A quest belongs to the instance when:
+
+1. it sits under the quest-log header whose title is the instance's name (`GetInstanceInfo()`,
+   and `GetRealZoneText()`), compared ignoring case, extra spaces and a leading "The " (so
+   "Deadmines" matches "The Deadmines"), or
+2. it is tagged **Dungeon** or **Raid** (`C_QuestLog.GetQuestTagInfo`, else the classic
+   `GetQuestTagInfo`; tag IDs 81/85/62/88/89 or `Enum.QuestTag`, or the tag name) **and** either
+   its map (`GetQuestUiMapID`) is the player's instance map (`C_Map.GetBestMapForUnit("player")`)
+   or one of its parents that is itself an instance map (never the zone or continent around it),
+   or its title, description (`GetQuestLogQuestText`) or objective text
+   (`C_QuestLog.GetQuestObjectives`) contains the instance's name (plain, case-insensitive).
+
+Every client function is checked before use; a missing or secret value counts as no match.
+`/bqf status` lists the matching quests and which of these functions the client has.
+
+- **Auto-watch on:** the filter narrows the ranking auto-watch walks to the matching quests (as
+  many as fit, in the usual order); the rest of the section is un-watched with all of
+  auto-watch's rules (not in combat - applied right after it -, not in Edit Mode, the focused quest
+  stays, the thrash guard). On leaving, auto-watch carries on as normal on the next pass.
+- **Auto-watch off:** the filter itself makes the watch list the matching quests (same rules) and
+  remembers what it changed (saved, so a `/reload` inside keeps it). When the filter stops
+  applying - you leave, no quest matches any more, or you turn it or the addon off - the quests
+  it un-watched are watched again in their old order and the ones it added are un-watched, so
+  your own list comes back.
+- **No match inside the instance:** nothing changes; the tracker never goes empty because of
+  the filter.
+- Passes run on `PLAYER_ENTERING_WORLD`, `ZONE_CHANGED_NEW_AREA` and `QUEST_LOG_UPDATE` (with the
+  same 0.3 s throttle as everything else). Collapsed quest-log headers can hide their quests from
+  the quest-log walk, as for auto-watch.
 
 ## Backdrop
 

@@ -20,6 +20,9 @@
       Height). See "Auto-watch" above AutoWatch.Run for how the fit is measured and why it settles.
       Off (/bqf autowatch off), the watch list is the player's and is never touched; the order and
       the limit then only change what is drawn of it.
+    * Dungeon filter (1.10, default off, /bqf dungeon on): inside a dungeon or raid instance only
+      the quests of that instance are watched (in the order above); the rest are un-watched. No
+      matching quest: the normal behaviour. See "Dungeon filter" below auto-watch.
 
   How, and why it is taint-safe (the Quests section carries quest item buttons, and the click
   on one calls the protected UseQuestLogSpecialItem):
@@ -106,12 +109,14 @@ local DEFAULTS = {
     sort = "level",
     hideInCombat = true,
     autoWatch = true,
+    dungeonFilter = false,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key BetterQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
-    hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true }
+    hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true, dungeonFilter = true,
+    dungeonRestore = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -1079,6 +1084,8 @@ end
 -- is restored or changed when it goes off (or when the addon is switched off).
 -- ---------------------------------------------------------------------------
 
+local Dungeon = {} -- the dungeon filter (1.10); its functions are defined below auto-watch
+
 local AutoWatch = {
     ADD_MARGIN = 4,       -- px a quest that is not watched must leave free before it is added
     MAX_CHANGES = 10,     -- watch changes per pass
@@ -1262,7 +1269,10 @@ function AutoWatch.Estimate(d, snap, now)
 end
 
 -- The set of quests that should be watched: the top of the ranking that fits (see above).
-function AutoWatch.Plan(snap, pool, watched, now)
+-- walk: the ranking to take quests from when it is narrower than the pool (the dungeon filter's
+-- matching quests, in the pool's order); the focused quest still counts first.
+function AutoWatch.Plan(snap, pool, watched, now, walk)
+    walk = walk or pool
     local inPool = {}
     for _, d in ipairs(pool) do inPool[d.id] = true end
     local others = 0
@@ -1289,7 +1299,7 @@ function AutoWatch.Plan(snap, pool, watched, now)
         end
     end
     local nextCost
-    for _, d in ipairs(pool) do
+    for _, d in ipairs(walk) do
         if not target[d.id] then
             if count >= cap then break end
             local c = cost(d)
@@ -1302,12 +1312,20 @@ function AutoWatch.Plan(snap, pool, watched, now)
             target[d.id] = true
         end
     end
-    if count == 0 and pool[1] then
-        target[pool[1].id] = true
+    if count == 0 and walk[1] then
+        target[walk[1].id] = true
         count = 1
     end
     AutoWatch.plan = { count = count, cap = cap, used = used, avail = snap.avail, nextCost = nextCost }
     return target
+end
+
+-- Watches a quest as if the player clicked Track (watch type Manual where the client has it).
+function AutoWatch.AddWatch(questID)
+    local ql = QuestLog()
+    local enum = _G.Enum
+    local manual = type(enum) == "table" and type(enum.QuestWatchType) == "table" and enum.QuestWatchType.Manual or nil
+    if manual ~= nil then Try(ql.AddQuestWatch, questID, manual) else Try(ql.AddQuestWatch, questID) end
 end
 
 -- Makes the watch list match target for the quests of the pool. Returns true when it changed.
@@ -1330,14 +1348,12 @@ function AutoWatch.Apply(pool, target, watched, now)
     AutoWatch.passTimes = recent
     if #recent >= AutoWatch.THRASH_PASSES then
         AutoWatch.pausedUntil = now + AutoWatch.THRASH_PAUSE
-        Print("auto-watch paused for " .. AutoWatch.THRASH_PAUSE .. " s: the watch list kept changing. /bqf status shows the last change.")
+        Print("watch changes paused for " .. AutoWatch.THRASH_PAUSE .. " s: the watch list kept changing. /bqf status shows the last change.")
         return false
     end
     recent[#recent + 1] = now
 
     local ql = QuestLog()
-    local enum = _G.Enum
-    local manual = type(enum) == "table" and type(enum.QuestWatchType) == "table" and enum.QuestWatchType.Manual or nil
     local done, removed, added = 0, {}, {}
     -- Lowest-ranked first, then the adds in ranking order.
     for i = #removes, 1, -1 do
@@ -1348,7 +1364,7 @@ function AutoWatch.Apply(pool, target, watched, now)
     end
     for _, d in ipairs(adds) do
         if done >= AutoWatch.MAX_CHANGES then break end
-        if manual ~= nil then Try(ql.AddQuestWatch, d.id, manual) else Try(ql.AddQuestWatch, d.id) end
+        AutoWatch.AddWatch(d.id)
         added[#added + 1] = d
         done = done + 1
     end
@@ -1409,7 +1425,13 @@ function AutoWatch.Run()
     for _, id in ipairs(GetWatches()) do watched[id] = true end
     local pool = AutoWatch.Pool()
     if #pool == 0 then return state("no quests for the Quests section in the quest log") end
-    local target = AutoWatch.Plan(snap, pool, watched, now)
+    -- Inside a dungeon or raid with the filter on: only that instance's quests are ranked.
+    local okWalk, walk = pcall(Dungeon.Walk, pool)
+    if not okWalk then
+        Dungeon.state = "error: " .. tostring(walk)
+        walk = nil
+    end
+    local target = AutoWatch.Plan(snap, pool, watched, now, walk)
     if AutoWatch.Apply(pool, target, watched, now) then
         state("changed the watch list; checking Blizzard's new layout")
     elseif AutoWatch.pausedUntil then
@@ -1417,6 +1439,7 @@ function AutoWatch.Run()
     else
         state("settled")
     end
+    if walk then AutoWatch.state = AutoWatch.state .. " (dungeon filter: " .. #walk .. " quests ranked)" end
 end
 
 -- Edit Mode: the watch list is left alone while it is open (Run checks), and looked at again when
@@ -1477,6 +1500,444 @@ function AutoWatch.StatusLines(inSection)
     return lines
 end
 
+-- ---------------------------------------------------------------------------
+-- Dungeon filter (1.10)
+--
+-- Off by default (/bqf dungeon on). While the player is inside a dungeon or raid instance
+-- (IsInInstance: "party" or "raid"), only the quests that belong to that instance are watched and
+-- the other quests of the Quests section are un-watched. A quest belongs to the instance when
+--   1. it sits under the quest-log header whose title is the instance's name (GetInstanceInfo,
+--      and GetRealZoneText), compared without case, extra spaces or a leading "The ", or
+--   2. it is tagged Dungeon or Raid (C_QuestLog.GetQuestTagInfo, else GetQuestTagInfo) and its map
+--      (GetQuestUiMapID) is the player's instance map (C_Map.GetBestMapForUnit) or one of that
+--      map's parents that is itself an instance map (dungeon, micro or orphan map type; never the
+--      zone or continent around it), or its title, description (GetQuestLogQuestText) or
+--      objective text (C_QuestLog.GetQuestObjectives) names the instance.
+-- Every client function is feature-checked; a missing or secret value is no match.
+--
+-- Auto-watch on: the filter only narrows the ranking auto-watch walks (Plan's walk): the matching
+-- quests in the usual order, as many as fit. Everything else of the section is un-watched by the
+-- same Apply, so combat, Edit Mode, the focused quest and the thrash guard work as for auto-watch.
+-- Auto-watch off: the filter makes the watch list the matching quests itself (the same Apply, so
+-- the same rules) and remembers each change in BetterQuestsForeverDB.dungeonRestore (a /reload
+-- inside the instance keeps it). Once the filter no longer applies (the player left, no quest
+-- matches any more, the option or the addon was switched off), the quests it un-watched are
+-- watched again in their old order and the ones it added are un-watched: the player's own list.
+-- No matching quest inside the instance, outside an instance, or the option off: the normal
+-- behaviour. Passes run on PLAYER_ENTERING_WORLD, ZONE_CHANGED_NEW_AREA and QUEST_LOG_UPDATE
+-- through the same throttle as everything else, and only out of combat.
+-- ---------------------------------------------------------------------------
+
+-- A string the client gave that can be used: not secret, not empty.
+function Dungeon.Text(v)
+    if type(v) == "string" and not IsSecret(v) and v ~= "" then return v end
+end
+
+-- A name made comparable: lower case, single spaces, no leading "the ". nil when nothing is left.
+function Dungeon.Norm(s)
+    s = Dungeon.Text(s)
+    if not s then return nil end
+    s = s:lower():gsub("%s+", " ")
+    s = s:gsub("^ ", ""):gsub(" $", "")
+    s = s:gsub("^the ", "")
+    if s ~= "" then return s end
+end
+
+-- Quest tags that mean "dungeon" or "raid": Enum.QuestTag where the client has it, the classic
+-- IDs (Dungeon 81, Heroic 85, Raid 62, Raid10 88, Raid25 89) otherwise, and the tag names.
+function Dungeon.Tags()
+    if Dungeon.tagIDs then return Dungeon.tagIDs, Dungeon.tagNames end
+    local ids = { [81] = true, [85] = true, [62] = true, [88] = true, [89] = true }
+    local e = type(_G.Enum) == "table" and _G.Enum.QuestTag
+    if type(e) == "table" then
+        for _, k in ipairs({ "Dungeon", "Heroic", "Raid", "Raid10", "Raid25" }) do
+            local v = Num(e[k])
+            if v then ids[v] = true end
+        end
+    end
+    local names = { dungeon = true, raid = true }
+    for _, k in ipairs({ "LFG_TYPE_DUNGEON", "LFG_TYPE_RAID", "RAID" }) do
+        local s = Dungeon.Text(_G[k])
+        if s then names[s:lower()] = true end
+    end
+    Dungeon.tagIDs, Dungeon.tagNames = ids, names
+    return ids, names
+end
+
+function Dungeon.IsGroupQuest(questID)
+    local tagID, tagName
+    local ql = QuestLog()
+    local info = ql and pcall1(ql.GetQuestTagInfo, questID)
+    if type(info) == "table" and not IsSecret(info) then tagID, tagName = info.tagID, info.tagName end
+    if tagID == nil and tagName == nil and type(_G.GetQuestTagInfo) == "function" then
+        local ok, a, b = pcall(_G.GetQuestTagInfo, questID)
+        if ok and type(a) == "table" and not IsSecret(a) then
+            tagID, tagName = a.tagID, a.tagName
+        elseif ok then
+            tagID, tagName = a, b
+        end
+    end
+    local ids, names = Dungeon.Tags()
+    tagID = Num(tagID)
+    if tagID and ids[tagID] then return true end
+    local name = Dungeon.Text(tagName)
+    return name ~= nil and names[name:lower()] == true
+end
+
+-- The quest's map, or nil.
+function Dungeon.QuestMap(questID)
+    local ql = QuestLog()
+    local m = Num(ql and pcall1(ql.GetQuestUiMapID, questID))
+    if not m then m = Num(pcall1(_G.GetQuestUiMapID, questID)) end
+    if m and m > 0 then return m end
+end
+
+-- The dungeon or raid instance the player is in: { name, kind, names (normalised name -> true),
+-- findNames (those long enough to look for in text), maps (uiMapID -> true) }; nil and why not.
+function Dungeon.Instance()
+    if type(_G.IsInInstance) ~= "function" then return nil, "IsInInstance is not available" end
+    local ok, inside, kind = pcall(_G.IsInInstance)
+    if not ok or IsSecret(inside) or IsSecret(kind) or not inside or (kind ~= "party" and kind ~= "raid") then
+        return nil, "not in an instance"
+    end
+    local inst = { kind = kind, names = {}, findNames = {}, maps = {} }
+    local function addName(s)
+        s = Dungeon.Text(s)
+        local n = Dungeon.Norm(s)
+        if n and not inst.names[n] then
+            inst.names[n] = true
+            inst.name = inst.name or s
+            if #n >= 4 then inst.findNames[#inst.findNames + 1] = n end
+        end
+    end
+    local okI, name = Try(_G.GetInstanceInfo)
+    if okI then addName(name) end
+    addName(pcall1(_G.GetRealZoneText))
+
+    local cmap = _G.C_Map
+    if type(cmap) == "table" then
+        local e = type(_G.Enum) == "table" and _G.Enum.UIMapType
+        local instanceTypes = {}
+        for k, fallback in pairs({ Dungeon = 4, Micro = 5, Orphan = 6 }) do
+            instanceTypes[type(e) == "table" and Num(e[k]) or fallback] = true
+        end
+        local m = Num(pcall1(cmap.GetBestMapForUnit, "player"))
+        for _ = 1, 12 do
+            if not m or m <= 0 or inst.maps[m] then break end
+            inst.maps[m] = true
+            local info = pcall1(cmap.GetMapInfo, m)
+            local parent = type(info) == "table" and not IsSecret(info) and Num(info.parentMapID) or nil
+            local pinfo = parent and pcall1(cmap.GetMapInfo, parent)
+            local ptype = type(pinfo) == "table" and not IsSecret(pinfo) and Num(pinfo.mapType) or nil
+            if not ptype or not instanceTypes[ptype] then break end
+            m = parent
+        end
+    end
+    if not inst.name and not next(inst.maps) then return nil, "in an instance the client gives no name or map for" end
+    inst.name = inst.name or "this instance"
+    return inst
+end
+
+-- questID -> { index = its quest-log index, header = the title of the header it sits under }.
+function Dungeon.LogEntries()
+    local ql = QuestLog()
+    local entries = {}
+    local ok, n = Try(ql and ql.GetNumQuestLogEntries)
+    if not ok or type(n) ~= "number" or IsSecret(n) then return entries end
+    local header
+    for i = 1, n do
+        local info = pcall1(ql.GetInfo, i)
+        if type(info) == "table" then
+            if info.isHeader then
+                header = Dungeon.Text(info.title)
+            else
+                local id = Num(info.questID)
+                if id and id > 0 and not entries[id] then entries[id] = { index = i, header = header } end
+            end
+        end
+    end
+    return entries
+end
+
+-- Does the quest's title, description or objective text name the instance (plain find)?
+function Dungeon.NamedInText(inst, d, entry)
+    if #inst.findNames == 0 then return false end
+    local texts = {}
+    local function add(s)
+        s = Dungeon.Text(s)
+        if s then texts[#texts + 1] = s:lower() end
+    end
+    add(d.title)
+    if entry and type(_G.GetQuestLogQuestText) == "function" then
+        local ok, desc, objectives = pcall(_G.GetQuestLogQuestText, entry.index)
+        if ok then
+            add(desc)
+            add(objectives)
+        end
+    end
+    local ql = QuestLog()
+    local list = ql and pcall1(ql.GetQuestObjectives, d.id)
+    if type(list) == "table" and not IsSecret(list) then
+        for _, o in ipairs(list) do
+            if type(o) == "table" then add(o.text) end
+        end
+    end
+    for _, text in ipairs(texts) do
+        for _, name in ipairs(inst.findNames) do
+            if text:find(name, 1, true) then return true end
+        end
+    end
+    return false
+end
+
+function Dungeon.Belongs(inst, d, entry)
+    local header = entry and Dungeon.Norm(entry.header)
+    if header and inst.names[header] then return true end
+    if not Dungeon.IsGroupQuest(d.id) then return false end
+    local m = Dungeon.QuestMap(d.id)
+    if m and inst.maps[m] then return true end
+    return Dungeon.NamedInText(inst, d, entry)
+end
+
+-- The quests of pool (in pool's order) that belong to inst.
+function Dungeon.MatchIn(inst, pool)
+    local entries = Dungeon.LogEntries()
+    local list = {}
+    for _, d in ipairs(pool) do
+        if Dungeon.Belongs(inst, d, entries[d.id]) then list[#list + 1] = d end
+    end
+    return list
+end
+
+-- The ranking auto-watch walks: the matching quests, or nil when the filter does not apply now
+-- (option off, not in a dungeon or raid, or no quest of the pool matches).
+function Dungeon.Walk(pool)
+    if not (db and db.enabled and db.dungeonFilter) then return nil end
+    local inst = Dungeon.Instance()
+    if not inst then return nil end
+    local list = Dungeon.MatchIn(inst, pool)
+    if #list > 0 then return list end
+end
+
+-- BetterQuestsForeverDB.dungeonRestore = { removed = { questID, ... }, added = { questID, ... } }:
+-- what the filter changed while auto-watch was off, in the order it happened. Cleaned on load and
+-- after every change; nil when there is nothing to undo.
+function Dungeon.CleanRestore()
+    local r = db.dungeonRestore
+    if type(r) ~= "table" then
+        db.dungeonRestore = nil
+        return
+    end
+    local clean = {}
+    for _, k in ipairs({ "removed", "added" }) do
+        local list, seen = {}, {}
+        if type(r[k]) == "table" then
+            for _, id in ipairs(r[k]) do
+                if type(id) == "number" and id > 0 and not seen[id] then
+                    seen[id] = true
+                    list[#list + 1] = id
+                end
+            end
+        end
+        clean[k] = list
+    end
+    db.dungeonRestore = (#clean.removed > 0 or #clean.added > 0) and clean or nil
+end
+
+function Dungeon.PendingRestore()
+    local r = db and db.dungeonRestore
+    if type(r) ~= "table" then return 0 end
+    return (type(r.removed) == "table" and #r.removed or 0) + (type(r.added) == "table" and #r.added or 0)
+end
+
+-- kind "removed" or "added". Undoing the opposite change cancels it out.
+function Dungeon.Remember(kind, questID)
+    local r = db.dungeonRestore
+    if type(r) ~= "table" then
+        r = { removed = {}, added = {} }
+        db.dungeonRestore = r
+    end
+    local own = r[kind]
+    local other = kind == "removed" and r.added or r.removed
+    for i, id in ipairs(other) do
+        if id == questID then
+            table.remove(other, i)
+            return
+        end
+    end
+    for _, id in ipairs(own) do
+        if id == questID then return end
+    end
+    own[#own + 1] = questID
+end
+
+-- The filter no longer applies: undo what it changed. At most MAX_CHANGES per pass; the rest on
+-- the next one. Returns the state for /bqf status.
+function Dungeon.Restore(now)
+    local r = db.dungeonRestore
+    if type(r) ~= "table" then return nil end
+    local ql = QuestLog()
+    -- Right after login the quest log can still be empty: nothing is dropped until it is read.
+    local ok, n = Try(ql.GetNumQuestLogEntries)
+    if not ok or type(n) ~= "number" or IsSecret(n) or n <= 0 then return "waiting for the quest log to restore your watch list" end
+    local watched, count = {}, 0
+    for _, id in ipairs(GetWatches()) do
+        watched[id] = true
+        count = count + 1
+    end
+    local done, keepAdded, keepRemoved = 0, {}, {}
+    for _, id in ipairs(r.added or {}) do
+        if done >= AutoWatch.MAX_CHANGES then
+            keepAdded[#keepAdded + 1] = id
+        elseif watched[id] then
+            Try(ql.RemoveQuestWatch, id)
+            watched[id] = nil
+            count = count - 1
+            done = done + 1
+        end
+    end
+    local cap = AutoWatch.Cap()
+    for _, id in ipairs(r.removed or {}) do
+        local okI, index = Try(ql.GetLogIndexForQuestID, id)
+        local inLog = okI and Num(index) ~= nil
+        if done >= AutoWatch.MAX_CHANGES then
+            keepRemoved[#keepRemoved + 1] = id
+        elseif inLog and not watched[id] and count < cap then
+            AutoWatch.AddWatch(id)
+            watched[id] = true
+            count = count + 1
+            done = done + 1
+        end
+    end
+    r.added, r.removed = keepAdded, keepRemoved
+    Dungeon.CleanRestore()
+    if done > 0 then
+        AutoWatch.changeSeq = AutoWatch.changeSeq + 1
+        AutoWatch.changedAt = now
+        Dungeon.lastRestore = (type(_G.date) == "function" and _G.date("%H:%M:%S") or "") .. ", " .. done .. " watch changes"
+        if db.dungeonRestore and type(_G.C_Timer) == "table" and type(_G.C_Timer.After) == "function" and AutoWatch.Schedule then
+            pcall(_G.C_Timer.After, AutoWatch.SETTLE + 0.1, AutoWatch.Schedule)
+        end
+    end
+    return db.dungeonRestore and "restoring your watch list" or "restored your watch list"
+end
+
+-- The pass for auto-watch off (with auto-watch on, AutoWatch.Run does the filtering through
+-- Walk). Called from Evaluate on the throttle frame, like AutoWatch.Run.
+function Dungeon.Run()
+    local function state(s) Dungeon.state = s end
+    if not db then return end
+    if db.enabled and db.autoWatch then
+        -- Auto-watch owns the watch list; there is no list of the player's to give back.
+        db.dungeonRestore = nil
+        return state(nil)
+    end
+    if not db.dungeonFilter and not db.dungeonRestore then return state(nil) end
+    if InCombat() then return state("waiting for the end of combat") end
+    if AutoWatch.IsEditMode() then return state("paused while Edit Mode is open") end
+    local missing = AutoWatch.MissingApi()
+    if missing then return state("not available - " .. missing .. " missing") end
+    local now = AutoWatch.Now()
+    if AutoWatch.pausedUntil then
+        if now < AutoWatch.pausedUntil then
+            return state(string.format("paused for %d s more: the watch list kept changing", AutoWatch.pausedUntil - now))
+        end
+        AutoWatch.pausedUntil = nil
+        AutoWatch.passTimes = {}
+    end
+
+    local pool = (db.enabled and db.dungeonFilter) and AutoWatch.Pool() or {}
+    local walk = #pool > 0 and Dungeon.Walk(pool) or nil
+    if not walk then return state(Dungeon.Restore(now)) end
+
+    local before = GetWatches()
+    local watched = {}
+    for _, id in ipairs(before) do watched[id] = true end
+    local inPool, others = {}, 0
+    for _, d in ipairs(pool) do inPool[d.id] = true end
+    for id in pairs(watched) do
+        if not inPool[id] then others = others + 1 end
+    end
+    local cap = math.max(AutoWatch.Cap() - others, 1)
+    local target, count = {}, 0
+    local focused = AutoWatch.Focused()
+    if focused and inPool[focused] and watched[focused] then
+        target[focused] = true
+        count = 1
+    end
+    for _, d in ipairs(walk) do
+        if count >= cap then break end
+        if not target[d.id] then
+            target[d.id] = true
+            count = count + 1
+        end
+    end
+    if AutoWatch.Apply(pool, target, watched, now) then
+        local after = {}
+        for _, id in ipairs(GetWatches()) do after[id] = true end
+        for _, id in ipairs(before) do
+            if inPool[id] and not after[id] then Dungeon.Remember("removed", id) end
+        end
+        for _, d in ipairs(pool) do
+            if after[d.id] and not watched[d.id] then Dungeon.Remember("added", d.id) end
+        end
+        Dungeon.CleanRestore()
+        return state("changed the watch list to the instance's quests")
+    end
+    state(AutoWatch.pausedUntil and "paused: the watch list kept changing" or "settled")
+end
+
+-- The quests of the Quests section in the quest log, in level order (for /bqf status; read-only,
+-- so the distance ranking's memory is not touched).
+function Dungeon.QuestsInLog()
+    local list = {}
+    for id in pairs(Dungeon.LogEntries()) do
+        local d = QuestData(id)
+        if d.inLog and d.inQuestsSection then list[#list + 1] = d end
+    end
+    table.sort(list, Compare)
+    return list
+end
+
+function Dungeon.StatusLines()
+    local lines = {}
+    local pending = Dungeon.PendingRestore()
+    local tail = pending > 0 and string.format("; %d watch change%s to undo when the filter stops", pending,
+        pending == 1 and "" or "s") or ""
+    local line
+    if not db.dungeonFilter then
+        line = "dungeon filter: off"
+    elseif not db.enabled then
+        line = "dungeon filter: on - BetterQuestsForever is off"
+    else
+        local inst, why = Dungeon.Instance()
+        if not inst then
+            line = "dungeon filter: on - " .. why
+        else
+            local list = Dungeon.MatchIn(inst, Dungeon.QuestsInLog())
+            if #list == 0 then
+                line = "dungeon filter: on - in " .. inst.name .. ", no match, normal sort"
+            else
+                line = string.format("dungeon filter: on - in %s, %d quest%s match", inst.name, #list, #list == 1 and "" or "s")
+                local labels = {}
+                for _, d in ipairs(list) do labels[#labels + 1] = QuestLabel(d) end
+                lines[2] = "  matching: " .. table.concat(labels, ", ")
+            end
+        end
+    end
+    lines[1] = line .. tail .. (Dungeon.state and (" - " .. Dungeon.state) or "")
+    if Dungeon.lastRestore then lines[#lines + 1] = "  last restore of your watch list: " .. Dungeon.lastRestore end
+    local ql = QuestLog()
+    lines[#lines + 1] = "  IsInInstance: " .. (type(_G.IsInInstance) == "function" and "yes" or "MISSING")
+        .. "   GetInstanceInfo: " .. (type(_G.GetInstanceInfo) == "function" and "yes" or "MISSING")
+        .. "   quest tags: " .. ((ql and type(ql.GetQuestTagInfo) == "function") and "C_QuestLog.GetQuestTagInfo"
+            or type(_G.GetQuestTagInfo) == "function" and "GetQuestTagInfo" or "MISSING")
+        .. "   quest map: " .. ((ql and type(ql.GetQuestUiMapID) == "function") and "C_QuestLog.GetQuestUiMapID"
+            or type(_G.GetQuestUiMapID) == "function" and "GetQuestUiMapID" or "MISSING")
+        .. "   GetQuestLogQuestText: " .. (type(_G.GetQuestLogQuestText) == "function" and "yes" or "MISSING")
+    return lines
+end
+
 local function HookTracker()
     if hooked then return true end
     if type(_G.hooksecurefunc) ~= "function" then
@@ -1515,6 +1976,10 @@ local function Evaluate(runWatch)
     -- or an event that needs no new Blizzard layout.
     OnTrackerLaidOut()
     if runWatch then
+        -- The dungeon filter's own pass first (it acts only with auto-watch off), then auto-watch
+        -- (which applies the filter itself when it is on).
+        local okD, errD = pcall(Dungeon.Run)
+        if not okD then Dungeon.state = "error: " .. tostring(errD) end
         local ok, err = pcall(AutoWatch.Run)
         if not ok then AutoWatch.state = "error: " .. tostring(err) end
     end
@@ -1660,6 +2125,19 @@ local function SetAutoWatch(on)
     end
 end
 
+local function SetDungeonFilter(on)
+    db.dungeonFilter = on and true or false
+    if on then
+        Print("dungeon filter on: inside a dungeon or raid only its quests are watched; no matching quest, the normal sort."
+            .. (InCombat() and " Applied after combat." or ""))
+    else
+        Print("dungeon filter off." .. (Dungeon.PendingRestore() > 0
+            and " The quests it un-watched are watched again." or "")
+            .. (InCombat() and " Applied after combat." or ""))
+    end
+    ApplyNow()
+end
+
 local function AlphaPercent()
     return math.floor(BackdropDB().alpha * 100 + 0.5)
 end
@@ -1781,6 +2259,8 @@ local function OptionEntries()
           func = function() SetEnabled(not db.enabled) end },
         { text = "Auto-watch quests that fit", checkbox = true, checked = function() return db.autoWatch end,
           func = function() SetAutoWatch(not db.autoWatch) end },
+        { text = "Dungeon filter", checkbox = true, checked = function() return db.dungeonFilter end,
+          func = function() SetDungeonFilter(not db.dungeonFilter) end },
     }
     local maxItems = {}
     for _, n in ipairs(MENU_MAX) do
@@ -2016,6 +2496,7 @@ local function StateLine()
     return (db.enabled and "On" or "Off") .. " \194\183 " .. SortMode() .. " \194\183 max " .. MaxLabel(db.max)
         .. " \194\183 completed: " .. db.completed
         .. (db.autoWatch and " \194\183 auto-watch" or "")
+        .. (db.dungeonFilter and " \194\183 dungeon filter" or "")
         .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
 end
 
@@ -2426,6 +2907,8 @@ local function PrintHelp()
         .. (db and db.completed or DEFAULTS.completed) .. ")")
     Print("/bqf autowatch on | off - watch the lowest quests that fit the tracker's height and un-watch the rest (now: "
         .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
+    Print("/bqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
+        .. ((db and db.dungeonFilter) and "on" or "off") .. ")")
     Print("/bqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
     Print("/bqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
@@ -2476,6 +2959,12 @@ local function PrintStatus()
     Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none")
         .. "   Edit Mode: " .. (AutoWatch.editModeHook or "not followed"))
     for _, line in ipairs(AutoWatch.StatusLines(inSection)) do Print(line) end
+    local okD, dungeonLines = pcall(Dungeon.StatusLines)
+    if okD then
+        for _, line in ipairs(dungeonLines) do Print(line) end
+    else
+        Print("dungeon filter: " .. (db.dungeonFilter and "on" or "off") .. " - error: " .. tostring(dungeonLines))
+    end
     local order
     if not db.enabled then
         order = "off (Blizzard's own)"
@@ -2561,6 +3050,12 @@ local function OnSlash(msg)
         SetAutoWatch(false)
     elseif msg == "autowatch" or msg:match("^autowatch ") then
         Print("use /bqf autowatch on or off (now: " .. (db.autoWatch and "on" or "off") .. ").")
+    elseif msg == "dungeon on" then
+        SetDungeonFilter(true)
+    elseif msg == "dungeon off" then
+        SetDungeonFilter(false)
+    elseif msg == "dungeon" or msg:match("^dungeon ") then
+        Print("use /bqf dungeon on or off (now: " .. (db.dungeonFilter and "on" or "off") .. ").")
     elseif msg == "combat on" then
         SetHideInCombat(true)
     elseif msg == "combat off" then
@@ -2596,7 +3091,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.9"
+local VERSION = "1.10"
 
 local function ApiEntries()
     if not db then return {} end
@@ -2634,6 +3129,8 @@ local function BindSavedVariables()
     if not SORT_MODES[db.sort] then db.sort = DEFAULTS.sort end
     if type(db.hideInCombat) ~= "boolean" then db.hideInCombat = DEFAULTS.hideInCombat end
     if type(db.autoWatch) ~= "boolean" then db.autoWatch = DEFAULTS.autoWatch end
+    if type(db.dungeonFilter) ~= "boolean" then db.dungeonFilter = DEFAULTS.dungeonFilter end
+    Dungeon.CleanRestore()
     MinimapDB()
     BackdropDB()
 end
@@ -2642,7 +3139,8 @@ local events = CreateFrame("Frame")
 -- RegisterEvent raises on an event the client does not know, so each one is tried on its own.
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
-    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED", "SUPER_TRACKING_CHANGED" }) do
+    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED", "SUPER_TRACKING_CHANGED",
+    "ZONE_CHANGED_NEW_AREA" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg1)

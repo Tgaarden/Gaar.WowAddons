@@ -47,6 +47,12 @@
       and everything the addon hid is shown again, so for the whole fight the Quests section is
       exactly Blizzard's own. On PLAYER_REGEN_ENABLED the order and the limit are applied again.
 
+  Height (1.7, 1.7.1): Blizzard only lays out the quests that fit, in its own watch order. When a
+  low-level quest gets no block, the tracker's container frame is made taller (SetHeight) so it
+  does; the quests shown are only those that fit Blizzard's own height (the Edit Mode Height),
+  the extra is trimmed to what the shown blocks need, and there is none in Edit Mode. See the
+  comment above Container().
+
   Hide in combat (default on): the whole objective tracker (ObjectiveTrackerFrame) and the
   backdrop are hidden for the length of a fight. The tracker is hidden and shown by Blizzard's
   secure state driver (RegisterStateDriver), never by this addon's own code; see "Hide in combat"
@@ -868,9 +874,30 @@ end
 -- the blocks after it are never created, so no amount of sorting afterwards can show them. A
 -- low-level quest that Blizzard put late in its list then stays invisible while higher-level
 -- ones are drawn. When that happens the container is made taller (SetHeight, a widget method),
--- so Blizzard lays out every quest, and the pass below sorts them and hides all but the first N.
--- Blizzard's own UpdateHeight is hooked so the extra survives its resets.
+-- so Blizzard creates the missing blocks, and the pass below sorts them and hides the rest.
+--
+-- 1.7.1: the taller frame is never what you see, and never what Edit Mode sees.
+--   * The extra cannot be dropped again right after the layout: every size change of the
+--     container re-runs its Update (ObjectiveTrackerContainerMixin:OnSizeChanged -> MarkDirty),
+--     and at Blizzard's height the Quests section no longer fits (contentsHeight > available), so
+--     Blizzard truncates it again and the low-level blocks are gone. So the frame keeps just
+--     enough extra for the blocks that are shown, and no more (TrimExtra).
+--   * What is drawn always fits Blizzard's own height: the quests shown are the lowest-level ones
+--     (up to N) that fit the room Blizzard would have given the section at the height it set
+--     (the Edit Mode Height, or the screen bottom in the default position). The extra room is
+--     empty; the background (NineSlice) follows the last section, so it ends where the quests do.
+--   * In Edit Mode there is no extra at all: it is dropped on EditMode.Enter, Blizzard's
+--     UpdateHeight is no longer topped up, and it comes back on EditMode.Exit. The selection box
+--     and the Height slider are Blizzard's own.
 local EXTRA_STEP_MIN, EXTRA_MAX, MAX_GROW_ROUNDS = 60, 2400, 8
+-- Height state and helpers of 1.7.1, in one table to stay under Lua's 200 locals per chunk.
+local Grow = {
+    TRIM_MARGIN = 8,   -- px left below the last kept block
+    TRIM_MIN = 16,     -- smallest trim worth a re-layout
+    -- fitLimited: the last pass showed fewer than N quests because more do not fit Blizzard's height
+    -- layoutAvail, layoutContainerH: see OnLayoutContents
+    -- editModeHook: how Edit Mode is followed, for /bqf status
+}
 
 local function Container()
     local c = tracker and tracker.parentContainer
@@ -880,22 +907,54 @@ local function Container()
     end
 end
 
+function Grow.ContainerHeight()
+    local c = Container()
+    local h = c and pcall1(c.GetHeight, c)
+    if type(h) == "number" and not IsSecret(h) then return h end
+end
+
+function Grow.IsEditMode()
+    local em = _G.EditModeManagerFrame
+    if type(em) ~= "table" or type(em.IsEditModeActive) ~= "function" then return false end
+    return pcall1(em.IsEditModeActive, em) and true or false
+end
+
+-- The room Blizzard's last real layout of the Quests section had, and the container height it was
+-- worked out from; read in a hook on LayoutContents, which only runs when the section is laid out.
+function Grow.OnLayoutContents()
+    local a = tracker and tracker.availableHeight
+    local h = Grow.ContainerHeight()
+    if type(a) == "number" and not IsSecret(a) and h then
+        Grow.layoutAvail, Grow.layoutContainerH = a, h
+    end
+end
+
+-- The room the Quests section gets at Blizzard's own container height (without our extra).
+function Grow.BaseAvail()
+    if type(Grow.layoutAvail) ~= "number" or type(Grow.layoutContainerH) ~= "number" then return end
+    if type(containerBase) ~= "number" then
+        if extraHeight ~= 0 then return end
+        containerBase = Grow.ContainerHeight()
+        if not containerBase then return end
+    end
+    return Grow.layoutAvail - (Grow.layoutContainerH - containerBase)
+end
+
 local function ApplyContainerHeight()
     local c = Container()
     if not c or InCombat() then return end
     if type(containerBase) ~= "number" then return end
     local want = containerBase + extraHeight
-    local cur = pcall1(c.GetHeight, c)
-    if type(cur) == "number" and math.abs(cur - want) > 0.5 then pcall(c.SetHeight, c, want) end
+    local cur = Grow.ContainerHeight()
+    if cur and math.abs(cur - want) > 0.5 then pcall(c.SetHeight, c, want) end
 end
 
--- After Blizzard's UpdateHeight: what it just set is the base; put our extra on top.
+-- After Blizzard's UpdateHeight: what it just set is the base; put our extra on top (never in
+-- Edit Mode, so the Height slider and the selection box are Blizzard's).
 local function OnContainerHeight()
-    local c = Container()
-    if not c then return end
-    local h = pcall1(c.GetHeight, c)
-    if type(h) == "number" and not IsSecret(h) then containerBase = h end
-    if extraHeight > 0 and db and db.enabled then ApplyContainerHeight() end
+    local h = Grow.ContainerHeight()
+    if h then containerBase = h end
+    if extraHeight > 0 and db and db.enabled and not Grow.IsEditMode() then ApplyContainerHeight() end
 end
 
 local function ResetExtraHeight()
@@ -928,7 +987,7 @@ local function RestoreAll()
     pcall(RestoreAnchors)
     Restore({})
     if heightSet then SetSectionHeight(nil) end
-    shownCount, orderedCount = nil, nil
+    shownCount, orderedCount, Grow.fitLimited = nil, nil, nil
 end
 
 local function Skip(reason)
@@ -988,7 +1047,59 @@ local function ApplyLayout()
     end
     OrderQuests(sortable)
 
-    -- Quests Blizzard did not lay out (no block) that belong among the first N by our order.
+    -- What one block costs in Blizzard's accounting at position slot (InternalAddBlock:
+    -- contentsHeight += block.height - offsetY), with the offset Blizzard used at that position.
+    local function Cost(height, slot)
+        local a = anchors[math.min(slot, #anchors)]
+        return height - a.y
+    end
+    -- The section's header part of Blizzard's contentsHeight (what is left without the blocks), and
+    -- the room the section would get at Blizzard's own container height. Without both, the fit
+    -- check is off and the limit is N, as in 1.7.
+    local header
+    local contents = tracker.contentsHeight
+    if type(contents) == "number" and not IsSecret(contents) then
+        header = contents
+        for k, b in ipairs(chain) do header = header - Cost(BlockHeight(b), k) end
+    end
+    local base = Grow.BaseAvail()
+    local fit = header ~= nil and base ~= nil
+    local editMode = Grow.IsEditMode()
+
+    -- Shown: Blizzard's fixed blocks, then quests in our order, at most N, and only while they fit
+    -- the room Blizzard would have given the section; the first that does not fit ends the list
+    -- (the "boundary" block), so a lower-level quest is never skipped for a shorter higher one.
+    local visible, hide, isVisible = {}, {}, {}
+    local used = header or 0
+    for _, b in ipairs(fixed) do
+        visible[#visible + 1] = b
+        isVisible[b] = true
+        used = used + Cost(BlockHeight(b), #visible)
+    end
+    local shownQuests, boundary = 0, nil
+    for _, d in ipairs(sortable) do
+        local b = d.block
+        local show = shownQuests < db.max and not boundary
+        if show and fit then
+            local c = Cost(BlockHeight(b), #visible + 1)
+            if used + c > base + 0.5 then
+                show, boundary = false, b
+            else
+                used = used + c
+            end
+        end
+        if show then
+            visible[#visible + 1] = b
+            isVisible[b] = true
+            shownQuests = shownQuests + 1
+        else
+            hide[b] = true
+        end
+    end
+    Grow.fitLimited = boundary ~= nil
+
+    -- Quests Blizzard did not lay out (no block) that belong among the shown ones by our order:
+    -- among the first N and, with the fit check, starting while there is room left.
     local laidOut = {}
     for _, d in ipairs(sortable) do laidOut[d.id] = true end
     for _, b in ipairs(fixed) do if IsQuestBlock(b) then laidOut[b.id] = true end end
@@ -1003,33 +1114,55 @@ local function ApplyLayout()
             end
         end
     end
-    local needed = 0
-    if #everyone > #sortable then
-        table.sort(everyone, Compare)
-        for i, d in ipairs(everyone) do
-            if d.dropped and i <= db.max then needed = needed + 1 end
-        end
+    -- The same walk in plain level/distance order (no hysteresis), with an estimate for a quest
+    -- without a block. Every block it reaches is kept when the extra is trimmed below, so the
+    -- trim can never drop a block this walk would then ask for again.
+    local needed, reached = 0, {}
+    local total = 0
+    for _, b in ipairs(chain) do total = total + BlockHeight(b) end
+    local avg = #chain > 0 and total / #chain or 80
+    table.sort(everyone, Compare)
+    local u, slot = header or 0, #fixed
+    for k = 1, #fixed do u = u + Cost(BlockHeight(fixed[k]), k) end
+    for i, d in ipairs(everyone) do
+        if i > db.max then break end
+        slot = slot + 1
+        local c = Cost(d.dropped and avg or BlockHeight(d.block), slot)
+        if d.block then reached[d.block] = true end
+        if fit and (d.dropped and u >= base or not d.dropped and u + c > base + 0.5) then break end
+        if d.dropped then needed = needed + 1 end
+        u = u + c
     end
-    if needed > 0 and growRounds < MAX_GROW_ROUNDS and extraHeight < EXTRA_MAX and Container() then
-        local total = 0
-        for _, b in ipairs(chain) do total = total + BlockHeight(b) end
-        local avg = #chain > 0 and total / #chain or 80
+
+    if editMode then
+        -- Edit Mode: Blizzard's height only. The quests that fit it are still sorted and limited.
+        if extraHeight > 0 or growRounds > 0 then ResetExtraHeight() end
+    elseif needed > 0 and growRounds < MAX_GROW_ROUNDS and extraHeight < EXTRA_MAX and Container() then
         extraHeight = math.min(EXTRA_MAX, extraHeight + math.max(EXTRA_STEP_MIN, math.ceil(needed * avg)))
         growRounds = growRounds + 1
-        if type(containerBase) ~= "number" then
-            local h = pcall1(Container().GetHeight, Container())
-            if type(h) == "number" and not IsSecret(h) then containerBase = h end
-        end
+        if type(containerBase) ~= "number" then containerBase = Grow.ContainerHeight() end
         ApplyContainerHeight() -- Blizzard re-lays out on the size change; this pass finishes below
     elseif needed == 0 then
         growRounds = 0
+        -- Keep only the extra the shown blocks (and the boundary block) need: Blizzard's room for
+        -- the section down to the last of them in its own chain, plus a small margin.
+        if extraHeight > 0 and header and type(Grow.layoutAvail) == "number" and type(Grow.layoutContainerH) == "number"
+            and type(containerBase) == "number" then
+            local last = 0
+            for k, b in ipairs(chain) do
+                if isVisible[b] or b == boundary or reached[b] then last = k end
+            end
+            local through = header
+            for k = 1, last do through = through + Cost(BlockHeight(chain[k]), k) end
+            local want = Grow.layoutContainerH - (Grow.layoutAvail - (through + Grow.TRIM_MARGIN)) - containerBase
+            want = math.max(0, math.ceil(want))
+            if want < extraHeight and (want == 0 or extraHeight - want >= Grow.TRIM_MIN) then
+                extraHeight = want
+                ApplyContainerHeight()
+            end
+        end
     end
 
-    local visible, hide = {}, {}
-    for _, b in ipairs(fixed) do visible[#visible + 1] = b end
-    for i, d in ipairs(sortable) do
-        if i <= db.max then visible[#visible + 1] = d.block else hide[d.block] = true end
-    end
     for block in pairs(hide) do
         for region in pairs(Regions(block)) do
             if not CanHide(region) then
@@ -1076,7 +1209,7 @@ local function ApplyLayout()
     end
 
     layoutProblem = nil
-    shownCount = math.min(#sortable, db.max)
+    shownCount = shownQuests
     orderedCount = #sortable
 end
 
@@ -1099,6 +1232,9 @@ local function HookTracker()
     -- Instance hooks only: the Campaign section and every other module keep their own methods.
     hooksecurefunc(tracker, "Update", OnTrackerLaidOut)
     hooksecurefunc(tracker, "UpdateHeight", OnTrackerLaidOut)
+    if type(tracker.LayoutContents) == "function" then
+        pcall(hooksecurefunc, tracker, "LayoutContents", Grow.OnLayoutContents)
+    end
     local container = Container()
     if container and type(container.UpdateHeight) == "function" then
         pcall(hooksecurefunc, container, "UpdateHeight", OnContainerHeight)
@@ -1182,6 +1318,70 @@ local function Schedule()
     if InCombat() then return end
     throttleLeft = THROTTLE
     throttle:Show()
+end
+
+-- Edit Mode (1.7.1): no extra container height while it is open, so the selection box and the
+-- Height slider are Blizzard's own. EditModeManagerFrame:EnterEditMode/ExitEditMode end with
+-- EventRegistry:TriggerEvent("EditMode.Enter"/"EditMode.Exit"); with no EventRegistry the two
+-- methods are hooked instead. Either way the addon only reacts, after Blizzard's own code.
+function Grow.OnEditModeEnter()
+    extraHeight, growRounds = 0, 0
+    pcall(ApplyContainerHeight) -- back to the height Blizzard set
+    Schedule()
+end
+
+function Grow.OnEditModeExit()
+    Schedule()
+end
+
+function Grow.HookEditMode()
+    if Grow.editModeHook then return end
+    local reg = _G.EventRegistry
+    if type(reg) == "table" and type(reg.RegisterCallback) == "function" then
+        local owner = {}
+        if pcall(reg.RegisterCallback, reg, "EditMode.Enter", Grow.OnEditModeEnter, owner)
+            and pcall(reg.RegisterCallback, reg, "EditMode.Exit", Grow.OnEditModeExit, owner) then
+            Grow.editModeHook = "EventRegistry EditMode.Enter/Exit"
+            return
+        end
+    end
+    local em = _G.EditModeManagerFrame
+    if type(em) == "table" and type(em.EnterEditMode) == "function" and type(em.ExitEditMode) == "function"
+        and type(_G.hooksecurefunc) == "function" then
+        if pcall(hooksecurefunc, em, "EnterEditMode", Grow.OnEditModeEnter)
+            and pcall(hooksecurefunc, em, "ExitEditMode", Grow.OnEditModeExit) then
+            Grow.editModeHook = "hooksecurefunc on EditModeManagerFrame Enter/ExitEditMode"
+        end
+    end
+end
+
+-- /bqf status: the container's height against Blizzard's own, and what the addon adds.
+function Grow.Status()
+    local c = Container()
+    if not c then return "objective tracker container not found" end
+    local cur = Grow.ContainerHeight()
+    local line = "container " .. (cur and string.format("%.0f", cur) or "?")
+        .. "   Blizzard's: " .. (type(containerBase) == "number" and string.format("%.0f", containerBase) or "not seen yet")
+    local setting = c.editModeHeight
+    if type(setting) == "number" and not IsSecret(setting) then
+        line = line .. "   Edit Mode Height: " .. string.format("%.0f", setting)
+    end
+    local grow
+    if not db.enabled then
+        grow = "off"
+    elseif Grow.IsEditMode() then
+        grow = "Edit Mode - not growing"
+    elseif extraHeight > 0 then
+        grow = string.format("+%.0f (frame only, so Blizzard lays out the lowest-level quests; nothing is drawn there)", extraHeight)
+    else
+        grow = "not growing"
+    end
+    line = line .. "   extra: " .. grow
+    if type(containerBase) == "number" and cur and cur > containerBase + extraHeight + 0.5 then
+        line = line .. "   (taller than expected)"
+    end
+    if Grow.fitLimited then line = line .. "   shown: limited to what fits Blizzard's height" end
+    return line
 end
 
 -- A settings change: applied at once out of combat, after combat otherwise.
@@ -1999,7 +2199,9 @@ local function PrintStatus()
             .. "   protected: " .. (IsProtectedFrame(otf) and "yes" or "no"))
     end
     Print("tracker: " .. (tracker and "QuestObjectiveTracker recognised" or ("not recognised - " .. (trackerProblem or "not checked yet"))))
-    Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight" or "none"))
+    Print("hooks: " .. (hooked and "hooksecurefunc on QuestObjectiveTracker Update + UpdateHeight + LayoutContents" or "none")
+        .. "   Edit Mode: " .. (Grow.editModeHook or "not followed"))
+    Print("height: " .. Grow.Status())
     local order
     if not db.enabled then
         order = "off (Blizzard's own)"
@@ -2113,7 +2315,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.7"
+local VERSION = "1.7.1"
 
 local function ApiEntries()
     if not db then return {} end
@@ -2158,7 +2360,7 @@ local events = CreateFrame("Frame")
 -- RegisterEvent raises on an event the client does not know, so each one is tried on its own.
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
-    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP" }) do
+    "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
@@ -2169,6 +2371,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             pcall(ApplyMinimap)
             pcall(HookBackdropTargets)
             pcall(RegisterGpsMenu)
+            pcall(Grow.HookEditMode)
             MarkBackdrop()
             Schedule()
         elseif db and not hooked and arg1 == "Blizzard_ObjectiveTracker" then
@@ -2188,6 +2391,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
         if db then pcall(ApplyMinimap) end
         if db then pcall(RegisterGpsMenu) end
+        pcall(Grow.HookEditMode)
         Schedule()
     else
         Schedule()

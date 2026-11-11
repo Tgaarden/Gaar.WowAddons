@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.7
+## Version: 1.7.1
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## SavedVariables: BetterQuestsForeverDB
 ## OptionalDeps: BetterGpsForever

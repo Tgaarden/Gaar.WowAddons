@@ -2,8 +2,9 @@
 
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
 improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
-shows how many of an item and how much gold your other characters on the same realm have. It
-needs no other addon or library.
+shows how many of an item and how much gold your other characters on the same realm have.
+Since 1.9 you can lock items so a merchant can never get them. It needs no other addon or
+library.
 
 ## What it does
 
@@ -102,6 +103,33 @@ needs no other addon or library.
   Everything is stored by item id, so the saved file stays small:
   `BetterBagsForeverDB.inventory[realm][name] = { class, faction, gold, bags = { [itemID] = count },
   bank, equipped, mail, bankScanned, mailScanned }` (the two `...Scanned` values are `time()`).
+- **Do-not-sell item lock (since 1.9).** **Alt + left-click** an item in your bags to lock it;
+  Alt + left-click it again to unlock it. Chat says `<item> locked` or `<item> unlocked`. The lock
+  is per item ID, so every copy of that item is locked, and it is kept per character in
+  `BetterBagsForeverCharDB.lockedItems[itemID]`. Alt-click only toggles the lock: it never picks
+  the item up or uses it. A locked item shows a small padlock in the bottom-left corner of its
+  slot (the stack count stays bottom-right), in every bag window the addon covers: the Combined
+  Backpack, the separate bags (`ContainerFrame1`-`13`, which includes the bank bags) and the
+  bank's own slots (`BankPanel` on Forever, `BankFrameItemN` on an older client). The padlock
+  follows the items when they move, a bag opens, a clean-up runs or the bags change
+  (`BAG_UPDATE`, `BAG_UPDATE_DELAYED`, `ITEM_LOCK_CHANGED`, the frames' `OnShow` and
+  `UpdateItems`). The art is the first of these the client has: the atlas `Padlock`, the atlas
+  `AdventureMapIcon-Lock`, `Interface\PetBattles\PetBattle-LockIcon`,
+  `Interface\Buttons\LockButton-Locked-Up` (`/bbf status` says which one is used).
+
+  While a merchant is open, a locked item cannot be sold:
+
+  | How you would sell it | What happens |
+  |---|---|
+  | Right-click it in the bags | A guard of the addon's own sits over the slot and takes the right-click, so Blizzard's click (which would sell) never runs. Chat: `<item> is locked - Alt-click to unlock`. Left clicks and drags still go through to the item, so you can move it, and its tooltip still shows |
+  | Pick it up and drop it on the merchant | While the cursor holds a locked item, a guard covers the merchant window. Dropping or clicking there prints the same message and puts the item back in its slot (`ClearCursor()`) |
+  | Blizzard's Sell Junk button | While a locked grey item sits in a bag that a junk sale would empty, a guard covers the button and says which item is in the way. Unlock it, or move it to a bag set to "Don't sell junk from this bag" |
+  | Anything else (another addon, say) | Safety net: if within 3 s the item's count in the bags drops *and* a new buyback entry of that item and stack size appears, it is bought back once (`BuybackItem`) and chat says so. If that fails, chat tells you to buy it back on the Buyback tab |
+
+  On a client that cannot let left clicks pass through a frame (`SetPassThroughButtons`), the
+  slot guard takes the left button too while a merchant is open: Alt-click still unlocks, a plain
+  left-click only prints the message. `/bbf locked` lists the locked items as links and
+  `/bbf unlockall yes` unlocks all of them. The addon has no junk selling of its own.
 - **The sort direction is left alone.** The addon never calls `C_Container.SetSortBagsRightToLeft`
   and does not read it either. Version 1.2 could switch it; if you changed it there and want
   Forever's default back, run `/run C_Container.SetSortBagsRightToLeft(true)` once.
@@ -119,8 +147,11 @@ needs no other addon or library.
 | `/bbf stop` | Stop a running reversal |
 | `/bbf counts`, `/bbf counts on`, `/bbf counts off` | Toggle or set the item counts in tooltips (on by default) |
 | `/bbf gold` | Print every character's gold on this realm, and the total |
+| Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold to a merchant |
+| `/bbf locked` | List the locked items as links |
+| `/bbf unlockall`, `/bbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
 | `/bbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
-| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip |
+| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there |
 
 ## With BetterGaarForever (optional)
 
@@ -159,12 +190,21 @@ The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
   (`ContainerFrameCombinedBags.MoneyFrame`, `ContainerFrame1MoneyFrame` and the like) and its
   coin buttons. Their clicks are never touched. If Blizzard showed a tooltip there first, the
   gold lines are added below it.
+- The item lock never replaces or wraps a Blizzard click handler, and never clicks a Blizzard
+  button. A blocked sale is blocked by separate frames of the addon's own laid on top (over the
+  slot, the merchant window or the Sell Junk button), so Blizzard's handlers simply do not run
+  for that click and nothing tainted enters their path. Alt-click is seen through
+  `HookScript("PreClick")` / `HookScript("OnClick")` on the item buttons, which runs after
+  Blizzard's handler. The padlock is a texture added to the item button; everything else is kept
+  in weak tables of the addon's own. A guard is never shown or hidden while it is protected in
+  combat.
 - Every name is checked before use. A missing frame or function switches the matching feature
   off instead of raising an error.
 - If the bag frame is protected and a move falls in combat, it waits for `PLAYER_REGEN_ENABLED`.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`,
   `hideNativeButton`, `position`, `reverse`, `showCounts`, `autoSort` and `inventory` are kept; anything older
-  versions saved is cleared on load.
+  versions saved is cleared on load. The item locks (1.9) are per character, in
+  `BetterBagsForeverCharDB.lockedItems`.
 
 ## Names it relies on
 
@@ -185,3 +225,11 @@ For the item counts and gold (1.7): `Enum.BagIndex` (`Backpack`, `Bag_1`-`Bag_4`
 `GetInboxNumItems`, `GetInboxItem`, `GetInboxItemLink`, `GetMoney`, `GetRealmName`,
 `RAID_CLASS_COLORS`, `C_CurrencyInfo.GetCoinTextureString`, `TooltipDataProcessor`,
 `Enum.TooltipDataType.Item` and the money frames' `GoldButton` / `SilverButton` / `CopperButton`.
+
+For the item lock (1.9): `ContainerFrame1`-`13` and their `UpdateItems` / `EnumerateValidItems`,
+`BankPanel` and its buttons' `GetBankTabID` / `GetContainerSlotID`, `BankFrameItemN`,
+`MerchantFrame`, `MerchantSellAllJunkButton`, `Enum.BagSlotFlags.ExcludeJunkSell` with
+`C_Container.GetBagSlotFlag`, `GetCursorInfo`, `ClearCursor`, `GetNumBuybackItems`,
+`GetBuybackItemLink`, `GetBuybackItemInfo`, `BuybackItem`, the events `MERCHANT_SHOW`,
+`MERCHANT_CLOSED`, `MERCHANT_UPDATE` and `CURSOR_CHANGED`, and the frame methods
+`SetPassThroughButtons` and `SetPropagateMouseMotion`.

@@ -17,9 +17,16 @@ exactly what the game, or you, set them to.
   the name takes the class colour too), **health** (green to red) or one **solid** colour. Every
   colour is pulled slightly toward its own luminance so nothing reads as harsh pure red or purple.
   A mob tagged by someone else is grey. **Execute tint** at 20% health or less (on by default).
-- **Threat on every plate.** Purple bar and a purple ring when you hold aggro, amber when your
-  threat is high (status 2 or more), and your threat percent at the right end of the bar (on by
-  default). Threat colours win over the colour mode and the execute tint.
+- **Threat on every plate.** Purple bar and a purple ring when you hold aggro (threat status 2 or
+  3), amber when your threat is higher than the tank's (status 1), and your threat percent at the
+  right end of the bar (on by default). Threat colours win over the colour mode and the execute
+  tint. Since 1.2.5 aggro is read from the first source that answers plainly:
+  `UnitDetailedThreatSituation`, then `UnitThreatSituation`, then "the mob is in combat and
+  targeting you" (`UnitAffectingCombat` + `UnitIsUnit(unit.."target", "player")`). When all of
+  them are hidden (secret), the client colours the bar itself from its secret boolean
+  (`Texture:SetVertexColorFromBoolean`, and the ring with `SetAlphaFromBoolean`) where it has
+  those. Plates refresh at once on `UNIT_THREAT_SITUATION_UPDATE` / `UNIT_THREAT_LIST_UPDATE`.
+  `/bpf status` shows, for your target's plate, which source was used and what each returns.
 - **Text.** The name above the bar, the level right of it (`??` when the client hides it), the
   health text inside it (`off`, `percent` (default), `current` or `both`, e.g. `850  85%`), and
   the unit's target under it
@@ -67,7 +74,7 @@ exactly what the game, or you, set them to.
 | Command | Does |
 |---|---|
 | `/bpf`, `/bpf help` | Help |
-| `/bpf status` | Version, every setting, what this client offers (`C_NamePlate`, which aura API, threat, whether it can hide values), how many plates are styled now, anything this client switched off this session (with the reason), the debuff and health text state, and a warning if `GaarPlates` is loaded too |
+| `/bpf status` | Version, every setting, what this client offers (`C_NamePlate`, which aura API, threat, whether it can hide values), how many plates are styled now, anything this client switched off this session (with the reason), the debuff, health text and threat state (which threat source your target's plate uses, and whether each threat API returns secret, nil or a value), and a warning if `GaarPlates` is loaded too |
 | `/bpf debug` | Debuff and health text state: icons on your target's plate and how they were drawn (client `AuraContainer` or the addon's own reading), whether this client has the `AuraContainer` API and how many containers were built or failed (with the last error), whether Blizzard's own plate `AurasFrame` exists, the nameplate aura CVars (read only), aura reads refused this session, the spells remembered for the spell-ID lookup, which aura and health-text APIs this client has, and whether your target's health is hidden |
 | `/bpf on`, `/bpf off` | The whole addon. Off gives every plate back to Blizzard straight away |
 | `/bpf color reaction\|class\|health\|solid` | Bar colour mode (`/bpf colour` works too) |
@@ -123,7 +130,7 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   worked out from them: no execute tint, no colour by health (it falls back to reaction). The
   health text is then written by the client's own secret-safe helpers, as in
   `BetterFramesForever`: `UnitHealthPercent` with `CurveConstants.ScaleTo100`,
-  `AbbreviateNumbers` and `FontString:SetFormattedText`; without them it stays empty. Hidden threat values are dropped at the read, so the plate shows no threat;
+  `AbbreviateNumbers` and `FontString:SetFormattedText`; without them it stays empty. Hidden threat values are dropped at the read, except the "you hold aggro" boolean, which is handed to the client to colour the bar (see Threat above);
   a hidden level shows `??`. Cast timings that are hidden mean no cast bar.
 - **One refusal, one message.** The client can refuse a read that no check predicted. Each part of
   a plate's update (threat, health, names and levels, cast bar, debuffs, target emphasis) runs

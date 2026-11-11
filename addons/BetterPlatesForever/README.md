@@ -1,7 +1,7 @@
 # BetterPlatesForever
 
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It draws
-cleaner **enemy nameplates** over Blizzard's own: a flat health bar with threat colours, a cast bar
+cleaner **enemy nameplates** over Blizzard's own: a softly shaded health bar with threat colours, a cast bar
 with the time left, your own debuffs and a clear mark on your target. It is a port of the suite's
 `GaarPlates` to the Better...Forever conventions and needs no other addon or library.
 
@@ -12,11 +12,32 @@ exactly what the game, or you, set them to.
 
 - **Enemy plates only, by default.** Every plate you can attack gets the overlay. Friendly plates
   are left to Blizzard unless you turn on `/bpf friendly on` (off by default).
-- **Health bar** (120x12 by default, `/bpf size`), flat, on a dark backdrop with a 1px border.
-  Colour by **reaction** (default: red hostile, yellow neutral, green friendly), **class** (players;
-  the name takes the class colour too), **health** (green to red) or one **solid** colour. Every
-  colour is pulled slightly toward its own luminance so nothing reads as harsh pure red or purple.
-  A mob tagged by someone else is grey. **Execute tint** at 20% health or less (on by default).
+- **Health bar** (120x12 by default, `/bpf size`) on a dark backdrop. Colour by **reaction**
+  (default: red hostile, yellow neutral, green friendly), **class** (players; the name takes the
+  class colour too), **health** (red through yellow to green) or one **solid** colour. A mob
+  tagged by someone else is grey. **Execute tint** (dark wine) at 20% health or less (on by
+  default).
+- **The look** (1.2.7). Every bar - health and cast - has a soft vertical gradient in its own
+  colour: lighter at the top, darker at the bottom, so the bars have some depth instead of a flat
+  hard fill. The health bar has a thin near-black border and a faint shadow fading out 3 px
+  around it; the aggro ring, the raid mark, the cast bar and the debuff icons sit above it and are
+  never covered. The colours are a richer, softer palette: deeper, slightly less saturated tones
+  that suit the gradient. Class colours keep their hue (only the gradient is applied). Up to
+  1.2.6 every colour was pulled toward its own luminance instead; the new palette is already
+  soft, so that step is gone rather than desaturating twice.
+
+  | Colour | 1.2.7 (r, g, b) |
+  |---|---|
+  | Hostile | 0.78, 0.25, 0.22 |
+  | Neutral | 0.85, 0.72, 0.25 |
+  | Friendly NPC | 0.30, 0.68, 0.32 |
+  | Friendly player | 0.30, 0.52, 0.85 |
+  | Tagged by someone else | 0.50, 0.50, 0.54 |
+  | Execute | 0.52, 0.16, 0.24 |
+  | Aggro (purple) | 0.56, 0.34, 0.80 |
+  | High threat (amber) | 0.88, 0.60, 0.25 |
+  | Cast / channel / uninterruptible | 0.92, 0.66, 0.20 / 0.30, 0.70, 0.36 / 0.58, 0.58, 0.62 |
+  | Solid mode | 0.25, 0.55, 0.88 |
 - **Threat on every plate.** Purple bar and a purple ring when you hold aggro (threat status 2 or
   3), amber when your threat is higher than the tank's (status 1), and your threat percent at the
   right end of the bar (on by default). Threat colours win over the colour mode and the execute
@@ -136,6 +157,15 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   `BetterFramesForever`: `UnitHealthPercent` with `CurveConstants.ScaleTo100`,
   `AbbreviateNumbers` and `FontString:SetFormattedText`; without them it stays empty. Hidden threat values are dropped at the read, except the "you hold aggro" boolean, which is handed to the client to colour the bar (see Threat above);
   a hidden level shows `??`. Cast timings that are hidden mean no cast bar.
+- **Gradient without allocations** (1.2.7). Every bar colour goes through one helper,
+  `SetBarColor`, which calls `Texture:SetGradient("VERTICAL", bottom, top)` on the bar's white
+  texture with two `Color` objects cached on the bar (`SetRGBA`, no new tables per update), and
+  skips a colour the bar already has. `SetStatusBarColor` would put one flat vertex colour over
+  the gradient, so it is only the fallback where `SetGradient` or `CreateColor` is missing. When
+  aggro is only known as a secret, the client tints the bar with
+  `SetVertexColorFromBoolean` - one flat colour - so a white-to-black shading texture over the
+  fill (`sheen`) keeps the lighter top and darker bottom while that tint is in use, and the
+  gradient is painted again once it is not.
 - **One refusal, one message.** The client can refuse a read that no check predicted. Each part of
   a plate's update (threat, health, names and levels, cast bar, debuffs, target emphasis) runs
   inside `pcall`. The first refusal switches that part off for the session on every plate, with
@@ -183,4 +213,5 @@ and without the old `nameSubtext`), `C_UnitAuras.GetAuraDataByIndex` (or `UnitAu
 `C_StringUtil.CreateNumericRuleFormatter`, `Enum.NumericRuleFormatRounding`, `Cooldown:SetCountdownFormatter`,
 `C_CVar.GetCVar` (read only),
 `issecretvalue` where it exists, `RAID_CLASS_COLORS`, `AbbreviateLargeNumbers`, `STANDARD_TEXT_FONT`,
-`BackdropTemplate`, `C_AddOns.IsAddOnLoaded` (or `IsAddOnLoaded`).
+`BackdropTemplate`, `C_AddOns.IsAddOnLoaded` (or `IsAddOnLoaded`), `CreateColor`,
+`Texture:SetGradient`.

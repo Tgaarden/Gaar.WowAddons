@@ -24,6 +24,25 @@ party, and switches Blizzard's off. It needs no other addon or library.
 - **Colours.** Class colour for players, reaction colour for NPCs, grey when someone else tagged
   the mob. Under 35% health the bar turns orange, under 20% red (option, on by default). The
   power bar is coloured by power type (mana, rage, energy, focus).
+- **The look** (1.2.8). Every bar - health, power, the druid mana bar and the heal prediction
+  overlays - has a soft vertical gradient in its own colour: lighter at the top, darker at the
+  bottom, so the bars have some depth instead of a flat hard fill (they are now a plain white
+  texture coloured that way; up to 1.2.7 Blizzard's `UI-StatusBar` texture with one flat colour).
+  The health bar has a thin near-black border and a faint shadow fading out 2 px beyond it,
+  drawn under the bars, so the power bar and portrait are not covered. The colours are a richer,
+  softer palette of deeper, slightly less saturated tones; class colours keep their hue (only the
+  gradient is applied), and NPC reaction colours are now the addon's own rather than Blizzard's
+  `FACTION_BAR_COLORS`.
+
+  | Colour | 1.2.8 (r, g, b) |
+  |---|---|
+  | Hostile / neutral / friendly | 0.78, 0.25, 0.22 / 0.85, 0.72, 0.25 / 0.30, 0.68, 0.32 |
+  | Tagged by someone else, offline / dead | 0.52, 0.52, 0.55 / 0.40, 0.40, 0.42 |
+  | Low health (< 35%) / critical (< 20%) | 0.92, 0.55, 0.18 / 0.90, 0.16, 0.14 |
+  | Mana / rage / energy | 0.24, 0.44, 0.88 / 0.80, 0.22, 0.20 / 0.92, 0.78, 0.22 |
+  | Focus / runic power | 0.90, 0.52, 0.26 / 0.18, 0.72, 0.90 |
+  | Your heals / all heals / HoTs (alpha) | 0.18, 0.78, 0.30 (0.85) / 0.55, 0.88, 0.48 (0.55) / 0.95, 0.80, 0.30 (0.55) |
+  | Heal absorb (alpha) | 0.45, 0.08, 0.08 (0.75) |
 - **Target.** Combo points above the frame for rogues and druids. A row of buffs and a row of
   debuffs under it, up to 16 each, with stacks and a cooldown swipe; your own debuffs are larger
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
@@ -273,6 +292,13 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   It is anchored to the green bar's fill edge, and the absorb bar now to its edge. Where health,
   maximum and incoming heals are plain the sum is cut to the missing health after the incoming
   heals; otherwise the clipping health bar cuts it. `UNIT_AURA` refreshes it as well.
+- **Gradient without allocations** (1.2.8). Every bar colour goes through `Look.SetBarColor`,
+  which calls `Texture:SetGradient("VERTICAL", bottom, top)` on the bar's texture with two `Color`
+  objects cached on the bar (`SetRGBA`, no new tables per update) and skips a colour the bar
+  already has. `SetStatusBarColor` would put one flat vertex colour over the gradient, so it is
+  only the fallback where `SetGradient` or `CreateColor` is missing. Bar textures are set once,
+  when a bar is built. The border and shadow are 1 px texture lines on a frame one level under
+  the bars (the bars were raised one level for it).
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
@@ -301,12 +327,12 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `CooldownFrameTemplate`; the frames `PlayerFrame`, `TargetFrame`, `ComboFrame`, `TargetFrameToT`,
 `FocusFrame`, `FocusFrameToT`, `TargetofFocusFrame`, `PetFrame`, `PartyFrame` (and
 `PartyFrame.MemberFrame1-4`, `PartyMemberFramePool`) or `PartyMemberFrame1-4`; the tables
-`RAID_CLASS_COLORS`, `CLASS_ICON_TCOORDS`, `FACTION_BAR_COLORS`, `PowerBarColor`,
+`RAID_CLASS_COLORS`, `CLASS_ICON_TCOORDS`, `PowerBarColor`,
 `DebuffTypeColor` and `CurveConstants`; `GameTooltip_SetDefaultAnchor`; `EventRegistry`
 (`EditMode.Enter`, `EditMode.Exit`) and `EditModeManagerFrame:IsEditModeActive()`; the
 `AuraContainer` frame type with `CustomAuraContainerTemplate` (`SetUnit`, `AddAuraGroup`,
 `SetFlowLayoutMaximumLineSize`, `GetAuraGroupFrame`, `SetEnabled`; buttons: `SetIcon`, `SetDurationCooldown`,
-`SetDurationText` with `textFormatter` / `textColor`, `SetApplicationCount`); `GameFontNormalSmall`, `CreateColor`.
+`SetDurationText` with `textFormatter` / `textColor`, `SetApplicationCount`); `GameFontNormalSmall`, `CreateColor`, `Texture:SetGradient`.
 
 Unit API (every one of these is a string in Forever's client binary, build 70790; the FrameXML names above cannot be read off disk and are feature-detected): `UnitHealth`,
 `UnitHealthMax`, `UnitPower`, `UnitPowerMax`, `UnitPowerType`, `UnitHasPowerType`, `UnitHealthPercent`,
@@ -334,8 +360,7 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 `PLAYER_TARGET_CHANGED`, `PLAYER_FOCUS_CHANGED`, `PLAYER_REGEN_DISABLED`,
 `PLAYER_REGEN_ENABLED`, `PLAYER_UPDATE_RESTING`, `PLAYER_ENTERING_WORLD`,
 `EDIT_MODE_LAYOUTS_UPDATED`, `DISPLAY_SIZE_CHANGED`, `UI_SCALE_CHANGED`, `UNIT_HEAL_PREDICTION`,
-`UNIT_ABSORB_AMOUNT_CHANGED`, `UNIT_HEAL_ABSORB_AMOUNT_CHANGED`, `UPDATE_SHAPESHIFT_FORM`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-StatusBar`,
-`UI-Classes-Circles`, `UI-RaidTargetingIcons`, `Interface\GroupFrame\UI-Group-LeaderIcon`,
+`UNIT_ABSORB_AMOUNT_CHANGED`, `UNIT_HEAL_ABSORB_AMOUNT_CHANGED`, `UPDATE_SHAPESHIFT_FORM`; `UNIT_HEALTH_FREQUENT` and `UNIT_COMBO_POINTS` are registered too, but are not in Forever's binary, so there they are simply skipped (combo points come from `UNIT_POWER_UPDATE` with `COMBO_POINTS`). Textures: `Interface\TargetingFrame\UI-Classes-Circles`, `UI-RaidTargetingIcons`, `Interface\GroupFrame\UI-Group-LeaderIcon`,
 `Interface\CharacterFrame\UI-StateIcon`, `Interface\Buttons\WHITE8x8`, `Interface\RaidFrame\Shield-Overlay`.
 
 ## Layout

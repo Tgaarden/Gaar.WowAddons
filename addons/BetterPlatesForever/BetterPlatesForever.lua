@@ -5,10 +5,10 @@
   minimap button, a slash command and a small API for BetterGaarForever's hub. It draws its own
   overlay on top of each enemy nameplate and hides Blizzard's art underneath:
 
-    * Flat health bar (120x12 by default) on a dark backdrop with a 1px border. Colour by
-      reaction (default), class, health or one solid colour, pulled slightly toward its own
-      luminance so nothing reads as harsh pure red. Mobs tagged by someone else are grey.
-      Execute tint at 20% health or less (option).
+    * Health bar (120x12 by default) on a dark backdrop with a thin near-black border and a faint
+      shadow round it. Colour by reaction (default), class, health or one solid colour, from a
+      soft palette, drawn as a vertical gradient (lighter top, darker bottom; 1.2.7). Mobs tagged
+      by someone else are grey. Execute tint at 20% health or less (option).
     * Threat on every plate: purple when you hold aggro (with a purple ring), amber when your
       threat is higher than the tank's (status 1), threat percent on the bar (option). Aggro is
       read from the first source that answers plainly (1.2.5): UnitDetailedThreatSituation,
@@ -69,13 +69,14 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.6"
+local VERSION = "1.2.7"
 
 local MARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local MARK_SZ, MARK_GAP = 20, 3
 
-local BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
+-- Bars are plain white and get their colour as a vertical gradient (SetBarColor, 1.2.7).
 local WHITE = "Interface\\Buttons\\WHITE8x8"
+local BAR_TEX = WHITE
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local AURA_N, AURA_SZ = 8, 20     -- debuff icons per plate, and their size
@@ -93,7 +94,20 @@ local AURA_TICK = 0.25            -- seconds between debuff scans of one plate
 local MAX_SPELLS = 24             -- spell IDs remembered for the by-spell-ID debuff lookup
 local MIN_W, MAX_W = 60, 250      -- health bar width bounds for /bpf size
 local MIN_H, MAX_H = 6, 30        -- health bar height bounds
-local SOLID = { 0.2, 0.6, 1.0 }   -- colour mode "solid"
+-- The palette (1.2.7): deeper, slightly less saturated tones made for the bar gradient. Class
+-- colours are used as the client gives them. Aggro purple stays well apart from hostile red.
+local HOSTILE = { 0.78, 0.25, 0.22 }
+local NEUTRAL = { 0.85, 0.72, 0.25 }
+local FRIENDLY = { 0.30, 0.68, 0.32 }
+local FRIENDLY_PLAYER = { 0.30, 0.52, 0.85 }
+local TAPPED = { 0.50, 0.50, 0.54 }          -- tagged by someone else
+local EXECUTE = { 0.52, 0.16, 0.24 }         -- dark wine at execute range
+local AGGRO = { 0.56, 0.34, 0.80 }           -- you hold aggro
+local HIGH_THREAT = { 0.88, 0.60, 0.25 }     -- amber: your threat is above the tank's
+local CAST = { 0.92, 0.66, 0.20 }
+local CHANNEL = { 0.30, 0.70, 0.36 }
+local UNINTERRUPTIBLE = { 0.58, 0.58, 0.62 }
+local SOLID = { 0.25, 0.55, 0.88 }   -- colour mode "solid"
 local TIME_SIZE = 11              -- debuff time text, centred on the icon
 
 local COLOR_MODES = { "reaction", "class", "health", "solid" }
@@ -276,6 +290,66 @@ local function SetSolid(tex, r, g, b, a)
     if tex.SetColorTexture then tex:SetColorTexture(r, g, b, a) else tex:SetTexture(r, g, b, a) end
 end
 
+-- ---------------------------------------------------------------------------
+-- Bar look (1.2.7): every bar colour goes through SetBarColor, which paints the bar's white
+-- texture with a soft vertical gradient in that colour - lifted toward white at the top, darker
+-- at the bottom - with Texture:SetGradient and two Color objects cached on the bar, so a plate
+-- update allocates nothing. SetStatusBarColor would set one flat vertex colour over the gradient,
+-- so it is used only where SetGradient or CreateColor is missing. The last colour is cached on
+-- the bar; anything else that paints the texture (the secret aggro tint) clears that cache.
+-- ---------------------------------------------------------------------------
+
+local GRAD_LIFT, GRAD_SHADE = 0.18, 0.22
+local gradientOK = true
+
+local function SetBarColor(bar, r, g, b, a)
+    a = a or 1
+    if bar.barR == r and bar.barG == g and bar.barB == b and bar.barA == a then return end
+    bar.barR, bar.barG, bar.barB, bar.barA = r, g, b, a
+    local tex = gradientOK and type(_G.CreateColor) == "function" and bar:GetStatusBarTexture()
+    if tex and type(tex.SetGradient) == "function" then
+        local top, bottom = bar.gradTop, bar.gradBottom
+        if not top then
+            top, bottom = _G.CreateColor(r, g, b, a), _G.CreateColor(r, g, b, a)
+            bar.gradTop, bar.gradBottom = top, bottom
+        end
+        top:SetRGBA(r + (1 - r) * GRAD_LIFT, g + (1 - g) * GRAD_LIFT, b + (1 - b) * GRAD_LIFT, a)
+        bottom:SetRGBA(r * (1 - GRAD_SHADE), g * (1 - GRAD_SHADE), b * (1 - GRAD_SHADE), a)
+        if pcall(tex.SetGradient, tex, "VERTICAL", bottom, top) then return end
+        gradientOK = false
+    end
+    bar:SetStatusBarColor(r, g, b, a)
+end
+
+local function SetBarRGB(bar, c) SetBarColor(bar, c[1], c[2], c[3]) end
+
+-- A 1px line of a ring k px outside box: four textures, the top and bottom ones spanning the
+-- corners.
+local function RingLines(f, box, k, a)
+    local t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPLEFT", box, "TOPLEFT", -k, k); t:SetPoint("TOPRIGHT", box, "TOPRIGHT", k, k)
+    t:SetHeight(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", -k, -k); t:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", k, -k)
+    t:SetHeight(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPLEFT", box, "TOPLEFT", -k, k - 1); t:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", -k, 1 - k)
+    t:SetWidth(1); SetSolid(t, 0, 0, 0, a)
+    t = f:CreateTexture(nil, "BACKGROUND")
+    t:SetPoint("TOPRIGHT", box, "TOPRIGHT", k, k - 1); t:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", k, 1 - k)
+    t:SetWidth(1); SetSolid(t, 0, 0, 0, a)
+end
+
+-- A faint shadow fading out over 3 px round the bar's 1px border (box = the border's frame).
+local SHADOW = { 0.28, 0.14, 0.06 }
+local function Shadow(box, level)
+    local f = CreateFrame("Frame", nil, box)
+    f:SetFrameLevel(level)
+    f:SetAllPoints(box)
+    for k, a in ipairs(SHADOW) do RingLines(f, box, k, a) end
+    return f
+end
+
 -- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
 local function AddOnLoaded(name)
     local c = _G.C_AddOns
@@ -347,7 +421,24 @@ local function BuildOverlay(plate)
     o.health = h
     local bg = h:CreateTexture(nil, "BACKGROUND"); SetSolid(bg, 0, 0, 0, 0.85)
     bg:SetPoint("TOPLEFT", -1, 1); bg:SetPoint("BOTTOMRIGHT", 1, -1)
-    BorderFrame(h, h:GetFrameLevel())
+    -- 1px near-black border and a soft shadow outside it (1.2.7). Both sit under the aggro
+    -- ring, the raid mark and the cast bar, which have higher frame levels.
+    local border = BorderFrame(h, h:GetFrameLevel())
+    border:SetBackdropBorderColor(0.02, 0.02, 0.03, 0.8)
+    Shadow(border, math.max(0, h:GetFrameLevel() - 1))   -- under everything on the bar
+    -- Shading over the fill while the client tints the bar from a secret aggro flag: that tint
+    -- is one flat vertex colour, so this keeps the lighter top and darker bottom (SecretTint).
+    local sheen = h:CreateTexture(nil, "ARTWORK", nil, 7)
+    sheen:SetAllPoints(h:GetStatusBarTexture())
+    SetSolid(sheen, 1, 1, 1, 1)
+    if type(sheen.SetGradient) == "function" and type(_G.CreateColor) == "function" then
+        pcall(sheen.SetGradient, sheen, "VERTICAL", _G.CreateColor(0, 0, 0, GRAD_SHADE),
+            _G.CreateColor(1, 1, 1, GRAD_LIFT))
+    else
+        sheen:SetAlpha(0)
+    end
+    sheen:Hide()
+    o.sheen = sheen
 
     -- The ring: purple for aggro, a faint grey for your target.
     local ring = CreateFrame("Frame", nil, h, "BackdropTemplate")
@@ -540,14 +631,22 @@ local function UpdateThreat(o, unit)
 end
 
 local function ReactionColor(unit)
+    local c
     if Plain(UnitIsPlayer(unit)) then
-        if Plain(UnitIsFriend("player", unit)) then return 0.25, 0.5, 0.9 end
-        return 0.85, 0.2, 0.2
+        c = Plain(UnitIsFriend("player", unit)) and FRIENDLY_PLAYER or HOSTILE
+    else
+        local r = Num(UnitReaction(unit, "player")) or 4
+        c = (r <= 3 and HOSTILE) or (r == 4 and NEUTRAL) or FRIENDLY
     end
-    local r = Num(UnitReaction(unit, "player")) or 4
-    if r <= 3 then return 0.8, 0.2, 0.2
-    elseif r == 4 then return 0.9, 0.8, 0.2 end
-    return 0.2, 0.7, 0.25
+    return c[1], c[2], c[3]
+end
+
+-- Colour mode "health": hostile red at 0, through neutral yellow at half, to friendly green.
+local function HealthColor(pct)
+    local a, b, t
+    if pct < 0.5 then a, b, t = HOSTILE, NEUTRAL, pct * 2 else a, b, t = NEUTRAL, FRIENDLY, (pct - 0.5) * 2 end
+    if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    return a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t
 end
 
 local function ClassColor(unit)
@@ -561,25 +660,21 @@ end
 -- pct is nil when the health is secret: then there is no colour by health.
 local function BaseColor(unit, pct)
     -- A mob someone else tagged is grey before anything else is considered.
-    if _G.UnitIsTapDenied and Plain(UnitIsTapDenied(unit)) then return 0.45, 0.45, 0.48 end
+    if _G.UnitIsTapDenied and Plain(UnitIsTapDenied(unit)) then return TAPPED[1], TAPPED[2], TAPPED[3] end
     local mode = db.colorMode
     if mode == "solid" then return SOLID[1], SOLID[2], SOLID[3] end
     if mode == "class" then
         local r, g, b = ClassColor(unit)
         if r then return r, g, b end
     end
-    if mode == "health" and pct then return (1 - pct), pct, 0 end
+    if mode == "health" and pct then return HealthColor(pct) end
     return ReactionColor(unit)
 end
 
--- Pull a colour toward its own luminance so nothing reads as harsh pure red or purple.
-local function Soften(r, g, b)
-    local lum = 0.3 * r + 0.59 * g + 0.11 * b
-    local m = 0.28
-    return r + (lum - r) * m, g + (lum - g) * m, b + (lum - b) * m
-end
-
-local AGGRO_R, AGGRO_G, AGGRO_B = 0.55, 0.38, 0.68
+-- Up to 1.2.6 every bar colour was pulled 28% toward its own luminance here (Soften) so nothing
+-- read as harsh pure red. The 1.2.7 palette above is already that soft, and class colours are
+-- meant to stay as they are, so the step is gone rather than desaturating twice.
+local AGGRO_R, AGGRO_G, AGGRO_B = AGGRO[1], AGGRO[2], AGGRO[3]
 
 -- The bar coloured by the client from a secret "you hold aggro" boolean: purple when true, the
 -- plate's own colour when false. Texture:SetVertexColorFromBoolean (12.x) takes the secret as it
@@ -593,7 +688,7 @@ local function SecretTint(o, flag, r, g, b)
     if not tex or type(tex.SetVertexColorFromBoolean) ~= "function" or type(_G.CreateColor) ~= "function" then
         return false
     end
-    if not aggroColor then aggroColor = _G.CreateColor(Soften(AGGRO_R, AGGRO_G, AGGRO_B)) end
+    if not aggroColor then aggroColor = _G.CreateColor(AGGRO_R, AGGRO_G, AGGRO_B, 1) end
     local c = o._tintColor
     if c and type(c.SetRGBA) == "function" then c:SetRGBA(r, g, b, 1)
     else c = _G.CreateColor(r, g, b, 1); o._tintColor = c end
@@ -625,16 +720,20 @@ local function UpdateHealth(o, unit, tanking, high, flag, hasFlag)
     end
 
     local r, g, b = BaseColor(unit, pct)
-    if pct and db.execute and pct * 100 <= EXECUTE_PCT then r, g, b = 0.5, 0.22, 0.22 end
+    if pct and db.execute and pct * 100 <= EXECUTE_PCT then r, g, b = EXECUTE[1], EXECUTE[2], EXECUTE[3] end
     if tanking then r, g, b = AGGRO_R, AGGRO_G, AGGRO_B -- you hold aggro
-    elseif high then r, g, b = 0.8, 0.6, 0.35 end      -- high threat
-    r, g, b = Soften(r, g, b)
-    o.health:SetStatusBarColor(r, g, b)
-    -- No plain answer on aggro: the client picks purple or this colour from its secret flag.
+    elseif high then r, g, b = HIGH_THREAT[1], HIGH_THREAT[2], HIGH_THREAT[3] end
+    -- No plain answer on aggro: the client picks purple or this colour from its secret flag. That
+    -- tint is one flat colour, so the sheen gives it the gradient's shading, and the gradient's
+    -- colour cache is cleared so it is painted again once the tint is no longer used.
     local tinted = hasFlag and not tanking and SecretTint(o, flag, r, g, b)
-    if not tinted and o._secretTint then
-        -- Back from the secret tint: set the texture itself too, in case the bar keeps its colour.
-        o._secretTint:SetVertexColor(r, g, b); o._secretTint = nil
+    if tinted then
+        o.health.barR = nil
+        o.sheen:Show()
+    else
+        o.sheen:Hide()
+        o._secretTint = nil
+        SetBarColor(o.health, r, g, b)
     end
     if pct and cur <= 0 then o.ttext:SetText("") end
 end
@@ -758,10 +857,10 @@ local function UpdateCast(o, unit)
     SetTextSafe(c.text, name)
     c.time:SetText(string.format("%.1f", (endMs - now) / 1000))
     if notInt then
-        c:SetStatusBarColor(0.6, 0.6, 0.6)
+        SetBarRGB(c, UNINTERRUPTIBLE)
         c.iconBorder:SetBackdropBorderColor(0.85, 0.87, 0.95, 1)
     else
-        if channel then c:SetStatusBarColor(0.2, 0.75, 0.3) else c:SetStatusBarColor(1.0, 0.7, 0.0) end
+        SetBarRGB(c, channel and CHANNEL or CAST)
         c.iconBorder:SetBackdropBorderColor(0, 0, 0, 1)
     end
     if not c:IsShown() then c:Show() end

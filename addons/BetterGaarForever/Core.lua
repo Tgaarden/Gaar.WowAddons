@@ -37,7 +37,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterGaarForever"
 
 local TITLE = "BetterGaarForever"
-local VERSION = "2.4"
+local VERSION = "2.5"
 local PREFIX = "|cff33ff99BetterGaarForever|r: "
 local EN_DASH = "\226\128\147"
 

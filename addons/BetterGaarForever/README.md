@@ -113,11 +113,11 @@ minimap = { hide = false, angle = 285 }
 
 Anything else is dropped on load, including 1.0's `bags`, `quests`, `modules` and `migrated`.
 
-## Next release
+## 2.5
 
 Adds the **Windows** submenu for BetterWindowsForever 1.0 (through `BetterWindowsForeverAPI`, the
 same code path as the others), lists it under `## OptionalDeps`, in `/bgf` help and in
-`/bgf status`. Nothing else changed. The version number is not bumped yet.
+`/bgf status`. Nothing else changed.
 
 ## 2.4
 

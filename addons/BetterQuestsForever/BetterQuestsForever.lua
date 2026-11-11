@@ -1741,6 +1741,60 @@ local function ShowMinimapMenu(owner)
     return "custom"
 end
 
+-- ---------------------------------------------------------------------------
+-- Right-click on the tracker headers
+--
+-- Right-clicking the objective tracker's "All Objectives" header (ObjectiveTrackerFrame.Header) or
+-- the "Quests" header (QuestObjectiveTracker.Header) opens the same options as the minimap menu.
+-- Blizzard's headers are plain Frames that do not take mouse input (only their MinimizeButton
+-- does, and that keeps its left-click collapse), so a Blizzard script cannot be hooked and none is
+-- replaced. Instead this addon parents its own transparent, mouse-enabled frame to each header,
+-- stopping short of the MinimizeButton. Nothing on a Blizzard frame is written; the overlay is
+-- not protected and the menu changes only this addon's settings, so it works in combat too.
+-- ---------------------------------------------------------------------------
+
+local headerOverlays = {} -- header frame -> our overlay
+
+local function ShowHeaderMenu(owner)
+    if not db then return end
+    local entries = OptionEntries()
+    local MU = _G.MenuUtil
+    if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
+        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+            if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
+            RenderMenu(root, entries)
+        end)
+        if ok then return end
+    end
+    ShowCustomMenu(owner, entries)
+end
+
+local function HookHeader(header)
+    if type(header) ~= "table" or type(header.CreateTexture) ~= "function" or headerOverlays[header] then return end
+    local ok, o = pcall(CreateFrame, "Frame", nil, header)
+    if not ok or type(o) ~= "table" then return end
+    o:SetAllPoints(header)
+    local mb = header.MinimizeButton
+    if type(mb) == "table" and type(mb.GetLeft) == "function" then
+        o:ClearAllPoints()
+        o:SetPoint("TOPLEFT", header, "TOPLEFT", 0, 0)
+        o:SetPoint("BOTTOMRIGHT", mb, "BOTTOMLEFT", 0, 0)
+    end
+    o:EnableMouse(true)
+    o:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" then ShowHeaderMenu(self) end
+    end)
+    headerOverlays[header] = o
+end
+
+-- Idempotent; called again when the tracker loads late or a header did not exist yet.
+local function HookTrackerHeaders()
+    local otf = _G.ObjectiveTrackerFrame
+    if type(otf) == "table" then HookHeader(otf.Header) end
+    local q = _G.QuestObjectiveTracker
+    if type(q) == "table" then HookHeader(q.Header) end
+end
+
 local function StateLine()
     if not db then return "not loaded yet" end
     return (db.enabled and "On" or "Off") .. " \194\183 " .. SortMode() .. " \194\183 max " .. MaxLabel(db.max)
@@ -2159,6 +2213,7 @@ local function PrintHelp()
         .. (db and (BackdropDB().enabled and (AlphaPercent() .. "%") or "off") or "?") .. ")")
     Print("/bqf combat on | off - hide the whole objective tracker during combat (now: "
         .. ((db and db.hideInCombat or not db and DEFAULTS.hideInCombat) and "on" or "off") .. ")")
+    Print("Right-click the tracker's \"All Objectives\" or \"Quests\" header for the same settings menu.")
     Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
     Print("/bqf status - settings, counts and what this client offers")
     Print("/bqf distance - check whether this client knows how far away each tracked quest is")
@@ -2315,7 +2370,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.7.1"
+local VERSION = "1.8"
 
 local function ApiEntries()
     if not db then return {} end
@@ -2370,12 +2425,14 @@ events:SetScript("OnEvent", function(_, event, arg1)
             UpdateDistanceTicker()
             pcall(ApplyMinimap)
             pcall(HookBackdropTargets)
+            pcall(HookTrackerHeaders)
             pcall(RegisterGpsMenu)
             pcall(Grow.HookEditMode)
             MarkBackdrop()
             Schedule()
-        elseif db and not hooked and arg1 == "Blizzard_ObjectiveTracker" then
-            Schedule()
+        elseif db and arg1 == "Blizzard_ObjectiveTracker" then
+            pcall(HookTrackerHeaders)
+            if not hooked then Schedule() end
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Fires before the lockdown starts: hand the section back to Blizzard for the fight, then
@@ -2391,6 +2448,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- Placed again in case another addon changed the minimap's shape since ADDON_LOADED.
         if db then pcall(ApplyMinimap) end
         if db then pcall(RegisterGpsMenu) end
+        if db then pcall(HookTrackerHeaders) end
         pcall(Grow.HookEditMode)
         Schedule()
     else

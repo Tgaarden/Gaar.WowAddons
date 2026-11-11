@@ -107,6 +107,14 @@ orders and limits the tracked quests, and does nothing else. It needs no other a
 | `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
 | `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), the tracker container's height against Blizzard's own and the Edit Mode Height with the extra the addon adds (`height:`), `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
+## Right-click the tracker headers (1.8)
+
+Right-click the objective tracker's **All Objectives** header or its **Quests** header to open
+the same menu as the minimap button's options (without Hide minimap button). Left-click is
+untouched: the collapse buttons work as Blizzard made them. Blizzard's headers do not take mouse
+input, so the addon lays its own transparent frame over each header (stopping short of the
+collapse button) and hooks nothing on Blizzard's frames. It also works in combat.
+
 ## Minimap button
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Max quests

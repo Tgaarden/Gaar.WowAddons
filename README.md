@@ -22,7 +22,7 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
-| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), and hovering the bag gold shows every character's gold | `/bbf` |
+| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), hovering the bag gold shows every character's gold, and Alt-click locks an item so a merchant cannot buy it (padlock overlay) | `/bbf` |
 | `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); auto-watch (default on) watches the lowest quests that fit the tracker's Edit Mode height and un-watches the rest; an optional dungeon filter (1.10) watches only the current dungeon's or raid's quests while inside; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
 | `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
 | `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
@@ -62,9 +62,12 @@ the first, and so on. The sort-direction setting is never read or changed. Since
 keeps a compact record per character (bags, bank, equipped, mail and gold, by item id, per realm)
 and adds a line per character on the realm to every item tooltip, plus a gold-per-character
 tooltip on the bag window's money; the bank and mail are read only while they are open.
+Since 1.9, Alt + left-click an item in the bags to lock it (per item, per character): it gets a
+padlock and a merchant cannot buy it (right-click, drag-and-drop and Sell Junk are blocked, and a
+sale that slips through is bought back once).
 `/bbf` for help, `/bbf reset`, `/bbf lock`, `/bbf unlock`, `/bbf native hide|show`,
-`/bbf reverse [on|off]`, `/bbf counts on|off`, `/bbf gold`, `/bbf forget <name>`, `/bbf stop` and
-`/bbf status`. It ships only a `_Camelot` TOC and a
+`/bbf reverse [on|off]`, `/bbf autosort [on|off]`, `/bbf counts on|off`, `/bbf gold`,
+`/bbf forget <name>`, `/bbf locked`, `/bbf unlockall yes`, `/bbf stop` and `/bbf status`. It ships only a `_Camelot` TOC and a
 plain fallback TOC, both at 16001. Details in
 [`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
 

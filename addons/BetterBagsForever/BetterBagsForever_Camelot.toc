@@ -1,12 +1,13 @@
 ## Interface: 16001
 ## Title: BetterBagsForever
-## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm. /bbf
+## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm, and Alt-click item locks that a merchant cannot sell. /bbf
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.8
+## Version: 1.9
 ## X-Curse-Project-ID: 1766812
 ## IconTexture: Interface\Icons\INV_Misc_Bag_08
 ## SavedVariables: BetterBagsForeverDB
+## SavedVariablesPerCharacter: BetterBagsForeverCharDB
 
 BetterBagsForever.lua

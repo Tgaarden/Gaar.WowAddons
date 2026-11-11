@@ -21,7 +21,13 @@
     * Auto clean-up (since 1.8, on by default): opening the bag window runs the same clean-up as
       the button. Player bags only; skipped in combat, while a clean-up runs, or with a locked
       item or an item on the cursor. /bbf autosort on|off.
-    * /bbf for help, reset, lock, unlock, native, reverse, counts, gold, forget, stop and status.
+    * Do-not-sell item lock (since 1.9): Alt + left-click an item in the bags locks or unlocks it
+      (per item ID, per character, in BetterBagsForeverCharDB.lockedItems). A locked item shows a
+      padlock in the bottom-left corner of its slot, and a merchant cannot get it: right-click,
+      drag-and-drop and Blizzard's Sell Junk are blocked, and a sale that slips through anyway is
+      bought back once. /bbf locked, /bbf unlockall yes.
+    * /bbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
+      unlockall, stop and status.
     * BetterBagsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -32,7 +38,9 @@
   of them is checked before use; when something is missing the matching feature simply does not
   switch on.
 
-  Taint: Blizzard code is only ever followed, never replaced. Hooks go through hooksecurefunc
+  Taint: Blizzard code is only ever followed, never replaced. The item lock blocks a sale with
+  separate guard frames of its own laid over the item button or the merchant window, never by
+  replacing or wrapping a Blizzard click handler; see the item lock section. Hooks go through hooksecurefunc
   and HookScript, no Blizzard button is clicked, and nothing protected is touched; the reversal
   moves items only with C_Container.PickupContainerItem, outside combat. If the
   bag frame ever turns out to be protected, a move that lands in combat waits for
@@ -1668,6 +1676,710 @@ local function InventoryStatus()
 end
 
 -- ---------------------------------------------------------------------------
+-- Do-not-sell item lock (since 1.9)
+--
+-- Alt + left-click an item in any bag window BBF covers (the Combined Backpack, the separate
+-- bags ContainerFrame1-13, which include the bank bags, and the bank's own slots: BankPanel on
+-- Forever, BankFrameItemN on an older client) toggles a lock on that item ID, so every copy of
+-- it is locked. Locks are kept per character in BetterBagsForeverCharDB.lockedItems[itemID]
+-- (the value is the item link last seen, or true). A locked item shows a small padlock in the
+-- bottom-left corner of its slot (the stack count sits bottom-right) and is kept from a merchant:
+--
+--   right-click  while a merchant is open, each locked slot gets an invisible guard button of
+--                our own on top of Blizzard's item button. The guard takes the right-click, so
+--                Blizzard's OnClick (C_Container.UseContainerItem, which sells at a merchant)
+--                never runs for it, and prints "<link> is locked - Alt-click to unlock". Left
+--                clicks and drags pass through to Blizzard's button (SetPassThroughButtons), so
+--                the item can still be moved; mouse motion propagates too, so its tooltip still
+--                shows. On a client that cannot pass the left button through, the guard takes
+--                it as well: Alt-click still unlocks, a plain left-click just prints the message.
+--   drag/drop    while a merchant is open and the cursor holds a locked item (polled every
+--                0.05 s, plus CURSOR_CHANGED), a guard of our own covers MerchantFrame. Dropping
+--                or clicking on it prints the same message and calls ClearCursor(), which puts
+--                the item back in its slot. Blizzard's merchant code never sees the drop.
+--   Sell Junk    the same kind of guard covers Blizzard's MerchantSellAllJunkButton while a
+--                locked grey item sits in a bag that a junk sale would empty.
+--   safety net   if a locked item is sold anyway (another addon, a path not covered here), and
+--                within 3 s both its bag count drops and a new buyback entry of that item and
+--                that stack size shows up, it is bought back once with BuybackItem.
+--
+-- Taint: no Blizzard function or script is replaced and no Blizzard button is clicked. The
+-- guards are separate frames of our own that sit on top and take the mouse, so for a blocked
+-- click Blizzard's handlers simply do not run; nothing of ours ever runs inside Blizzard's click
+-- path. Alt-click is seen through HookScript (PreClick and OnClick), which only adds a handler
+-- after Blizzard's. The padlock is a texture added to the item button; everything else lives in
+-- weak tables of our own, so no field is written into a Blizzard frame. A guard is never shown
+-- or hidden while it is protected in combat.
+-- ---------------------------------------------------------------------------
+
+local charDB                    -- BetterBagsForeverCharDB, bound at ADDON_LOADED
+-- The entry points the slash command, the hooks and the event handler need; everything else of
+-- the item lock is scoped to the function below, since the main chunk is close to Lua's limit
+-- of 200 locals and a do-block would still count against it.
+local Lock = {}
+
+local function BuildItemLock()
+    local merchantOpen = false
+    local lockOverlay = setmetatable({}, { __mode = "k" })    -- item button -> padlock texture
+    local lockGuard = setmetatable({}, { __mode = "k" })      -- item button -> our guard button
+    local lockHooked = setmetatable({}, { __mode = "k" })     -- item buttons whose clicks we follow
+    local lockFrameHooked = setmetatable({}, { __mode = "k" })
+    local legacyBankButtons = setmetatable({}, { __mode = "k" })
+    local lockRefreshPending = false
+    local lockVisuals = false       -- a padlock or guard exists, so refreshes are needed even with no locks
+    local padlockSource             -- which texture the padlock ended up with, for /bbf status
+    local guardPassThrough          -- nil until a guard exists; then whether left clicks pass through
+    local clickCursorBefore         -- what the cursor held right before an item button click
+    local merchantGuard, junkGuard, cursorWatcher
+
+    local PADLOCK_SIZE = 13
+    local PADLOCK_ATLASES = { "Padlock", "AdventureMapIcon-Lock" }
+    local PADLOCK_FILES = { "Interface\\PetBattles\\PetBattle-LockIcon", "Interface\\Buttons\\LockButton-Locked-Up" }
+    local CURSOR_POLL = 0.05        -- seconds between cursor checks while a merchant is open
+    local SOLD_CHECK_DELAY = 0.4    -- bag and buyback events are coalesced over this long
+    local SOLD_WINDOW = 3           -- seconds a bag drop and a new buyback entry may lie apart
+
+    local function LockedItems()
+        return charDB and charDB.lockedItems
+    end
+
+    local function IsItemLocked(id)
+        local items = LockedItems()
+        return items ~= nil and id ~= nil and items[id] ~= nil
+    end
+
+    local function LockCount()
+        local n = 0
+        for _ in pairs(LockedItems() or {}) do n = n + 1 end
+        return n
+    end
+
+    local function AltClickOnly()
+        local alt = type(_G.IsAltKeyDown) == "function" and _G.IsAltKeyDown()
+        local shift = type(_G.IsShiftKeyDown) == "function" and _G.IsShiftKeyDown()
+        local ctrl = type(_G.IsControlKeyDown) == "function" and _G.IsControlKeyDown()
+        return alt and not shift and not ctrl
+    end
+
+    -- The item link to show for an item id: the one given, the one saved with the lock, the
+    -- client's, or a plain stand-in when the item is not cached yet.
+    local function ItemLabel(id, link)
+        if link then return link end
+        local stored = LockedItems() and LockedItems()[id]
+        if type(stored) == "string" then return stored end
+        local ci = _G.C_Item
+        local getInfo = (type(ci) == "table" and type(ci.GetItemInfo) == "function" and ci.GetItemInfo)
+            or (type(_G.GetItemInfo) == "function" and _G.GetItemInfo)
+        if getInfo then
+            local ok, _, l = pcall(getInfo, id)
+            l = ok and PlainString(l) or nil
+            if l then return l end
+        end
+        return "item " .. tostring(id)
+    end
+
+    -- One slot: itemID, link, quality and whether it has no sell value; nil for an empty slot.
+    local function SlotDetails(bag, slot)
+        if bag == nil or slot == nil then return nil end
+        local c = ContainerAPI()
+        if c and type(c.GetContainerItemInfo) == "function" then
+            local ok, info = pcall(c.GetContainerItemInfo, bag, slot)
+            if not ok or type(info) ~= "table" then return nil end
+            local link = PlainString(info.hyperlink)
+            local id = PlainNumber(info.itemID) or (link and tonumber(link:match("item:(%d+)")))
+            if not id then return nil end
+            return id, link, PlainNumber(info.quality), Plain(info.hasNoValue) == true
+        elseif type(_G.GetContainerItemInfo) == "function" then
+            local ok, tex, _, _, quality, _, _, link, _, noValue, id = pcall(_G.GetContainerItemInfo, bag, slot)
+            if not ok or not Plain(tex) then return nil end
+            link = PlainString(link)
+            id = PlainNumber(id) or (link and tonumber(link:match("item:(%d+)")))
+            if not id then return nil end
+            return id, link, PlainNumber(quality), Plain(noValue) == true
+        end
+        return nil
+    end
+
+    -- Bag and slot of an item button: a bank tab button of Forever's BankPanel, a classic bank slot,
+    -- or an ordinary container button.
+    local function LockButtonSlot(button)
+        if type(button.GetBankTabID) == "function" and type(button.GetContainerSlotID) == "function" then
+            local okBag, bag = pcall(button.GetBankTabID, button)
+            local okSlot, slot = pcall(button.GetContainerSlotID, button)
+            return okBag and PlainNumber(bag) or nil, okSlot and PlainNumber(slot) or nil
+        end
+        if legacyBankButtons[button] then
+            return PlainNumber(_G.BANK_CONTAINER) or -1, PlainNumber(button:GetID())
+        end
+        local bag, slot = ButtonBagAndSlot(button)
+        return PlainNumber(bag), PlainNumber(slot)
+    end
+
+    local function LockedMessage(label)
+        Print(label .. " is locked - Alt-click to unlock")
+    end
+
+    -- ---- the snapshot the safety net compares against -------------------------
+
+    local lockSnapshot              -- itemID -> count of locked items in the carried bags
+    local buybackSnapshot           -- the buyback list as last seen
+    local pendingDrops = {}         -- itemID -> { n, t }: locked items that left the bags
+    local pendingSales = {}         -- new buyback entries of locked items, { id, link, qty, t }
+    local soldCheckToken = 0
+
+    local function LockedCarriedCounts()
+        local counts = {}
+        for _, bag in ipairs(CarriedContainers()) do
+            for slot = 1, ContainerSize(bag) do
+                local id, n = SlotItem(bag, slot)
+                if id and IsItemLocked(id) then counts[id] = (counts[id] or 0) + n end
+            end
+        end
+        return counts
+    end
+
+    local function BuybackList()
+        local list = {}
+        if type(_G.GetNumBuybackItems) ~= "function" or type(_G.GetBuybackItemLink) ~= "function" then return list end
+        local ok, n = pcall(_G.GetNumBuybackItems)
+        n = ok and PlainNumber(n) or 0
+        for i = 1, n do
+            local okLink, link = pcall(_G.GetBuybackItemLink, i)
+            link = okLink and PlainString(link) or nil
+            local qty = 1
+            if type(_G.GetBuybackItemInfo) == "function" then
+                local okInfo, _, _, _, q = pcall(_G.GetBuybackItemInfo, i)
+                qty = okInfo and PlainNumber(q) or 1
+            end
+            list[i] = { link = link, id = link and tonumber(link:match("item:(%d+)")), qty = qty }
+        end
+        return list
+    end
+
+    local function BuybackKey(e) return (e.link or "?") .. "#" .. tostring(e.qty) end
+
+    -- The entries of after that were not in before. A sale appends at the end, and a full list
+    -- drops its oldest entry first, so before shifted left by some s must match the start of after.
+    -- A shorter list means something was bought back, never sold: no new entries.
+    local function NewBuybackEntries(before, after)
+        local nb, na = #before, #after
+        if na < nb then return {} end
+        for s = 0, nb do
+            local keep = nb - s
+            if keep <= na then
+                local match = true
+                for j = 1, keep do
+                    if BuybackKey(after[j]) ~= BuybackKey(before[j + s]) then
+                        match = false
+                        break
+                    end
+                end
+                if match then
+                    local out = {}
+                    for j = keep + 1, na do out[#out + 1] = after[j] end
+                    return out
+                end
+            end
+        end
+        return {}
+    end
+
+    local function TakeLockSnapshot()
+        lockSnapshot = LockedCarriedCounts()
+        buybackSnapshot = BuybackList()
+        pendingDrops, pendingSales = {}, {}
+    end
+
+    local function Now()
+        return type(_G.GetTime) == "function" and _G.GetTime() or time()
+    end
+
+    -- The safety net. Runs only while a merchant is open, after bag or buyback changes have settled.
+    -- An item is bought back only when both halves are seen within SOLD_WINDOW: its count in the
+    -- bags dropped, and a new buyback entry of the same item with no more than the dropped amount
+    -- appeared. Each sale is bought back at most once: both halves are used up by the attempt.
+    local function CheckSoldLocked()
+        if not merchantOpen or not lockSnapshot or not buybackSnapshot then return end
+        local now, t = LockedCarriedCounts(), Now()
+        for id, before in pairs(lockSnapshot) do
+            local diff = before - (now[id] or 0)
+            if diff > 0 then
+                local d = pendingDrops[id]
+                pendingDrops[id] = { n = (d and d.n or 0) + diff, t = t }
+            end
+        end
+        lockSnapshot = now
+        local list = BuybackList()
+        for _, e in ipairs(NewBuybackEntries(buybackSnapshot, list)) do
+            if e.id and IsItemLocked(e.id) then
+                pendingSales[#pendingSales + 1] = { id = e.id, link = e.link, qty = e.qty, t = t }
+            end
+        end
+        buybackSnapshot = list
+        for id, d in pairs(pendingDrops) do
+            if t - d.t > SOLD_WINDOW then pendingDrops[id] = nil end
+        end
+        for i = #pendingSales, 1, -1 do
+            if t - pendingSales[i].t > SOLD_WINDOW then table.remove(pendingSales, i) end
+        end
+
+        for i = #pendingSales, 1, -1 do
+            local sale = pendingSales[i]
+            local drop = pendingDrops[sale.id]
+            if drop and sale.qty <= drop.n then
+                table.remove(pendingSales, i)
+                drop.n = drop.n - sale.qty
+                if drop.n <= 0 then pendingDrops[sale.id] = nil end
+                -- Its place in the list now: the newest entry with the same link and stack size.
+                local index
+                for j = #list, 1, -1 do
+                    if list[j].link == sale.link and list[j].qty == sale.qty then
+                        index = j
+                        break
+                    end
+                end
+                local label = ItemLabel(sale.id, sale.link)
+                local ok = index and type(_G.BuybackItem) == "function" and pcall(_G.BuybackItem, index)
+                if ok then
+                    table.remove(list, index)
+                    Print(label .. " is locked but was sold; bought it back.")
+                else
+                    Print(label .. " is locked but was sold; buy it back on the merchant's Buyback tab.")
+                end
+            end
+        end
+        buybackSnapshot = list
+    end
+
+    local function QueueSoldCheck()
+        if not merchantOpen then return end
+        local after = TimerAfter()
+        if not after then
+            pcall(CheckSoldLocked)
+            return
+        end
+        soldCheckToken = soldCheckToken + 1
+        local token = soldCheckToken
+        after(SOLD_CHECK_DELAY, function()
+            if token == soldCheckToken then pcall(CheckSoldLocked) end
+        end)
+    end
+
+    -- ---- padlock and guards on the item buttons --------------------------------
+
+    -- The first padlock art this client has: an atlas when it exists, else a file. The choice made
+    -- for the first texture is reused for every later one.
+    local function ApplyPadlockArt(tex)
+        if padlockSource and padlockSource.atlas then
+            tex:SetAtlas(padlockSource.atlas)
+            return
+        elseif padlockSource and padlockSource.file then
+            tex:SetTexture(padlockSource.file)
+            return
+        end
+        if type(tex.SetAtlas) == "function" then
+            for _, atlas in ipairs(PADLOCK_ATLASES) do
+                if HasAtlas(atlas) then
+                    local ok, result = pcall(tex.SetAtlas, tex, atlas)
+                    if ok and result ~= false then
+                        padlockSource = { atlas = atlas }
+                        return
+                    end
+                end
+            end
+        end
+        for _, file in ipairs(PADLOCK_FILES) do
+            local ok, result = pcall(tex.SetTexture, tex, file)
+            if ok and result ~= false then
+                padlockSource = { file = file }
+                return
+            end
+        end
+    end
+
+    local function CreatePadlock(button)
+        local tex = button:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetSize(PADLOCK_SIZE, PADLOCK_SIZE)
+        tex:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
+        ApplyPadlockArt(tex)
+        tex:Hide()
+        lockOverlay[button] = tex
+        lockVisuals = true
+        return tex
+    end
+
+    local QueueLockRefresh
+
+    -- Locks or unlocks the item in one slot.
+    local function ToggleLockAt(bag, slot)
+        local items = LockedItems()
+        if not items then return end
+        local id, link = SlotDetails(bag, slot)
+        if not id then return end
+        local label = ItemLabel(id, link)
+        if items[id] ~= nil then
+            items[id] = nil
+            Print(label .. " unlocked")
+        else
+            items[id] = link or true
+            Print(label .. " locked")
+        end
+        if merchantOpen then lockSnapshot = LockedCarriedCounts() end
+        QueueLockRefresh()
+    end
+
+    local function OnGuardClick(guard, mouse)
+        local button = guard:GetParent()
+        local bag, slot = LockButtonSlot(button)
+        if mouse == "LeftButton" and AltClickOnly() then
+            ToggleLockAt(bag, slot)
+            return
+        end
+        local id, link = SlotDetails(bag, slot)
+        if id then LockedMessage(ItemLabel(id, link)) end
+    end
+
+    -- Only used where mouse motion cannot reach the item button underneath.
+    local function OnGuardEnter(guard)
+        local tip = _G.GameTooltip
+        if not tip or type(tip.SetBagItem) ~= "function" then return end
+        local bag, slot = LockButtonSlot(guard:GetParent())
+        if not bag or not slot then return end
+        tip:SetOwner(guard, "ANCHOR_RIGHT")
+        pcall(tip.SetBagItem, tip, bag, slot)
+        tip:Show()
+    end
+
+    local function CreateGuard(button)
+        local guard = CreateFrame("Button", nil, button)
+        guard:SetAllPoints(button)
+        guard:SetFrameLevel((button:GetFrameLevel() or 0) + 5)
+        guard:EnableMouse(true)
+        guard:RegisterForClicks("AnyUp")
+        local passes = false
+        if type(guard.SetPassThroughButtons) == "function" then
+            passes = pcall(guard.SetPassThroughButtons, guard, "LeftButton") and true or false
+        end
+        guardPassThrough = passes
+        local propagates = false
+        if type(guard.SetPropagateMouseMotion) == "function" then
+            propagates = pcall(guard.SetPropagateMouseMotion, guard, true) and true or false
+        end
+        if not propagates then
+            guard:SetScript("OnEnter", function(self) pcall(OnGuardEnter, self) end)
+            guard:SetScript("OnLeave", function(self)
+                local tip = _G.GameTooltip
+                if tip and tip.GetOwner and tip:GetOwner() == self then tip:Hide() end
+            end)
+        end
+        guard:SetScript("OnClick", function(self, mouse) pcall(OnGuardClick, self, mouse) end)
+        guard:Hide()
+        lockGuard[button] = guard
+        lockVisuals = true
+        return guard
+    end
+
+    local function CursorHoldsItem()
+        if type(_G.GetCursorInfo) ~= "function" then return false end
+        return _G.GetCursorInfo() == "item"
+    end
+
+    local function OnItemPreClick()
+        clickCursorBefore = CursorHoldsItem()
+    end
+
+    -- Runs after Blizzard's own OnClick. Alt + left-click toggles the lock; if that click put the
+    -- item on the cursor (Blizzard does not by default, but a client could), it goes straight back.
+    local function OnItemClick(button, mouse)
+        if mouse ~= "LeftButton" or not AltClickOnly() then return end
+        if clickCursorBefore == false and CursorHoldsItem() and type(_G.ClearCursor) == "function" then
+            _G.ClearCursor()
+        end
+        clickCursorBefore = nil
+        ToggleLockAt(LockButtonSlot(button))
+    end
+
+    local function HookLockButton(button)
+        if lockHooked[button] or type(button.HookScript) ~= "function" then return end
+        lockHooked[button] = true
+        if type(button.HasScript) ~= "function" or button:HasScript("PreClick") then
+            pcall(button.HookScript, button, "PreClick", function() pcall(OnItemPreClick) end)
+        end
+        pcall(button.HookScript, button, "OnClick", function(self, mouse) pcall(OnItemClick, self, mouse) end)
+    end
+
+    local function UpdateLockButton(button)
+        HookLockButton(button)
+        local bag, slot
+        if IsOnScreen(button) then bag, slot = LockButtonSlot(button) end
+        local id, link = SlotDetails(bag, slot)
+        local locked = IsItemLocked(id)
+        -- Keep the saved link current, so /bbf locked can show it while the item is not cached.
+        if locked and link and LockedItems()[id] == true then LockedItems()[id] = link end
+        local tex = lockOverlay[button]
+        if locked and not tex then tex = CreatePadlock(button) end
+        if tex then tex:SetShown(locked) end
+        local wantGuard = locked and merchantOpen
+        local guard = lockGuard[button]
+        if wantGuard and not guard and not InCombat() then guard = CreateGuard(button) end
+        if guard and guard:IsShown() ~= wantGuard and not Blocked(guard) then guard:SetShown(wantGuard) end
+    end
+
+    -- Every frame that holds item buttons: the Combined Backpack, the separate bags (bank bags
+    -- included) and Forever's BankPanel.
+    local function LockItemFrames()
+        local list = {}
+        local function add(f)
+            if type(f) == "table" and type(f.GetChildren) == "function" then list[#list + 1] = f end
+        end
+        add(GetBagFrame())
+        local n = math.max(PlainNumber(_G.NUM_CONTAINER_FRAMES) or 0, 13)
+        for i = 1, n do add(_G["ContainerFrame" .. i]) end
+        add(_G.BankPanel)
+        return list
+    end
+
+    local function LockButtons()
+        local out, seen = {}, {}
+        local function add(b)
+            if type(b) == "table" and not seen[b] and type(b.GetID) == "function" and type(b.CreateTexture) == "function" then
+                seen[b] = true
+                out[#out + 1] = b
+            end
+        end
+        for _, frame in ipairs(LockItemFrames()) do
+            if type(frame.EnumerateValidItems) == "function" then
+                -- A frame's Items list gives (index, button); a pool gives (button, true).
+                pcall(function()
+                    for a, b in frame:EnumerateValidItems() do add(type(a) == "table" and a or b) end
+                end)
+            end
+            for _, b in ipairs(ItemButtons(frame)) do add(b) end
+        end
+        -- The classic bank window's own slots.
+        local slots = PlainNumber(_G.NUM_BANKGENERIC_SLOTS) or 28
+        for i = 1, slots do
+            local b = _G["BankFrameItem" .. i]
+            if type(b) ~= "table" then break end
+            legacyBankButtons[b] = true
+            add(b)
+        end
+        return out
+    end
+
+    -- A locked grey item that Blizzard's Sell Junk would sell: its link, or nil.
+    local function LockedJunkLabel()
+        if LockCount() == 0 then return nil end
+        local c = ContainerAPI()
+        local flags = type(_G.Enum) == "table" and _G.Enum.BagSlotFlags
+        local exclude = type(flags) == "table" and flags.ExcludeJunkSell or nil
+        for _, bag in ipairs(CarriedContainers()) do
+            local skip = false
+            if exclude ~= nil and c and type(c.GetBagSlotFlag) == "function" then
+                local ok, v = pcall(c.GetBagSlotFlag, bag, exclude)
+                skip = ok and Plain(v) == true
+            end
+            if not skip then
+                for slot = 1, ContainerSize(bag) do
+                    local id, link, quality, noValue = SlotDetails(bag, slot)
+                    if id and quality == 0 and not noValue and IsItemLocked(id) then return ItemLabel(id, link) end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function UpdateJunkGuard()
+        local button = _G.MerchantSellAllJunkButton
+        if type(button) ~= "table" or type(button.GetFrameLevel) ~= "function" then return end
+        local label = merchantOpen and LockedJunkLabel() or nil
+        if label and not junkGuard then
+            junkGuard = CreateFrame("Button", nil, button)
+            junkGuard:SetAllPoints(button)
+            junkGuard:SetFrameLevel((button:GetFrameLevel() or 0) + 5)
+            junkGuard:EnableMouse(true)
+            junkGuard:RegisterForClicks("AnyUp")
+            junkGuard:SetScript("OnClick", function(self)
+                Print("Sell Junk blocked: " .. (self.label or "a locked item") .. " is locked junk. Alt-click it in your bags to unlock it, or move it to a bag set not to sell junk.")
+            end)
+            junkGuard:SetScript("OnEnter", function(self)
+                local tip = _G.GameTooltip
+                if not tip then return end
+                tip:SetOwner(self, "ANCHOR_RIGHT")
+                tip:SetText("Sell Junk blocked by BetterBagsForever")
+                tip:AddLine((self.label or "A locked item") .. " is locked and would be sold.", 1, 1, 1, true)
+                tip:Show()
+            end)
+            junkGuard:SetScript("OnLeave", function(self)
+                local tip = _G.GameTooltip
+                if tip and tip.GetOwner and tip:GetOwner() == self then tip:Hide() end
+            end)
+            lockVisuals = true
+        end
+        if junkGuard then
+            junkGuard.label = label
+            if junkGuard:IsShown() ~= (label ~= nil) and not Blocked(junkGuard) then junkGuard:SetShown(label ~= nil) end
+        end
+    end
+
+    local function RefreshLocks()
+        lockRefreshPending = false
+        if not charDB then return end
+        -- Nothing locked and nothing drawn yet: only make sure every button follows Alt-click.
+        local idle = LockCount() == 0 and not lockVisuals
+        for _, button in ipairs(LockButtons()) do
+            pcall(idle and HookLockButton or UpdateLockButton, button)
+        end
+        if not idle then pcall(UpdateJunkGuard) end
+    end
+
+    QueueLockRefresh = function()
+        if lockRefreshPending then return end
+        lockRefreshPending = true
+        local after = TimerAfter()
+        if not after then
+            pcall(RefreshLocks)
+            lockRefreshPending = false
+            return
+        end
+        after(0, function()
+            local ok = pcall(RefreshLocks)
+            if not ok then lockRefreshPending = false end
+        end)
+    end
+
+    -- ---- the merchant drop guard -----------------------------------------------
+
+    -- The locked item on the cursor: its id and link, or nil.
+    local function CursorLockedItem()
+        if type(_G.GetCursorInfo) ~= "function" then return nil end
+        local kind, id, link = _G.GetCursorInfo()
+        if kind ~= "item" then return nil end
+        id = PlainNumber(id)
+        if id and IsItemLocked(id) then return id, PlainString(link) end
+        return nil
+    end
+
+    local function BlockCursorDrop()
+        local id, link = CursorLockedItem()
+        if not id then return end
+        LockedMessage(ItemLabel(id, link))
+        if type(_G.ClearCursor) == "function" then _G.ClearCursor() end
+    end
+
+    local function UpdateMerchantGuard()
+        local merchant = _G.MerchantFrame
+        if type(merchant) ~= "table" or type(merchant.GetFrameLevel) ~= "function" then return end
+        local want = merchantOpen and CursorLockedItem() ~= nil
+        if want and not merchantGuard then
+            merchantGuard = CreateFrame("Button", nil, merchant)
+            merchantGuard:SetAllPoints(merchant)
+            merchantGuard:SetFrameStrata("DIALOG")
+            merchantGuard:EnableMouse(true)
+            merchantGuard:RegisterForClicks("AnyUp", "AnyDown")
+            merchantGuard:SetScript("OnClick", function() pcall(BlockCursorDrop) end)
+            merchantGuard:SetScript("OnReceiveDrag", function() pcall(BlockCursorDrop) end)
+            merchantGuard:Hide()
+        end
+        if merchantGuard and merchantGuard:IsShown() ~= want and not Blocked(merchantGuard) then
+            merchantGuard:SetShown(want)
+        end
+    end
+
+    local function SetMerchantOpen(open)
+        merchantOpen = open and true or false
+        if merchantOpen then
+            TakeLockSnapshot()
+            if not cursorWatcher then
+                cursorWatcher = CreateFrame("Frame")
+                local elapsedSince = 0
+                cursorWatcher:SetScript("OnUpdate", function(_, elapsed)
+                    elapsedSince = elapsedSince + (elapsed or 0)
+                    if elapsedSince < CURSOR_POLL then return end
+                    elapsedSince = 0
+                    pcall(UpdateMerchantGuard)
+                end)
+            end
+            cursorWatcher:Show()
+        else
+            lockSnapshot, buybackSnapshot = nil, nil
+            pendingDrops, pendingSales = {}, {}
+            if cursorWatcher then cursorWatcher:Hide() end
+        end
+        pcall(UpdateMerchantGuard)
+        QueueLockRefresh()
+    end
+
+    -- Follows every bag frame's OnShow and item updates, once per frame.
+    local function HookLockFrames()
+        for _, frame in ipairs(LockItemFrames()) do
+            if not lockFrameHooked[frame] then
+                lockFrameHooked[frame] = true
+                if type(frame.HookScript) == "function" then
+                    pcall(frame.HookScript, frame, "OnShow", function() QueueLockRefresh() end)
+                end
+                for _, method in ipairs({ "UpdateItems", "GenerateItemSlotsForSelectedTab", "RefreshAllItemsForSelectedTab" }) do
+                    if type(frame[method]) == "function" then
+                        pcall(hooksecurefunc, frame, method, function() QueueLockRefresh() end)
+                    end
+                end
+            end
+        end
+    end
+
+    -- ---- commands -----------------------------------------------------------------
+
+    local function PrintLockedItems()
+        local items = LockedItems()
+        local ids = {}
+        for id in pairs(items or {}) do ids[#ids + 1] = id end
+        if #ids == 0 then
+            Print("no items are locked. Alt-click an item in your bags to lock it.")
+            return
+        end
+        table.sort(ids)
+        Print(#ids .. " locked item" .. (#ids == 1 and "" or "s") .. " (never sold to a merchant; Alt-click to unlock):")
+        for _, id in ipairs(ids) do Print("  " .. ItemLabel(id)) end
+    end
+
+    local function UnlockAll(confirmed)
+        local n = LockCount()
+        if n == 0 then
+            Print("no items are locked.")
+            return
+        end
+        if not confirmed then
+            Print("this unlocks all " .. n .. " locked item" .. (n == 1 and "" or "s") .. ". Type /bbf unlockall yes to confirm.")
+            return
+        end
+        charDB.lockedItems = {}
+        if merchantOpen then lockSnapshot = LockedCarriedCounts() end
+        Print("unlocked all " .. n .. " item" .. (n == 1 and "" or "s") .. ".")
+        QueueLockRefresh()
+    end
+
+    function Lock.Status()
+        local art = padlockSource and (padlockSource.atlas and ("atlas " .. padlockSource.atlas) or padlockSource.file)
+            or "not drawn yet"
+        local pass = guardPassThrough == nil and "not used yet" or (guardPassThrough and "yes" or "no")
+        return string.format("item locks: %d locked item%s%spadlock %s%sleft clicks pass the merchant guard: %s%sbuyback: %s",
+            LockCount(), LockCount() == 1 and "" or "s", DOT, art, DOT, pass, DOT,
+            type(_G.BuybackItem) == "function" and "yes" or "MISSING")
+    end
+
+    Lock.Count = LockCount
+    Lock.PrintLocked = PrintLockedItems
+    Lock.UnlockAll = UnlockAll
+    Lock.HookFrames = HookLockFrames
+    Lock.Refresh = QueueLockRefresh
+    Lock.SetMerchantOpen = SetMerchantOpen
+    Lock.QueueSoldCheck = QueueSoldCheck
+    Lock.UpdateMerchantGuard = UpdateMerchantGuard
+    Lock.MerchantOpen = function() return merchantOpen end
+end
+BuildItemLock()
+
+-- ---------------------------------------------------------------------------
 -- Following Blizzard
 -- ---------------------------------------------------------------------------
 
@@ -1729,6 +2441,8 @@ local function OnBagFrameDragStart()
 end
 
 local function HookBlizzard()
+    pcall(Lock.HookFrames)
+    Lock.Refresh()
     if not anchorsHooked and type(_G.UpdateContainerFrameAnchors) == "function" then
         hooksecurefunc("UpdateContainerFrameAnchors", OnBlizzardAnchored)
         anchorsHooked = true
@@ -1807,6 +2521,9 @@ local function PrintHelp()
     Print("/bbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
     Print("/bbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
     Print("/bbf forget <name> - remove a character from this realm's counts and gold")
+    Print("Alt-click an item in your bags: lock or unlock it (all copies). A locked item shows a padlock and cannot be sold to a merchant.")
+    Print("/bbf locked - list the locked items (now: " .. Lock.Count() .. ")")
+    Print("/bbf unlockall yes - unlock every locked item")
     Print("/bbf status - what this client offers and what the next clean-up will do")
 end
 
@@ -1832,6 +2549,7 @@ local function PrintStatus()
     local pos = db and db.position
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
     Print(InventoryStatus())
+    Print(Lock.Status())
 end
 
 local function OnSlash(msg)
@@ -1869,6 +2587,10 @@ local function OnSlash(msg)
         PrintGold()
     elseif msg == "forget" or msg:find("^forget ") then
         ForgetCharacter(raw:match("^%S+%s+(.+)$"))
+    elseif msg == "locked" then
+        Lock.PrintLocked()
+    elseif msg == "unlockall" or msg == "unlockall yes" then
+        Lock.UnlockAll(msg == "unlockall yes")
     elseif msg == "status" then
         PrintStatus()
     else
@@ -1891,7 +2613,7 @@ end
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.8"
+local VERSION = "1.9"
 
 local function StatusLine()
     if not db then return "not loaded yet" end
@@ -1969,6 +2691,22 @@ local function BindSavedVariables()
     end
 end
 
+-- Per character: the item locks (since 1.9).
+local function BindCharacterVariables()
+    if type(BetterBagsForeverCharDB) ~= "table" then BetterBagsForeverCharDB = {} end
+    charDB = BetterBagsForeverCharDB
+    local clean = {}
+    if type(charDB.lockedItems) == "table" then
+        for id, v in pairs(charDB.lockedItems) do
+            if type(id) == "number" and id > 0 and (v == true or type(v) == "string") then clean[id] = v end
+        end
+    end
+    charDB.lockedItems = clean
+    for k in pairs(charDB) do
+        if k ~= "lockedItems" then charDB[k] = nil end
+    end
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
@@ -1979,7 +2717,8 @@ events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("ITEM_LOCK_CHANGED")
 -- The inventory events, each checked: a name this client does not know is skipped, not raised.
 for _, name in ipairs({ "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
-                        "PLAYERBANKSLOTS_CHANGED", "MAIL_SHOW", "MAIL_INBOX_UPDATE", "MAIL_CLOSED" }) do
+                        "PLAYERBANKSLOTS_CHANGED", "MAIL_SHOW", "MAIL_INBOX_UPDATE", "MAIL_CLOSED",
+                        "MERCHANT_SHOW", "MERCHANT_CLOSED", "MERCHANT_UPDATE", "CURSOR_CHANGED" }) do
     pcall(events.RegisterEvent, events, name)
 end
 
@@ -2022,20 +2761,47 @@ local INVENTORY_EVENTS = {
     MAIL_SHOW = true, MAIL_INBOX_UPDATE = true, MAIL_CLOSED = true,
 }
 
+-- Item lock events: the padlocks follow the bags, the guards follow the merchant and the cursor.
+local LOCK_REFRESH_EVENTS = {
+    BAG_UPDATE = true, BAG_UPDATE_DELAYED = true, ITEM_LOCK_CHANGED = true, PLAYERBANKSLOTS_CHANGED = true,
+    BANKFRAME_OPENED = true,
+}
+
+local function OnLockEvent(event)
+    if event == "MERCHANT_SHOW" then
+        pcall(Lock.HookFrames)
+        Lock.SetMerchantOpen(true)
+    elseif event == "MERCHANT_CLOSED" then
+        if Lock.MerchantOpen() then Lock.SetMerchantOpen(false) end
+    elseif event == "MERCHANT_UPDATE" then
+        Lock.QueueSoldCheck()
+    elseif event == "CURSOR_CHANGED" then
+        if Lock.MerchantOpen() then Lock.UpdateMerchantGuard() end
+    elseif LOCK_REFRESH_EVENTS[event] then
+        if event == "BANKFRAME_OPENED" then pcall(Lock.HookFrames) end
+        if event == "BAG_UPDATE_DELAYED" then Lock.QueueSoldCheck() end
+        Lock.Refresh()
+    end
+end
+
 events:SetScript("OnEvent", function(_, event, arg1)
     if INVENTORY_EVENTS[event] and db and playerName then
         pcall(OnInventoryEvent, event)
     end
+    if charDB then pcall(OnLockEvent, event) end
     if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "ITEM_LOCK_CHANGED" then
         OnBagActivity()
     elseif event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             BindSavedVariables()
+            BindCharacterVariables()
             HookTooltips()
             HookBlizzard()
         elseif db and not frameHooked then
             -- In case the bag frames arrive with a Blizzard addon loaded after us.
             HookBlizzard()
+        elseif db then
+            pcall(Lock.HookFrames)
         end
     elseif event == "PLAYER_LOGIN" then
         if db then

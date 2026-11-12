@@ -6,7 +6,8 @@ whether your reagents are running low. Click a name to buff that member. It need
 or library, and it is not part of the Gaar suite.
 
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
-  and the tank, **Gift of the Wild and Rebirth reagents**.
+  and the tank, **Gift of the Wild and Rebirth reagents**, and a **dispel panel** for curses and
+  poisons (a list out of combat, one click button per member in combat).
 - **Paladin**: a **blessing per class** on every member (with a fallback when another paladin's
   blessing is already there), **No aura**, **Righteous Fury** while you tank, **Symbol of Kings**.
 
@@ -55,6 +56,67 @@ or library, and it is not part of the Gaar suite.
   | Rebirth | 3 (20742) | Ashwood Seed (17036) | 2 |
   | Rebirth | 4 (20747) | Hornbeam Seed (17037) | 2 |
   | Rebirth | 5 (20748) | Ironwood Seed (17038) | 2 |
+
+## Druid: the dispel panel
+
+New in 1.2, druids only, in `Dispel.lua`. On by default (`/bbuff dispel off` to switch it off).
+
+- **Spells**, only those you know: Remove Curse (2782), Abolish Poison (2893), Cure Poison (8946,
+  used only while Abolish Poison is not known). The IDs are the classic ones (the same as in
+  WhatsTraining's Vanilla/Camelot druid data); `/bbuff status` shows what was resolved.
+- **A panel of its own**, not part of the buff box. By default it sits just below the box (and
+  follows it). `/bbuff dispel unlock` to drag it (Alt + drag works when locked),
+  `/bbuff dispel lock`, `/bbuff dispel reset` to put it back below the box. The position is saved
+  account-wide.
+- **Out of combat**: one row per member, you included, with a curse or poison you can remove: the
+  class-coloured name and a tag, `Curse` (purple) and/or `Poison` (green); `(you)`,
+  `(out of range)` (dimmed). Dead, offline and unseen members are skipped. Read from the plain
+  `dispelName` of `C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")` (`UnitDebuff` on an older
+  client).
+- **In combat**: the list is replaced by a fixed strip, one secure button per group member, shown
+  for the whole fight by a state driver (`[combat] show; hide` on the strip, `[combat] hide; show`
+  on the list):
+  - solo: you; party: you and party1-4 in one row;
+  - raid: every `raidN`, one column per subgroup that has members (in group order), up to 8
+    columns of 5 smaller buttons, so at most 40.
+
+  The strip is built out of combat whenever the roster changes, and at `PLAYER_REGEN_DISABLED` if
+  a rebuild is still due. A roster change in combat only updates the names; the buttons follow
+  unit tokens so they keep casting on whoever holds the token, and the rebuild runs at
+  `PLAYER_REGEN_ENABLED`.
+- **The look** (plain textures, allowed in combat): nothing to remove = dimmed name; a curse =
+  purple, a poison = green, both = left half purple, right half green; dispellable but of an
+  unknown kind = yellow; not known at all = neither.
+- **Clicks**, on the rows and the strip alike: **left-click = Remove Curse**, **right-click =
+  Abolish Poison** (Cure Poison until Abolish is known), on that member (`type1`/`spell1`,
+  `type2`/`spell2`, `unit`). A click whose spell you do not know or whose kind is switched off does
+  nothing. Registered for the click direction `ActionButtonUseKeyDown` acts on.
+- **`/bbuff dispel curse off`** / **`poison off`**: that kind is ignored (no rows, no colour, no
+  click).
+
+### Finding a dispellable debuff in combat
+
+Aura contents are secret in combat on this client, and index reads from addon code are refused.
+Each member is tried in this order; the first way that answers wins, and `/bbuff status` says
+which ways answered in the last fight:
+
+1. **Plain read**: the out-of-combat read, when the client allows it. Exact.
+2. **Aura instance IDs + dispel colour**: `C_UnitAuras.GetUnitAuraInstanceIDs(unit, filter, 2)`
+   with the first filter `AuraUtil.IsValidFilterString` accepts of
+   `HARMFUL|RAID_PLAYER_DISPELLABLE` and `HARMFUL|RAID` (the first is in Forever's client). A plain
+   count says whether there is one. The colour comes from
+   `C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve)` with a step colour curve over
+   the dispel type (Curse 2 purple, Poison 4 green, the rest and a switched-off kind transparent),
+   passed straight to `SetVertexColor` and never read. Without a colour: yellow.
+3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
+   one, the kind from a plain `dispelName` or else the colour API, else yellow.
+4. **None**: the strip stays clickable with no glow and no dimming; `/bbuff status` says so.
+
+With method 2 a member counts as having something when the filter finds any debuff you can
+dispel, even one of a kind you switched off (it is then not dimmed but gets no colour).
+`UNIT_AURA` marks a member; in combat the strip repaints marked members at most 10 times a second
+and everyone once a second. The list updates at most 4 times a second, and every 1.5 s in a
+group.
 
 ## Paladin
 
@@ -138,7 +200,7 @@ the localized name of the highest rank you know (or its spell ID when the client
 
 ## Combat
 
-**The box is hidden in combat**, on purpose: aura data is secret then, secure attributes cannot
+**The buff box is hidden in combat** (the druid's dispel panel is not: see above), on purpose: aura data is secret then, secure attributes cannot
 change, and buffing mid-fight is not what it is for. A visibility state driver
 (`RegisterStateDriver(holder, "visibility", "[combat] hide; show")`) hides it the moment combat
 starts, by secure code; on a client without state drivers `PLAYER_REGEN_DISABLED` does it.
@@ -166,13 +228,16 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
 | `/bbuff tank clear` | Clear the tank set by hand |
 | `/bbuff unlock`, `/bbuff lock`, `/bbuff reset` | Move the box, stop moving it, put it back at the top centre |
-| `/bbuff test` | Show the box with test rows for your class (they cast nothing); again to hide them |
-| `/bbuff status` | Version, the class module (Druid, Paladin, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle |
+| `/bbuff test` | Show the box with test rows for your class (they cast nothing), and for a druid the dispel panel with sample rows and a sample strip; again to hide them |
+| `/bbuff status` | Version, the class module (Druid, Paladin, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A druid also gets the dispel panel (state, spells, strip layout, filter and APIs, and which in-combat detection answered in the last fight) |
 | **Druid** | |
 | `/bbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
 | `/bbuff thorns [on\|off]` | Warn when you lack Thorns |
 | `/bbuff tank on\|off` | Warn when the tank lacks Thorns |
 | `/bbuff reagents gotw <n>`, `/bbuff reagents rebirth <n>` | Warn below n Gift of the Wild reagents (default 10) or Rebirth seeds (default 2), 0-200 |
+| `/bbuff dispel [on\|off]` | The dispel panel (no argument toggles) |
+| `/bbuff dispel curse [on\|off]`, `/bbuff dispel poison [on\|off]` | Each kind |
+| `/bbuff dispel unlock`, `lock`, `reset` | Move the dispel panel, stop moving it, put it back below the box |
 | **Paladin** | |
 | `/bbuff bless [on\|off]` | The blessing check |
 | `/bbuff bless <class> <type>` | Assign a blessing to a class: `warrior`, `rogue`, `hunter`, `mage`, `priest`, `warlock`, `druid`, `paladin`, `shaman`; `might`, `wisdom`, `kings`, `salvation`, `light`, `sanctuary` or `none` |
@@ -194,8 +259,10 @@ menu has a **Buffs** submenu with the options for your class:
   when something goes missing**, **Low reagent warning**, the class's reagent threshold(s), **Set
   tank: current target**, **Clear tank** (while one is set), **Lock box**, **Test box** and **Reset
   position**;
-- a druid: **Mark of the Wild check**, **Thorns on you**, **Thorns on the tank**, **Gift of the
-  Wild reagent warning below** (0/5/10/20/40), **Rebirth reagent warning below** (0/1/2/3/5);
+- a druid: **Mark of the Wild check**, **Thorns on you**, **Thorns on the tank**, **Dispel panel
+  (curses, poisons)**, **Dispel: curses**, **Dispel: poisons**, **Gift of the Wild reagent warning
+  below** (0/5/10/20/40), **Rebirth reagent warning below** (0/1/2/3/5), **Lock dispel panel**,
+  **Reset dispel panel position**;
 - a paladin: **Blessing check (by class)**, **Warn when no aura is on**, **Righteous Fury when
   tanking**, **Symbol of Kings reagent warning below** (0/10/20/40/60), **Blessings by class** (one
   submenu per class with a radio list of the blessings and None, plus Reset to defaults) and **I'm
@@ -248,8 +315,10 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
 
 `BetterBuffsForever.lua` is the shared part (box, rows, aura scan, group and tank, settings, slash
 command, API, events). `Druid.lua` and `Paladin.lua` are the class modules; each registers itself
-in the addon's private namespace (`local _, ns = ...`), so the modules add no globals. Both TOCs
-list all three, the shared file first.
+in the addon's private namespace (`local _, ns = ...`), so the modules add no globals.
+`Dispel.lua` is the druid's dispel panel: it adds its options, commands, status lines and menu
+entries to the druid module and keeps its own (unnamed) frames and events. Both TOCs list all
+four, the shared file first.
 
 ## How it stays out of the way
 
@@ -262,7 +331,8 @@ list all three, the shared file first.
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Account-wide
   (`BetterBuffsForeverDB`): `enabled`, `group`, `sound`, `reagents`, `locked`, `pos`; druid
-  `motw`, `thorns`, `thornsTank`, `gotwMin`, `rebirthMin`; paladin `bless`, `aura`, `fury`,
+  `motw`, `thorns`, `thornsTank`, `gotwMin`, `rebirthMin`, `dispel`, `dispelCurse`,
+  `dispelPoison`, `dispelPos`, `dispelLocked`; paladin `bless`, `aura`, `fury`,
   `kingsMin` and `blessings` (only the classes changed from the default). Per character
   (`BetterBuffsForeverCharDB`): `tank` (`{ guid, name }`), and for a paladin `lastAura` and
   `tanking`. Every class's keys are kept whatever class logs in.
@@ -272,7 +342,9 @@ list all three, the shared file first.
 From Blizzard's retail FrameXML and API documentation, which Forever's UI follows
 ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source)): `SecureActionButtonTemplate`,
 `RegisterStateDriver`, `C_UnitAuras.GetAuraDataByIndex`, `C_Secrets.ShouldUnitAuraIndexBeSecret`,
-`C_Spell.GetSpellInfo`, `C_Spell.IsSpellInRange`, `C_Item.GetItemCount`,
+`C_UnitAuras.GetUnitAuraInstanceIDs`, `C_UnitAuras.GetAuraDispelTypeColor`,
+`C_CurveUtil.CreateColorCurve`, `AuraUtil.IsValidFilterString`, `C_Spell.GetSpellInfo`,
+`C_Spell.IsSpellInRange`, `C_Item.GetItemCount`,
 `C_Item.GetItemNameByID`, `UnitGroupRolesAssigned`, `GetPartyAssignment`, `GetNumShapeshiftForms`,
 `GetShapeshiftFormInfo`, `UnitIsVisible`, `UnitIsConnected`, `UnitIsDeadOrGhost`, `IsInGroup`,
 `IsInRaid` and `InCombatLockdown`. It ships a `_Camelot` TOC and a plain fallback TOC, both at

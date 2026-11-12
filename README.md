@@ -31,7 +31,7 @@ of the code.
 | `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or Alt + left-click (Option on Mac) the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterWindowsForever` | Standalone, not part of the suite, Forever only: makes Blizzard's own windows movable by their title bar (Character, Spellbook & Talents, Professions, Collections, Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip, Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn List, Inspect, Trade, Game Menu and more); Ctrl + mouse wheel scales a window (50-150%); position and scale remembered per window and put back after Blizzard's panel layout; on/off and reset per window; world map and bags left to their own addons | `/bwf` |
 | `BetterFishingForever` | Standalone, not part of the suite, Forever only: double right-click in the world casts Fishing while a fishing pole is equipped (a secure button and a short-lived `BUTTON2` override binding, armed after the first click so a single right-click still loots the bobber); Shift + double right-click swaps the pole in and out; never in combat; works with `ActionButtonUseKeyDown` on or off; on/off and a 0.2-0.8 s double-click window; an optional Fishing 1-300 route (current step from your skill, world map and minimap pins, BetterGpsForever's arrow) | `/bfish` |
-| `BetterBuffsForever` | Standalone, not part of the suite, Forever only, druids only: a box at the top centre lists who lacks Mark of the Wild (Gift of the Wild counts) in your party or raid, whether you or your tank (role, raid main tank, or one set by hand) lack Thorns, and low Gift of the Wild / Rebirth reagents; each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
+| `BetterBuffsForever` | Standalone, not part of the suite, Forever only, druids and paladins: a box at the top centre lists who lacks your buffs. Druid: Mark of the Wild (Gift of the Wild counts) in your party or raid, Thorns on you and your tank (role, raid main tank, or one set by hand), low Gift of the Wild / Rebirth reagents. Paladin: a blessing per class (Might for Warrior/Rogue/Hunter, Wisdom for the rest, editable; a fallback when another paladin's blessing is already there; no Salvation for the tank), No aura, Righteous Fury while you tank, low Symbol of Kings. Each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild or the Greater Blessing); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
 | `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all ten Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever`, `BetterWindowsForever`, `BetterFishingForever` and `BetterBuffsForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, window, fishing or buff code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
@@ -260,25 +260,39 @@ dumps, NPCs and quests from warcraft.wiki.gg and method.gg (credits in the addon
 TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterFishingForever/README.md`](addons/BetterFishingForever/README.md).
 
-## BetterBuffsForever: a druid's buff check on Forever
+## BetterBuffsForever: a druid's and a paladin's buff check on Forever
 
 A standalone addon - no Gaar addon or library needed, and not part of the suite - that does
-something only for a Druid (any other class leaves it idle). A box at the top centre of the screen,
-shown only while something is missing, lists who lacks Mark of the Wild (Gift of the Wild counts):
-you, and in a party or raid every member. It also shows whether you or the group's tank lack Thorns. The
-tank is every member with the `TANK` role, else in a raid every main tank, else the one set by
-hand with `/bbuff tank` (your target). It also warns on low reagents for the highest rank you know
-of Gift of the Wild (Wild Berries / Wild Thornroot, below 10) and Rebirth (Maple, Stranglethorn,
-Ashwood, Hornbeam or Ironwood Seed, below 2), bags only. Each name is a `SecureActionButtonTemplate`
-button (`type` spell, the highest known rank by name, `unit` the member): left-click casts the buff
-on that member, right-click on a Mark of the Wild row casts Gift of the Wild in a group. Dead,
-offline and unseen members are skipped, out-of-range ones dimmed, and a member whose auras are
-secret counts as unknown, never as missing. The box is hidden in combat (a `[combat] hide` state
-driver; nothing is scanned or rebuilt until `PLAYER_REGEN_ENABLED`). Unlock, Alt + drag, reset;
-position saved. `/bbuff` for help, `on`, `off`, `motw`, `thorns`, `tank`, `group`, `sound`,
-`reagents`, `unlock`, `lock`, `reset`, `test` and `status`. It exports `BetterBuffsForeverAPI`,
-and BetterGaarForever has a Buffs row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
-both at 16001. Details in
+something only for a Druid or a Paladin (any other class leaves it idle). A box at the top centre
+of the screen, shown only while something is missing, lists who lacks your buffs. The class parts
+are modules (`Druid.lua`, `Paladin.lua`) sharing the box, rows, aura scan and tank detection in
+`BetterBuffsForever.lua`. The tank is every member with the `TANK` role, else in a raid every
+main tank, else the one set by hand with `/bbuff tank` (your target); you can be the tank.
+
+- **Druid**: who lacks Mark of the Wild (Gift of the Wild counts): you, and in a party or raid
+  every member; whether you or the tank lack Thorns; low reagents for the highest rank you know of
+  Gift of the Wild (Wild Berries / Wild Thornroot, below 10) and Rebirth (Maple, Stranglethorn,
+  Ashwood, Hornbeam or Ironwood Seed, below 2). Right-click on a Mark of the Wild row casts Gift
+  of the Wild in a group.
+- **Paladin**: every member should have the blessing assigned to their class (Might for Warrior,
+  Rogue and Hunter, Wisdom for the rest; `/bbuff bless <class> <type>` or the hub to change).
+  Covered when that type is on from anyone (any rank, normal or Greater); when it is there from
+  another paladin and nothing of yours is on, the row asks for the fallback: Kings (if known),
+  then the other of Might/Wisdom, then Light. The tank never gets Salvation. Right-click casts
+  the Greater Blessing (the whole class) when known. Also "No aura" (read from the shapeshift
+  bar; the row casts the aura you used last), Righteous Fury while you are the tank or say you
+  are tanking (`/bbuff tanking on`), and low Symbol of Kings (below 20) once you know a Greater
+  Blessing.
+
+Each name is a `SecureActionButtonTemplate` button (`type` spell, the highest known rank by name,
+`unit` the member). Dead, offline and unseen members are skipped, out-of-range ones dimmed, and a
+member whose auras are secret counts as unknown, never as missing. The box is hidden in combat (a
+`[combat] hide` state driver; nothing is scanned or rebuilt until `PLAYER_REGEN_ENABLED`).
+Unlock, Alt + drag, reset; position saved. `/bbuff` for help, `on`, `off`, `group`, `sound`,
+`reagents`, `tank`, `unlock`, `lock`, `reset`, `test` and `status`; a druid adds `motw`,
+`thorns` and `tank on|off`, a paladin `bless`, `aura`, `fury` and `tanking`. It exports
+`BetterBuffsForeverAPI`, and BetterGaarForever has a Buffs row for it with the options for your
+class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).
 
 ## BetterGaarForever: an optional hub for all ten

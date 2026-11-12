@@ -30,7 +30,8 @@ of the code.
 | `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, heal prediction and absorbs, a druid mana bar in forms, class/reaction/low-health colours, target buffs and debuffs with combo points, your own buffs under the player frame, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
 | `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or Alt + left-click (Option on Mac) the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterWindowsForever` | Standalone, not part of the suite, Forever only: makes Blizzard's own windows movable by their title bar (Character, Spellbook & Talents, Professions, Collections, Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip, Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn List, Inspect, Trade, Game Menu and more); Ctrl + mouse wheel scales a window (50-150%); position and scale remembered per window and put back after Blizzard's panel layout; on/off and reset per window; world map and bags left to their own addons | `/bwf` |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all eight Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever` and `BetterWindowsForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint, unit-frame or window code of its own, and the addons work the same without it | `/bgf`, minimap button |
+| `BetterFishingForever` | Standalone, not part of the suite, Forever only: double right-click in the world casts Fishing while a fishing pole is equipped (a secure button and a short-lived `BUTTON2` override binding, armed after the first click so a single right-click still loots the bobber); never in combat; works with `ActionButtonUseKeyDown` on or off; on/off and a 0.2-0.8 s double-click window | `/bfish` |
+| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all nine Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever`, `BetterWindowsForever` and `BetterFishingForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, window or fishing code of its own, and the addons work the same without it | `/bgf`, minimap button |
 
 ## GaarBags: sorting and junk
 
@@ -231,18 +232,37 @@ and BetterGaarForever has a Windows row for it with a checkbox per window. It sh
 TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterWindowsForever/README.md`](addons/BetterWindowsForever/README.md).
 
-## BetterGaarForever: an optional hub for all eight
+## BetterFishingForever: double right-click fishing on Forever
+
+A standalone addon - no Gaar addon or library needed, and not part of the suite. Double
+right-click in the world casts Fishing, but only while a fishing pole is in the main-hand slot
+and only out of combat; nothing happens while the cursor holds an item. An addon cannot cast by
+itself, so it owns a `SecureActionButtonTemplate` button and, for a moment, binds the right
+mouse button to it (`SetOverrideBindingClick(..., "BUTTON2", ...)`): the first right-click goes
+to the game as always (the bobber is looted), its release arms the binding for the rest of the
+double-click window (0.4 s by default, 0.2-0.8), the second right press clicks the button, and
+the binding is cleared once the button is up again, when the window runs out, or at
+`PLAYER_REGEN_DISABLED`. The button is registered for the one click direction
+`ActionButtonUseKeyDown` acts on, so it casts once with the CVar on or off. Fishing is resolved
+out of combat at login and on `SPELLS_CHANGED` (highest known rank of 7620/7731/7732/18248, cast
+by localized name). `/bfish` for help, `on`, `off`, `window <0.2-0.8>` and `status`. It exports
+`BetterFishingForeverAPI`, and BetterGaarForever has a Fishing row for it. It ships a `_Camelot`
+TOC and a plain fallback TOC, both at 16001. Details in
+[`addons/BetterFishingForever/README.md`](addons/BetterFishingForever/README.md).
+
+## BetterGaarForever: an optional hub for all nine
 
 An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
 menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars**, a **Plates**, a **GPS** and a
-**Frames** and a **Windows** submenu with the options of all eight Better...Forever addons:
-`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`,
-`BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever` and `BetterWindowsForever`. It
-carries no bag, quest, map, cast bar, nameplate, waypoint, unit-frame or window code of its own:
+**Frames**, a **Windows** and a **Fishing** submenu with the options of all nine Better...Forever
+addons: `BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`,
+`BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever`, `BetterWindowsForever` and
+`BetterFishingForever`. It carries no bag, quest, map, cast bar, nameplate, waypoint, unit-frame,
+window or fishing code of its own:
 the addons keep their logic, their saved variables and
-`/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps` / `/bff` / `/bwf`, and
+`/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps` / `/bff` / `/bwf` / `/bfish`, and
 behave exactly the same without the hub. Each exports a small global API
-(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`, `BetterFramesForeverAPI`, `BetterWindowsForeverAPI`: `version`,
+(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`, `BetterFramesForeverAPI`, `BetterWindowsForeverAPI`, `BetterFishingForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
 its submenu from the same option list as the addon's own menu. While the hub is loaded,
 `BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not

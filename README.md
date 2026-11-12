@@ -207,7 +207,7 @@ bars; the text uses the client's secret-safe helpers where it has them, otherwis
 alone, and every part of an update runs in `pcall` and switches itself off after its first
 refusal with one line in chat. `/bff` for help, `status`, `lock`, `unlock`, `test`, `reset`,
 `scale <frame> <0.6-1.5>`, `frame <frame> on|off`, `editmode on|off`, `portrait 2d|3d`, `text`,
-`lowhp`, `classcolor` and `healpred on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
+`lowhp`, `classcolor`, `healpred`, `hotpred` and `marks on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
 a Frames row for it. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Use it
 instead of GaarFrames, X-Perl, ShadowedUnitFrames or PitBull4, not next to them (it warns once at
 login). Details in [`addons/BetterFramesForever/README.md`](addons/BetterFramesForever/README.md).

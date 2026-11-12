@@ -3,12 +3,16 @@
   lacks your buff, in a box at the top centre of the screen. Click a name to buff it.
 
   This file is the shared part; the class-specific parts are modules in their own files, loaded
-  after this one (both TOCs list all three):
+  after this one (both TOCs list all four):
 
     Druid.lua    Mark of the Wild / Gift of the Wild, Thorns on you and the tank, and the Gift of
                  the Wild and Rebirth reagents.
     Paladin.lua  Blessings by class (with a fallback when another paladin's blessing is already
                  there), "No aura", Righteous Fury while you tank, and Symbol of Kings.
+    Dispel.lua   The druid's dispel panel (curses and poisons): its own movable frame, a list of
+                 who has one out of combat and a strip of one secure button per member in
+                 combat (left-click Remove Curse, right-click Abolish/Cure Poison). It hooks into
+                 the druid module and keeps its own frames and events; see that file.
 
   A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
   else from here:
@@ -67,7 +71,7 @@ ns = ns or {}
 local PREFIX = "|cff33ff99BetterBuffsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 local MAX_THRESHOLD = 200
 local MAX_AURAS = 40
@@ -1227,6 +1231,9 @@ ns.InGroup, ns.InRaid, ns.Eligible = InGroup, InRaid, Eligible
 ns.UnitGUIDPlain, ns.UnitLabel, ns.UnitClassFile, ns.ClassHex = UnitGUIDPlain, UnitLabel, UnitClassFile, ClassHex
 ns.Threshold, ns.CheckReagent = Threshold, CheckReagent
 ns.MakeEntry, ns.FakeEntry = MakeEntry, FakeEntry
+ns.GroupUnits, ns.InSpellRange, ns.UseKeyDown, ns.PlayerClass = GroupUnits, InSpellRange, UseKeyDown, PlayerClass
+ns.Holder = function() return holder end
+ns.TestMode = function() return testMode end
 ns.CharDB = function() return charDb end
 ns.DB = function() return db end
 

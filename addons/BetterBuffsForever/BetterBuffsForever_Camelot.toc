@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: BetterBuffsForever
-## Notes: A buff check on WoW Forever for druids and paladins: a box at the top centre lists who lacks your buff (Mark of the Wild and Thorns; blessings by class, no aura, Righteous Fury when tanking) and low reagents. Click a name to buff it. Hidden in combat. /bbuff
+## Notes: A buff check on WoW Forever for druids and paladins: a box at the top centre lists who lacks your buff (Mark of the Wild and Thorns; blessings by class, no aura, Righteous Fury when tanking) and low reagents. Click a name to buff it. Hidden in combat. Druids also get a dispel panel for curses and poisons, with one click button per member in combat. /bbuff
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.1
+## Version: 1.2
 ## IconTexture: Interface\Icons\Spell_Nature_Regeneration
 ## SavedVariables: BetterBuffsForeverDB
 ## SavedVariablesPerCharacter: BetterBuffsForeverCharDB
@@ -12,3 +12,4 @@
 BetterBuffsForever.lua
 Druid.lua
 Paladin.lua
+Dispel.lua

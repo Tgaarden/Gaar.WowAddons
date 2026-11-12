@@ -265,7 +265,7 @@ TOC and a plain fallback TOC, both at 16001. Details in
 A standalone addon - no Gaar addon or library needed, and not part of the suite - that does
 something only for a Druid or a Paladin (any other class leaves it idle). A box at the top centre
 of the screen, shown only while something is missing, lists who lacks your buffs. The class parts
-are modules (`Druid.lua`, `Paladin.lua`) sharing the box, rows, aura scan and tank detection in
+are modules (`Druid.lua`, `Paladin.lua`, and the druid's `Dispel.lua`) sharing the box, rows, aura scan and tank detection in
 `BetterBuffsForever.lua`. The tank is every member with the `TANK` role, else in a raid every
 main tank, else the one set by hand with `/bbuff tank` (your target); you can be the tank.
 
@@ -273,7 +273,16 @@ main tank, else the one set by hand with `/bbuff tank` (your target); you can be
   every member; whether you or the tank lack Thorns; low reagents for the highest rank you know of
   Gift of the Wild (Wild Berries / Wild Thornroot, below 10) and Rebirth (Maple, Stranglethorn,
   Ashwood, Hornbeam or Ironwood Seed, below 2). Right-click on a Mark of the Wild row casts Gift
-  of the Wild in a group.
+  of the Wild in a group. **Dispel panel** (1.2): its own movable frame below the box. Out of
+  combat it lists who has a curse or poison you can remove (`Curse` purple, `Poison` green); in
+  combat it is a fixed strip of one secure button per member (you and your party in a row, a
+  raid as one column per subgroup, up to 40), dimmed with nothing to remove and lit purple, green
+  or split when there is. Left-click casts Remove Curse, right-click Abolish Poison (Cure Poison
+  until Abolish is known). In combat the debuff is found without reading a secret: a plain read
+  where the client allows it, else `C_UnitAuras.GetUnitAuraInstanceIDs` with the
+  `HARMFUL|RAID_PLAYER_DISPELLABLE` filter and `GetAuraDispelTypeColor` through a colour curve,
+  else a filtered read; if the client answers none of them the strip stays clickable without
+  glow, and `/bbuff status` says which one answered.
 - **Paladin**: every member should have the blessing assigned to their class (Might for Warrior,
   Rogue and Hunter, Wisdom for the rest; `/bbuff bless <class> <type>` or the hub to change).
   Covered when that type is on from anyone (any rank, normal or Greater); when it is there from
@@ -290,7 +299,7 @@ member whose auras are secret counts as unknown, never as missing. The box is hi
 `[combat] hide` state driver; nothing is scanned or rebuilt until `PLAYER_REGEN_ENABLED`).
 Unlock, Alt + drag, reset; position saved. `/bbuff` for help, `on`, `off`, `group`, `sound`,
 `reagents`, `tank`, `unlock`, `lock`, `reset`, `test` and `status`; a druid adds `motw`,
-`thorns` and `tank on|off`, a paladin `bless`, `aura`, `fury` and `tanking`. It exports
+`thorns`, `tank on|off` and `dispel` (`on|off`, `curse|poison on|off`, `unlock|lock|reset`), a paladin `bless`, `aura`, `fury` and `tanking`. It exports
 `BetterBuffsForeverAPI`, and BetterGaarForever has a Buffs row for it with the options for your
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).

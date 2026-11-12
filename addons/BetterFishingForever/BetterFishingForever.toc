@@ -1,12 +1,14 @@
 ## Interface: 16001
 ## Title: BetterFishingForever
-## Notes: Double right-click in the world to cast Fishing on WoW Forever, while a fishing pole is equipped. Shift + double right-click swaps the pole in or out. /bfish
+## Notes: Double right-click in the world to cast Fishing on WoW Forever, while a fishing pole is equipped. Shift + double right-click swaps the pole in or out. Optional Fishing 1-300 route with map pins and a GPS arrow. /bfish
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.1
+## Version: 1.2
 ## IconTexture: Interface\Icons\Trade_Fishing
 ## SavedVariables: BetterFishingForeverDB
 ## SavedVariablesPerCharacter: BetterFishingForeverCharDB
 
+Route.lua
+RouteGuide.lua
 BetterFishingForever.lua

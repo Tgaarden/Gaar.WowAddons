@@ -2,7 +2,10 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). Double
 right-click in the 3D world casts Fishing while a fishing pole is equipped, and Shift + double
-right-click swaps the fishing pole in and out. It needs no other addon or library, and it is not part of the Gaar suite.
+right-click swaps the fishing pole in and out. Since 1.2 it also carries an optional **Fishing
+1-300 route**: the current step from your Fishing skill, pins on the world map and minimap, and
+BetterGpsForever's arrow on the nearest spot. It needs no other addon or library (the arrow needs
+BetterGpsForever), and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -25,10 +28,13 @@ right-click swaps the fishing pole in and out. It needs no other addon or librar
   known rank), or by ID when the client gives no name.
 
 - **Shift + double right-click swaps the pole** (1.1). See [Pole swap](#pole-swap).
+- **Fishing 1-300 route** (1.2, off until `/bfish route on`). See
+  [Fishing route](#fishing-route-1-300).
 
 Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on) and
 `dblClick` (the window in seconds, default 0.4). The pole swap's memory is saved per character in
-`BetterFishingForeverCharDB.swap`.
+`BetterFishingForeverCharDB.swap`, the route's state in `BetterFishingForeverCharDB.route` (on/off,
+skipped steps, a step picked by hand, and the waypoint the route set).
 
 ## Pole swap
 
@@ -61,6 +67,85 @@ double-click window of the first) or **`/bfish swap`**:
   own handler (a hardware event) anyway, so no secure macro button is needed. If the client ever
   blocks the call, `ADDON_ACTION_BLOCKED` / `ADDON_ACTION_FORBIDDEN` is caught, printed and shown
   in `/bfish status`.
+
+## Fishing route (1-300)
+
+`/bfish route on` (per character, off by default) shows where to go next on the way from 1 to
+300. The route data is in `Route.lua`, the logic in `RouteGuide.lua`; both reach the main file
+through the addon namespace, not a global.
+
+- **Your skill and cap.** Classic first: `GetNumSkillLines` / `GetSkillLineInfo`, scanned for the
+  line named like spell 7620 (Fishing, localized), giving the rank and the max rank (the cap:
+  75 Apprentice, 150 Journeyman, 225 Expert, 300 Artisan). Where that finds nothing, the retail
+  `GetProfessions` / `GetProfessionInfo`. No Fishing at all reads as 0/0. A collapsed
+  *Secondary Skills* header in the skill window hides the line; `/bfish status` says so, and the
+  route then keeps the step it had.
+- **Your faction.** Only the steps for `UnitFactionGroup("player")` and the ones for both.
+- **The current step** is the first step in route order that is not done and whose range holds
+  your skill:
+  - a **trainer, the Expert book and the Artisan quest** (with its four fish) are done once the
+    cap reaches the rank they give, and only come up while the skill sits at the cap: 0/0 ->
+    Apprentice trainer, 75/75 -> Journeyman trainer, 150/150 -> the Expert book, 225/225 -> Nat
+    Pagle;
+  - a **fish** step is done once the skill reaches its upper end;
+  - an **optional** vendor or quest step (a pole and lures, Nightcrawlers, the FC-5000 pole quest)
+    is done once you skip it with `/bfish route next` (saved), or once the skill is past it.
+- **`/bfish route next | prev`** moves by hand (next on an optional step skips it for good). A step
+  picked by hand holds until the automatic step changes (a skill-up past it, a new rank). The
+  Artisan quest needs four fish: `/bfish route next` after each one.
+- **Auto-advance** on `SKILL_LINES_CHANGED`, `CHAT_MSG_SKILL`, `SPELLS_CHANGED` and
+  `LEARNED_SPELL_IN_TAB` (where the client has it): `Fishing route: <step>` in chat when the step
+  changes.
+- **Pins.** The current step's fishing spots (fish icon) or its NPC (book for a trainer, `!` for a
+  quest, coin for a vendor) on the world map, when that map or the continent holding it is shown,
+  and on the minimap within its radius. The tooltip has the step, the NPC, the note and the
+  coordinate with its source. They are drawn the way BetterGpsForever draws its pins: our own
+  frames on the map canvas and the minimap, placed by normalised coordinates; no library.
+- **GPS arrow.** With BetterGpsForever loaded, `BetterGpsForeverAPI.SetWaypoint(mapID, x, y,
+  title)` points its arrow at the step's nearest spot (on your continent; else the first one),
+  titled with the step. Only when the step changes and at `/bfish route on`: a waypoint you set
+  yourself stays until the step changes. `/bfish route off` clears the waypoint only while it is
+  still the route's. Without BetterGpsForever: pins only, and `/bfish status` says so.
+
+### The route in short
+
+Alliance:
+
+| Skill | Step |
+|---|---|
+| 0 | Apprentice trainer: Lee Brown, Goldshire, Elwynn Forest (47.6, 62.2) |
+| 1-75 | Buy a pole and Shiny Baubles (optional); fish any water in Elwynn Forest |
+| 75 | Journeyman trainer: Arnold Leland, Stormwind (55.0, 69.6); Nightcrawlers (optional) |
+| 75-150 | Westfall, north coast |
+| 150 | Expert book: Old Man Heming, Booty Bay (27.4, 77.0) |
+| 150-225 | Pole quest 'Snapjaws, Lad!' (optional, unconfirmed); Dustwallow Marsh (or Desolace) |
+| 225 | Artisan: Nat Pagle (Dustwallow 58.6, 60.0), the four fish, hand in |
+| 225-260 | Dustwallow Marsh |
+| 260-300 | Feralas, around Feathermoon (or Tanaris) |
+
+Horde:
+
+| Skill | Step |
+|---|---|
+| 0 | Apprentice trainer: Lau'Tiki, Durotar (53.2, 81.6) |
+| 1-75 | Buy a pole and Shiny Baubles (optional); fish any water in Durotar |
+| 75 | Journeyman trainer: Lumak, Orgrimmar (69.8, 29.6); Nightcrawlers (optional) |
+| 75-150 | The Barrens: the Wailing Caverns pools or Ratchet |
+| 150 | Expert book: Old Man Heming, Booty Bay (27.4, 77.0) |
+| 150-225 | Pole quest 'Snapjaws, Mon!', Katoom, Revantusk Village (optional); Dustwallow Marsh (or Desolace) |
+| 225 | Artisan: Nat Pagle (Dustwallow 58.6, 60.0), the four fish, hand in |
+| 225-260 | Dustwallow Marsh |
+| 260-300 | The Hinterlands, Revantusk Village (or Tanaris) |
+
+The four Artisan fish: Feralas Ahi (Verdantis River, Feralas), Misty Reed Mahi Mahi (Misty Reed
+Strand, Swamp of Sorrows), Sar'theris Striker (Sar'theris Strand, Desolace) and Savage Coast Blue
+Sailfin (Savage Coast, Stranglethorn Vale). `/bfish route list` prints every step with its range,
+`/bfish route gear` the poles and lures worth having.
+
+Some facts differ between sources and are marked in the notes: whether the FC-5000 quest exists
+for the Alliance, the character level for Artisan (guides say 35), and the Stormwind trainer's
+position. Elwynn Forest and Durotar have no pool data, so their pin is the trainer: fish any water
+nearby.
 
 ## The click sequence
 
@@ -113,13 +198,19 @@ with both settings and never takes the first click away from the bobber.
 | `/bfish on`, `/bfish off` | Switch double right-click fishing on or off |
 | `/bfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
 | `/bfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
-| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, the remembered weapons and the equip path (`swap: remembered <links> / none`), and the last error caught |
+| `/bfish route on`, `/bfish route off` | Switch the Fishing 1-300 route (pins and GPS arrow) on or off, per character; off by default |
+| `/bfish route` | Your Fishing skill, the current step with its NPC and note, and the next step |
+| `/bfish route next`, `/bfish route prev` | Move one step by hand; next on an optional vendor or quest step skips it for good |
+| `/bfish route list` | Every step for your faction with its range; the current one marked, done ones say so |
+| `/bfish route gear` | Poles and lures worth having on the way |
+| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
 
 ## With BetterGaarForever (optional)
 
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
 menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/bfish
-on|off`) and **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`). Both go through
+on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`) and **Fishing
+route** (the same as `/bfish route on|off`). Both go through
 the same functions as the slash command. This addon has no minimap button or menu of its own, so
 nothing here changes with or without the hub.
 
@@ -128,7 +219,7 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
 | Field | What it is |
 |---|---|
 | `version` | This addon's version, a string |
-| `StatusLine()` | One line of state, e.g. `on · 0.40 s · pole equipped` |
+| `StatusLine()` | One line of state, e.g. `on · 0.40 s · pole equipped`, plus `· route 152/225` while the route is on |
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, submenu }`, `{ divider }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
@@ -145,7 +236,9 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
   `pcall` (the last error is kept for `/bfish status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled` and `dblClick`
-  are kept account-wide, and only `swap` per character.
+  are kept account-wide, and only `swap` and `route` per character.
+- The route's pins are plain frames of our own on the map canvas and the minimap; its only hook is
+  `hooksecurefunc` on `WorldMapFrame.OnMapChanged`.
 
 ## Names it relies on
 
@@ -157,8 +250,29 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 (or `EquipItemByName`), `EquipCursorItem`, `UnitCastingInfo`, `UnitChannelInfo`, `C_Item.GetItemInfoInstant` (or
 `GetItemInfoInstant`), `C_Spell.GetSpellInfo` (or `GetSpellInfo`), `C_SpellBook.IsSpellKnown`,
 `IsPlayerSpell`, `IsSpellKnown`, `C_CVar.GetCVarBool("ActionButtonUseKeyDown")` and
-`InCombatLockdown`. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
+`InCombatLockdown`; for the route `GetNumSkillLines`, `GetSkillLineInfo`, `GetProfessions`,
+`GetProfessionInfo`, `UnitFactionGroup`, `C_Map.GetWorldPosFromMapPos`, `C_Map.GetMapPosFromWorldPos`,
+`C_Map.GetBestMapForUnit`, `C_Map.GetPlayerMapPosition`, `WorldMapFrame` (`GetCanvas`, `GetMapID`,
+`OnMapChanged`), `Minimap`, `C_Minimap.GetViewRadius`, `GetPlayerFacing`, `GetMinimapShape` and
+`GameTooltip`. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
+
+## Credits
+
+- **Fishing pool coordinates** are derived from the GatherMate2 data dumps:
+  [Thurdi/GatherMate2_Data_Classic](https://github.com/Thurdi/GatherMate2_Data_Classic) (Classic
+  Era maps, marked `GM2 Classic` in `Route.lua`) and
+  [Nevcairiel/GatherMate2_Data](https://github.com/Nevcairiel/GatherMate2_Data) (retail maps,
+  `GM2 retail`, used only where the Classic data has nothing), by kagaro, Xinhuan, Nevcairiel and
+  Thurdi. Neither repository states a license, so no file or code of theirs is shipped here: only
+  about 30 hand-picked positions in the game world, kept as facts with their source.
+- **NPCs, quests and the Artisan fish** from [warcraft.wiki.gg](https://warcraft.wiki.gg/) and
+  [method.gg](https://www.method.gg/wow-forever/fishing-in-wow-forever-leveling-guide-fishing-items-trainers),
+  cross-checked with [Warcraft Tavern](https://warcrafttavern.com/wow-classic/guides/fishing-1-300),
+  [wow-professions.com](https://www.wow-professions.com/classic/fishing-leveling-guide-classic-wow)
+  and [noobtoboss](https://noobtoboss.com/wow-classic-fishing-leveling-guide/).
+- **Classic Era uiMapIDs** checked against `WoWPro_ZoneData_Vanilla.lua` from
+  [WoW-Pro-Guides](https://github.com/Ludovicus-Maior/WoW-Pro-Guides).
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The credits above cover where the route's facts come from.

@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 2.6
+## Version: 2.7
 ## X-Curse-Project-ID: 1790363
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## OptionalDeps: BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever, BetterWindowsForever, BetterFishingForever

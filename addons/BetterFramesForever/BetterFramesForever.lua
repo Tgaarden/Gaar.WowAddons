@@ -33,7 +33,7 @@
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /bff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      editmode, portrait, text, lowhp, classcolor and playerbuffs.
+      editmode, portrait, text, classcolor and playerbuffs.
     * BetterFramesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
 
@@ -64,7 +64,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.10"
+local VERSION = "1.2.11"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -78,7 +78,6 @@ local PARTY_GAP = 52         -- room under each party frame for its aura rows an
 local OUT_OF_RANGE = 0.5     -- party alpha out of range
 local TICK = 0.2             -- seconds between target-of-target and range updates
 local MIN_SCALE, MAX_SCALE = 0.6, 1.5
-local LOW_HP, CRIT_HP = 0.35, 0.20
 
 -- The frames, in the order of the menu, the status and the help.
 local KEYS = { "player", "target", "tot", "focus", "pet", "party" }
@@ -137,20 +136,20 @@ local FOLLOW_CHILD = { player = "pet", target = "tot" }
 
 local CONFLICTS = { "GaarFrames", "XPerl", "XPerl_Player", "ShadowedUnitFrames", "PitBull4" }
 
--- The palette (1.2.8): deeper, slightly less saturated tones made for the bar gradient. Class
--- colours are used as the client gives them.
+-- The palette (1.2.11): Blizzard's own colours, read at runtime from FACTION_BAR_COLORS, PowerBarColor
+-- and RAID_CLASS_COLORS where the client has them; these are the classic defaults used as fallback.
+-- The gradient, border and shadow of 1.2.8 stay and shade these colours.
 local Look = {   -- the palette, and SetBarColor and Edge below
-    HOSTILE = { 0.78, 0.25, 0.22 },
-    NEUTRAL = { 0.85, 0.72, 0.25 },
-    FRIENDLY = { 0.30, 0.68, 0.32 },   -- friendly NPCs, and players without class colour
-    TAPPED = { 0.52, 0.52, 0.55 },     -- tagged by someone else; offline too
-    DEAD = { 0.40, 0.40, 0.42 },
-    LOW = { 0.92, 0.55, 0.18 },        -- under 35% health
-    CRIT = { 0.90, 0.16, 0.14 },       -- under 20% health
+    HEALTH = { 0, 1, 0 },              -- Blizzard's default health green; players without class colour
+    HOSTILE = { 0.8, 0.3, 0.22 },      -- FACTION_BAR_COLORS[2]
+    NEUTRAL = { 0.9, 0.7, 0 },         -- FACTION_BAR_COLORS[4]
+    FRIENDLY = { 0, 0.6, 0.1 },        -- FACTION_BAR_COLORS[5]: friendly NPCs
+    TAPPED = { 0.5, 0.5, 0.5 },        -- tagged by someone else; offline too
+    DEAD = { 0.5, 0.5, 0.5 },
 }
-local POWER_COLORS = {
-    MANA = { 0.24, 0.44, 0.88 }, RAGE = { 0.80, 0.22, 0.20 }, FOCUS = { 0.90, 0.52, 0.26 },
-    ENERGY = { 0.92, 0.78, 0.22 }, RUNIC_POWER = { 0.18, 0.72, 0.90 },
+local POWER_COLORS = {   -- fallback only: PowerBarColor first
+    MANA = { 0, 0, 1 }, RAGE = { 1, 0, 0 }, FOCUS = { 1, 0.5, 0.25 },
+    ENERGY = { 1, 1, 0 }, RUNIC_POWER = { 0, 0.82, 1 },
 }
 local THREAT_COLORS = { { 1.0, 1.0, 0.47 }, { 1.0, 0.6, 0.0 }, { 1.0, 0.0, 0.0 } }
 local BORDER = { 0.3, 0.3, 0.35 }
@@ -164,7 +163,6 @@ local DEFAULTS = {
     locked = true,
     portrait = "2d",
     text = true,
-    lowhp = true,
     classColor = true,
     followEditMode = false,
     playerBuffs = true,
@@ -176,7 +174,7 @@ local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true,
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
-    locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
+    locked = true, portrait = true, text = true, classColor = true, followEditMode = true,
     playerBuffs = true, healPrediction = true, hotPred = true, raidMark = true, frames = true, scales = true, positions = true,
 }
 
@@ -545,40 +543,37 @@ end
 -- Colours
 -- ---------------------------------------------------------------------------
 
--- Our own palette by reaction (1.2.8; up to 1.2.7 Blizzard's FACTION_BAR_COLORS came first).
+-- Blizzard's FACTION_BAR_COLORS by reaction (1.2.11; 1.2.8-1.2.10 used our own palette).
 local function ReactionRGB(unit)
     local r = Num(UnitReaction(unit, "player"))
+    local t = type(_G.FACTION_BAR_COLORS) == "table" and _G.FACTION_BAR_COLORS[r or 4]
+    if type(t) == "table" and type(t.r) == "number" then return t.r, t.g, t.b end
     local c = (not r or r == 4) and Look.NEUTRAL or (r < 4 and Look.HOSTILE) or Look.FRIENDLY
     return c[1], c[2], c[3]
 end
 
--- pct is nil when the health is secret: then there is no low-health colour.
-local function HealthRGB(unit, pct)
+local function HealthRGB(unit)
     if Plain(UnitIsConnected(unit)) == false then return Look.TAPPED[1], Look.TAPPED[2], Look.TAPPED[3] end
     if Plain(UnitIsDeadOrGhost(unit)) == true then return Look.DEAD[1], Look.DEAD[2], Look.DEAD[3] end
     local isPlayer = Plain(UnitIsPlayer(unit)) == true
     if not isPlayer and type(_G.UnitIsTapDenied) == "function" and Plain(UnitIsTapDenied(unit)) == true then
         return Look.TAPPED[1], Look.TAPPED[2], Look.TAPPED[3]
     end
-    if db.lowhp and pct then
-        if pct < CRIT_HP then return Look.CRIT[1], Look.CRIT[2], Look.CRIT[3] end
-        if pct < LOW_HP then return Look.LOW[1], Look.LOW[2], Look.LOW[3] end
-    end
     if isPlayer then
         if db.classColor then
             local r, g, b = ClassRGB(ClassToken(unit))
             if r then return r, g, b end
         end
-        return Look.FRIENDLY[1], Look.FRIENDLY[2], Look.FRIENDLY[3]
+        return Look.HEALTH[1], Look.HEALTH[2], Look.HEALTH[3]
     end
     return ReactionRGB(unit)
 end
 
 local function PowerRGB(token)
-    local c = token and POWER_COLORS[token]
-    if c then return c[1], c[2], c[3] end
     local pc = token and type(_G.PowerBarColor) == "table" and _G.PowerBarColor[token]
     if type(pc) == "table" and type(pc.r) == "number" then return pc.r, pc.g, pc.b end
+    local c = token and POWER_COLORS[token]
+    if c then return c[1], c[2], c[3] end
     return 0.6, 0.6, 0.6
 end
 
@@ -939,11 +934,12 @@ end
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
 local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug
 do
-local MY = { 0.18, 0.78, 0.30, 0.85 }    -- your heals (Blizzard's myHealPrediction is a strong green)
-local ALL = { 0.55, 0.88, 0.48, 0.55 }   -- everyone's heals, lighter
-local HOT = { 0.95, 0.80, 0.30, 0.55 }   -- what active HoTs will still heal (1.2.7), soft yellow
+-- 1.2.11: Blizzard's colours (CompactUnitFrame / unit frame heal prediction); no global holds them.
+local MY = { 0.0, 0.827, 0.765, 0.85 }   -- your heals: Blizzard's teal-green
+local ALL = { 0.0, 0.631, 0.557, 0.55 }  -- everyone's heals: Blizzard's darker teal
+local HOT = { 0.95, 0.85, 0.30, 0.55 }   -- what active HoTs will still heal (1.2.7): Blizzard has none, so our yellow
 local ABSORB = { 1.0, 1.0, 1.0, 0.55 }   -- totalAbsorb: white, with Blizzard's stripes where found
-local HEAL_ABSORB = { 0.45, 0.08, 0.08, 0.75 }
+local HEAL_ABSORB = { 1.0, 0.0, 0.0, 0.75 }   -- healAbsorb: red
 local SHIELD_OVERLAY = "Interface\\RaidFrame\\Shield-Overlay"
 
 local calc   -- the shared calculator; false where the client has none
@@ -1669,7 +1665,7 @@ local function Build(key, unit, preview)
         f.mana = NewBar(f, Mana.H, 7)
         f.mana:SetPoint("TOPLEFT", f.power, "BOTTOMLEFT", 0, -1)
         f.mana:SetPoint("TOPRIGHT", f.power, "BOTTOMRIGHT", 0, -1)
-        Look.SetBarColor(f.mana, POWER_COLORS.MANA[1], POWER_COLORS.MANA[2], POWER_COLORS.MANA[3])
+        Look.SetBarColor(f.mana, PowerRGB("MANA"))
         f.mana:Hide()
     end
 
@@ -1803,7 +1799,7 @@ local function UpdateHealth(f)
         bar:SetValue(cur)
         pct = cur / mx
     end
-    local r, g, b = HealthRGB(u, pct)
+    local r, g, b = HealthRGB(u)
     Look.SetBarColor(bar, r, g, b)
 
     local fs = bar.text
@@ -3117,13 +3113,10 @@ local function FillFake(f)
     local hp, mx = d.hp[1], d.hp[2]
     f.health:SetMinMaxValues(0, mx)
     f.health:SetValue(hp)
-    local pct = hp / mx
     local r, g, b
-    if db.lowhp and pct < CRIT_HP then r, g, b = Look.CRIT[1], Look.CRIT[2], Look.CRIT[3]
-    elseif db.lowhp and pct < LOW_HP then r, g, b = Look.LOW[1], Look.LOW[2], Look.LOW[3]
-    elseif d.class then
+    if d.class then
         if db.classColor then r, g, b = ClassRGB(d.class) end
-        if not r then r, g, b = Look.FRIENDLY[1], Look.FRIENDLY[2], Look.FRIENDLY[3] end
+        if not r then r, g, b = Look.HEALTH[1], Look.HEALTH[2], Look.HEALTH[3] end
     else
         r, g, b = d.reaction[1], d.reaction[2], d.reaction[3]
     end
@@ -3524,7 +3517,6 @@ end
 
 local SETTING_TOGGLES = {
     { key = "text", cmd = "text", label = "Bar text" },
-    { key = "lowhp", cmd = "lowhp", label = "Low-health colour" },
     { key = "classColor", cmd = "classcolor", label = "Class colour" },
     { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
@@ -3567,7 +3559,7 @@ local function PrintHelp()
     Print(string.format("/bff scale <%s> <%.1f-%.1f> - one frame's scale", KeyList(), MIN_SCALE, MAX_SCALE))
     Print("/bff frame <" .. KeyList() .. "> on | off - which frames are drawn (off: Blizzard's comes back after /reload)")
     Print("/bff portrait 2d | 3d (now: " .. (db and db.portrait or "?") .. ")")
-    Print("/bff text | lowhp | classcolor on | off - bar text, low-health colour, class colour")
+    Print("/bff text | classcolor on | off - bar text, class colour")
     Print("/bff playerbuffs on | off - your buffs in rows under the player frame (now: "
         .. OnOff(db and db.playerBuffs) .. ")")
     Print("/bff healpred on | off - incoming heals and absorbs on the health bars (now: "
@@ -3773,8 +3765,7 @@ local function PrintStatus()
         Print("follow Blizzard Edit Mode: off (own positions)")
     end
     PrintAuraStatus()
-    Print("bar text " .. OnOff(db.text) .. DOT .. "low-health colour " .. OnOff(db.lowhp)
-        .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
+    Print("bar text " .. OnOff(db.text) .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
     Print("raid marks " .. OnOff(db.raidMark))

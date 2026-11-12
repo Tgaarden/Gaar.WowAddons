@@ -25,28 +25,23 @@ party, and switches Blizzard's off. It needs no other addon or library.
   `UnitHealthPercent(unit, true, ...)`, as Blizzard's own frames): 1.2.6's unpredicted reading is
   the last value the server sent, so after a heal landed the bar and text kept the old health for
   a few seconds while the green heal prediction was already gone.
-- **Colours.** Class colour for players, reaction colour for NPCs, grey when someone else tagged
-  the mob. Under 35% health the bar turns orange, under 20% red (option, on by default). The
-  power bar is coloured by power type (mana, rage, energy, focus).
-- **The look** (1.2.8). Every bar - health, power, the druid mana bar and the heal prediction
-  overlays - has a soft vertical gradient in its own colour: lighter at the top, darker at the
-  bottom, so the bars have some depth instead of a flat hard fill (they are now a plain white
-  texture coloured that way; up to 1.2.7 Blizzard's `UI-StatusBar` texture with one flat colour).
-  The health bar has a thin near-black border and a faint shadow fading out 2 px beyond it,
-  drawn under the bars, so the power bar and portrait are not covered. The colours are a richer,
-  softer palette of deeper, slightly less saturated tones; class colours keep their hue (only the
-  gradient is applied), and NPC reaction colours are now the addon's own rather than Blizzard's
-  `FACTION_BAR_COLORS`.
+- **Colours** (1.2.11: Blizzard colours with soft gradient). Class colour for players (`RAID_CLASS_COLORS`),
+  Blizzard's green for players without class colour, Blizzard's `FACTION_BAR_COLORS` for NPCs, grey
+  when someone else tagged the mob, offline or dead. The power bar uses Blizzard's `PowerBarColor`
+  (mana, rage, energy, focus, runic power). Where the client has no such table the classic Blizzard
+  default values are used. 1.2.8-1.2.10 had a custom palette; the low-health tint (orange under
+  35%, red under 20%) and its `/bff lowhp` option are gone, since Blizzard's frames do not tint by health.
+- **The look** (1.2.8, colours from 1.2.11). Every bar - health, power, the druid mana bar and the
+  heal prediction overlays - has a soft vertical gradient in its own colour: lighter at the top,
+  darker at the bottom, so the bars have some depth instead of a flat hard fill (they are a plain
+  white texture coloured that way). The health bar has a thin near-black border and a faint shadow
+  fading out 2 px beyond it, drawn under the bars, so the power bar and portrait are not covered.
 
-  | Colour | 1.2.8 (r, g, b) |
+  | Heal prediction | 1.2.11 (r, g, b, alpha) |
   |---|---|
-  | Hostile / neutral / friendly | 0.78, 0.25, 0.22 / 0.85, 0.72, 0.25 / 0.30, 0.68, 0.32 |
-  | Tagged by someone else, offline / dead | 0.52, 0.52, 0.55 / 0.40, 0.40, 0.42 |
-  | Low health (< 35%) / critical (< 20%) | 0.92, 0.55, 0.18 / 0.90, 0.16, 0.14 |
-  | Mana / rage / energy | 0.24, 0.44, 0.88 / 0.80, 0.22, 0.20 / 0.92, 0.78, 0.22 |
-  | Focus / runic power | 0.90, 0.52, 0.26 / 0.18, 0.72, 0.90 |
-  | Your heals / all heals / HoTs (alpha) | 0.18, 0.78, 0.30 (0.85) / 0.55, 0.88, 0.48 (0.55) / 0.95, 0.80, 0.30 (0.55) |
-  | Heal absorb (alpha) | 0.45, 0.08, 0.08 (0.75) |
+  | Your heals / all heals | 0.0, 0.827, 0.765, 0.85 / 0.0, 0.631, 0.557, 0.55 (Blizzard's teal) |
+  | HoTs (Blizzard has none) | 0.95, 0.85, 0.30, 0.55 |
+  | Absorb / heal absorb | white 0.55 / red 1.0, 0.0, 0.0, 0.75 |
 - **Target.** Combo points above the frame for rogues and druids. A row of buffs and a row of
   debuffs under it, up to 16 each, with stacks and a cooldown swipe; your own debuffs are larger
   with a bright border, other debuffs are smaller and greyed. Elites and bosses get a gold
@@ -148,7 +143,6 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/bff frame <player\|target\|tot\|focus\|pet\|party> on\|off` | Which frames are drawn (without `on`/`off`: toggle) |
 | `/bff portrait 2d\|3d` | 2D portrait (default) or 3D model |
 | `/bff text on\|off` | `cur/max  NN%` text on the bars (on by default) |
-| `/bff lowhp on\|off` | Orange under 35%, red under 20% (on by default) |
 | `/bff classcolor on\|off` | Class colour for players (on by default; off: green) |
 | `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 | `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
@@ -163,7 +157,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 [BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
 menu has a submenu per Better...Forever addon. Its **Frames** row is in BetterGaarForever 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
-**Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**, **Low-health colour**,
+**Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**,
 **Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/bff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here
 changes with or without the hub.
@@ -238,7 +232,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   are used where it has them (`AbbreviateLargeNumbers`, else `AbbreviateNumbers`, for `cur/max`, `UnitHealthPercent` /
   `UnitPowerPercent` with `CurveConstants.ScaleTo100` for the percent, written with
   `SetFormattedText`); without them the text is left empty and the bar alone shows the value.
-  The low-health and class colours are used only when they can be worked out; a hidden threat
+  The class colour is used only when they can be worked out; a hidden threat
   status, level or classification is dropped. Party range uses `UnitInRange`; a hidden answer
   goes straight to `SetAlphaFromBoolean` where the client has it. Aura timings that are hidden
   use the client's duration object (`C_UnitAuras.GetAuraDuration` and
@@ -331,7 +325,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   ticker; everything else is event-driven.
 - Party frames follow `RegisterUnitWatch`, so in a raid they show your own subgroup.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `portrait`,
-  `text`, `lowhp`, `classColor`, `followEditMode`, `playerBuffs`, `healPrediction`, `hotPred`, `frames`, `scales` and `positions` are kept, each type-checked
+  `text`, `classColor`, `followEditMode`, `playerBuffs`, `healPrediction`, `hotPred`, `frames`, `scales` and `positions` are kept, each type-checked
   (scales clamped to 0.6-1.5, positions with a missing field dropped); anything else is cleared
   on load. A position is saved only when none of its numbers is secret. Test mode is never saved.
 

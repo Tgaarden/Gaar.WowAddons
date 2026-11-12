@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.2.10
+## Version: 1.2.11
 ## IconTexture: Interface\Icons\Spell_Holy_PrayerOfHealing
 ## SavedVariables: BetterFramesForeverDB
 ## X-Curse-Project-ID: 1793613

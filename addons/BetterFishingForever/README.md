@@ -1,8 +1,8 @@
 # BetterFishingForever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). Double
-right-click in the 3D world casts Fishing while a fishing pole is equipped, and it does nothing
-else. It needs no other addon or library, and it is not part of the Gaar suite.
+right-click in the 3D world casts Fishing while a fishing pole is equipped, and Shift + double
+right-click swaps the fishing pole in and out. It needs no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -24,8 +24,43 @@ else. It needs no other addon or library, and it is not part of the Gaar suite.
   entry under the localized name of 7620. The button casts it by localized name (the highest
   known rank), or by ID when the client gives no name.
 
+- **Shift + double right-click swaps the pole** (1.1). See [Pole swap](#pole-swap).
+
 Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on) and
-`dblClick` (the window in seconds, default 0.4).
+`dblClick` (the window in seconds, default 0.4). The pole swap's memory is saved per character in
+`BetterFishingForeverCharDB.swap`.
+
+## Pole swap
+
+**Shift + double right-click** in the world (the second press with Shift held, within the
+double-click window of the first) or **`/bfish swap`**:
+
+- **No pole in the main hand:** the main hand (slot 16) and off hand (slot 17) are remembered
+  (itemID + link, per character, so they survive `/reload`), and the best fishing pole in the
+  bags is equipped. Best = the highest classic fishing bonus among the known poles: Arcanite
+  Fishing Pole 19970 (+35), Nat Pagle's Extreme Angler FC-5000 19022 (+25), Big Iron Fishing
+  Pole 6367 (+20), Darkwood Fishing Pole 6366 (+15), Strong Fishing Pole 6365 (+5), Blump Family
+  Fishing Pole 12225 (+3), Fishing Pole 6256 (0). Any other item of class 2 / subclass 20 counts
+  as a pole with bonus 0; on a tie the first one in the bags wins. Chat: `equipped <pole>`.
+- **A pole in the main hand:** the remembered weapons go back on, found in the bags by the exact
+  link first, else by itemID. A remembered two-hander puts back only the main hand. The off hand
+  is equipped once the main-hand swap has landed (at most 3 s), so the two never race. Chat:
+  `weapons back: <links>`, and `not in your bags: <links>` for anything missing. With nothing
+  remembered it says so.
+- **It never casts Fishing** and never leaves an override binding behind. A press with Shift held
+  never starts the Fishing sequence; Shift pressed while the binding is armed (after a plain first
+  click) clears it at once; and a Shift click that still reaches the secure button does nothing
+  (`shift-type*` is set to an action type that does not exist) and swaps from its `PreClick`.
+  **Shift + single right-click** is untouched.
+- **Not in combat** (`can't swap weapons in combat`), **not while casting or channelling**,
+  Fishing included (`stop fishing first`), and not with an item on the cursor. The gesture follows
+  `/bfish on|off`; `/bfish swap` always works.
+- **Equip path:** `C_Item.EquipItemByName`, else `EquipItemByName`, else
+  `PickupContainerItem` + `EquipCursorItem`, called directly. These are not protected out of
+  combat on classic or on the retail engine, and the gesture calls them inside the second press's
+  own handler (a hardware event) anyway, so no secure macro button is needed. If the client ever
+  blocks the call, `ADDON_ACTION_BLOCKED` / `ADDON_ACTION_FORBIDDEN` is caught, printed and shown
+  in `/bfish status`.
 
 ## The click sequence
 
@@ -77,7 +112,8 @@ with both settings and never takes the first click away from the bobber.
 | `/bfish` or `/bfish help` | Help |
 | `/bfish on`, `/bfish off` | Switch double right-click fishing on or off |
 | `/bfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
-| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, and the last error caught |
+| `/bfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
+| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, the remembered weapons and the equip path (`swap: remembered <links> / none`), and the last error caught |
 
 ## With BetterGaarForever (optional)
 
@@ -109,14 +145,16 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
   `pcall` (the last error is kept for `/bfish status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled` and `dblClick`
-  are kept.
+  are kept account-wide, and only `swap` per character.
 
 ## Names it relies on
 
 From Blizzard's retail FrameXML, which Forever's UI follows
 ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source), `SecureTemplates.lua`):
 `SecureActionButtonTemplate`, `WorldFrame`, `SetOverrideBindingClick`, `ClearOverrideBindings`,
-`IsMouseButtonDown`, `GetCursorInfo`, `GetInventoryItemID`, `C_Item.GetItemInfoInstant` (or
+`IsMouseButtonDown`, `IsShiftKeyDown`, `GetCursorInfo`, `GetInventoryItemID`, `GetInventoryItemLink`,
+`IsInventoryItemLocked`, `C_Container.*` (or the old container globals), `C_Item.EquipItemByName`
+(or `EquipItemByName`), `EquipCursorItem`, `UnitCastingInfo`, `UnitChannelInfo`, `C_Item.GetItemInfoInstant` (or
 `GetItemInfoInstant`), `C_Spell.GetSpellInfo` (or `GetSpellInfo`), `C_SpellBook.IsSpellKnown`,
 `IsPlayerSpell`, `IsSpellKnown`, `C_CVar.GetCVarBool("ActionButtonUseKeyDown")` and
 `InCombatLockdown`. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.

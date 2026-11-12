@@ -112,6 +112,7 @@ exactly what the game, or you, set them to.
 | `/bpf others on\|off` | Other players' debuffs (and the mob's own) after yours, smaller and grey, on enemy plates (on by default) |
 | `/bpf native on\|off` | Debuffs drawn by the client's `AuraContainer` (on by default; works in combat). Off uses the addon's own reading, which this client refuses in combat |
 | `/bpf tot on\|off` | The unit's target under the bar |
+| `/bpf combo on\|off` | Combo points (orange squares under the bar, right-aligned) on your target's plate while you have any (on by default) |
 | `/bpf dim on\|off` | Dim non-target plates to 55% |
 | `/bpf targetscale on\|off` | Scale your target's plate to 115% and ring it |
 | `/bpf marks on\|off` | Raid target marks (skull, cross ...) as a 20 px icon left of the bar (on by default) |
@@ -189,7 +190,7 @@ The hub talks to this addon only through `BetterPlatesForeverAPI`:
   warning is printed at login and `/bpf status` says so. Nothing is disabled; use one of the two.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled`, `colorMode`,
   `healthText`, `width`, `height`, `friendly`, `threat`, `threatText`, `execute`, `debuffs`,
-  `others`, `native`, `tot`, `dim`, `targetScale` and `raidMark` are kept, each checked for its type and range on load; anything
+  `others`, `native`, `tot`, `combo`, `dim`, `targetScale` and `raidMark` are kept, each checked for its type and range on load; anything
   else is cleared.
 
 ## Names it relies on

@@ -5,7 +5,7 @@
 
     * /way x y, /way x,y or /way <zone> x y sets the waypoint (x first, then y, 0-100). Without a
       zone it goes in the zone the player is in. /way alone shows it, /way clear removes it.
-    * Shift + left-click on the world map (windowed or maximized) sets it at the clicked point on
+    * Alt + left-click (Option on Mac) on the world map (windowed or maximized) sets it at the clicked point on
       the map that is shown. Blizzard's own click still happens.
     * One waypoint only: a new one replaces the old.
     * An arrow on screen points at it and shows the distance in yards. Drag it to move it (unless
@@ -43,7 +43,7 @@
 
   The world map pin sits on the waypoint's own map, or is converted to the map on display through
   the world position (C_Map.GetMapPosFromWorldPos with that map as the override), so it shows on
-  the continent map as well. A shift-click is read from GetCursorPosition() against the canvas's
+  the continent map as well. An alt-click is read from GetCursorPosition() against the canvas's
   own effective scale and rect, not Blizzard's cursor helper, so it lands under the pointer at any
   map scale (BetterMapsForever's or anyone's).
 
@@ -52,7 +52,7 @@
   No Blizzard function or table is written. The pins are our own frames, made children of the
   map canvas and the minimap and placed by their normalised coordinates. Every API read is
   pcall-guarded and checked for type and secrecy; each feature (navigation, world map pin,
-  minimap pin, native waypoint, shift-click) runs inside pcall and switches itself off for the
+  minimap pin, native waypoint, alt-click) runs inside pcall and switches itself off for the
   session after its first error, with one line in chat.
 ]]
 
@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterGpsForever"
 local PREFIX = "|cff33ff99BetterGpsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -253,7 +253,7 @@ local FEATURE_TEXT = {
     worldPin = "the world map pin",
     minimapPin = "the minimap pin",
     native = "Blizzard's own waypoint",
-    click = "shift-click on the world map",
+    click = "Alt + left-click (Option on Mac) on the world map",
     corpse = "the corpse route",
 }
 local OnFeatureBroken -- hides what belongs to a feature; defined with the frames below
@@ -567,7 +567,7 @@ end
 
 local function PrintWayHelp()
     Print(USAGE)
-    Print("shift + left-click on the world map sets it too. One waypoint: a new one replaces the old.")
+    Print("Alt + left-click (Option on Mac) on the world map sets it too. One waypoint: a new one replaces the old.")
 end
 
 local function DoWay(msg)
@@ -842,7 +842,7 @@ local function DrawMinimapPin(nav)
 end
 
 -- ---------------------------------------------------------------------------
--- The world map: pin and shift-click
+-- The world map: pin and alt-click
 -- ---------------------------------------------------------------------------
 
 local function GetMap()
@@ -943,13 +943,13 @@ local function DrawWorldPin()
     p:Show()
 end
 
--- Shift + left button: the point is taken at mouse down, on the map shown then (Blizzard may
+-- Alt + left button: the point is taken at mouse down, on the map shown then (Blizzard may
 -- change maps on the way up), and set at mouse up if the cursor has not moved, i.e. a click and
 -- not a drag.
 local pendingClick
 local function OnMapMouseDown(_, button)
     pendingClick = nil
-    if button ~= "LeftButton" or not Bool(Call(_G.IsShiftKeyDown)) then return end
+    if button ~= "LeftButton" or not Bool(Call(_G.IsAltKeyDown)) then return end
     local canvas, mapID = Canvas(), DisplayedMapID()
     if not canvas or not mapID then return end
     local x, y = CursorMapPosition(canvas)
@@ -1268,7 +1268,7 @@ end
 local function PrintHelp()
     Print("version " .. VERSION .. ": one waypoint with an arrow and map pins.")
     Print(WayCommandText() .. " x y | " .. WayCommandText() .. " <zone> x y | " .. WayCommandText()
-        .. " clear - set or clear the waypoint (0-100, x first); shift + left-click on the world map sets it too")
+        .. " clear - set or clear the waypoint (0-100, x first); Alt + left-click (Option on Mac) on the world map sets it too")
     Print("/bgps arrow on | /bgps arrow off - show the arrow (now: " .. OnOff(db and db.arrow) .. ")")
     Print("/bgps lock | /bgps unlock - stop or allow dragging the arrow (now: "
         .. ((db and db.locked) and "locked" or "unlocked") .. "); /bgps reset - arrow back to its default place")

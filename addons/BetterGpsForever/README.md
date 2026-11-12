@@ -15,10 +15,10 @@ minimap pin. It needs no other addon or library, and it is not part of the Gaar 
   top of your map tree (`C_Map.GetMapChildrenInfo`): an exact name first, then a unique prefix,
   then a unique part of the name. `/way barr 45 63` is The Barrens. When several zones match, they
   are listed and nothing is set. Maps that share a name (a city's floors) count as one.
-- **Shift + left-click on the world map** (windowed or maximized) sets it at the point under the
+- **Alt + left-click (Option on Mac) on the world map** (windowed or maximized) sets it at the point under the
   cursor on the map shown. Blizzard's own click still happens (a click on a continent still zooms
   into the zone); the point is taken at mouse down, before that, and set at mouse up if the cursor
-  has not moved, so a shift-drag sets nothing.
+  has not moved, so an alt-drag sets nothing.
 - **Arrow.** A frame on screen that turns towards the waypoint, with the distance in yards under
   it, the time to get there under that, and the zone and coordinates at the bottom. It turns
   green while you face the waypoint. Drag it to move it (unless locked), right-click it to clear
@@ -49,7 +49,7 @@ minimap pin. It needs no other addon or library, and it is not part of the Gaar 
   until you are resurrected. The waypoint you had before is kept aside and comes back
   automatically after resurrection (at your corpse, at a spirit healer, or by another player),
   with its title; with no waypoint before, there is none after. The rules:
-  - A waypoint you set yourself while dead (`/way`, shift-click, another addon) replaces the
+  - A waypoint you set yourself while dead (`/way`, Alt-click, another addon) replaces the
     corpse route and is the one kept after resurrection; the corpse route does not come back
     until the next death.
   - Clearing the corpse waypoint (right-click the arrow, `/way clear`) ends the route; the
@@ -125,7 +125,7 @@ The hub talks to this addon only through `BetterGpsForeverAPI`:
   `C_Map.GetMapPosFromWorldPos(continent, worldPos, shownMap)`. It is placed again when Blizzard
   changes the map (`hooksecurefunc(WorldMapFrame, "OnMapChanged")`) and checked every 0.1 s while
   the map is open.
-- **Shift-click.** `GetCursorPosition()` divided by the canvas's own effective scale, minus the
+- **Alt-click.** `GetCursorPosition()` divided by the canvas's own effective scale, minus the
   canvas's left and top, over its width and height. Blizzard's helper divides by UIParent's scale
   instead, which is off once the map frame is scaled (BetterMapsForever's known limit); this is
   right at any scale and zoom.
@@ -140,7 +140,7 @@ The hub talks to this addon only through `BetterGpsForeverAPI`:
   addon's own frames.
 - Every read of the API goes through `pcall` and is checked for its type and with `issecretvalue`
   before any arithmetic or comparison; a missing, failing or secret answer counts as no answer.
-- Each part (arrow, world map pin, minimap pin, Blizzard's waypoint, shift-click) runs in
+- Each part (arrow, world map pin, minimap pin, Blizzard's waypoint, alt-click) runs in
   `pcall`; the first error switches that part off for the session with one line in chat, and the
   rest keeps going. Nothing it does is protected, so nothing changes in combat.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `waypoint`

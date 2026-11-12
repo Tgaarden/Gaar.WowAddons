@@ -71,6 +71,11 @@ party, and switches Blizzard's off. It needs no other addon or library.
   lighter green, then absorb shields in white (with Blizzard's shield stripes where the client has
   the texture), and heal absorbs (necrotic and the like) in dark red drawn back over the health.
   Nothing is drawn past the end of the bar.
+- **Raid target marks** (1.2.9, on by default: `/bff marks off` to hide). On every frame the raid
+  mark (skull, cross, star ...) is an 18 px icon on a frame of its own above the bars, centred on the
+  top edge so half of it sticks out above the frame; nothing covers it and it does not touch the
+  name, health or auras. Hidden without a mark; updates on `RAID_TARGET_UPDATE` and unit changes.
+  A secret index goes only to `SetRaidTargetIconTexture` inside a `pcall`. `/bff test` shows a sample skull.
 - **HoT prediction** (1.2.7, on by default: `/bff hotpred off` to hide). After the green incoming
   heals, a soft yellow segment shows what every active HoT on the unit (Renew, Rejuvenation,
   Regrowth's HoT, Lifebloom where the client has it, First Aid bandages; from any healer) will
@@ -139,6 +144,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 | `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 | `/bff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
+| `/bff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
 

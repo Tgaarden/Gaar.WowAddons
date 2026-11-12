@@ -23,7 +23,8 @@
     * Party: small buffs and debuffs, faded to 50% when out of range.
     * Every aura icon: a small time-left number at its top and a swipe that starts bright and
       darkens as the aura runs out (1.2.1).
-    * Icons: raid target, group leader, combat and resting (player); a threat border.
+    * Icons: raid target (own frame above the bars, centred on the top edge; secret-safe; option
+      /bff marks, 1.2.9), group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
       reset, and a test mode that shows every enabled frame with made-up data (party without a
       group) so they can be placed.
@@ -63,7 +64,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -169,13 +170,14 @@ local DEFAULTS = {
     playerBuffs = true,
     healPrediction = true,
     hotPred = true,
+    raidMark = true,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key BetterFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, lowhp = true, classColor = true, followEditMode = true,
-    playerBuffs = true, healPrediction = true, hotPred = true, frames = true, scales = true, positions = true,
+    playerBuffs = true, healPrediction = true, hotPred = true, raidMark = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- BetterFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -316,6 +318,49 @@ function Look.Edge(parent, bar, level)
     RingLines(f, bar, 2, 0.22)
     RingLines(f, bar, 3, 0.08)
     return f
+end
+
+-- Raid target mark (1.2.9): one icon on its own frame, high above the bars, centred on the top
+-- edge of every unit frame so half of it sticks out above. Built once per frame.
+function Look.BuildMark(f)
+    local m = CreateFrame("Frame", nil, f)
+    m:SetFrameLevel(f:GetFrameLevel() + 10)
+    m:SetSize(18, 18)
+    m:SetPoint("CENTER", f, "TOP", 0, 0)
+    local t = m:CreateTexture(nil, "OVERLAY")
+    t:SetAllPoints(m)
+    t:SetTexture(RAID_ICONS)
+    t:Hide()
+    f.raidIcon = t
+end
+
+-- Show or hide the mark. idx is the unit's raid target index and may be secret: it is never
+-- tested, only handed to the client's own setter inside a pcall; if that refuses it, the mark
+-- is hidden. Texcoords by hand when the client has no SetRaidTargetIconTexture.
+function Look.UpdateMark(f, idx)
+    local t = f.raidIcon
+    if not t then return end
+    if not db.raidMark or type(idx) == "nil" then t:Hide(); return end
+    local setter = _G.SetRaidTargetIconTexture
+    local plain = Plain(idx)
+    if plain ~= nil then
+        if type(plain) ~= "number" or plain ~= plain or plain < 1 or plain > 8 then t:Hide(); return end
+        t:SetTexture(RAID_ICONS)
+        if type(setter) == "function" then
+            setter(t, plain)
+        else
+            local i = math.floor(plain) - 1
+            local col, row = i % 4, math.floor(i / 4)
+            t:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.25, (row + 1) * 0.25)
+        end
+        t:Show()
+        return
+    end
+    if type(setter) == "function" then
+        t:SetTexture(RAID_ICONS)
+        if pcall(setter, t, idx) then t:Show(); return end
+    end
+    t:Hide()
 end
 end
 
@@ -1317,12 +1362,7 @@ local function Build(key, unit, preview)
     end
 
     -- Icons.
-    local ri = f:CreateTexture(nil, "OVERLAY")
-    ri:SetSize(18, 18)
-    ri:SetPoint("CENTER", f, "TOP", 0, 0)
-    ri:SetTexture(RAID_ICONS)
-    ri:Hide()
-    f.raidIcon = ri
+    Look.BuildMark(f)
     if key == "player" or key == "party" then
         local li = f:CreateTexture(nil, "OVERLAY")
         li:SetSize(14, 14)
@@ -1820,14 +1860,7 @@ end
 
 local function UpdateIcons(f)
     local u = f.unit
-    local idx = type(_G.GetRaidTargetIndex) == "function" and Num(_G.GetRaidTargetIndex(u)) or nil
-    if idx and idx >= 1 and idx <= 8 then
-        local col, row = (idx - 1) % 4, math.floor((idx - 1) / 4)
-        f.raidIcon:SetTexCoord(col * 0.25, col * 0.25 + 0.25, row * 0.25, row * 0.25 + 0.25)
-        f.raidIcon:Show()
-    else
-        f.raidIcon:Hide()
-    end
+    Look.UpdateMark(f, type(_G.GetRaidTargetIndex) == "function" and _G.GetRaidTargetIndex(u) or nil)
     if f.leaderIcon then
         local leader = type(_G.UnitIsGroupLeader) == "function" and Plain(_G.UnitIsGroupLeader(u)) == true
         if leader then f.leaderIcon:Show() else f.leaderIcon:Hide() end
@@ -2817,6 +2850,7 @@ local function FillFake(f)
         end
     end
     if f.leaderIcon then if d.leader then f.leaderIcon:Show() else f.leaderIcon:Hide() end end
+    Look.UpdateMark(f, 8)   -- test mode: a sample skull on every frame
     if f.combo then
         for i = 1, 5 do if comboClass and i <= d.combo then f.combo[i]:Show() else f.combo[i]:Hide() end end
     end
@@ -3179,6 +3213,7 @@ local SETTING_TOGGLES = {
     { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
     { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
+    { key = "raidMark", cmd = "marks", label = "Raid target marks" },
 }
 
 local function SetToggle(t, on)
@@ -3223,6 +3258,8 @@ local function PrintHelp()
         .. OnOff(db and db.healPrediction) .. ")")
     Print("/bff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
         .. OnOff(db and db.hotPred) .. ")")
+    Print("/bff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
+        .. OnOff(db and db.raidMark) .. ")")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -3423,6 +3460,7 @@ local function PrintStatus()
         .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
+    Print("raid marks " .. OnOff(db.raidMark))
     Print("hot prediction " .. OnOff(db.hotPred) .. (db.healPrediction and "" or " (needs heal prediction)")
         .. DOT .. "now: " .. HealPred.HotStatus())
     local p = real.player

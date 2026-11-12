@@ -14,7 +14,11 @@
       in the main hand, the main and off hand are remembered and the best pole in the bags is
       equipped; with a pole on, the remembered weapons go back. It never casts Fishing. See
       "Pole swap" below.
-    * /bfish for help, on, off, window <0.2-0.8>, swap and status.
+    * Fishing 1-300 route (1.2, /bfish route on, off by default): the current step from your
+      Fishing skill and cap, pins on the world map and minimap, and BetterGpsForever's arrow on
+      the nearest spot. The data is in Route.lua, the logic in RouteGuide.lua (ns.guide); this
+      file only wires it into /bfish, the saved variables and the hub menu.
+    * /bfish for help, on, off, window <0.2-0.8>, swap, route and status.
     * BetterFishingForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -105,11 +109,13 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "BetterFishingForever"
+local ADDON_NAME, ns = ...
+ADDON_NAME = ADDON_NAME or "BetterFishingForever"
+ns = type(ns) == "table" and ns or {}
 local PREFIX = "|cff33ff99BetterFishingForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1"
+local VERSION = "1.2"
 
 local MIN_WINDOW, MAX_WINDOW, DEFAULT_WINDOW = 0.2, 0.8, 0.4
 local HOLD_CAP = 2.0          -- seconds an armed binding may wait for a held second press
@@ -864,6 +870,9 @@ local function PrintHelp()
     Print(string.format("/bfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",
         MIN_WINDOW, MAX_WINDOW, Window()))
     Print("Shift + double right-click in the world, or /bfish swap: swap the fishing pole in or out (out of combat).")
+    if ns.guide then
+        for _, line in ipairs(ns.guide.HelpLines()) do Print(line) end
+    end
     Print("/bfish status - the current state and what this client offers")
 end
 
@@ -879,6 +888,9 @@ local function PrintStatus()
     end
     Print("swap: " .. SwapMemoryText() .. "   equip path: " .. (EquipPath() or "none on this client")
         .. (lastBlocked and ("   blocked: " .. lastBlocked) or ""))
+    if ns.guide then
+        for _, line in ipairs(ns.guide.StatusLines()) do Print(line) end
+    end
     Print("last error: " .. (lastError or "none"))
 end
 
@@ -903,6 +915,8 @@ local function OnSlash(msg)
         PrintStatus()
     elseif cmd == "swap" then
         DoSwap()
+    elseif cmd == "route" and ns.guide then
+        ns.guide.Slash(arg)
     else
         PrintHelp()
     end
@@ -932,6 +946,7 @@ local function StatusLine()
     return (Enabled() and "on" or "off") .. DOT .. string.format("%.2f s", Window())
         .. DOT .. (PoleEquipped() and "pole equipped" or "no pole")
         .. (spellValue == nil and (DOT .. "Fishing not known") or "")
+        .. (ns.guide and ns.guide.StatusText() and (DOT .. ns.guide.StatusText()) or "")
 end
 
 local function MenuEntries()
@@ -948,6 +963,9 @@ local function MenuEntries()
           checked = function() return Enabled() end,
           func = function() SetEnabled(not Enabled()) end },
         { text = "Double-click window", submenu = windows },
+        ns.guide and { text = "Fishing route", checkbox = true,
+          checked = function() return ns.guide.IsOn() end,
+          func = function() ns.guide.SetOn(not ns.guide.IsOn()) end } or nil,
     }
 end
 
@@ -998,12 +1016,14 @@ local function BindSavedVariables()
     local w = Num(tonumber(db.dblClick))
     db.dblClick = w and Clamp(w, MIN_WINDOW, MAX_WINDOW) or DEFAULT_WINDOW
 
-    -- Per character: only the pole swap's memory, { mainID, mainLink, offID, offLink }.
+    -- Per character: the pole swap's memory, { mainID, mainLink, offID, offLink }, and the
+    -- route's state (route = { on, skipped, manual, manualAuto, pointed, wp }, see RouteGuide.lua).
     if type(BetterFishingForeverCharDB) ~= "table" then BetterFishingForeverCharDB = {} end
     charDb = BetterFishingForeverCharDB
     for k in pairs(charDb) do
-        if k ~= "swap" then charDb[k] = nil end
+        if k ~= "swap" and k ~= "route" then charDb[k] = nil end
     end
+    if ns.guide then ns.guide.Bind(charDb) else charDb.route = nil end
     local m = charDb.swap
     if type(m) == "table" then
         charDb.swap = { mainID = Num(m.mainID), mainLink = Str(m.mainLink),

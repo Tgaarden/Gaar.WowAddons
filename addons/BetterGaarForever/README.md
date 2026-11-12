@@ -54,7 +54,8 @@ A click opens:
   Reset one window, Reset all positions & scales). The tooltip line is e.g.
   `26 of 26 windows on · 3 moved`.
 - **Fishing**: BetterFishingForever's options (Double right-click casts Fishing, Double-click
-  window 0.2-0.8 s). The tooltip line is e.g. `on · 0.40 s · pole equipped`.
+  window 0.2-0.8 s, Fishing route). The tooltip line is e.g. `on · 0.40 s · pole equipped`, plus
+  `· route 152/225` while the route is on.
 - **Hide minimap button** (`/bgf minimap` brings it back).
 
 Each submenu is filled by the addon itself, through its API, so it always has that addon's current
@@ -115,6 +116,12 @@ minimap = { hide = false, angle = 285 }
 ```
 
 Anything else is dropped on load, including 1.0's `bags`, `quests`, `modules` and `migrated`.
+
+## 2.7
+
+The **Fishing** submenu gains a **Fishing route** checkbox (BetterFishingForever 1.2's Fishing
+1-300 route, the same as `/bfish route on|off`). It comes from `BetterFishingForeverAPI.MenuEntries`
+like the other Fishing options, so the hub's code is unchanged apart from the version.
 
 ## 2.6
 

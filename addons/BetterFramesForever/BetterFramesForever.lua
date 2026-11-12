@@ -64,7 +64,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.9"
+local VERSION = "1.2.10"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -937,7 +937,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
-local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotStatus
+local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug
 do
 local MY = { 0.18, 0.78, 0.30, 0.85 }    -- your heals (Blizzard's myHealPrediction is a strong green)
 local ALL = { 0.55, 0.88, 0.48, 0.55 }   -- everyone's heals, lighter
@@ -973,9 +973,8 @@ function HealPred.Method()
     return "none on this client"
 end
 
--- ---------------------------------------------------------------------------
--- HoT prediction (1.2.7): a yellow segment after the green incoming heals, the healing every
--- active HoT on the unit (from any healer) will still do before it runs out.
+-- HoT prediction (1.2.7, reworked 1.2.10): a yellow segment after the green incoming heals, the
+-- healing every active HoT on the unit (from any healer) will still do before it runs out.
 --
 -- Where the number comes from, best source first:
 --   1. The client's own heal prediction. Retail's calculator (12.x) and UnitGetIncomingHeals
@@ -984,16 +983,24 @@ end
 --      library of its own, not in the client). /bff status lists any calculator method whose
 --      name says HoT or periodic, so a client that grows one shows it.
 --   2. So it is summed from the unit's buffs: C_UnitAuras.GetAuraDataByIndex(unit, i,
---      "HELPFUL"), and for each known HoT (HOTS below, by spell ID: the tick interval and which
---      effect is the periodic one) the per-tick amount from aura.points times the ticks left
---      from expirationTime - GetTime(). Only when spell ID, points and expiration are plain.
+--      "HELPFUL"). A buff is a known HoT by spell ID (HOTS below: the tick interval and which
+--      effect is the periodic one) or, since 1.2.10, by its localized name (the names of those
+--      IDs, plus the English ones), so a client with other rank IDs still matches. The per-tick
+--      amount is aura.points where that holds a number; otherwise (1.2.10) the aura's own
+--      tooltip is read - C_TooltipInfo by aura instance ID or index, else a hidden GameTooltip -
+--      and its text parsed: "Heals 32 damage every 3 seconds." is per tick, "Heals 66 damage
+--      over 6 sec." a total spread over the ticks. Tooltip results are cached per spell, caster
+--      and aura instance. The ticks left come from expirationTime - GetTime() (divided by
+--      timeMod where that is plain and not 1). Only plain values are used.
 --   3. On this client auras are secret while you are in combat (see Auras below), and reading
 --      them by index is then refused. The yellow segment is simply hidden then - nothing else
---      changes - and /bff status says why ("unavailable (auras secret)"). Out of combat (a
---      healer topping up, resting) it is drawn.
+--      changes - and /bff status says why. Out of combat (a healer topping up, resting) it is
+--      drawn, and it is redrawn as combat ends.
 -- Clamped as the green: when health, maximum and incoming heals are plain the sum is cut to the
 -- missing health left after the incoming heals; otherwise the health bar clips its children,
--- so nothing is drawn past its end either way.
+-- so nothing is drawn past its end either way. 1.2.10: the yellow bar is anchored to the green
+-- bar's edge only while the green bar is shown, else to the health fill itself (a hidden bar's
+-- fill is no reliable anchor), and the absorb bar likewise to the last shown segment.
 -- ---------------------------------------------------------------------------
 
 -- [spellId] = { tick interval in seconds, index of the periodic effect in aura.points }
@@ -1011,28 +1018,202 @@ AddHots(3, 2, { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 })
 AddHots(1, 1, { 33763 })
 -- First Aid bandages (a channelled HoT on the target), Linen to Heavy Runecloth
 AddHots(1, 1, { 746, 1159, 3267, 3268, 7926, 7927, 10838, 10839, 18608, 18610 })
+-- English aura names, matched too: [name] = a spell ID of that HoT in HOTS
+local HOT_ENGLISH = { Renew = 139, Rejuvenation = 774, Regrowth = 8936, Lifebloom = 33763, ["First Aid"] = 746 }
 
 local MAX_AURAS = 40
-local hotWhy = "not read yet"   -- the last outcome, for /bff status
+local hotWhy = {}       -- [unit] = what its yellow segment did at the last update, for /bff status
+local hotNames          -- [localized name] = HOTS entry, built on first use
+local tipCache = {}     -- ["spell:caster:instance"] = { per, interval, source } or { fail = time }
+local tipCount = 0
+local scanTip           -- our hidden GameTooltip, the last way to read an aura's tooltip
+local SCAN_TIP = "BetterFramesForeverHotTip"
 
--- The plain per-tick amount of one HoT aura, or nil.
+local function PlainString(v)
+    v = Plain(v)
+    if type(v) == "string" and v ~= "" then return v end
+    return nil
+end
+
+-- A spell's localized name, or nil.
+local function SpellNameOf(id)
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellName) == "function" then
+        local ok, n = pcall(C.GetSpellName, id)
+        if ok and PlainString(n) then return n end
+    end
+    if type(C) == "table" and type(C.GetSpellInfo) == "function" then
+        local ok, info = pcall(C.GetSpellInfo, id)
+        if ok and type(info) == "table" and PlainString(info.name) then return info.name end
+    end
+    if type(_G.GetSpellInfo) == "function" then
+        local ok, n = pcall(_G.GetSpellInfo, id)
+        if ok and PlainString(n) then return n end
+    end
+    return nil
+end
+
+local function HotNames()
+    if hotNames then return hotNames end
+    local names, found = {}, 0
+    for id, hot in pairs(HOTS) do
+        local n = SpellNameOf(id)
+        if n then
+            found = found + 1
+            names[n] = names[n] or hot
+        end
+    end
+    for n, id in pairs(HOT_ENGLISH) do names[n] = names[n] or HOTS[id] end
+    -- No name resolved yet (spell data still loading): use the English ones, ask again later.
+    if found > 0 then hotNames = names end
+    return names
+end
+
+-- The HOTS entry of an aura and how it matched ("id" or "name"), or nil.
+local function HotOf(a)
+    local id = Num(a.spellId)
+    if id and HOTS[id] then return HOTS[id], "id" end
+    local n = PlainString(a.name)
+    if n and HotNames()[n] then return HotNames()[n], "name" end
+    return nil
+end
+
+-- The plain per-tick amount of one HoT aura from aura.points, or nil.
 local function TickAmount(points, effect)
     points = Plain(points)
     if type(points) ~= "table" then return nil end
     -- A list of only the aura's own effects has the HoT first, even for Regrowth.
-    local v = points[effect]
-    if v == nil then v = points[1] end
+    local v = Plain(points[effect])
+    if v == nil then v = Plain(points[1]) end
     v = Num(v)
     if v and v > 0 then return v end
     return nil
 end
 
--- The healing every known HoT on unit will still do, or nil and why not.
-local function HotTotal(unit)
+-- The text of a C_TooltipInfo tooltip, its lines joined, or nil.
+local function InfoText(data)
+    data = Plain(data)
+    if type(data) ~= "table" then return nil end
+    local lines = Plain(data.lines)
+    if type(lines) ~= "table" then return nil end
+    local out = {}
+    for _, line in ipairs(lines) do
+        line = Plain(line)
+        if type(line) == "table" then
+            local t = PlainString(line.leftText)
+            if not t and type(Plain(line.args)) == "table" then   -- 10.0's args form
+                for _, arg in ipairs(line.args) do
+                    if type(arg) == "table" and Plain(arg.field) == "leftText" then t = PlainString(arg.stringVal) end
+                end
+            end
+            if t then out[#out + 1] = t end
+        end
+    end
+    return #out > 0 and table.concat(out, " | ") or nil
+end
+
+-- The aura's tooltip text out of combat, and how it was read; nil when nothing could be read.
+local function AuraTooltip(unit, a, index)
+    local T = _G.C_TooltipInfo
+    local iid = Num(a.auraInstanceID)
+    if type(T) == "table" then
+        local tries = {
+            iid and T.GetUnitBuffByAuraInstanceID and { T.GetUnitBuffByAuraInstanceID, unit, iid, "GetUnitBuffByAuraInstanceID" },
+            T.GetUnitAura and { T.GetUnitAura, unit, index, "HELPFUL", "GetUnitAura" },
+            T.GetUnitBuff and { T.GetUnitBuff, unit, index, "GetUnitBuff" },
+        }
+        for k = 1, 3 do
+            local t = tries[k]
+            if t and type(t[1]) == "function" then
+                local ok, data
+                if #t == 5 then ok, data = pcall(t[1], t[2], t[3], t[4]) else ok, data = pcall(t[1], t[2], t[3]) end
+                local text = ok and InfoText(data)
+                if text then return text, "C_TooltipInfo." .. t[#t] end
+            end
+        end
+    end
+    if not scanTip then
+        local ok, tip = pcall(CreateFrame, "GameTooltip", SCAN_TIP, _G.UIParent, "GameTooltipTemplate")
+        scanTip = ok and tip or false
+    end
+    if not scanTip then return nil end
+    local tip = scanTip
+    local ok = pcall(function()
+        tip:SetOwner(_G.UIParent, "ANCHOR_NONE")
+        tip:ClearLines()
+        if iid and type(tip.SetUnitBuffByAuraInstanceID) == "function" then
+            tip:SetUnitBuffByAuraInstanceID(unit, iid)
+        elseif type(tip.SetUnitAura) == "function" then
+            tip:SetUnitAura(unit, index, "HELPFUL")
+        else
+            tip:SetUnitBuff(unit, index)
+        end
+    end)
+    if not ok then return nil end
+    local out = {}
+    local n = Num(tip:NumLines()) or 0
+    for i = 1, n do
+        local fs = _G[SCAN_TIP .. "TextLeft" .. i]
+        local t = fs and PlainString(fs:GetText())
+        if t then out[#out + 1] = t end
+    end
+    tip:Hide()
+    return #out > 0 and table.concat(out, " | ") or nil, "GameTooltip"
+end
+
+-- From tooltip text: per tick and interval ("Heals 32 damage every 3 seconds."), or total and
+-- seconds ("Heals 66 damage over 6 sec."). English text; nil when neither form is found.
+local function ParseHeal(text)
+    local s = text:lower():gsub("(%d),(%d)", "%1%2")
+    local amt, every = s:match("(%d+)%D-every (%d+%.?%d*) sec")
+    if amt then return tonumber(amt), tonumber(every) end
+    amt = s:match("(%d+)%D-every sec")   -- "every second"
+    if amt then return tonumber(amt), 1 end
+    local total, over = s:match("(%d+)%D-over (%d+%.?%d*) sec")
+    if total then return nil, nil, tonumber(total), tonumber(over) end
+    return nil
+end
+
+-- Per-tick amount, tick interval and source ("points", "tooltip") of one HoT aura, or nil and
+-- why. Tooltip reads are cached per spell, caster and aura instance; a failed read for 10 s.
+local function Amount(unit, a, index, hot, now)
+    local per = TickAmount(a.points, hot[2])
+    if per then return per, hot[1], "points" end
+    local src = PlainString(a.sourceUnit)
+    local caster = src and type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(src)) or "?"
+    local key = tostring(Num(a.spellId) or PlainString(a.name) or "?") .. ":" .. caster .. ":"
+        .. tostring(Num(a.auraInstanceID) or index)
+    local c = tipCache[key]
+    if c and c.per then return c.per, c.interval, c.source end
+    if c and c.fail and now - c.fail < 10 then return nil, c.why end
+    local text, how = AuraTooltip(unit, a, index)
+    local p, every, total, over = nil, nil, nil, nil
+    if text then p, every, total, over = ParseHeal(text) end
+    local interval = hot[1]
+    if p and every and every > 0 then
+        interval = every
+    elseif total and over and over > 0 and total > 0 then
+        p = total * interval / over
+    end
+    if tipCount > 200 then tipCache, tipCount = {}, 0 end
+    tipCount = tipCount + 1
+    if not p or p <= 0 then
+        local why = text and "tooltip has no heal amount" or "no tooltip"
+        tipCache[key] = { fail = now, why = why }
+        return nil, why
+    end
+    tipCache[key] = { per = p, interval = interval, source = "tooltip (" .. tostring(how) .. ")" }
+    return p, interval, tipCache[key].source
+end
+
+-- The healing every known HoT on unit will still do: total (nil when it cannot be read), why
+-- nothing is drawn (or nil), and with detail a list of the HoTs found.
+local function HotScan(unit, detail)
+    local list = detail and {} or nil
     local C = _G.C_UnitAuras
-    if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then return nil, "no aura API" end
+    if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then return nil, "no aura API", list end
     local now = Num(type(_G.GetTime) == "function" and _G.GetTime() or nil)
-    if not now then return nil, "no clock" end
+    if not now then return nil, "no clock", list end
     local S = _G.C_Secrets
     local ask = type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function"
         and S.ShouldUnitAuraIndexBeSecret or nil
@@ -1040,32 +1221,40 @@ local function HotTotal(unit)
     for i = 1, MAX_AURAS do
         if ask then
             local ok, s = pcall(ask, unit, i, "HELPFUL")
-            if ok and Plain(s) == true then return nil, "auras secret" end
+            if ok and Plain(s) == true then return nil, "auras secret", list end
         end
         local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HELPFUL")
-        if not ok then return nil, "auras secret" end
+        if not ok then return nil, "auras secret (read refused)", list end
+        a = Plain(a)
         if type(a) ~= "table" then break end
-        local id = Num(a.spellId)
-        local hot = id and HOTS[id]
+        local hot, how = HotOf(a)
         if hot then
             hots = hots + 1
-            local per, exp = TickAmount(a.points, hot[2]), Num(a.expirationTime)
-            if per and exp then
+            local per, interval, source = Amount(unit, a, i, hot, now)
+            local exp = Num(a.expirationTime)
+            local e = list and { id = Num(a.spellId), name = PlainString(a.name), how = how, per = per,
+                interval = interval, source = per and source or "none" } or nil
+            if per and exp and exp > 0 then
                 local left = exp - now
+                local tm = Num(a.timeMod)
+                if tm and tm > 0 and tm ~= 1 then left = left / tm end
                 -- Ticks land at left = 2*interval, interval, 0: ceil, less a hair so a tick
                 -- that has just landed is not counted again.
-                local ticks = left > 0 and math.ceil(left / hot[1] - 0.05) or 0
+                local ticks = left > 0 and math.ceil(left / interval - 0.05) or 0
                 if ticks > 0 then total = total + per * ticks end
+                if e then e.left, e.ticks, e.rest = left, ticks, per * ticks end
             else
                 hidden = true
+                if e then e.why = not per and (source or "no amount") or "no expiration" end
             end
-        elseif IsSecret(a.spellId) then
-            hidden = true   -- a secret spell ID: could be a HoT
+            if list then list[#list + 1] = e end
+        elseif IsSecret(a.spellId) and IsSecret(a.name) then
+            hidden = true   -- neither ID nor name readable: could be a HoT
         end
     end
-    if hidden and total == 0 then return nil, "aura amounts secret" end
-    if hots == 0 then return 0, "no known HoT on the unit" end
-    return total, nil
+    if hidden and total == 0 then return nil, "no HoT amount readable", list end
+    if hots == 0 then return 0, "no known HoT on the unit", list end
+    return total, nil, list
 end
 
 -- Calculator methods whose name says HoT or periodic: none on retail 12.x, so the aura sum.
@@ -1094,11 +1283,116 @@ local function CalculatorHotMethods()
     return #names > 0 and table.concat(names, ", ") or "none"
 end
 
--- For /bff status: what the yellow segment showed last, and where it comes from.
-function HealPred.HotStatus()
-    return hotWhy .. DOT .. "source: aura amounts of Renew, Rejuvenation, Regrowth, Lifebloom and"
-        .. " bandages (plain only, so out of combat on this client)" .. DOT .. "calculator HoT methods: "
-        .. CalculatorHotMethods()
+-- A value for /bff hotdebug: "secret" for a hidden one, tables flattened one level.
+local function Raw(v)
+    if IsSecret(v) then return "secret" end
+    if type(v) == "table" then
+        local out = {}
+        for k = 1, 8 do
+            if v[k] == nil then break end
+            out[#out + 1] = Raw(v[k])
+        end
+        return "{" .. table.concat(out, ", ") .. "}"
+    end
+    if type(v) == "number" then return (v == math.floor(v)) and tostring(v) or string.format("%.2f", v) end
+    return tostring(v)
+end
+
+-- The unit /bff status and /bff hotdebug look at: the target, else the player.
+local function HotUnit()
+    if Plain(UnitExists("target")) == true then return "target" end
+    return "player"
+end
+
+-- For /bff status: lines on the yellow segment for the target (or the player) right now, each
+-- HoT found with where its amount came from, and why nothing is drawn when it is not.
+function HealPred.HotLines()
+    local u = HotUnit()
+    local lines = {}
+    local state
+    if not db.hotPred then
+        state = "off (/bff hotpred on)"
+    elseif not db.healPrediction then
+        state = "not drawn: heal prediction is off (/bff healpred on)"
+    elseif blocked.healpred then
+        state = "not drawn: heal prediction refused (" .. blocked.healpred .. ")"
+    elseif InCombat() then
+        state = "not drawn: in combat (auras are secret until combat ends)"
+    end
+    local total, why, list = HotScan(u, true)
+    if not state then
+        if not total then
+            state = "not drawn: " .. why
+        elseif why then
+            state = "not drawn: " .. why
+        else
+            local m, cur = Num(UnitHealthMax(u)), Num(UnitHealth(u))
+            if m and cur and cur >= m then
+                state = string.format("not drawn: full health (HoTs would heal %d)", total)
+            else
+                state = string.format("HoTs will heal %d", total)
+            end
+        end
+    end
+    lines[1] = "hot prediction " .. OnOff(db.hotPred) .. DOT .. u .. ": " .. state
+        .. DOT .. "last drawn: " .. (hotWhy[u] or "not drawn yet")
+    for _, e in ipairs(list or {}) do
+        local head = "  " .. (e.name or "?") .. " (spell " .. tostring(e.id or "?") .. ", matched by " .. e.how .. ")"
+        if e.per then
+            lines[#lines + 1] = head .. string.format(": %d per tick every %ss from %s", e.per, Raw(e.interval), e.source)
+                .. (e.rest and string.format(", %.1fs left, %d ticks = %d", e.left, e.ticks, e.rest)
+                    or (", not counted: " .. tostring(e.why)))
+        else
+            lines[#lines + 1] = head .. ": no amount (" .. tostring(e.why) .. ") - send /bff hotdebug"
+        end
+    end
+    lines[#lines + 1] = "  source: aura points, else the aura tooltip (plain only, so out of combat on this client)"
+        .. DOT .. "calculator HoT methods: " .. CalculatorHotMethods()
+    return lines
+end
+
+-- /bff hotdebug: every helpful aura on the target (or the player) as the client gives it, the
+-- tooltip text, and what the HoT code makes of it - to be pasted back when the yellow is missing.
+function HealPred.HotDebug()
+    local u = HotUnit()
+    local C = _G.C_UnitAuras
+    Print("hotdebug " .. u .. DOT .. "in combat " .. tostring(InCombat()) .. DOT .. "GetTime "
+        .. Raw(type(_G.GetTime) == "function" and _G.GetTime() or nil)
+        .. DOT .. "health " .. Raw(UnitHealth(u)) .. "/" .. Raw(UnitHealthMax(u)))
+    if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then
+        Print("no C_UnitAuras.GetAuraDataByIndex on this client")
+        return
+    end
+    local S = _G.C_Secrets
+    local count = 0
+    for i = 1, MAX_AURAS do
+        local sec = "n/a"
+        if type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function" then
+            local ok, s = pcall(S.ShouldUnitAuraIndexBeSecret, u, i, "HELPFUL")
+            sec = ok and Raw(s) or "error"
+        end
+        local ok, a = pcall(C.GetAuraDataByIndex, u, i, "HELPFUL")
+        if not ok then Print(i .. ": read refused (" .. tostring(a) .. ")"); break end
+        if IsSecret(a) then Print(i .. ": aura table secret"); break end
+        if type(a) ~= "table" then break end
+        count = count + 1
+        Print(i .. ": spellId=" .. Raw(a.spellId) .. " name=" .. Raw(a.name) .. " points=" .. Raw(a.points)
+            .. " duration=" .. Raw(a.duration) .. " expirationTime=" .. Raw(a.expirationTime)
+            .. " timeMod=" .. Raw(a.timeMod) .. " isHelpful=" .. Raw(a.isHelpful)
+            .. " sourceUnit=" .. Raw(a.sourceUnit) .. " auraInstanceID=" .. Raw(a.auraInstanceID)
+            .. " secretIndex=" .. sec)
+        local hot, how = HotOf(a)
+        if hot then
+            local text, by = AuraTooltip(u, a, i)
+            local p, every, total, over
+            if text then p, every, total, over = ParseHeal(text) end
+            Print("   HoT by " .. how .. DOT .. "tooltip via " .. tostring(by) .. ": "
+                .. (text and ('"' .. text:sub(1, 160) .. '"') or "none")
+                .. DOT .. "parsed: " .. (p and (p .. " every " .. Raw(every) .. "s")
+                    or (total and (total .. " over " .. Raw(over) .. "s")) or "nothing"))
+        end
+    end
+    if count == 0 then Print("no helpful auras read on " .. u) end
 end
 
 local function Overlay(health, level, c, reverse)
@@ -1139,8 +1433,9 @@ function HealPred.Build(f)
     Place(hp.all, fill, f.healthW)
     Place(hp.mine, fill, f.healthW)
     -- health | incoming heals (green) | HoTs (yellow) | absorbs (white)
-    Place(hp.hot, hp.all:GetStatusBarTexture(), f.healthW)
-    Place(hp.absorb, hp.hot:GetStatusBarTexture(), f.healthW)
+    f.hotAt, f.absorbAt = hp.all:GetStatusBarTexture(), hp.hot:GetStatusBarTexture()
+    Place(hp.hot, f.hotAt, f.healthW)
+    Place(hp.absorb, f.absorbAt, f.healthW)
     Place(hp.healAbsorb, fill, f.healthW, true)
     local ov = hp.absorb:CreateTexture(nil, "OVERLAY")
     ov:SetAllPoints(hp.absorb:GetStatusBarTexture())
@@ -1173,7 +1468,7 @@ local function Set(bar, mx, v)
     bar:Show()
 end
 
--- The yellow HoT segment. Hidden, value 0, it still anchors the absorb bar at the green's edge.
+-- The yellow HoT segment: hidden at 0.
 local function SetHot(hp, mx, v)
     if type(v) ~= "number" or v <= 0 then   -- v is ours: plain, never secret
         hp.hot:SetMinMaxValues(0, 1)
@@ -1184,16 +1479,31 @@ local function SetHot(hp, mx, v)
     Set(hp.hot, mx, v)
 end
 
+-- 1.2.10: health | green | yellow | white, each anchored to the last segment that is shown. A
+-- hidden StatusBar's fill is no reliable anchor (up to 1.2.9 the yellow hung on the green bar's
+-- fill even with the green bar hidden). Re-anchored only when the anchor changes.
+local function Chain(f)
+    local hp = f.healPred
+    local hotAt = hp.all:IsShown() and hp.all:GetStatusBarTexture() or f.health:GetStatusBarTexture()
+    if f.hotAt ~= hotAt then f.hotAt = hotAt; Place(hp.hot, hotAt, f.healthW) end
+    local absorbAt = hp.hot:IsShown() and hp.hot:GetStatusBarTexture() or hotAt
+    if f.absorbAt ~= absorbAt then f.absorbAt = absorbAt; Place(hp.absorb, absorbAt, f.healthW) end
+end
+
 -- The HoT sum for unit, cut to the missing health after the incoming heals where all of those
 -- are plain (otherwise the clipping health bar does it). Also notes the outcome for /bff status.
 local function HotValue(u, mx, all)
-    if not db.hotPred then hotWhy = "off"; return nil end
-    local total, why = HotTotal(u)
-    if not total then hotWhy = "unavailable (" .. why .. ")"; return nil end
-    if why then hotWhy = "nothing to show (" .. why .. ")"; return nil end
-    local m, cur, inc = Num(mx), Num(UnitHealth(u, false)), Num(all or 0)
+    if not db.hotPred then hotWhy[u] = "off"; return nil end
+    local total, why = HotScan(u)
+    if not total then hotWhy[u] = "unavailable (" .. why .. ")"; return nil end
+    if why then hotWhy[u] = "nothing to show (" .. why .. ")"; return nil end
+    -- No "all or 0": a boolean test on a secret is refused. Absent incoming heals count as 0.
+    local inc
+    if type(all) == "nil" then inc = 0 else inc = Num(all) end
+    local m, cur = Num(mx), Num(UnitHealth(u))
     if m and cur and inc then total = Clamp(m - cur - inc, 0, total) end
-    hotWhy = string.format("shown (%d on %s)", total, u)
+    hotWhy[u] = total > 0 and string.format("shown (%d on %s)", total, u)
+        or "nothing to show (no missing health left after the incoming heals)"
     return total
 end
 -- One frame's overlays from the client. Values go from one client call to the next.
@@ -1225,6 +1535,7 @@ function HealPred.Update(f)
     SetHot(hp, mx, HotValue(u, mx, all))
     Set(hp.absorb, mx, absorb)
     Set(hp.healAbsorb, mx, healAbsorb)
+    Chain(f)
 end
 
 -- Test mode: plain made-up values { mine, others, absorb } against the made-up maximum.
@@ -1238,6 +1549,7 @@ function HealPred.Fake(f, d, mx)
     SetHot(hp, mx, db.hotPred and h[4] or nil)
     Set(hp.absorb, mx, h[3])
     hp.healAbsorb:Hide()
+    Chain(f)
 end
 end
 
@@ -1410,14 +1722,18 @@ end
 -- is plain unless it has been checked.
 -- ---------------------------------------------------------------------------
 
--- Current health without the client's prediction. UnitHealth's second argument, usePredicted,
--- defaults to true, while the percent below has always been read with usePredicted = false, so
--- 1.2.5 put two different readings side by side: on a mob near death it showed "1/473  4%",
--- the number far below the percent. Bar, number and percent now all read the same value.
-local ValueText = {}   -- Read, Abbrev, Secret, Status: the numbers in the bar text
+-- Current health, as Blizzard's own unit frames read it: with the client's prediction.
+-- UnitHealth's second argument, usePredicted, defaults to true. 1.2.5 read the number with it and
+-- the percent without it (UnitHealthPercent(unit, false, ...)), so a mob near death showed
+-- "1/473  4%". 1.2.6 made all three read usePredicted = false, the last value the server sent:
+-- that one only moves when the server's next health update arrives, so after a heal landed the
+-- bar and text kept the old health for a few seconds while the green prediction was already
+-- gone. Since 1.2.10 bar, number and percent all read the predicted value (PREDICTED), which
+-- moves on the UNIT_HEALTH the client fires as the heal lands - and still one reading for all.
+local ValueText = { PREDICTED = true }   -- Read, Abbrev, Secret, Status: the numbers in the bar text
 
 function ValueText.Read(unit)
-    return UnitHealth(unit, false)
+    return UnitHealth(unit, ValueText.PREDICTED)
 end
 
 -- The number formatter for hidden values: AbbreviateLargeNumbers, what Blizzard's own unit
@@ -1438,7 +1754,7 @@ function ValueText.Secret(fs, unit, power, compact)
         if power and type(_G.UnitPowerPercent) == "function" then
             pct, havePct = _G.UnitPowerPercent(unit, nil, false, curve), true
         elseif not power and type(_G.UnitHealthPercent) == "function" then
-            pct, havePct = _G.UnitHealthPercent(unit, false, curve), true
+            pct, havePct = _G.UnitHealthPercent(unit, ValueText.PREDICTED, curve), true
         end
     end
     local abbr = ValueText.Abbrev()
@@ -3258,6 +3574,7 @@ local function PrintHelp()
         .. OnOff(db and db.healPrediction) .. ")")
     Print("/bff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
         .. OnOff(db and db.hotPred) .. ")")
+    Print("/bff hotdebug - the raw buff data of your target (or you) behind the HoT prediction, to paste back")
     Print("/bff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
 end
@@ -3382,7 +3699,7 @@ function ValueText.Status()
         .. DOT .. "UnitHealth(unit, false) " .. (okS and Show(server) or "error")
         .. DOT .. "UnitHealthMax " .. Show(UnitHealthMax(u))
         .. DOT .. "ShouldUnitHealthMaxBeSecret " .. maxSecret
-        .. DOT .. "text and bar use UnitHealth(unit, false)")
+        .. DOT .. "text and bar use UnitHealth(unit) (predicted, 1.2.10)")
 end
 
 -- Target power: the values that decide whether the power bar shows, so the next test in game
@@ -3461,8 +3778,7 @@ local function PrintStatus()
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
     Print("raid marks " .. OnOff(db.raidMark))
-    Print("hot prediction " .. OnOff(db.hotPred) .. (db.healPrediction and "" or " (needs heal prediction)")
-        .. DOT .. "now: " .. HealPred.HotStatus())
+    for _, line in ipairs(HealPred.HotLines()) do Print(line) end
     local p = real.player
     Print("player mana bar: " .. ((p and p.manaShown) and "shown" or "hidden")
         .. " (" .. ((p and p.manaWhy) or "not drawn yet") .. ")"
@@ -3535,6 +3851,8 @@ local function OnSlash(msg)
         if rest == "on" or rest == "off" then SetFollow(rest == "on")
         elseif rest == "" then SetFollow(not db.followEditMode)
         else Print("/bff editmode on | off (now: " .. OnOff(db.followEditMode) .. ")") end
+    elseif cmd == "hotdebug" then
+        HealPred.HotDebug()
     elseif cmd == "portrait" then
         if rest == "2d" or rest == "3d" then SetPortraitMode(rest)
         else Print("/bff portrait 2d | 3d (now: " .. db.portrait .. ")") end
@@ -3783,6 +4101,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         if Visible(p) then Run("icons", UpdateIcons, p) end
     elseif event == "PLAYER_REGEN_ENABLED" then
         FlushQueue()
+        -- Auras are plain again: the yellow HoT segment can be drawn.
+        if db.hotPred and db.healPrediction then UpdateEach("healpred", HealPred.Update) end
         -- Logged in during combat: the frames were only built now.
         if FollowOn() and started and not editOpen and not next(followPos) then Refollow() end
         local p = real.player

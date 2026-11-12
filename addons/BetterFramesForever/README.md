@@ -21,6 +21,10 @@ party, and switches Blizzard's off. It needs no other addon or library.
   `UnitHealth(unit, false)` / `UnitHealthPercent(unit, false, ...)`, on every frame (player,
   target, target of target, focus, pet, party). Hidden numbers are now written with
   `AbbreviateLargeNumbers`, as Blizzard's own unit frames do (`AbbreviateNumbers` as fallback).
+  Since 1.2.10 that one reading is the predicted one (`UnitHealth(unit)` /
+  `UnitHealthPercent(unit, true, ...)`, as Blizzard's own frames): 1.2.6's unpredicted reading is
+  the last value the server sent, so after a heal landed the bar and text kept the old health for
+  a few seconds while the green heal prediction was already gone.
 - **Colours.** Class colour for players, reaction colour for NPCs, grey when someone else tagged
   the mob. Under 35% health the bar turns orange, under 20% red (option, on by default). The
   power bar is coloured by power type (mana, rage, energy, focus).
@@ -83,8 +87,13 @@ party, and switches Blizzard's off. It needs no other addon or library.
   It is cut like the green: health + incoming heals + HoTs never go past the end of the bar. The
   client's heal prediction has no HoT part, so the sum comes from the buffs themselves (per-tick
   amount times the ticks left). On Forever auras are secret in combat, and then the yellow
-  segment is simply not drawn; `/bff status` says so (`unavailable (auras secret)`). Out of
-  combat - topping someone up, resting - it is.
+  segment is simply not drawn; `/bff status` says so. Out of combat - topping someone up,
+  resting - it is, and it comes back as combat ends. 1.2.10 fixes it never showing: HoTs are now
+  also matched by their (localized) name, the per-tick amount comes from the aura's tooltip
+  (`Heals 32 damage every 3 seconds.`, or `Heals 66 damage over 6 sec.` spread over the ticks)
+  when the aura's `points` hold none, and the yellow bar no longer hangs on the hidden green bar
+  when no heal is incoming. `/bff status` lists each HoT on your target (or you) with its spell,
+  amount, source and ticks left, or why nothing is drawn; `/bff hotdebug` prints the raw buff data.
 - **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
   mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
   Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays
@@ -130,7 +139,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | Command | Does |
 |---|---|
 | `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), HoT prediction (on/off, what it showed last or why it is unavailable, its source, and any HoT method the client's heal prediction calculator has), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), HoT prediction (on/off; for your target, or you without one: whether it is drawn or why not - off, heal prediction off, in combat, auras secret, no known HoT, full health - each HoT found with spell ID, name, how it matched, per-tick amount and its source (`points` / tooltip / none), ticks left and remaining healing; what it drew last; any HoT method the client's heal prediction calculator has), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
 | `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
 | `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
 | `/bff test`, `/bff test on\|off` | Test mode with made-up data |
@@ -144,6 +153,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 | `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 | `/bff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
+| `/bff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
 | `/bff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.

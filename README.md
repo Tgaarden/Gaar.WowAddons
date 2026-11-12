@@ -126,7 +126,7 @@ stay as they were. Hidden (secret) values are guarded at the read, and each part
 runs in `pcall`: the first refusal switches only that part off for the session, with one message.
 `/bpf` for help, `/bpf status`, `/bpf on|off`, `/bpf color reaction|class|health|solid`,
 `/bpf health off|percent|current|both`, `/bpf size <w> <h>`, `/bpf friendly|threat|threattext|execute|
-debuffs|native|tot|dim|targetscale|marks on|off`, `/bpf debug` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
+debuffs|native|tot|combo|dim|targetscale|marks on|off`, `/bpf debug` and `/bpf reset`. Use it or `GaarPlates`, not both (it warns
 once at login when both are loaded). It ships a `_Camelot` TOC and a plain fallback TOC, both at
 16001. Details in [`addons/BetterPlatesForever/README.md`](addons/BetterPlatesForever/README.md).
 

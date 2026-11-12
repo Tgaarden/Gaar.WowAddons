@@ -35,7 +35,7 @@
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
     * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
-      threat, threattext, execute, debuffs, others, native, tot, dim, targetscale, reset and debug.
+      threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
     * BetterPlatesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -69,7 +69,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 
 local MARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local MARK_SZ, MARK_GAP = 20, 3
@@ -206,6 +206,7 @@ local TOGGLES = {
     { key = "others", cmd = "others", label = "Other players' debuffs (smaller, grey)" },
     { key = "native", cmd = "native", label = "Debuffs drawn by the client (in combat too)" },
     { key = "tot", cmd = "tot", label = "Target of target" },
+    { key = "combo", cmd = "combo", label = "Combo points on my target" },
     { key = "dim", cmd = "dim", label = "Dim non-target plates" },
     { key = "targetScale", cmd = "targetscale", label = "Enlarge my target" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks (skull, cross ...)" },
@@ -225,6 +226,7 @@ local DEFAULTS = {
     others = true,
     native = true,
     tot = true,
+    combo = true,
     dim = true,
     targetScale = true,
     raidMark = true,
@@ -387,6 +389,8 @@ local function ApplySize(o)
     o.cast:SetSize(db.width, CAST_H)
     o.cast.icon:SetSize(CAST_H + 8, CAST_H + 8)
     o.auraRow:SetSize(db.width, AURA_SZ)
+    -- The target text keeps clear of the combo points at the bar's right edge (1.2.8).
+    o.tot:SetWidth(math.max(20, db.width - 42))
 end
 
 local function SetFonts(o)
@@ -525,7 +529,15 @@ local function BuildOverlay(plate)
 
     -- The unit's target under the bar; the debuffs sit above the name, on a frame level over the
     -- plate's bars so nothing covers them.
-    o.tot = h:CreateFontString(nil, "OVERLAY"); o.tot:SetPoint("TOP", h, "BOTTOM", 0, -1)
+    o.tot = h:CreateFontString(nil, "OVERLAY"); o.tot:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -1)
+    o.tot:SetJustifyH("CENTER"); o.tot:SetWordWrap(false)
+    -- Combo points (1.2.8): up to 10 small squares under the bar's right edge, on the target line.
+    o.combo = {}
+    for i = 1, 10 do
+        local p = h:CreateTexture(nil, "OVERLAY")
+        p:SetSize(6, 4); p:Hide()
+        o.combo[i] = p
+    end
     o.auraRow:SetPoint("BOTTOM", o.name, "TOP", 0, AURA_ABOVE_GAP)
     o.auraRow:SetFrameLevel(h:GetFrameLevel() + 6)
 
@@ -1322,6 +1334,37 @@ local function UpdateEmphasis(o, unit, tanking, flag, hasFlag)
 end
 
 -- ---------------------------------------------------------------------------
+-- Combo points (1.2.8): shown on your target's plate only, and only while you have some. The count
+-- is the target's (GetComboPoints) or the player's power (UnitPower); a hidden (secret) value
+-- counts as none, and nothing here tests it.
+local function UpdateCombo(o, unit)
+    local n, max = 0, 5
+    if db.combo and Plain(UnitIsUnit(unit, "target")) then
+        local v
+        if type(_G.GetComboPoints) == "function" then
+            v = _G.GetComboPoints("player", "target")
+        elseif type(_G.Enum) == "table" and type(_G.Enum.PowerType) == "table" and _G.Enum.PowerType.ComboPoints then
+            v = UnitPower("player", _G.Enum.PowerType.ComboPoints)
+        end
+        n = Num(v) or 0
+        if type(_G.Enum) == "table" and type(_G.Enum.PowerType) == "table" and _G.Enum.PowerType.ComboPoints then
+            local m = Num(UnitPowerMax("player", _G.Enum.PowerType.ComboPoints))
+            if m and m >= 1 and m <= 10 then max = math.floor(m) end
+        end
+    end
+    for i = 1, 10 do
+        local p = o.combo[i]
+        if n > 0 and i <= max then
+            p:ClearAllPoints()
+            p:SetPoint("TOPRIGHT", o.health, "BOTTOMRIGHT", -(max - i) * 8, -3)
+            if i <= n then SetSolid(p, 1, 0.55, 0.1, 1) else SetSolid(p, 0.15, 0.15, 0.17, 0.9) end
+            p:Show()
+        else
+            p:Hide()
+        end
+    end
+end
+
 -- The pcall latch: one refusal switches that feature off for the session, with one message.
 -- ---------------------------------------------------------------------------
 
@@ -1335,14 +1378,16 @@ local FEATURE_LABELS = {
     debuffs = "read your debuffs on nameplates",
     emphasis = "scale or dim nameplates",
     marks = "show raid target marks on nameplates",
+    combo = "show combo points on nameplates",
 }
-local FEATURE_ORDER = { "plates", "threat", "health", "healthtext", "text", "cast", "debuffs", "emphasis", "marks" }
+local FEATURE_ORDER = { "plates", "threat", "health", "healthtext", "text", "cast", "debuffs", "emphasis", "marks", "combo" }
 
 -- What each feature leaves behind once it is switched off.
 local CLEAR = {
     threat = function(o) o.ttext:SetText("") end,
     health = function(o) o.htext:SetText("") end,
     healthtext = function(o) o.htext:SetText("") end,
+    combo = function(o) for i = 1, 10 do o.combo[i]:Hide() end end,
     text = function(o) o.name:SetText(""); o.level:SetText(""); o.tot:SetText("") end,
     cast = function(o) o.cast:Hide() end,
     debuffs = function(o)
@@ -1385,6 +1430,7 @@ local function UpdatePlate(o, unit)
     Run("debuffs", UpdateAuras, o, unit)
     Run("emphasis", UpdateEmphasis, o, unit, tanking, flag, hasFlag)
     Run("marks", UpdateMark, o, unit)
+    Run("combo", UpdateCombo, o, unit)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1899,6 +1945,12 @@ for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "P
                      "RAID_TARGET_UPDATE" }) do
     pcall(events.RegisterEvent, events, e)
 end
+-- Combo points move at once instead of on the next tick (player only).
+for _, e in ipairs({ "UNIT_POWER_FREQUENT", "UNIT_POWER_UPDATE", "UNIT_COMBO_POINTS" }) do
+    if not (events.RegisterUnitEvent and pcall(events.RegisterUnitEvent, events, e, "player")) then
+        pcall(events.RegisterEvent, events, e)
+    end
+end
 -- Your own casts, remembered for the by-spell-ID debuff lookup (only "player" is wanted).
 if not (events.RegisterUnitEvent and pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_SUCCEEDED", "player")) then
     pcall(events.RegisterEvent, events, "UNIT_SPELLCAST_SUCCEEDED")
@@ -1931,6 +1983,8 @@ events:SetScript("OnEvent", function(_, event, arg1, _, arg3)
         UpdateAll()
     elseif event == "RAID_TARGET_UPDATE" then
         UpdateAll()
+    elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" or event == "UNIT_COMBO_POINTS" then
+        if arg1 == "player" then UpdateAll() end
     elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" then
         -- At once rather than on the next tick: that plate, or every plate for "player" / no unit.
         if Secret(arg1) then UpdateAll(); return end

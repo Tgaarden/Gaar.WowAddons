@@ -1,28 +1,34 @@
 --[[
-  BetterBuffsForever - a druid's buff check on WoW Forever: who lacks Mark of the Wild, and
-  whether you or your tank lack Thorns. Click a name to buff it.
+  BetterBuffsForever - a buff check on WoW Forever for druids and paladins: who in your group
+  lacks your buff, in a box at the top centre of the screen. Click a name to buff it.
 
-  It does this and nothing else:
+  This file is the shared part; the class-specific parts are modules in their own files, loaded
+  after this one (both TOCs list all three):
 
-    * Only for a Druid. Any other class leaves the addon idle: no scans, no box; /bbuff status
-      says so.
-    * Mark of the Wild: warns when you lack it and, in a party or raid, lists every member who
-      lacks it. Gift of the Wild counts as having it.
-    * Thorns: warns when you lack it, and when the group's tank lacks it. The tank is, in order:
-      every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid, every main tank
-      (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand (/bbuff tank, your
-      current target, per character); else there is no tank check.
-    * Only spells the character knows are checked: no Thorns warning before Thorns is learned.
-    * A box at the top centre of the screen, shown only while something is missing: a "Missing
-      Mark of the Wild:" section and a "Missing Thorns:" section, one row per member with a
-      class-coloured name. Dead or ghost, offline and not-visible members (UnitIsVisible) are
-      never warned about; out-of-range members are shown dimmed (still clickable, the cast just
-      fails). A member whose auras cannot be read (secret) counts as unknown, never as missing.
+    Druid.lua    Mark of the Wild / Gift of the Wild, Thorns on you and the tank, and the Gift of
+                 the Wild and Rebirth reagents.
+    Paladin.lua  Blessings by class (with a fallback when another paladin's blessing is already
+                 there), "No aura", Righteous Fury while you tank, and Symbol of Kings.
+
+  A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
+  else from here:
+
+    * Only for a class with a module (Druid, Paladin). Any other class leaves the addon idle: no
+      scans, no box; /bbuff status says so.
+    * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
+      every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
+      (/bbuff tank, your current target, per character); else there is no tank. You count too.
+    * Only spells the character knows are checked.
+    * A box at the top centre of the screen, shown only while something is missing: one section
+      per thing missing ("Missing Mark of the Wild:", "Missing Blessing of Might:", ...), one row
+      per member with a class-coloured name. Dead or ghost, offline and not-visible members
+      (UnitIsVisible) are never warned about; out-of-range members are shown dimmed (still
+      clickable, the cast just fails). A member whose auras cannot be read (secret) counts as
+      unknown, never as missing.
     * Click to buff: every row is a SecureActionButtonTemplate button, type "spell", spell = the
       localized name (the highest rank you know), unit = that member's unit token. Left-click
-      casts on the member. Right-click on a Mark of the Wild row casts Gift of the Wild when you
-      know it and are in a group (it needs its reagent); otherwise right-click does what
-      left-click does.
+      casts the row's spell; right-click casts the module's group version (Gift of the Wild, a
+      Greater Blessing) when there is one, else what left-click does.
     * Combat: the box is hidden in combat. Aura data is secret then, secure attributes cannot
       change, and buffing mid-fight is not the point. A state driver ("[combat] hide; show")
       hides it the moment combat starts, PLAYER_REGEN_DISABLED as a fallback; nothing is scanned
@@ -32,30 +38,20 @@
     * Updates are throttled to 4 a second (UNIT_AURA, GROUP_ROSTER_UPDATE, ...), plus a refresh
       every 1.5 s while in a group, for range, death and visibility, which have no cheap event.
     * Low reagents (on by default): a "Low reagents:" line in the same box when the bags hold
-      fewer than the threshold of the reagent for the highest rank you know of Gift of the Wild
-      (rank 1 Wild Berries 17021, rank 2 Wild Thornroot 17026; default 10) and of Rebirth (rank 1
-      Maple Seed 17034, 2 Stranglethorn Seed 17035, 3 Ashwood Seed 17036, 4 Hornbeam Seed 17037,
-      5 Ironwood Seed 17038; default 2). A spell you do not know is skipped. Bags only
-      (C_Item.GetItemCount / GetItemCount), updated on BAG_UPDATE_DELAYED. Not clickable.
+      fewer than a threshold of a reagent the module checks. Not clickable.
     * An optional short sound when something new goes missing (off by default).
-    * /bbuff for help, on, off, motw, thorns, tank, group, sound, reagents, unlock, lock, reset,
-      test and status.
+    * /bbuff for help; the shared commands are on, off, group, sound, reagents, tank, unlock,
+      lock, reset, test and status, and each module adds its own.
     * BetterBuffsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
-  Spells (classic ranks, checked in game data):
-    Mark of the Wild  1126, 5232, 6756, 5234, 8907, 9884, 9885 (ranks 1-7)
-    Gift of the Wild  21849, 21850 (ranks 1-2)
-    Thorns            467, 782, 1075, 8914, 9756, 9910 (ranks 1-6)
-    Rebirth           20484, 20739, 20742, 20747, 20748 (ranks 1-5, reagents only)
-  The buttons cast the localized name of the highest rank known, or the spell ID when the client
-  gives no name. A buff is recognised by its spell ID, else by the localized name of any rank.
-
   Aura reads: C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL") (UnitBuff / UnitAura on an older
   client), one pcall per read, asking C_Secrets.ShouldUnitAuraIndexBeSecret first, like
   BetterFramesForever. A refused read, a secret aura or a secret spell ID with a secret name
-  makes that member unknown for the check, and unknown is never warned about.
+  makes that member unknown for the check, and unknown is never warned about. Who cast a buff
+  (isFromPlayerOrPlayerPet, else sourceUnit) is read too, for the paladin's blessings; a secret
+  answer there is "not known", never "someone else".
 
   Taint: Blizzard code is only followed, never replaced; no Blizzard function or table is
   written. Attributes are only ever set out of combat, on the addon's own buttons. Every client
@@ -65,30 +61,15 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "BetterBuffsForever"
+local ADDON_NAME, ns = ...
+ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
+ns = ns or {}
 local PREFIX = "|cff33ff99BetterBuffsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1"
 
-local MOTW_IDS = { 9885, 9884, 8907, 5234, 6756, 5232, 1126 }     -- highest rank first
-local GOTW_IDS = { 21850, 21849 }
-local THORNS_IDS = { 9910, 9756, 8914, 1075, 782, 467 }
-local REBIRTH_IDS = { 20748, 20747, 20742, 20739, 20484 }
-
--- The reagent each rank uses: spell ID -> item ID, with an English fallback name for an item the
--- client has not cached yet.
-local REAGENT_OF = {
-    [21849] = 17021, [21850] = 17026,                                   -- Gift of the Wild
-    [20484] = 17034, [20739] = 17035, [20742] = 17036, [20747] = 17037, [20748] = 17038, -- Rebirth
-}
-local ITEM_NAMES = {
-    [17021] = "Wild Berries", [17026] = "Wild Thornroot", [17034] = "Maple Seed",
-    [17035] = "Stranglethorn Seed", [17036] = "Ashwood Seed", [17037] = "Hornbeam Seed",
-    [17038] = "Ironwood Seed",
-}
-local MIN_GOTW, MIN_REBIRTH, MAX_THRESHOLD = 10, 2, 200
-
+local MAX_THRESHOLD = 200
 local MAX_AURAS = 40
 local THROTTLE = 0.25         -- at most 4 updates a second
 local GROUP_REFRESH = 1.5     -- seconds between refreshes while in a group (range, death, ...)
@@ -97,29 +78,38 @@ local ROW_H, HEADER_H, PAD, MIN_W = 18, 16, 6, 190
 local DEFAULT_Y = -120        -- below the top centre
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 
-local SAVED_KEYS = { enabled = true, motw = true, thorns = true, thornsTank = true, group = true,
-    sound = true, locked = true, pos = true, reagents = true, gotwMin = true, rebirthMin = true }
-local DEFAULTS = { enabled = true, motw = true, thorns = true, thornsTank = true, group = true,
-    sound = false, locked = true, reagents = true }
+-- The shared settings; each module adds its own (module.options, module.thresholds,
+-- module.savedKeys) at ADDON_LOADED, whatever the class, so one character never wipes
+-- another class's settings from the account-wide table.
+local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, pos = true, reagents = true }
+local DEFAULTS = { enabled = true, group = true, sound = false, locked = true, reagents = true }
+local LABELS = {
+    enabled = "BetterBuffsForever",
+    group = "List group members",
+    sound = "Sound when something goes missing",
+    reagents = "Low reagent warning",
+}
+
+ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua and Paladin.lua
+local MODULE_ORDER = { "DRUID", "PALADIN" }
 
 local db                  -- BetterBuffsForeverDB, bound at ADDON_LOADED (never at file scope)
-local charDb              -- BetterBuffsForeverCharDB: the tank set by hand, { guid, name }
-local isDruid             -- nil until known, then true or false
+local charDb              -- BetterBuffsForeverCharDB: the tank set by hand, plus module keys
+local module              -- nil until the class is known, then the class's module or false
 local holder              -- shown out of combat only (state driver); holds the box
 local box                 -- the visible box, shown only while something is missing
 local rows = {}           -- the secure row buttons, created out of combat only
-local headers = {}        -- the two section header font strings
+local headers = {}        -- the section header font strings
 local reagentLines = {}   -- plain font strings for the low-reagent lines (not clickable)
 local hint                -- "drag to move" line while unlocked
 local driverOn            -- the visibility state driver is registered
 
-local spells = {}         -- motw/gotw/thorns/rebirth = { value, knownID, text, label, icon, names, ids }
 local spellsPending       -- the spells changed in combat; resolve at PLAYER_REGEN_ENABLED
 local dirty = true        -- something changed since the last update
 local lastUpdate = 0
 local testMode            -- /bbuff test: fake rows
 local lastError
-local lastScan = { units = 0, motw = 0, thorns = 0, unknown = 0, tanks = "none", tankSource = "none" }
+local lastScan = { units = 0, unknown = 0, tanks = "none", tankSource = "none" }
 local prevMissing = {}    -- keys missing at the last update, for the sound
 local missingCount = 0
 
@@ -171,9 +161,9 @@ end
 local function Call(name, ...)
     local f = _G[name]
     if type(f) ~= "function" then return nil end
-    local ok, a, b, c = pcall(f, ...)
+    local ok, a, b, c, d = pcall(f, ...)
     if not ok then return nil end
-    return a, b, c
+    return a, b, c, d
 end
 
 local function On(key)
@@ -182,7 +172,7 @@ local function On(key)
 end
 
 local function Active()
-    return db ~= nil and isDruid == true and On("enabled")
+    return db ~= nil and module and On("enabled") and true or false
 end
 
 local function UseKeyDown()
@@ -195,18 +185,32 @@ local function UseKeyDown()
     return v and true or false
 end
 
+local function YesNo(v) return v and "yes" or "no" end
+local function OnOff(v) return v and "on" or "off" end
+
+-- "on" / "off" / "" (toggle) to a boolean; nil for anything else.
+local function Toggle(arg, current)
+    if arg == "on" then return true end
+    if arg == "off" then return false end
+    if arg == "" then return not current end
+    return nil
+end
+
 -- ---------------------------------------------------------------------------
 -- Class and spells
 -- ---------------------------------------------------------------------------
 
-local function CheckClass()
+local function PlayerClass()
     local _, classFile, classID = Call("UnitClass", "player")
-    classFile, classID = Str(classFile), Num(classID)
-    if classFile then
-        isDruid = classFile == "DRUID"
-    elseif classID then
-        isDruid = classID == 11
-    end
+    return Str(classFile), Num(classID)
+end
+
+local CLASS_BY_ID = { [11] = "DRUID", [2] = "PALADIN" }
+
+local function CheckClass()
+    local classFile, classID = PlayerClass()
+    classFile = classFile or (classID and (CLASS_BY_ID[classID] or "OTHER"))
+    if classFile then module = ns.modules[classFile] or false end
 end
 
 local function SpellName(spell)
@@ -238,7 +242,8 @@ local function Known(id)
     return false
 end
 
--- { value = name or ID or nil, text, label, icon, names = {localized names}, ids = {set} }
+-- { value = name or ID or nil, knownID, text, label, icon, names = {localized names}, ids = {set} }
+-- ids is highest rank first.
 local function ResolveSpell(ids, fallbackLabel)
     local s = { names = {}, ids = {} }
     for _, id in ipairs(ids) do
@@ -275,15 +280,14 @@ local function ResolveSpell(ids, fallbackLabel)
 end
 
 local function ResolveSpells()
+    if not module then return end
     if InCombat() then
         spellsPending = true
         return
     end
     spellsPending = false
-    spells.motw = ResolveSpell(MOTW_IDS, "Mark of the Wild")
-    spells.gotw = ResolveSpell(GOTW_IDS, "Gift of the Wild")
-    spells.thorns = ResolveSpell(THORNS_IDS, "Thorns")
-    spells.rebirth = ResolveSpell(REBIRTH_IDS, "Rebirth")
+    module.ResolveSpells()
+    module.resolved = true
     dirty = true
 end
 
@@ -298,7 +302,21 @@ local function IndexIsSecret(unit, i)
     return ok and not Secret(secret) and secret == true
 end
 
--- One buff: its spell ID and name, nil at the end of the list, or false when it cannot be read.
+-- Whether a buff is yours: true / false, nil when the client hides it.
+local function MineOf(fromPlayer, source)
+    if Secret(fromPlayer) then return nil end
+    if type(fromPlayer) == "boolean" then return fromPlayer end
+    if Secret(source) then return nil end
+    source = Str(source)
+    if not source then return false end
+    if source == "player" then return true end
+    local v = Call("UnitIsUnit", source, "player")
+    if Secret(v) then return nil end
+    return v and true or false
+end
+
+-- One buff: { id, name, hidden, mine }, nil at the end of the list, or false when it cannot be
+-- read.
 local function ReadBuff(unit, i)
     if IndexIsSecret(unit, i) then return false end
     local C = _G.C_UnitAuras
@@ -306,50 +324,47 @@ local function ReadBuff(unit, i)
         local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HELPFUL")
         if not ok or Secret(a) then return false end
         if type(a) ~= "table" then return nil end
-        local ok2, id, name = pcall(function() return a.spellId, a.name end)
+        local ok2, id, name, source, fromPlayer = pcall(function()
+            return a.spellId, a.name, a.sourceUnit, a.isFromPlayerOrPlayerPet
+        end)
         if not ok2 then return false end
-        return { id = Num(id), name = Str(name), hidden = Secret(id) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(fromPlayer, source) }
     end
     local f = (type(_G.UnitBuff) == "function" and _G.UnitBuff)
     if f then
-        local ok, name, _, _, _, _, _, _, _, _, id = pcall(f, unit, i)
+        local ok, name, _, _, _, _, _, source, _, _, id = pcall(f, unit, i)
         if not ok then return false end
-        if Secret(name) then return { id = Num(id), hidden = true } end
+        if Secret(name) then return { id = Num(id), hidden = true, mine = MineOf(nil, source) } end
         if not Str(name) then return nil end
-        return { id = Num(id), name = Str(name), hidden = Secret(id) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source) }
     end
     if type(_G.UnitAura) == "function" then
-        local ok, name, _, _, _, _, _, _, _, _, id = pcall(_G.UnitAura, unit, i, "HELPFUL")
+        local ok, name, _, _, _, _, _, source, _, _, id = pcall(_G.UnitAura, unit, i, "HELPFUL")
         if not ok then return false end
-        if Secret(name) then return { id = Num(id), hidden = true } end
+        if Secret(name) then return { id = Num(id), hidden = true, mine = MineOf(nil, source) } end
         if not Str(name) then return nil end
-        return { id = Num(id), name = Str(name), hidden = Secret(id) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source) }
     end
     return false
+end
+
+-- Every buff that could be identified (by ID or name), and whether anything could not be read:
+-- a refused read, a secret aura, or a buff with neither a readable ID nor name.
+local function ReadBuffs(unit)
+    local list, unknown = {}, false
+    for i = 1, MAX_AURAS do
+        local b = ReadBuff(unit, i)
+        if b == false then unknown = true break end
+        if b == nil then break end
+        if b.id or b.name then list[#list + 1] = b else unknown = true end
+    end
+    return list, unknown
 end
 
 local function Matches(b, s)
     if not s then return false end
     if b.id and s.ids[b.id] then return true end
     return b.name ~= nil and s.names[b.name] == true
-end
-
--- hasMotw (MotW or GotW), hasThorns: true / false, or nil when unknown (secret, refused).
-local function ScanUnit(unit)
-    local motw, thorns, unknown = false, false, false
-    for i = 1, MAX_AURAS do
-        local b = ReadBuff(unit, i)
-        if b == false then unknown = true break end
-        if b == nil then break end
-        if Matches(b, spells.motw) or Matches(b, spells.gotw) then motw = true end
-        if Matches(b, spells.thorns) then thorns = true end
-        -- A buff we cannot identify could be the one we look for.
-        if not b.id and not b.name then unknown = true end
-    end
-    if unknown then
-        return motw or nil, thorns or nil
-    end
-    return motw, thorns
 end
 
 -- ---------------------------------------------------------------------------
@@ -443,25 +458,32 @@ local function Tanks(units)
     return list, "none"
 end
 
-local function UnitLabel(unit)
-    local name = Str(Call("UnitName", unit)) or unit
+local function UnitClassFile(unit)
     local _, classFile = Call("UnitClass", unit)
-    classFile = Str(classFile)
-    local color
+    return Str(classFile)
+end
+
+local function ClassHex(classFile)
     local cc = _G.C_ClassColor
     if classFile and type(cc) == "table" and type(cc.GetClassColor) == "function" then
         local ok, c = pcall(cc.GetClassColor, classFile)
         if ok and type(c) == "table" and type(c.GenerateHexColor) == "function" then
             local ok2, hex = pcall(c.GenerateHexColor, c)
-            if ok2 and Str(hex) then color = hex end
+            if ok2 and Str(hex) then return hex end
         end
     end
-    if not color and classFile and type(_G.RAID_CLASS_COLORS) == "table" then
+    if classFile and type(_G.RAID_CLASS_COLORS) == "table" then
         local c = _G.RAID_CLASS_COLORS[classFile]
         if type(c) == "table" and Num(c.r) and Num(c.g) and Num(c.b) then
-            color = string.format("ff%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255)
+            return string.format("ff%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255)
         end
     end
+    return nil
+end
+
+local function UnitLabel(unit)
+    local name = Str(Call("UnitName", unit)) or unit
+    local color = ClassHex(UnitClassFile(unit))
     return color and ("|c" .. color .. name .. "|r") or name, name
 end
 
@@ -474,14 +496,14 @@ local function Threshold(key, default)
     return v or default
 end
 
-local function ItemName(itemID)
+local function ItemName(itemID, fallback)
     local c = _G.C_Item
     if type(c) == "table" and type(c.GetItemNameByID) == "function" then
         local ok, name = pcall(c.GetItemNameByID, itemID)
         if ok and Str(name) then return name end
     end
     local name = Str(Call("GetItemInfo", itemID))
-    return name or ITEM_NAMES[itemID] or ("item " .. itemID)
+    return name or fallback or ("item " .. itemID)
 end
 
 -- In the bags (bank not counted); nil when the client gives no count.
@@ -494,21 +516,13 @@ local function BagCount(itemID)
     return Num(Call("GetItemCount", itemID, false))
 end
 
--- One entry per reagent below its threshold: { item, name, count, min, spell }. Also returns
--- every reagent checked, for /bbuff status.
-local function LowReagents()
-    local low, checked = {}, {}
-    for _, r in ipairs({ { "gotw", "gotwMin", MIN_GOTW }, { "rebirth", "rebirthMin", MIN_REBIRTH } }) do
-        local s = spells[r[1]]
-        local item = s and s.knownID and REAGENT_OF[s.knownID]
-        if item then
-            local count, min = BagCount(item), Threshold(r[2], r[3])
-            local e = { item = item, name = ItemName(item), count = count, min = min, spell = s.label }
-            checked[#checked + 1] = e
-            if count and count < min then low[#low + 1] = e end
-        end
-    end
-    return low, checked
+-- One reagent check: an entry { item, name, count, min, spell } added to checked, and to low
+-- when the bags hold fewer than the threshold.
+local function CheckReagent(low, checked, item, fallbackName, key, default, spellLabel)
+    local count, min = BagCount(item), Threshold(key, default)
+    local e = { item = item, name = ItemName(item, fallbackName), count = count, min = min, spell = spellLabel }
+    checked[#checked + 1] = e
+    if count and count < min then low[#low + 1] = e end
 end
 
 -- ---------------------------------------------------------------------------
@@ -571,11 +585,6 @@ local function CreateBox()
     end)
     box:Hide()
 
-    for i = 1, 2 do
-        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        fs:SetJustifyH("LEFT")
-        headers[i] = fs
-    end
     hint = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetJustifyH("LEFT")
 
@@ -595,10 +604,11 @@ local function RowTooltip(self)
     if e.fake then
         tip:AddLine("Test row: clicking does nothing.", 0.7, 0.7, 0.7)
     else
-        tip:AddLine("Left-click: " .. tostring(e.spellLabel) .. " on " .. tostring(e.plainName), 1, 1, 1)
+        tip:AddLine(e.leftText or ("Left-click: " .. tostring(e.spellLabel) .. " on " .. tostring(e.plainName)), 1, 1, 1)
         if e.spell2Label then
             tip:AddLine("Right-click: " .. e.spell2Label, 1, 1, 1)
         end
+        if e.note then tip:AddLine(e.note, 0.8, 0.8, 0.8, true) end
         if e.far then tip:AddLine("Out of range", 1, 0.3, 0.3) end
     end
     tip:Show()
@@ -624,23 +634,33 @@ local function NewRow(i)
     return r
 end
 
--- Out of combat only: sets every row's attributes and lays the box out.
-local function Layout(entries, reagents)
+local function Header(i)
+    local fs = headers[i]
+    if not fs then
+        fs = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetJustifyH("LEFT")
+        headers[i] = fs
+    end
+    return fs
+end
+
+-- Out of combat only: sets every row's attributes and lays the box out. The sections, in order,
+-- come from the module: { key, title }.
+local function Layout(entries, reagents, mod)
     if not box or InCombat() then return end
     reagents = reagents or {}
     local direction = UseKeyDown() and "AnyDown" or "AnyUp"
-    local sections = {
-        { key = "motw", title = "Missing " .. ((spells.motw and spells.motw.label) or "Mark of the Wild") .. ":" },
-        { key = "thorns", title = "Missing " .. ((spells.thorns and spells.thorns.label) or "Thorns") .. ":" },
-    }
+    local sections = mod and mod.Sections() or {}
     local y, n, w = -PAD, 0, MIN_W
-    for si, sec in ipairs(sections) do
-        local header = headers[si]
+    local usedHeaders = 0
+    for _, sec in ipairs(sections) do
         local any = false
         for _, e in ipairs(entries) do
             if e.section == sec.key then any = true break end
         end
         if any then
+            usedHeaders = usedHeaders + 1
+            local header = Header(usedHeaders)
             header:ClearAllPoints()
             header:SetPoint("TOPLEFT", box, "TOPLEFT", PAD + 2, y)
             header:SetText(sec.title)
@@ -686,10 +706,9 @@ local function Layout(entries, reagents)
                 end
             end
             y = y - 4
-        else
-            header:Hide()
         end
     end
+    for i = usedHeaders + 1, #headers do headers[i]:Hide() end
     for i = n + 1, #rows do
         rows[i].entry = nil
         rows[i]:Hide()
@@ -736,6 +755,8 @@ end
 -- The check
 -- ---------------------------------------------------------------------------
 
+-- A row for one member: the section it goes in, the unit, the resolved spell it casts, and an
+-- optional note after the name ("tank", "fallback", ...).
 local function MakeEntry(section, unit, spell, extra)
     local text, plain = UnitLabel(unit)
     local e = { section = section, unit = unit, spell = spell.value, spellLabel = spell.label,
@@ -754,22 +775,15 @@ local function MakeEntry(section, unit, spell, extra)
     return e
 end
 
-local function FakeEntries()
-    local list = {}
-    local motw, thorns = spells.motw or { label = "Mark of the Wild" }, spells.thorns or { label = "Thorns" }
-    local fakes = {
-        { "motw", "|cffc79c6eTankyboy|r", motw }, { "motw", "|cfff58cbaHealbot|r|cffaaaaaa (out of range)|r", motw, true },
-        { "motw", "|cff69ccf0Frostmage|r", motw }, { "thorns", "|cffc79c6eTankyboy|r|cffaaaaaa (tank)|r", thorns },
-    }
-    for _, f in ipairs(fakes) do
-        list[#list + 1] = { section = f[1], text = f[2], icon = f[3].icon, spellLabel = f[3].label,
-            plainName = (f[2]:match("|c%x%x%x%x%x%x%x%x(.-)|r")), far = f[4], fake = true }
-    end
-    return list
+-- A test row: section, coloured text, the resolved spell for icon and label, out of range.
+local function FakeEntry(section, text, spell, far)
+    return { section = section, text = text, icon = spell.icon, spellLabel = spell.label,
+        plainName = (text:match("|c%x%x%x%x%x%x%x%x(.-)|r")) or text, far = far, fake = true }
 end
 
-local function FakeReagents()
-    return { { name = ITEM_NAMES[17026], count = 3, min = Threshold("gotwMin", MIN_GOTW) } }
+-- The module the test rows come from: yours, or the druid's on a class without one.
+local function TestModule()
+    return module or ns.modules.DRUID
 end
 
 local function PlayMissingSound()
@@ -784,19 +798,22 @@ local function Update()
     if not Active() then
         missingCount = 0
         prevMissing = {}
-        Layout(testMode and FakeEntries() or {}, testMode and FakeReagents() or {})
+        local m = TestModule()
+        if testMode and m then
+            local fe, fr = m.Fake()
+            Layout(fe, fr, m)
+        else
+            Layout({}, {}, m)
+        end
         return
     end
-    if not spells.motw then ResolveSpells() end
+    if not module.resolved then ResolveSpells() end
 
     local entries, missing = {}, {}
-    local units = (On("group") or On("thornsTank")) and GroupUnits() or { "player" }
-    local stats = { units = 0, motw = 0, thorns = 0, unknown = 0 }
-    local motw, thorns = spells.motw, spells.thorns
-    local checkMotw = On("motw") and motw and motw.value ~= nil
-    local checkThorns = (On("thorns") or On("thornsTank")) and thorns and thorns.value ~= nil
+    local units = module.WantsGroup() and GroupUnits() or { "player" }
+    local stats = { units = 0, unknown = 0 }
 
-    -- The tanks, for the Thorns check and the "(tank)" mark.
+    -- The tanks, for the module's tank checks and the "(tank)" mark.
     local tankSet, tankList, tankSource = {}, {}, "none"
     if InGroup() then
         tankList, tankSource = Tanks(units)
@@ -807,38 +824,11 @@ local function Update()
     stats.tanks = #names > 0 and table.concat(names, ", ") or "none"
     stats.tankSource = tankSource
 
-    local scanned = {}
-    for _, u in ipairs(units) do
-        local listMotw = u == "player" or On("group")
-        local wantThorns = (u == "player" and On("thorns")) or (tankSet[u] and On("thornsTank"))
-        if (checkMotw and listMotw) or (checkThorns and wantThorns) then
-            local ok, eligible = pcall(Eligible, u)
-            if ok and eligible then
-                stats.units = stats.units + 1
-                local ok2, hasM, hasT = pcall(ScanUnit, u)
-                if not ok2 then hasM, hasT = nil, nil end
-                if hasM == nil or hasT == nil then stats.unknown = stats.unknown + 1 end
-                scanned[u] = { hasM, hasT }
-                local guid = UnitGUIDPlain(u) or u
-                if checkMotw and listMotw and hasM == false then
-                    local spell2 = InGroup() and spells.gotw and spells.gotw.value or nil
-                    local e = MakeEntry("motw", u, motw, tankSet[u] and "tank" or nil)
-                    if spell2 then e.spell2, e.spell2Label = spell2, spells.gotw.label end
-                    entries[#entries + 1] = e
-                    missing["motw:" .. guid] = true
-                    stats.motw = stats.motw + 1
-                end
-                if checkThorns and wantThorns and hasT == false then
-                    entries[#entries + 1] = MakeEntry("thorns", u, thorns, tankSet[u] and "tank" or nil)
-                    missing["thorns:" .. guid] = true
-                    stats.thorns = stats.thorns + 1
-                end
-            end
-        end
-    end
+    module.Check(units, tankSet, entries, missing, stats)
+
     local reagents = {}
     if On("reagents") then
-        local ok, low = pcall(LowReagents)
+        local ok, low = pcall(module.LowReagents)
         if ok then reagents = low else Fail("reagents", low) end
     end
     for _, r in ipairs(reagents) do missing["reagent:" .. r.item] = true end
@@ -854,10 +844,11 @@ local function Update()
     if new and On("sound") then PlayMissingSound() end
 
     if testMode then
-        for _, e in ipairs(FakeEntries()) do entries[#entries + 1] = e end
-        if #reagents == 0 then reagents = FakeReagents() end
+        local fe, fr = module.Fake()
+        for _, e in ipairs(fe) do entries[#entries + 1] = e end
+        if #reagents == 0 then reagents = fr end
     end
-    Layout(entries, reagents)
+    Layout(entries, reagents, module)
 end
 
 local function SafeUpdate()
@@ -865,19 +856,14 @@ local function SafeUpdate()
     if not ok then Fail("update", err) end
 end
 
+local function Refresh()
+    dirty = true
+    SafeUpdate()
+end
+
 -- ---------------------------------------------------------------------------
 -- Settings
 -- ---------------------------------------------------------------------------
-
-local LABELS = {
-    enabled = "BetterBuffsForever",
-    motw = "Mark of the Wild check",
-    thorns = "Thorns on you",
-    thornsTank = "Thorns on the tank",
-    group = "List group members",
-    sound = "Sound when something goes missing",
-    reagents = "Low reagent warning",
-}
 
 local function SetThreshold(key, v, what)
     db[key] = math.max(0, math.min(MAX_THRESHOLD, math.floor(v + 0.5)))
@@ -890,7 +876,7 @@ local function Set(key, on, quiet)
     db[key] = on and true or false
     dirty = true
     SafeUpdate()
-    if not quiet then Print(LABELS[key] .. ": " .. (on and "on" or "off") .. ".") end
+    if not quiet then Print((LABELS[key] or key) .. ": " .. (on and "on" or "off") .. ".") end
 end
 
 local function SetLocked(locked, quiet)
@@ -965,60 +951,81 @@ local function SetTest(on)
     Print(testMode and "test rows shown (they cast nothing). /bbuff test again hides them." or "test rows hidden.")
 end
 
+-- The modules, yours first.
+local function Modules()
+    local list = {}
+    if module then list[1] = module end
+    for _, c in ipairs(MODULE_ORDER) do
+        local m = ns.modules[c]
+        if m and m ~= module then list[#list + 1] = m end
+    end
+    return list
+end
+
+-- The reagent thresholds to show: yours, or every module's on a class without one.
+local function ThresholdList()
+    local list = {}
+    for _, m in ipairs(module and { module } or Modules()) do
+        for _, t in ipairs(m.thresholds or {}) do list[#list + 1] = t end
+    end
+    return list
+end
+
 -- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
 
-local function YesNo(v) return v and "yes" or "no" end
-local function OnOff(v) return v and "on" or "off" end
-
 local function PrintHelp()
-    Print("a druid's buff check: who lacks Mark of the Wild, and whether you or your tank lack Thorns. Click a name to buff it.")
+    if module then
+        Print(module.blurb)
+    else
+        Print("a buff check for druids and paladins: who lacks your buffs. Click a name to buff it."
+            .. (module == false and " Idle on this character (not a druid or paladin)." or ""))
+    end
     Print("/bbuff on | off - switch it on or off")
-    Print("/bbuff motw [on|off] - the Mark of the Wild check (Gift of the Wild counts)")
-    Print("/bbuff thorns [on|off] - warn when you lack Thorns")
-    Print("/bbuff tank [on|off] - warn when the tank lacks Thorns; /bbuff tank set - your target is the tank; /bbuff tank clear")
+    for _, m in ipairs(module and { module } or Modules()) do
+        for _, line in ipairs(m.Help()) do Print(line) end
+    end
     Print("/bbuff group [on|off] - list group members (off: only you)")
     Print("/bbuff sound [on|off] - a short sound when something goes missing")
-    Print(string.format("/bbuff reagents [on|off] - warn on low reagents; /bbuff reagents gotw <n> (now %d), /bbuff reagents rebirth <n> (now %d)",
-        Threshold("gotwMin", MIN_GOTW), Threshold("rebirthMin", MIN_REBIRTH)))
+    local parts = {}
+    for _, t in ipairs(ThresholdList()) do
+        parts[#parts + 1] = string.format("/bbuff reagents %s <n> (now %d)", t.word, Threshold(t.key, t.default))
+    end
+    Print("/bbuff reagents [on|off] - warn on low reagents" .. (#parts > 0 and ("; " .. table.concat(parts, ", ")) or ""))
     Print("/bbuff unlock | lock | reset - move the box (Alt + drag works when locked), or put it back at the top centre")
     Print("/bbuff test - show the box with test rows; /bbuff status - the current state")
 end
 
-local function SpellLine(key)
-    local s = spells[key]
-    return s and s.text or "not resolved yet"
-end
-
 local function PrintStatus()
-    Print("version " .. VERSION)
-    if isDruid == false then
-        Print("not a druid: the addon is idle on this character.")
-    elseif isDruid == nil then
+    Print("version " .. VERSION .. "   class module: " .. (module and module.name or "none"))
+    if module == false then
+        Print("not a druid or paladin: the addon is idle on this character.")
+    elseif module == nil then
         Print("class not known yet.")
     end
-    Print("enabled: " .. YesNo(On("enabled")) .. "   motw: " .. OnOff(On("motw")) .. "   thorns: " .. OnOff(On("thorns"))
-        .. "   tank: " .. OnOff(On("thornsTank")) .. "   group: " .. OnOff(On("group")) .. "   sound: " .. OnOff(On("sound"))
-        .. "   reagents: " .. OnOff(On("reagents")))
-    Print("Mark of the Wild: " .. SpellLine("motw") .. (spellsPending and " (update waits for combat to end)" or ""))
-    Print("Gift of the Wild: " .. SpellLine("gotw"))
-    Print("Thorns: " .. SpellLine("thorns"))
-    Print("Rebirth: " .. SpellLine("rebirth"))
-    local okR, _, checked = pcall(LowReagents)
-    local parts = {}
-    if okR and type(checked) == "table" then
-        for _, r in ipairs(checked) do
-            parts[#parts + 1] = string.format("%s %s/%d (%s)", r.name, r.count and tostring(r.count) or "?", r.min, tostring(r.spell))
-        end
+    local line = "enabled: " .. YesNo(On("enabled"))
+    for _, o in ipairs(module and module.options or {}) do
+        line = line .. "   " .. o.short .. ": " .. OnOff(On(o.key))
     end
-    Print("reagents: " .. OnOff(On("reagents")) .. "   " .. (#parts > 0 and table.concat(parts, ", ")
-        or "nothing to check (Gift of the Wild and Rebirth not known)"))
+    Print(line .. "   group: " .. OnOff(On("group")) .. "   sound: " .. OnOff(On("sound"))
+        .. "   reagents: " .. OnOff(On("reagents")))
+    if module then
+        for _, l in ipairs(module.StatusSpells(spellsPending)) do Print(l) end
+        local okR, _, checked = pcall(module.LowReagents)
+        local parts = {}
+        if okR and type(checked) == "table" then
+            for _, r in ipairs(checked) do
+                parts[#parts + 1] = string.format("%s %s/%d (%s)", r.name, r.count and tostring(r.count) or "?", r.min, tostring(r.spell))
+            end
+        end
+        Print("reagents: " .. OnOff(On("reagents")) .. "   " .. (#parts > 0 and table.concat(parts, ", ")
+            or ("nothing to check (" .. module.reagentSpells .. " not known)")))
+    end
     Print("group: " .. (InRaid() and "raid" or InGroup() and "party" or "solo")
         .. "   tank: " .. tostring(lastScan.tanks) .. " (" .. tostring(lastScan.tankSource) .. ")"
         .. "   set by hand: " .. (TankText() or "none"))
-    Print(string.format("last check: %d members checked, %d lack Mark of the Wild, %d lack Thorns, %d unknown (auras secret or refused)",
-        lastScan.units or 0, lastScan.motw or 0, lastScan.thorns or 0, lastScan.unknown or 0))
+    if module then Print(module.StatusLast(lastScan)) end
     local p = db and db.pos
     Print("box: " .. (InCombat() and "hidden (combat)" or (box and box:IsShown()) and "shown" or "hidden")
         .. "   " .. ((db and db.locked == false) and "unlocked" or "locked")
@@ -1031,15 +1038,10 @@ local function PrintStatus()
         .. "   UnitBuff " .. YesNo(type(_G.UnitBuff) == "function")
         .. "   roles " .. YesNo(type(_G.UnitGroupRolesAssigned) == "function")
         .. "   main tank " .. YesNo(type(_G.GetPartyAssignment) == "function"))
+    if module and module.StatusExtra then
+        for _, l in ipairs(module.StatusExtra()) do Print(l) end
+    end
     Print("last error: " .. (lastError or "none"))
-end
-
--- "on" / "off" / "" (toggle) to a boolean; nil for anything else.
-local function Toggle(arg, current)
-    if arg == "on" then return true end
-    if arg == "off" then return false end
-    if arg == "" then return not current end
-    return nil
 end
 
 local function OnSlash(msg)
@@ -1050,38 +1052,37 @@ local function OnSlash(msg)
     end
     local cmd, arg = msg:match("^(%S+)%s*(.*)$")
     cmd, arg = cmd or "", arg or ""
-    local key = (cmd == "motw" and "motw") or (cmd == "thorns" and "thorns") or (cmd == "group" and "group")
-        or (cmd == "sound" and "sound") or nil
     if cmd == "on" or cmd == "off" then
         Set("enabled", cmd == "on")
-        if cmd == "on" and isDruid == false then Print("not a druid: it stays idle on this character.") end
-    elseif key then
-        local v = Toggle(arg, On(key))
-        if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(key, v) end
+        if cmd == "on" and module == false then Print("not a druid or paladin: it stays idle on this character.") end
+    elseif cmd == "group" or cmd == "sound" then
+        local v = Toggle(arg, On(cmd))
+        if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
     elseif cmd == "reagents" then
         local which, n = arg:match("^(%a+)%s*(.*)$")
         local v = tonumber(n or "")
-        if (which == "gotw" or which == "rebirth") and v and v == v then
-            SetThreshold(which == "gotw" and "gotwMin" or "rebirthMin", v,
-                which == "gotw" and "Gift of the Wild" or "Rebirth")
+        local found
+        for _, m in ipairs(Modules()) do
+            for _, t in ipairs(m.thresholds or {}) do
+                if t.word == which then found = t end
+            end
+        end
+        if found and v and v == v then
+            SetThreshold(found.key, v, found.label)
         else
             local t = Toggle(arg, On("reagents"))
             if t == nil then
-                Print("/bbuff reagents [on|off], /bbuff reagents gotw <n>, /bbuff reagents rebirth <n>")
+                local parts = {}
+                for _, th in ipairs(ThresholdList()) do parts[#parts + 1] = "/bbuff reagents " .. th.word .. " <n>" end
+                Print("/bbuff reagents [on|off]" .. (#parts > 0 and (", " .. table.concat(parts, ", ")) or ""))
             else
                 Set("reagents", t)
             end
         end
-    elseif cmd == "tank" then
-        if arg == "" or arg == "set" then
-            SetTank()
-        elseif arg == "clear" then
-            ClearTank()
-        elseif arg == "on" or arg == "off" then
-            Set("thornsTank", arg == "on")
-        else
-            Print("/bbuff tank (your target is the tank), /bbuff tank clear, /bbuff tank on|off")
-        end
+    elseif cmd == "tank" and (arg == "" or arg == "set") then
+        SetTank()
+    elseif cmd == "tank" and arg == "clear" then
+        ClearTank()
     elseif cmd == "unlock" then
         SetLocked(false)
     elseif cmd == "lock" then
@@ -1093,6 +1094,11 @@ local function OnSlash(msg)
     elseif cmd == "status" then
         PrintStatus()
     else
+        -- The class commands: yours first, then the other module's (their settings are
+        -- account-wide, so a druid can set a paladin's options and the other way round).
+        for _, m in ipairs(Modules()) do
+            if m.Slash(cmd, arg) then return end
+        end
         PrintHelp()
     end
 end
@@ -1101,63 +1107,65 @@ end
 -- Public API: BetterBuffsForeverAPI
 --
 -- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
--- Everything stays here: the settings live in BetterBuffsForeverDB (the tank in
--- BetterBuffsForeverCharDB) and change only through the same functions /bbuff uses, so the addon
--- behaves the same with or without the hub.
+-- Everything stays here: the settings live in BetterBuffsForeverDB (the tank and the paladin's
+-- per-character options in BetterBuffsForeverCharDB) and change only through the same functions
+-- /bbuff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
---   StatusLine()         one short line of state, e.g. "on · 2 missing" or "idle (not a druid)"
+--   StatusLine()         one short line of state, e.g. "on · 2 missing" or "idle (not a druid
+--                        or paladin)"
 --   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
 --                        { text, func }, { text, checkbox = true, checked, func },
 --                        { text, radio = true, checked, func }, { text, submenu } and
---                        { divider = true }
+--                        { divider = true }; the class options are the ones for your class
 --   AddMenuEntries(root) adds the same options to a MenuUtil root or submenu description
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
 local function StatusLine()
     if not db then return "not loaded yet" end
-    if isDruid == false then return "idle (not a druid)" end
+    if module == false then return "idle (not a druid or paladin)" end
     if not On("enabled") then return "off" end
     if InCombat() then return "on" .. DOT .. "hidden in combat" end
     return "on" .. DOT .. (missingCount > 0 and (missingCount .. " missing") or "all buffed")
         .. ((lastScan.unknown or 0) > 0 and (DOT .. lastScan.unknown .. " unknown") or "")
 end
 
+local function CheckEntry(key)
+    return { text = LABELS[key] or key, checkbox = true,
+        checked = function() return On(key) end,
+        func = function() Set(key, not On(key)) end }
+end
+
+local function ThresholdMenu(t)
+    local sub = {}
+    for _, v in ipairs(t.choices) do
+        sub[#sub + 1] = { text = tostring(v) .. (v == t.default and " (default)" or ""), radio = true,
+            checked = function() return Threshold(t.key, t.default) == v end,
+            func = function() SetThreshold(t.key, v, t.label) end }
+    end
+    return { text = t.label .. " reagent warning below", submenu = sub }
+end
+
 local function MenuEntries()
     if not db then return {} end
-    local function check(key)
-        return { text = LABELS[key], checkbox = true,
-            checked = function() return On(key) end,
-            func = function() Set(key, not On(key)) end }
-    end
     local tank = TankText()
-    local function choices(key, default, values, what)
-        local sub = {}
-        for _, v in ipairs(values) do
-            sub[#sub + 1] = { text = tostring(v) .. (v == default and " (default)" or ""), radio = true,
-                checked = function() return Threshold(key, default) == v end,
-                func = function() SetThreshold(key, v, what) end }
-        end
-        return sub
-    end
     local list = {
         { text = "Enabled", checkbox = true,
           checked = function() return On("enabled") end,
           func = function() Set("enabled", not On("enabled")) end },
-        check("motw"),
-        check("thorns"),
-        check("thornsTank"),
-        check("group"),
-        check("sound"),
-        check("reagents"),
-        { text = "Gift of the Wild reagent warning below",
-          submenu = choices("gotwMin", MIN_GOTW, { 0, 5, 10, 20, 40 }, "Gift of the Wild") },
-        { text = "Rebirth reagent warning below",
-          submenu = choices("rebirthMin", MIN_REBIRTH, { 0, 1, 2, 3, 5 }, "Rebirth") },
-        { divider = true },
-        { text = "Set tank: current target", func = SetTank },
     }
+    local m = module or nil
+    for _, o in ipairs(m and m.options or {}) do list[#list + 1] = CheckEntry(o.key) end
+    list[#list + 1] = CheckEntry("group")
+    list[#list + 1] = CheckEntry("sound")
+    list[#list + 1] = CheckEntry("reagents")
+    for _, t in ipairs(m and m.thresholds or {}) do list[#list + 1] = ThresholdMenu(t) end
+    if m and m.Menu then
+        for _, e in ipairs(m.Menu()) do list[#list + 1] = e end
+    end
+    list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Set tank: current target", func = SetTank }
     if tank then
         list[#list + 1] = { text = "Clear tank (" .. tank .. ")", func = function() ClearTank() end }
     end
@@ -1206,10 +1214,39 @@ _G.BetterBuffsForeverAPI = {
 }
 
 -- ---------------------------------------------------------------------------
+-- What the modules use
+-- ---------------------------------------------------------------------------
+
+ns.Print, ns.Fail, ns.InCombat = Print, Fail, InCombat
+ns.Secret, ns.Num, ns.Str, ns.Bool, ns.Call = Secret, Num, Str, Bool, Call
+ns.On, ns.Set, ns.Toggle, ns.OnOff, ns.YesNo, ns.Refresh = On, Set, Toggle, OnOff, YesNo, Refresh
+ns.LABELS = LABELS
+ns.SpellName, ns.Known, ns.ResolveSpell = SpellName, Known, ResolveSpell
+ns.ReadBuffs, ns.Matches = ReadBuffs, Matches
+ns.InGroup, ns.InRaid, ns.Eligible = InGroup, InRaid, Eligible
+ns.UnitGUIDPlain, ns.UnitLabel, ns.UnitClassFile, ns.ClassHex = UnitGUIDPlain, UnitLabel, UnitClassFile, ClassHex
+ns.Threshold, ns.CheckReagent = Threshold, CheckReagent
+ns.MakeEntry, ns.FakeEntry = MakeEntry, FakeEntry
+ns.CharDB = function() return charDb end
+ns.DB = function() return db end
+
+-- ---------------------------------------------------------------------------
 -- Events
 -- ---------------------------------------------------------------------------
 
 local function BindSavedVariables()
+    -- Every module's keys, whatever this character's class.
+    for _, c in ipairs(MODULE_ORDER) do
+        local m = ns.modules[c]
+        if m then
+            for _, o in ipairs(m.options or {}) do
+                SAVED_KEYS[o.key], DEFAULTS[o.key], LABELS[o.key] = true, o.default ~= false, o.label
+            end
+            for _, t in ipairs(m.thresholds or {}) do SAVED_KEYS[t.key] = true end
+            for k in pairs(m.savedKeys or {}) do SAVED_KEYS[k] = true end
+        end
+    end
+
     if type(BetterBuffsForeverDB) ~= "table" then BetterBuffsForeverDB = {} end
     db = BetterBuffsForeverDB
     for k in pairs(db) do
@@ -1218,9 +1255,12 @@ local function BindSavedVariables()
     for k, v in pairs(DEFAULTS) do
         if type(db[k]) ~= "boolean" then db[k] = v end
     end
-    for _, k in ipairs({ "gotwMin", "rebirthMin" }) do
-        local v = Num(tonumber(db[k]))
-        db[k] = v and math.max(0, math.min(MAX_THRESHOLD, math.floor(v))) or nil
+    for _, c in ipairs(MODULE_ORDER) do
+        local m = ns.modules[c]
+        for _, t in ipairs(m and m.thresholds or {}) do
+            local v = Num(tonumber(db[t.key]))
+            db[t.key] = v and math.max(0, math.min(MAX_THRESHOLD, math.floor(v))) or nil
+        end
     end
     local p = db.pos
     if type(p) == "table" and Num(p.x) and Num(p.y) then
@@ -1229,17 +1269,26 @@ local function BindSavedVariables()
         db.pos = nil
     end
 
-    -- Per character: only the tank set by hand, { guid, name }.
+    -- Per character: the tank set by hand, { guid, name }, and the modules' own keys.
     if type(BetterBuffsForeverCharDB) ~= "table" then BetterBuffsForeverCharDB = {} end
     charDb = BetterBuffsForeverCharDB
+    local charKeys = { tank = true }
+    for _, c in ipairs(MODULE_ORDER) do
+        local m = ns.modules[c]
+        for k in pairs(m and m.charKeys or {}) do charKeys[k] = true end
+    end
     for k in pairs(charDb) do
-        if k ~= "tank" then charDb[k] = nil end
+        if not charKeys[k] then charDb[k] = nil end
     end
     local t = charDb.tank
     if type(t) == "table" and Str(t.guid) then
         charDb.tank = { guid = t.guid, name = Str(t.name) or "?" }
     else
         charDb.tank = nil
+    end
+    for _, c in ipairs(MODULE_ORDER) do
+        local m = ns.modules[c]
+        if m and m.Bind then m.Bind(db, charDb) end
     end
 end
 
@@ -1275,6 +1324,8 @@ events:RegisterEvent("BAG_UPDATE_DELAYED")
 pcall(events.RegisterEvent, events, "PLAYER_ROLES_ASSIGNED")
 pcall(events.RegisterEvent, events, "UNIT_CONNECTION")
 pcall(events.RegisterEvent, events, "LEARNED_SPELL_IN_TAB")
+pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORM")    -- a paladin's aura changed
+pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORMS")
 events:SetScript("OnEvent", function(_, event, arg1)
     local ok, err = pcall(function()
         if event == "ADDON_LOADED" then
@@ -1287,8 +1338,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
             ResolveSpells()
             ticker:Show()
         elseif event == "PLAYER_ENTERING_WORLD" then
-            if isDruid == nil then CheckClass() end
-            if not spells.motw then ResolveSpells() end
+            if module == nil then CheckClass() end
+            if module and not module.resolved then ResolveSpells() end
             ApplyPosition()
         elseif event == "PLAYER_REGEN_DISABLED" then
             -- Fallback for a client without state drivers: still allowed in this event.
@@ -1304,7 +1355,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
             or event == "BAG_UPDATE_DELAYED" then
             if not Active() then return end
         elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" then
-            if isDruid then ResolveSpells() end
+            if module then ResolveSpells() end
+        elseif event == "UPDATE_SHAPESHIFT_FORM" or event == "UPDATE_SHAPESHIFT_FORMS" then
+            if module and module.OnEvent then module.OnEvent(event) end
+            if not Active() then return end
         end
         dirty = true
     end)

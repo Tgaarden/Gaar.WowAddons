@@ -41,6 +41,8 @@ Settings are saved account-wide in `BetterTooltipsForeverDB`.
 
 Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
+Since 1.0.2 it takes its shared helpers from BetterForever's library (`BetterForever`, `Lib.lua`) instead of carrying its own copies: the chat prefix, the secret-value checks (`Plain`, `Num`, `Str`, under `Call`) and the drawing of its menu (`RenderMenu`). Nothing you see or set changed.
+
 The optional hub talks to this addon only through `BetterTooltipsForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()` (a master checkbox, a divider and one checkbox per feature, as
 plain data), `AddMenuEntries(root)` for a `MenuUtil` menu and `SetMinimapHidden()` (does nothing;

@@ -19,8 +19,8 @@
     * /bmerch sell sells the junk by hand while a merchant is open (no popup, no switch needed).
     * /bmerch status shows the settings and the last result; /bmerch help lists the commands.
     * BetterMerchantForeverAPI, a small global table for BetterForever's hub menu (version,
-      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs the same without
-      the hub.
+      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The small helpers (Print, Num,
+      IsSecret, API, Call, InCombat, OnOff, RenderMenu) come from BetterForever's library.
 
   BBF locks. BetterBagsForever has no API for them, so this addon reads its per-character saved
   table, read-only: BetterBagsForeverCharDB.lockedItems[itemID] ~= nil means locked. If a BBF
@@ -38,9 +38,8 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMerchantForever"
-local PREFIX = "|cff33ff99BetterMerchantForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -67,42 +66,26 @@ local lastResult = "nothing yet"
 local lastError
 
 -- ---------------------------------------------------------------------------
--- Small helpers
+-- Small helpers (the shared ones come from BetterForever's library, Lib.lua)
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local BF = _G.BetterForever
+local IsSecret, Num, API, Call = BF.IsSecret, BF.Num, BF.API, BF.Call
+local InCombat, OnOff = BF.InCombat, BF.OnOff
+local A = BF.NewAddon("BetterMerchantForever", { version = VERSION })
 
-local issecretvalue = _G.issecretvalue
-local function Secret(v)
-    return issecretvalue and issecretvalue(v) and true or false
-end
-
-local function Num(v)
-    if Secret(v) or type(v) ~= "number" or v ~= v then return nil end
-    return v
-end
-
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
+local function Print(msg) A:Print(msg) end
 
 local function Fail(where, err)
     lastError = where .. ": " .. tostring(err)
 end
 
-local function OnOff(b) return b and "on" or "off" end
-
 local function Enabled() return db ~= nil and db.enabled ~= false end
 local function Flag(key) return db ~= nil and db[key] == true end
 
 local function Money(copper)
-    if type(_G.GetCoinTextureString) == "function" then
-        local ok, s = pcall(_G.GetCoinTextureString, copper)
-        if ok and type(s) == "string" then return s end
-    end
+    local s = Call(API("GetCoinTextureString"), copper)
+    if type(s) == "string" then return s end
     return tostring(copper) .. "c"
 end
 
@@ -115,12 +98,8 @@ local function LastBag()
 end
 
 local function SlotCount(bag)
-    local c = _G.C_Container
-    local f = (type(c) == "table" and type(c.GetContainerNumSlots) == "function" and c.GetContainerNumSlots)
-        or (type(_G.GetContainerNumSlots) == "function" and _G.GetContainerNumSlots)
-    if not f then return 0 end
-    local ok, n = pcall(f, bag)
-    return ok and Num(n) or 0
+    local f = API("C_Container", "GetContainerNumSlots") or API("GetContainerNumSlots")
+    return Num((Call(f, bag))) or 0
 end
 
 -- { itemID, quality, count } for a bag slot, or nil when empty or unreadable.
@@ -137,12 +116,8 @@ local function SlotItem(bag, slot)
 end
 
 local function SellPrice(id)
-    local ci = _G.C_Item
-    local f = (type(ci) == "table" and type(ci.GetItemInfo) == "function" and ci.GetItemInfo)
-        or (type(_G.GetItemInfo) == "function" and _G.GetItemInfo)
-    if not f then return 0 end
-    local ok, _, _, _, _, _, _, _, _, _, _, price = pcall(f, id)
-    return ok and Num(price) or 0
+    local f = API("C_Item", "GetItemInfo") or API("GetItemInfo")
+    return Num((select(11, Call(f, id)))) or 0
 end
 
 -- Whether BetterBagsForever has this item locked. Read-only.
@@ -150,7 +125,7 @@ local function BBFLocked(id)
     local api = _G.BetterBagsForeverAPI
     if type(api) == "table" and type(api.IsItemLocked) == "function" then
         local ok, r = pcall(api.IsItemLocked, id)
-        if ok and not Secret(r) then return r and true or false end
+        if ok and not IsSecret(r) then return r and true or false end
     end
     local cdb = _G.BetterBagsForeverCharDB
     local items = type(cdb) == "table" and cdb.lockedItems
@@ -211,9 +186,7 @@ local function SellOne(it)
     -- Re-check right before selling: same grey item still there, not locked since the scan.
     local id, q = SlotItem(it.bag, it.slot)
     if id ~= it.id or q ~= 0 or BBFLocked(id) then return false end
-    local c = _G.C_Container
-    local f = (type(c) == "table" and type(c.UseContainerItem) == "function" and c.UseContainerItem)
-        or (type(_G.UseContainerItem) == "function" and _G.UseContainerItem)
+    local f = API("C_Container", "UseContainerItem") or API("UseContainerItem")
     if not f then return false end
     return pcall(f, it.bag, it.slot) and true or false
 end
@@ -475,36 +448,12 @@ local function MenuEntries()
     return entries
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterMerchantForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

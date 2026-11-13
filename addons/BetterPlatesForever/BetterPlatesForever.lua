@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterPlatesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.10"
+local VERSION = "1.2.11"
 
 -- The shared helpers (BetterForever's library, Lib.lua; the addon depends on BetterForever).
 local BF = _G.BetterForever
@@ -256,8 +256,8 @@ local function Print(msg) A:Print(msg) end
 
 -- Whether either of two values is secret.
 local function Secret(a, b)
-    if IsSecret(a) then return true end
-    return b ~= nil and IsSecret(b)
+    -- No comparison on the raw values (b may itself be secret): IsSecret(nil) is false.
+    return IsSecret(a) or IsSecret(b)
 end
 
 local function Clamp(v, lo, hi)

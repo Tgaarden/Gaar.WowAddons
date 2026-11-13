@@ -34,10 +34,10 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon("BetterXPForever", { version = VERSION })
 
 local DEFAULT_MAX_LEVEL = 60
 local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session

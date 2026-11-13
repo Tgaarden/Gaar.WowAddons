@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterBarsForever
+## Notes: Clearer action buttons on WoW Forever: a red icon out of range, a blue icon without mana, big cooldown numbers (56, 2m, 1h; none for the global cooldown), short hotkeys (M4, N1, sc3) and optional macro names. Each part can be switched off. /bbars
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\Ability_Marksmanship
+## SavedVariables: BetterBarsForeverDB
+
+BetterBarsForever.lua

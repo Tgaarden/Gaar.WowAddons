@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterMerchantForever
+## Notes: At a merchant: sells your grey items (skipping anything locked in BetterBagsForever) and repairs your gear, optionally from guild funds. Every feature has its own switch. /bmerch
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Coin_01
+## SavedVariables: BetterMerchantForeverDB
+
+BetterMerchantForever.lua

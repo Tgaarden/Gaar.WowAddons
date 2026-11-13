@@ -21,6 +21,9 @@
   ItemRefTooltip for items). Only GameTooltip and ItemRefTooltip are touched; the shopping
   (compare) tooltips stay as Blizzard does them. Blizzard code is only followed, never replaced.
 
+  Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
+  through ## Dependencies): the chat prefix, Plain / Num / Str and the menu drawing.
+
   Secret values (12.x engine): every value read from the client goes through Plain(), which
   returns nil for a secret value; a secret is never compared, tested, formatted or concatenated.
   A line whose value is secret is simply skipped. Every handler runs in pcall (the last error is
@@ -33,9 +36,11 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterTooltipsForever"
-local PREFIX = "|cff33ff99BetterTooltipsForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
+
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
 
 -- key, default, menu label, help text. Order = menu and status order.
 local FEATURES = {
@@ -59,32 +64,14 @@ local lastError
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
--- nil for a secret value, else the value. The only place a client value is first touched.
-local function Plain(v)
-    if type(_G.issecretvalue) == "function" and _G.issecretvalue(v) then return nil end
-    return v
-end
+-- Plain: nil for a secret value, else the value. The only place a client value is first touched.
+local Plain, Num, Str = BF.Plain, BF.Num, BF.Str
 
-local function Num(v)
-    v = Plain(v)
-    if type(v) == "number" and v == v then return v end
-end
-
-local function Str(v)
-    v = Plain(v)
-    if type(v) == "string" and v ~= "" then return v end
-end
-
-local function Call(fn, ...)  -- first plain return value, nil on error or when missing
-    if type(fn) ~= "function" then return nil end
-    local ok, a = pcall(fn, ...)
-    if ok then return Plain(a) end
-end
+-- The first return value only, and plain: nil on an error, when fn is missing or when secret
+-- (the library's Call hands back every result as it is).
+local function Call(fn, ...) return Plain((BF.Call(fn, ...))) end
 
 local function Fail(where, err)
     lastError = tostring(where) .. ": " .. tostring(err)
@@ -625,32 +612,13 @@ local function MenuEntries()
     return entries
 end
 
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then RenderMenu(root:CreateButton(e.text), e.submenu) end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
 
 _G.BetterTooltipsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

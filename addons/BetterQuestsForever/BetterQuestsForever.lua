@@ -92,7 +92,10 @@
 local _G = _G
 local ADDON_NAME = ... or "BetterQuestsForever"
 local TITLE = "BetterQuestsForever"
-local PREFIX = "|cff33ff99BetterQuestsForever|r: "
+
+-- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
+local BF = _G.BetterForever
+local A = BF.NewAddon("BetterQuestsForever")
 
 local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
@@ -142,14 +145,9 @@ local moved = setmetatable({}, { __mode = "k" })         -- block -> Blizzard's 
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
+local InCombat = BF.InCombat
 
 -- Calls a client function without letting an unexpected error escape.
 local function Try(fn, ...)
@@ -164,10 +162,7 @@ local function pcall1(fn, ...) -- first return value of fn, or nil if it errors 
 end
 
 -- Geometry read off a frame can be a secret value on newer clients; a secret cannot be compared.
-local function IsSecret(v)
-    if type(_G.issecretvalue) ~= "function" then return false end
-    return _G.issecretvalue(v) and true or false
-end
+local IsSecret = BF.IsSecret
 
 local function QuestLog()
     local ql = _G.C_QuestLog
@@ -252,13 +247,13 @@ local function BackdropDB()
     return b
 end
 
+-- Kept here: unlike BF.Num it lets infinity through.
 local function Num(v)
     if type(v) == "number" and not IsSecret(v) and v == v then return v end
 end
 
-local function Call(f, method)
-    if type(f) == "table" and type(f[method]) == "function" then return pcall1(f[method], f) end
-end
+-- f:method() in pcall; nil when it is missing or errors.
+local Call = BF.Method
 
 local function IsShownFrame(f)
     return type(f) == "table" and Call(f, "IsShown") == true
@@ -2303,26 +2298,7 @@ local function MenuEntries()
     return list
 end
 
--- Draws the entries into a MenuUtil description (root or submenu).
-local function RenderMenu(root, entries)
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            local sub = root:CreateButton(e.text)
-            if type(sub) == "table" then RenderMenu(sub, e.submenu) end
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
-        else
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
+local RenderMenu = BF.RenderMenu
 
 -- A small menu drawn here for clients without MenuUtil (not UIDropDownMenu, whose shared state
 -- is prone to taint). Submenus are shown inline under their heading.
@@ -2569,18 +2545,7 @@ local function BuildMinimapButton()
 end
 
 -- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    return false
-end
+local AddOnLoaded = BF.AddOnLoaded
 
 -- Hidden for this session only, never saved: true while BetterForever's button holds these
 -- options. nil until the hub says so (SetMinimapHidden) or is found loaded at the next apply.
@@ -3095,7 +3060,8 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.10.1"
+local VERSION = "1.10.2"
+A.version = VERSION
 
 local function ApiEntries()
     if not db then return {} end

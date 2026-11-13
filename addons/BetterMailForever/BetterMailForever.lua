@@ -38,9 +38,13 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMailForever"
-local PREFIX = "|cff33ff99BetterMailForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
+
+-- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
+local BF = _G.BetterForever
+local A = BF.NewAddon("BetterMailForever", { version = VERSION })
+local Plain, InCombat, Coins, OnOff = BF.Plain, BF.InCombat, BF.Coins, BF.OnOff
 
 local MAX_RECENT = 15
 local STEP_DELAY = 0.3        -- seconds between two mail actions, at the fastest
@@ -70,16 +74,9 @@ local openBtn, recipBtn, menu
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and type(chat.AddMessage) == "function" then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
-local function Plain(v) -- nil for a secret value, else the value
-    if type(_G.issecretvalue) == "function" and _G.issecretvalue(v) then return nil end
-    return v
-end
-
+-- Kept here: BF.Str drops "" and BF.Num drops infinity, these do not.
 local function Str(v)
     v = Plain(v)
     if type(v) == "string" then return v end
@@ -100,21 +97,8 @@ local function Safe(where, fn, ...)
     return ok
 end
 
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
-
 local function Enabled() return db and db.enabled and true or false end
 local function Feature(key) return Enabled() and db[key] and true or false end
-
-local function Coins(copper)
-    local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
-    local out = {}
-    if g > 0 then out[#out + 1] = g .. "g" end
-    if s > 0 then out[#out + 1] = s .. "s" end
-    if c > 0 or #out == 0 then out[#out + 1] = c .. "c" end
-    return table.concat(out, " ")
-end
 
 -- ---------------------------------------------------------------------------
 -- Recipients: recent names and own characters
@@ -556,8 +540,6 @@ local function FindFeature(word)
     end
 end
 
-local function OnOff(v) return v and "on" or "off" end
-
 local function StatusLine()
     if not db then return "not loaded yet" end
     local on = {}
@@ -631,32 +613,12 @@ local function MenuEntries()
     return list
 end
 
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then RenderMenu(root:CreateButton(e.text), e.submenu) end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterMailForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

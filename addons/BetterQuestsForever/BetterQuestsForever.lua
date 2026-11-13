@@ -80,7 +80,7 @@
   waypoint is set only through BetterGpsForeverAPI.SetWaypoint. Without BetterGpsForever there is
   no entry and nothing else changes.
 
-  BetterQuestsForeverAPI is a small global table for BetterGaarForever, the optional hub that
+  BetterQuestsForeverAPI is a small global table for BetterForever, the family hub that
   shows these options in its own minimap menu (version, StatusLine, MenuEntries, AddMenuEntries,
   SetMinimapHidden). While the hub is loaded this addon's own minimap button is hidden for the
   session; the saved minimap setting is never changed for that. Without the hub nothing changes.
@@ -2252,7 +2252,7 @@ end
 local SaveMinimapHidden -- defined below; the menu's "Hide" entry calls it
 
 -- The options as data, shared by Blizzard's menu, the fallback menu and BetterQuestsForeverAPI
--- (which BetterGaarForever's hub menu reads), so there is one list to keep up to date.
+-- (which BetterForever's hub menu reads), so there is one list to keep up to date.
 local function OptionEntries()
     local list = {
         { text = "Enabled", checkbox = true, checked = function() return db.enabled end,
@@ -2582,12 +2582,12 @@ local function AddOnLoaded(name)
     return false
 end
 
--- Hidden for this session only, never saved: true while BetterGaarForever's button holds these
+-- Hidden for this session only, never saved: true while BetterForever's button holds these
 -- options. nil until the hub says so (SetMinimapHidden) or is found loaded at the next apply.
 local hubHidden
 
 local function HiddenByHub()
-    if hubHidden == nil and AddOnLoaded("BetterGaarForever") then hubHidden = true end
+    if hubHidden == nil and (AddOnLoaded("BetterForever") or AddOnLoaded("BetterGaarForever")) then hubHidden = true end
     return hubHidden == true
 end
 
@@ -2611,7 +2611,7 @@ SaveMinimapHidden = function(hide)
     if hide then
         Print("minimap button hidden. Type |cffffd100/bqf minimap|r to show it again.")
     elseif HiddenByHub() then
-        Print("minimap button set to shown; it stays hidden while BetterGaarForever is loaded, whose button has these options.")
+        Print("minimap button set to shown; it stays hidden while BetterForever is loaded, whose button has these options.")
     else
         Print("minimap button shown.")
     end
@@ -2623,7 +2623,7 @@ local function ResetMinimapButton()
     m.hide = false
     ApplyMinimap()
     Print("minimap button reset to its default position."
-        .. (HiddenByHub() and " It stays hidden while BetterGaarForever is loaded." or ""))
+        .. (HiddenByHub() and " It stays hidden while BetterForever is loaded." or ""))
 end
 
 -- ---------------------------------------------------------------------------
@@ -2897,8 +2897,12 @@ local function DistanceProbe()
         withDistance, #result.quests))
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Orders the Quests section of the objective tracker by level or distance, shows at most N quests and auto-watches the lowest ones that fit. Nice to know: right-click the tracker's Quests header for the same options; inside a dungeon the dungeon filter watches only its quests; the tracker can hide in combat (/bqf combat on)."
+
 local function PrintHelp()
-    Print("orders the Quests section of the objective tracker by level or distance, watches the lowest quests that fit and shows at most N.")
+    Print(INTRO)
     Print("/bqf sort level | distance - order by quest level or by how near the quest is (now: "
         .. (db and db.sort or DEFAULTS.sort) .. ")")
     Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
@@ -2988,7 +2992,7 @@ local function PrintStatus()
         .. "   MenuUtil: " .. (type(_G.MenuUtil) == "table" and "yes" or "no (own menu)"))
     local m = MinimapDB()
     local state = m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
-    if HiddenByHub() then state = "hidden while BetterGaarForever is loaded (saved setting: " .. state .. ")" end
+    if HiddenByHub() then state = "hidden while BetterForever is loaded (saved setting: " .. state .. ")" end
     Print("minimap button: " .. state .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
     Print("Set GPS target: " .. GpsMenuStatus() .. "   GetNextWaypoint: " .. Yes(ql and type(ql.GetNextWaypoint) == "function")
         .. "   GetQuestsOnMap: " .. Yes(ql and type(ql.GetQuestsOnMap) == "function")
@@ -3076,7 +3080,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterQuestsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterQuestsForeverDB and change only through the
 -- same functions /bqf and this addon's own menu use.
 --
@@ -3091,7 +3095,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.10"
+local VERSION = "1.10.1"
 
 local function ApiEntries()
     if not db then return {} end
@@ -3100,6 +3104,7 @@ end
 
 _G.BetterQuestsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StateLine,
     MenuEntries = ApiEntries,
     AddMenuEntries = function(root)

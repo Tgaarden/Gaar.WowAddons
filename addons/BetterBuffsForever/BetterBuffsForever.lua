@@ -46,7 +46,7 @@
     * An optional short sound when something new goes missing (off by default).
     * /bbuff for help; the shared commands are on, off, group, sound, reagents, tank, unlock,
       lock, reset, test and status, and each module adds its own.
-    * BetterBuffsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterBuffsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -71,7 +71,7 @@ ns = ns or {}
 local PREFIX = "|cff33ff99BetterBuffsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2"
+local VERSION = "1.2.1"
 
 local MAX_THRESHOLD = 200
 local MAX_AURAS = 40
@@ -979,7 +979,12 @@ end
 -- Slash command
 -- ---------------------------------------------------------------------------
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "For druids and paladins: a box at the top centre lists who in your group lacks your buffs, and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on other classes the addon stays idle."
+
 local function PrintHelp()
+    Print(INTRO)
     if module then
         Print(module.blurb)
     else
@@ -1110,7 +1115,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterBuffsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBuffsForeverDB (the tank and the paladin's
 -- per-character options in BetterBuffsForeverCharDB) and change only through the same functions
 -- /bbuff uses, so the addon behaves the same with or without the hub.
@@ -1211,6 +1216,7 @@ end
 
 _G.BetterBuffsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

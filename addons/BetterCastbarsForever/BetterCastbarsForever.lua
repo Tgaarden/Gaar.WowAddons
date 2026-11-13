@@ -26,7 +26,7 @@
       detected on a client whose combat log addons cannot read.
     * /bcf for help, status, lock, unlock, test, reset, follow, bar, latency, texture, font,
       timer and swing.
-    * BetterCastbarsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterCastbarsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -59,7 +59,7 @@ local ADDON_NAME = ... or "BetterCastbarsForever"
 local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -1607,7 +1607,12 @@ local function GaarCastLine()
     return "GaarCast is loaded too: both hide and replace the same Blizzard cast bars. Use one of the two."
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Its own cast bars for player, target, focus and pet, with icon, timer, spark and a latency safe-zone, plus a swing timer under the player bar. Place them yourself or let them follow Blizzard's bars from Edit Mode. Nice to know: unlock, then drag a bar to move it and its corner grip to resize it; /bcf test shows looping test casts; a grey bar with a shield cannot be interrupted."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("drag a bar to move it, drag its bottom-right grip to resize it. /bcf test shows them out of combat.")
     Print("/bcf status - what this client offers and the current settings")
     Print("/bcf lock | /bcf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
@@ -1767,7 +1772,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterCastbarsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterCastbarsForeverDB and change only through
 -- the same functions /bcf uses, so the addon behaves the same with or without the hub.
 --
@@ -1868,6 +1873,7 @@ end
 
 _G.BetterCastbarsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

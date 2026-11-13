@@ -3,8 +3,7 @@
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
 improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
 shows how many of an item and how much gold your other characters on the same realm have.
-Since 1.9 you can lock items so a merchant can never get them. It needs no other addon or
-library.
+Since 1.9 you can lock items so a merchant can never get them. It needs BetterForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -74,7 +73,7 @@ library.
 
   Sources with nothing in them are left out. `Total` appears when more than one character has the
   item, or when the one character has it in more than one place. Turn it off with `/bbf counts off`
-  or the **Item counts in tooltip** checkbox in the BetterGaarForever hub.
+  or the **Item counts in tooltip** checkbox in the BetterForever hub.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm
   and the total. `/bbf gold` prints the same to chat. Clicking the coins still does what it always
@@ -153,9 +152,11 @@ library.
 | `/bbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
 | `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there |
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+Since 1.9.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.9.1 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Auto clean-up when bags open**, **Hide
 Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as
 `/bbf lock|unlock`, `/bbf reset`, `/bbf reverse`, `/bbf native hide|show` and `/bbf counts on|off`

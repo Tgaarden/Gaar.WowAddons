@@ -22,17 +22,23 @@ of the code.
 | `GaarMap` | Scales the world map, fades it while you move, squares the minimap | `/gaarmap` |
 | `GaarUI` | The suite in one switch: tick it and the client pulls in every module | `/gaarui` |
 | `GaarProbe` | Diagnostic, not part of the suite: reports what an unknown client's API actually has | `/gaarprobe` |
-| `BetterBagsForever` | Standalone, not part of the suite, Forever only: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), hovering the bag gold shows every character's gold, and Alt-click locks an item so a merchant cannot buy it (padlock overlay) | `/bbf` |
-| `BetterQuestsForever` | Standalone, not part of the suite, Forever only: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); auto-watch (default on) watches the lowest quests that fit the tracker's Edit Mode height and un-watches the rest; an optional dungeon filter (1.10) watches only the current dungeon's or raid's quests while inside; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
-| `BetterMapsForever` | Standalone, not part of the suite, Forever only: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
-| `BetterPlatesForever` | Standalone, not part of the suite, Forever only: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
-| `BetterCastbarsForever` | Standalone, not part of the suite, Forever only: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
-| `BetterFramesForever` | Standalone, not part of the suite, Forever only: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, heal prediction and absorbs, a druid mana bar in forms, class/reaction/low-health colours, target buffs and debuffs with combo points, your own buffs under the player frame, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
-| `BetterGpsForever` | Standalone, not part of the suite, Forever only: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or Alt + left-click (Option on Mac) the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
-| `BetterWindowsForever` | Standalone, not part of the suite, Forever only: makes Blizzard's own windows movable by their title bar (Character, Spellbook & Talents, Professions, Collections, Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip, Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn List, Inspect, Trade, Game Menu and more); Ctrl + mouse wheel scales a window (50-150%); position and scale remembered per window and put back after Blizzard's panel layout; on/off and reset per window; world map and bags left to their own addons | `/bwf` |
-| `BetterFishingForever` | Standalone, not part of the suite, Forever only: double right-click in the world casts Fishing while a fishing pole is equipped (a secure button and a short-lived `BUTTON2` override binding, armed after the first click so a single right-click still loots the bobber); Shift + double right-click swaps the pole in and out; never in combat; works with `ActionButtonUseKeyDown` on or off; on/off and a 0.2-0.8 s double-click window; an optional Fishing 1-300 route (current step from your skill, world map and minimap pins, BetterGpsForever's arrow) | `/bfish` |
-| `BetterBuffsForever` | Standalone, not part of the suite, Forever only, druids and paladins: a box at the top centre lists who lacks your buffs. Druid: Mark of the Wild (Gift of the Wild counts) in your party or raid, Thorns on you and your tank (role, raid main tank, or one set by hand), low Gift of the Wild / Rebirth reagents. Paladin: a blessing per class (Might for Warrior/Rogue/Hunter, Wisdom for the rest, editable; a fallback when another paladin's blessing is already there; no Salvation for the tank), No aura, Righteous Fury while you tank, low Symbol of Kings. Each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild or the Greater Blessing); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
-| `BetterGaarForever` | Optional hub, not part of the suite, Forever only: one minimap button whose menu holds the options of all ten Better...Forever addons (`BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`, `BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever`, `BetterWindowsForever`, `BetterFishingForever` and `BetterBuffsForever`) through their small API; no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, window, fishing or buff code of its own, and the addons work the same without it | `/bgf`, minimap button |
+| `BetterBagsForever` | Not part of the suite, Forever only, needs `BetterForever`: makes the native Combined Backpack movable and adds a Clean Up Bags button left of its search box that does exactly what Forever's own button does (`C_Container.SortBags`), with an optional Reverse that mirrors the whole Combined Backpack order afterwards; item tooltips show how many of the item each of your characters on the realm has (bags, bank, equipped, mail), hovering the bag gold shows every character's gold, and Alt-click locks an item so a merchant cannot buy it (padlock overlay) | `/bbf` |
+| `BetterQuestsForever` | Not part of the suite, Forever only, needs `BetterForever`: orders the Quests section of the native objective tracker by quest level (completed quests at the bottom, top or by level) and shows only the first N (default 10); auto-watch (default on) watches the lowest quests that fit the tracker's Edit Mode height and un-watches the rest; an optional dungeon filter (1.10) watches only the current dungeon's or raid's quests while inside; with BetterGpsForever loaded, "Set GPS target" in the tracker's quest menu | `/bqf`, minimap button |
+| `BetterMapsForever` | Not part of the suite, Forever only, needs `BetterForever`: move the world map (Map & Quest Log) by its title bar, scale the whole window from a corner grip (50-150%), fade it while you move; lock and reset; the maximized map is left alone | `/bmf` |
+| `BetterPlatesForever` | Not part of the suite, Forever only, needs `BetterForever`: cleaner enemy nameplates drawn over Blizzard's (flat health bar with reaction/class/health/solid colour, threat colours and percent, cast bar with time left and a grey look for uninterruptible casts, your debuffs with countdown, target scale and dimming); friendly plates left to Blizzard by default; changes no CVars | `/bpf` |
+| `BetterCastbarsForever` | Not part of the suite, Forever only, needs `BetterForever`: own cast bars for player, target, focus and pet (icon, name, timer, spark, cast target, latency safe-zone on the player bar) and a swing timer under the player bar (main hand, off hand, ranged); drag and resize them, or let them follow Blizzard's bars (Edit Mode); lock, test bars and reset. A port of `GaarCast` - use one of the two | `/bcf` |
+| `BetterFramesForever` | Not part of the suite, Forever only, needs `BetterForever`: X-Perl-style unit frames of its own (secure buttons) for player, target, target of target, focus, pet and party1-4: name bar, 2D/3D portrait, health and power with `cur/max  NN%`, heal prediction and absorbs, a druid mana bar in forms, class/reaction/low-health colours, target buffs and debuffs with combo points, your own buffs under the player frame, party auras and range fade, raid/leader/combat/resting icons and a threat border; drag, per-frame scale, lock, reset and test mode; optionally follows Blizzard's frames placed in Edit Mode. Blizzard's frames are switched off the oUF way (never restyled), out of combat only | `/bff` |
+| `BetterGpsForever` | Not part of the suite, Forever only, needs `BetterForever`: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or Alt + left-click (Option on Mac) the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
+| `BetterWindowsForever` | Not part of the suite, Forever only, needs `BetterForever`: makes Blizzard's own windows movable by their title bar (Character, Spellbook & Talents, Professions, Collections, Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip, Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn List, Inspect, Trade, Game Menu and more); Ctrl + mouse wheel scales a window (50-150%); position and scale remembered per window and put back after Blizzard's panel layout; on/off and reset per window; world map and bags left to their own addons | `/bwf` |
+| `BetterFishingForever` | Not part of the suite, Forever only, needs `BetterForever`: double right-click in the world casts Fishing while a fishing pole is equipped (a secure button and a short-lived `BUTTON2` override binding, armed after the first click so a single right-click still loots the bobber); Shift + double right-click swaps the pole in and out; never in combat; works with `ActionButtonUseKeyDown` on or off; on/off and a 0.2-0.8 s double-click window; an optional Fishing 1-300 route (current step from your skill, world map and minimap pins, BetterGpsForever's arrow) | `/bfish` |
+| `BetterBuffsForever` | Not part of the suite, Forever only, needs `BetterForever`, druids and paladins: a box at the top centre lists who lacks your buffs. Druid: Mark of the Wild (Gift of the Wild counts) in your party or raid, Thorns on you and your tank (role, raid main tank, or one set by hand), low Gift of the Wild / Rebirth reagents. Paladin: a blessing per class (Might for Warrior/Rogue/Hunter, Wisdom for the rest, editable; a fallback when another paladin's blessing is already there; no Salvation for the tank), No aura, Righteous Fury while you tank, low Symbol of Kings. Each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild or the Greater Blessing); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
+| `BetterMerchantForever` | Not part of the suite, Forever only, needs `BetterForever`: at a merchant sells your grey items (3 every 0.2 s, never an item locked in BetterBagsForever) and repairs your gear, optionally with guild funds first and an ask-first popup; one summary line; every part switchable | `/bmerch` |
+| `BetterTooltipsForever` | Not part of the suite, Forever only, needs `BetterForever`: extra lines in item tooltips (vendor price for the stack, item level, item and spell IDs, a compare against what you wear) and unit tooltips (target, guild rank, health); every line switchable | `/btip` |
+| `BetterMailForever` | Not part of the suite, Forever only, needs `BetterForever`: mailbox helpers - Open All (Shift: money only, COD never paid, stops on full bags), an optional delete of empty system mail, a recipient list with your own characters and recent names, Alt-click to attach (Ctrl+Alt: up to 12 stacks), a new-mail notice | `/bmail` |
+| `BetterXPForever` | Not part of the suite, Forever only, needs `BetterForever`: a movable XP panel (rested, XP per hour, time to level, kills or quests to level), text on the XP bar, time played per level on level-up, quest XP in tooltips | `/bxp` |
+| `BetterChatForever` | Not part of the suite, Forever only, needs `BetterForever`: chat tweaks, each switchable - short channel names, class-coloured names, timestamps, clickable URLs, a copy-chat window, a whisper sound, sticky channels, arrow keys without Alt | `/bchat` |
+| `BetterBarsForever` | Not part of the suite, Forever only, needs `BetterForever`: clearer action buttons - red out of range, blue without mana, big cooldown numbers, short hotkey labels, macro names on or off; `/bbars off` gives the buttons back exactly as Blizzard draws them | `/bbars` |
+| `BetterForever` | The hub of the Better...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all sixteen: the shared library (`BetterForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Better Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. No feature code of its own | `/bf`, minimap button, Options |
 
 ## GaarBags: sorting and junk
 
@@ -149,7 +155,7 @@ checked for secret values first; a bar the client refuses is switched off with o
 `/bcf` for help, `/bcf status`, `lock`, `unlock`, `test`, `reset`, `follow on|off`,
 `bar <unit> on|off`, `latency on|off`, `texture blizzard|smooth|flat`, `font 9|11|13` and
 `timer total|remain`, `swing on|off`, `swing offhand on|off`, `swing ranged on|off`. It exports `BetterCastbarsForeverAPI` with the same shape as the others, and
-BetterGaarForever 2.2 and later has a Castbars row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
+the BetterForever hub has a Castbars row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
 both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
 Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).
 
@@ -176,7 +182,7 @@ across maps, never cleared on arrival), and after resurrection the waypoint you 
 you set while dead is the one kept (`/bgps corpse on|off`, default on). `/bgps` for help, `status`,
 `arrow on|off`, `lock`, `unlock`, `reset`, `clear`, `corpse` and `way`. It exports `BetterGpsForeverAPI`
 (with `SetWaypoint`, `ClearWaypoint` and `GetWaypoint` since 1.1),
-and BetterGaarForever 2.3 and later has a GPS row for it. It ships a `_Camelot` TOC and a plain
+and the BetterForever hub has a GPS row for it. It ships a `_Camelot` TOC and a plain
 fallback TOC, both at 16001. Details in
 [`addons/BetterGpsForever/README.md`](addons/BetterGpsForever/README.md).
 
@@ -208,7 +214,7 @@ bars; the text uses the client's secret-safe helpers where it has them, otherwis
 alone, and every part of an update runs in `pcall` and switches itself off after its first
 refusal with one line in chat. `/bff` for help, `status`, `lock`, `unlock`, `test`, `reset`,
 `scale <frame> <0.6-1.5>`, `frame <frame> on|off`, `editmode on|off`, `portrait 2d|3d`, `text`,
-`lowhp`, `classcolor`, `healpred`, `hotpred` and `marks on|off`. It exports `BetterFramesForeverAPI`, and BetterGaarForever 2.4 and later has
+`lowhp`, `classcolor`, `healpred`, `hotpred` and `marks on|off`. It exports `BetterFramesForeverAPI`, and the BetterForever hub has
 a Frames row for it. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Use it
 instead of GaarFrames, X-Perl, ShadowedUnitFrames or PitBull4, not next to them (it warns once at
 login). Details in [`addons/BetterFramesForever/README.md`](addons/BetterFramesForever/README.md).
@@ -229,7 +235,7 @@ does not have is listed as such. The world map is left to BetterMapsForever, the
 BetterBagsForever and Blizzard's bag layout, and Edit Mode frames to Edit Mode. Every window can
 be switched off on its own, which gives it back to Blizzard. `/bwf` for help, `list`,
 `on <name>`, `off <name>`, `reset <name>|all` and `status`. It exports `BetterWindowsForeverAPI`,
-and BetterGaarForever has a Windows row for it with a checkbox per window. It ships a `_Camelot`
+and the BetterForever hub has a Windows row for it with a checkbox per window. It ships a `_Camelot`
 TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterWindowsForever/README.md`](addons/BetterWindowsForever/README.md).
 
@@ -256,7 +262,7 @@ minimap with a tooltip, and BetterGpsForever's arrow on the nearest spot when th
 `/bfish route`, `next`, `prev`, `list` and `gear`. Pool coordinates come from the GatherMate2 data
 dumps, NPCs and quests from warcraft.wiki.gg and method.gg (credits in the addon's README).
 `/bfish` for help, `on`, `off`, `window <0.2-0.8>`, `swap`, `route` and `status`. It exports
-`BetterFishingForeverAPI`, and BetterGaarForever has a Fishing row for it. It ships a `_Camelot`
+`BetterFishingForeverAPI`, and the BetterForever hub has a Fishing row for it. It ships a `_Camelot`
 TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterFishingForever/README.md`](addons/BetterFishingForever/README.md).
 
@@ -300,29 +306,64 @@ member whose auras are secret counts as unknown, never as missing. The box is hi
 Unlock, Alt + drag, reset; position saved. `/bbuff` for help, `on`, `off`, `group`, `sound`,
 `reagents`, `tank`, `unlock`, `lock`, `reset`, `test` and `status`; a druid adds `motw`,
 `thorns`, `tank on|off` and `dispel` (`on|off`, `curse|poison on|off`, `unlock|lock|reset`), a paladin `bless`, `aura`, `fury` and `tanking`. It exports
-`BetterBuffsForeverAPI`, and BetterGaarForever has a Buffs row for it with the options for your
+`BetterBuffsForeverAPI`, and the BetterForever hub has a Buffs row for it with the options for your
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).
 
-## BetterGaarForever: an optional hub for all ten
+## BetterMerchantForever, BetterTooltipsForever, BetterMailForever, BetterXPForever, BetterChatForever, BetterBarsForever
 
-An optional hub, not part of the Gaar suite and not listed in `GaarUI`: one minimap button whose
-menu has a **Bags**, a **Quests**, a **Maps**, a **Castbars**, a **Plates**, a **GPS** and a
-**Frames**, a **Windows**, a **Fishing** and a **Buffs** submenu with the options of all ten Better...Forever
-addons: `BetterBagsForever`, `BetterQuestsForever`, `BetterMapsForever`, `BetterCastbarsForever`,
-`BetterPlatesForever`, `BetterGpsForever`, `BetterFramesForever`, `BetterWindowsForever`,
-`BetterFishingForever` and `BetterBuffsForever`. It carries no bag, quest, map, cast bar,
-nameplate, waypoint, unit-frame, window, fishing or buff code of its own:
-the addons keep their logic, their saved variables and
-`/bbf` / `/bqf` / `/bmf` / `/bcf` / `/bpf` / `/bgps` / `/bff` / `/bwf` / `/bfish` / `/bbuff`, and
-behave exactly the same without the hub. Each exports a small global API
-(`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, `BetterMapsForeverAPI`, `BetterCastbarsForeverAPI`, `BetterPlatesForeverAPI`, `BetterGpsForeverAPI`, `BetterFramesForeverAPI`, `BetterWindowsForeverAPI`, `BetterFishingForeverAPI`, `BetterBuffsForeverAPI`: `version`,
-`StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`) that fills
-its submenu from the same option list as the addon's own menu. While the hub is loaded,
-`BetterQuestsForever`'s own minimap button is hidden for the session (its saved setting is not
-changed). An addon that is not installed shows as a disabled `– not installed` line. `/bgf` for
-help, `/bgf status` for each addon's version and state, `/bgf minimap [reset]`. Details in
-[`addons/BetterGaarForever/README.md`](addons/BetterGaarForever/README.md).
+Six smaller Forever-only addons, each with one master switch and a switch per feature
+(`/<cmd> <feature> on|off`), an API table for the hub and a `_Camelot` TOC plus a plain fallback
+TOC, both at 16001:
+
+- **BetterMerchantForever** (`/bmerch`): at a merchant, sells grey items and repairs; respects
+  BetterBagsForever's item locks; optional guild repair and ask-first popup; `/bmerch sell`.
+  [`addons/BetterMerchantForever/README.md`](addons/BetterMerchantForever/README.md)
+- **BetterTooltipsForever** (`/btip`): vendor price, item level, IDs and a compare in item
+  tooltips; target, guild rank and health in unit tooltips.
+  [`addons/BetterTooltipsForever/README.md`](addons/BetterTooltipsForever/README.md)
+- **BetterMailForever** (`/bmail`): Open All, delete empty, recipient list, Alt-click to attach,
+  new-mail notice. [`addons/BetterMailForever/README.md`](addons/BetterMailForever/README.md)
+- **BetterXPForever** (`/bxp`): XP panel, XP bar text, level log, quest XP.
+  [`addons/BetterXPForever/README.md`](addons/BetterXPForever/README.md)
+- **BetterChatForever** (`/bchat`): short channels, class colours, timestamps, URL copy, copy chat
+  (`/bchat copy [n]`), whisper sound, sticky channels, arrow keys.
+  [`addons/BetterChatForever/README.md`](addons/BetterChatForever/README.md)
+- **BetterBarsForever** (`/bbars`): range and mana colours, cooldown numbers, short hotkeys, macro
+  names. [`addons/BetterBarsForever/README.md`](addons/BetterBarsForever/README.md)
+
+## BetterForever: the hub of all sixteen
+
+Named `BetterGaarForever` until 2.8. Not part of the Gaar suite and not listed in `GaarUI`, but
+**every Better...Forever addon requires it**: each lists `## Dependencies: BetterForever` in both
+TOCs, so the client loads none of them without the `BetterForever` folder. It carries no feature
+code of its own; the addons keep their logic, their saved variables and their slash commands
+(`/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps`, `/bff`, `/bwf`, `/bfish`, `/bbuff`, `/bmerch`,
+`/btip`, `/bmail`, `/bxp`, `/bchat`, `/bbars`). What it adds:
+
+- **The shared library**, global `BetterForever`: secret-safe value helpers (`Plain`, `Num`,
+  `Str`, `Bool`, `IsSecret`), guarded calls (`API`, `Call`, `Method`), formatters (`TimeShort`,
+  `Clock`, `Coins`, `ShortNumber`), the shared menu renderer, and `NewAddon(name, opts)`: an object
+  with `:Print`, `:InitDB`, an option registry (`:Toggle`, `:Choice`, `:Slider`, `:Button`) that
+  gives slash commands, menu entries and an Options page from one list, `:Slash`, a per-feature
+  `:Run` latch and `:API`. The addons do not use it yet; moving them over is the next step.
+- **Options pages** under **Esc > Options > AddOns > Better Forever**: an overview (each addon's
+  version and state, the hub's minimap switch, a pointer to `/bf`) and one page per installed
+  addon, with a short intro at the top (the API's new `Intro()` field) and the options generated
+  from the addon's own `MenuEntries()` - checkboxes, dropdowns for radio groups, buttons, section
+  headers for submenus - so the page and the minimap menu always match. `/bf options [name]`.
+- **One minimap button** whose menu has a submenu per addon: **Bags**, **Quests**, **Maps**,
+  **Castbars**, **Plates**, **GPS**, **Frames**, **Windows**, **Fishing**, **Buffs**,
+  **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat** and **Bars**. While it is loaded,
+  `BetterQuestsForever`'s own minimap button is hidden for the session.
+
+Each addon exports a small global API (`BetterBagsForeverAPI` ... `BetterBarsForeverAPI`:
+`version`, `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`,
+`Intro()`). An addon that is not installed shows as a disabled `– not installed` line. `/bf` for
+help (`/bgf` still works), `/bf status` for each addon's version and state, `/bf minimap [reset]`.
+Coming from BetterGaarForever: delete the old folder; the addons' settings are kept, only the
+hub's minimap button position resets. Details, and the library's API for addon authors, in
+[`addons/BetterForever/README.md`](addons/BetterForever/README.md).
 
 ## One switch, eleven standalone addons
 

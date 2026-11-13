@@ -2,7 +2,7 @@
   BetterPlatesForever - cleaner enemy nameplates on WoW Forever.
 
   A port of GaarPlates to the Better...Forever conventions: standalone, no options panel, no
-  minimap button, a slash command and a small API for BetterGaarForever's hub. It draws its own
+  minimap button, a slash command and a small API for BetterForever's hub. It draws its own
   overlay on top of each enemy nameplate and hides Blizzard's art underneath:
 
     * Health bar (120x12 by default) on a dark backdrop with a thin near-black border and a faint
@@ -36,7 +36,7 @@
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
     * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
       threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
-    * BetterPlatesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterPlatesForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -69,7 +69,7 @@ local ADDON_NAME = ... or "BetterPlatesForever"
 local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 
 local MARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local MARK_SZ, MARK_GAP = 20, 3
@@ -1614,8 +1614,12 @@ local function IsIn(list, v)
     return false
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Cleaner enemy nameplates drawn over Blizzard's: a shaded health bar with threat colours, a cast bar with the time left, your own debuffs and a clear mark on your target. It changes no CVars. Nice to know: friendly plates stay Blizzard's unless you turn them on (/bpf friendly on); /bpf off hands every plate back to Blizzard."
+
 local function PrintHelp()
-    Print("cleaner enemy nameplates. Commands:")
+    Print(INTRO)
     Print("/bpf on | off - the whole addon; off gives every plate back to Blizzard (now: " .. OnOff(db and db.enabled) .. ")")
     Print("/bpf color reaction | class | health | solid - bar colour (now: " .. (db and db.colorMode or "?") .. ")")
     Print("/bpf health off | percent | current | both - health text (now: " .. (db and db.healthText or "?") .. ")")
@@ -1831,7 +1835,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterPlatesForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterPlatesForeverDB and change only through the
 -- same functions /bpf uses, so the addon behaves the same with or without the hub.
 --
@@ -1913,6 +1917,7 @@ end
 
 _G.BetterPlatesForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

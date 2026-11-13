@@ -1,0 +1,12 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- A row of wrapped text for the Options pages (intro, state, grey lines). Its mixin is set in
+	     Settings.lua, which the TOC loads before this file. -->
+	<Frame name="BetterForeverSettingsTextRowTemplate" mixin="BetterForeverSettingsTextRowMixin" virtual="true">
+		<Size y="40"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Text" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP"/>
+			</Layer>
+		</Layers>
+	</Frame>
+</Ui>

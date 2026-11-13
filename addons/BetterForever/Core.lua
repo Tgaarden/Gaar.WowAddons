@@ -1,46 +1,49 @@
 --[[
-  BetterGaarForever - an optional hub for BetterBagsForever, BetterQuestsForever,
-  BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever,
-  BetterFramesForever, BetterWindowsForever, BetterFishingForever and BetterBuffsForever, for
-  WoW Forever.
+  BetterForever - the hub of the Better...Forever family for WoW Forever (renamed from
+  BetterGaarForever in 3.0). Every Better...Forever addon lists it under ## Dependencies.
 
-  It carries no bag, quest, map, waypoint or unit-frame code of its own. The addons stay fully independent: their logic,
-  their settings (BetterBagsForeverDB, BetterQuestsForeverDB, BetterMapsForeverDB, ...) and their slash
-  commands (/bbf, /bqf, /bmf, /bcf, /bpf, /bgps, /bff, /bwf, /bfish, /bbuff) stay in their own addon, and without this hub they behave exactly as
-  they do on their own. What the hub adds is one minimap button whose menu has a "Bags", a
-  "Quests", a "Maps", a "Castbars", a "Plates", a "GPS", a "Frames", a "Windows", a "Fishing" and a "Buffs" submenu, filled by each addon through the small API table it exports:
+  It carries no bag, quest, map, waypoint, unit-frame or other feature code of its own. The addons
+  keep their logic, their settings (BetterBagsForeverDB, BetterQuestsForeverDB, ...) and their slash
+  commands (/bbf, /bqf, /bmf, ...). What the hub adds:
 
-    BetterBagsForeverAPI, BetterQuestsForeverAPI, BetterMapsForeverAPI,
-    BetterCastbarsForeverAPI, BetterPlatesForeverAPI, BetterGpsForeverAPI,
-    BetterFramesForeverAPI, BetterWindowsForeverAPI, BetterFishingForeverAPI,
-    BetterBuffsForeverAPI = {
-        version,              the addon's version, a string
-        StatusLine(),         one short line of state, shown in the tooltip and /bgf status
-        MenuEntries(),        the options as plain data, for the menu drawn without MenuUtil
-        AddMenuEntries(root), adds the same options to a MenuUtil description
-        SetMinimapHidden(b),  hides the addon's own minimap button for this session only
-    }
+    * Lib.lua      the shared library, global BetterForever (see README, "For addon authors")
+    * Settings.lua the pages under Esc > Options > AddOns > Better Forever, one per addon,
+                   generated from each addon's MenuEntries()
+    * this file    one minimap button whose menu has a submenu per addon, and /bf
+
+  Each addon fills its submenu and its Options page through the small API table it exports
+  (BetterBagsForeverAPI, BetterQuestsForeverAPI, ...):
+
+    version               the addon's version, a string
+    StatusLine()          one short line of state, shown in the tooltip and /bf status
+    MenuEntries()         the options as plain data, for the menu drawn without MenuUtil and the
+                          Options page
+    AddMenuEntries(root)  adds the same options to a MenuUtil description
+    SetMinimapHidden(b)   hides the addon's own minimap button for this session only
+    Intro()               (3.0) a short intro: what it does, key features, nice to know
 
   While the hub is loaded, the addons' own minimap buttons are hidden, so there is one button: the
-  TOC lists all ten as OptionalDeps, so they load first and their API is there at our
-  PLAYER_LOGIN, where SetMinimapHidden(true) is called on each. BetterQuestsForever also checks for this addon
-  itself before it shows its button, so the order does not matter. Their saved minimap settings
-  are never changed.
+  addons load after the hub (they depend on it), so their API is there at our PLAYER_LOGIN, where
+  SetMinimapHidden(true) is called on each. An addon loaded later (LoadAddOn) is handled at its
+  ADDON_LOADED. Their saved minimap settings are never changed.
 
-  Saved variables: BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope), holds only
+  Saved variables: BetterForeverDB, bound at ADDON_LOADED (never at file scope), holds only
     minimap = { hide = <bool>, angle = <deg> }
-  Anything else (1.0's bags, quests, modules and migrated keys) is dropped on load.
+  The old BetterGaarForeverDB cannot be read: the client loads saved variables by addon name
+  (SavedVariables/BetterGaarForever.lua), so the renamed hub starts with the default button
+  position. The addons' own settings live in their own saved variables and are unaffected.
 
-  Taint: the hub creates its own button and menu and calls only the addons' API; it hooks no
-  Blizzard function and touches no Blizzard frame.
+  Taint: the hub creates its own button, menu and Options pages and calls only the addons' API; it
+  hooks no Blizzard function.
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "BetterGaarForever"
+local ADDON_NAME = ... or "BetterForever"
+local Lib = _G.BetterForever
 
-local TITLE = "BetterGaarForever"
-local VERSION = "2.8"
-local PREFIX = "|cff33ff99BetterGaarForever|r: "
+local TITLE = "BetterForever"
+local VERSION = "3.0"
+local PREFIX = "|cff33ff99BetterForever|r: "
 local EN_DASH = "\226\128\147"
 
 -- The addons the hub has a submenu for, in menu order.
@@ -55,9 +58,15 @@ local ADDONS = {
     { key = "windows", label = "Windows", name = "BetterWindowsForever", api = "BetterWindowsForeverAPI", slash = "/bwf" },
     { key = "fishing", label = "Fishing", name = "BetterFishingForever", api = "BetterFishingForeverAPI", slash = "/bfish" },
     { key = "buffs", label = "Buffs", name = "BetterBuffsForever", api = "BetterBuffsForeverAPI", slash = "/bbuff" },
+    { key = "merchant", label = "Merchant", name = "BetterMerchantForever", api = "BetterMerchantForeverAPI", slash = "/bmerch" },
+    { key = "tooltips", label = "Tooltips", name = "BetterTooltipsForever", api = "BetterTooltipsForeverAPI", slash = "/btip" },
+    { key = "mail", label = "Mail", name = "BetterMailForever", api = "BetterMailForeverAPI", slash = "/bmail" },
+    { key = "xp", label = "XP", name = "BetterXPForever", api = "BetterXPForeverAPI", slash = "/bxp" },
+    { key = "chat", label = "Chat", name = "BetterChatForever", api = "BetterChatForeverAPI", slash = "/bchat" },
+    { key = "bars", label = "Bars", name = "BetterBarsForever", api = "BetterBarsForeverAPI", slash = "/bbars" },
 }
 
-local db          -- BetterGaarForeverDB, bound at ADDON_LOADED (never at file scope)
+local db          -- BetterForeverDB, bound at ADDON_LOADED (never at file scope)
 local started     -- PLAYER_LOGIN work done
 
 -- ---------------------------------------------------------------------------
@@ -75,24 +84,9 @@ local function pcall1(fn, ...) -- first return value of fn, or nil if it errors 
     if ok then return a end
 end
 
-local function IsSecret(v)
-    if type(_G.issecretvalue) ~= "function" then return false end
-    return _G.issecretvalue(v) and true or false
-end
-
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    return false
-end
+-- Shared with the whole family (Lib.lua).
+local IsSecret = Lib.IsSecret
+local AddOnLoaded = Lib.AddOnLoaded
 
 -- The addon's API table, or nil when the addon is not loaded (or too old to have one).
 local function API(a)
@@ -145,8 +139,8 @@ local function MinimapDB()
 end
 
 local function BindSavedVariables()
-    if type(_G.BetterGaarForeverDB) ~= "table" then _G.BetterGaarForeverDB = {} end
-    db = _G.BetterGaarForeverDB
+    if type(_G.BetterForeverDB) ~= "table" then _G.BetterForeverDB = {} end
+    db = _G.BetterForeverDB
     -- Only the minimap button is kept; 1.0's bags, quests, modules and migrated go.
     for k in pairs(db) do
         if k ~= "minimap" then db[k] = nil end
@@ -208,7 +202,8 @@ local function PlaceMinimapButton()
     b:SetPoint("CENTER", mm, "CENTER", x, y)
 end
 -- For an addon that changes the minimap's shape and wants the button re-placed at once.
-_G.BetterGaarForever_PlaceMinimapButton = PlaceMinimapButton
+_G.BetterForever_PlaceMinimapButton = PlaceMinimapButton
+_G.BetterGaarForever_PlaceMinimapButton = PlaceMinimapButton -- the name before 3.0
 
 -- The cursor's angle around the minimap's centre, in degrees; nil when it cannot be read.
 local function CursorAngle()
@@ -280,9 +275,15 @@ end
 -- Submenus become indented headings in the fallback menu.
 local function FlattenEntries(entries, depth, rows)
     for _, e in ipairs(entries) do
-        if e.submenu then
+        if type(e) ~= "table" then
+            -- skipped
+        elseif e.submenu then
             rows[#rows + 1] = { heading = e.text, depth = depth }
             FlattenEntries(e.submenu, depth + 1, rows)
+        elseif e.slider then
+            -- No slider in this small menu: its value, as a line (the Options page can change it).
+            local ok, v = pcall(e.value)
+            rows[#rows + 1] = { label = tostring(e.text) .. ": " .. Lib.SliderText(e, ok and v or "?"), depth = depth }
         else
             local row = { depth = depth }
             for k, v in pairs(e) do row[k] = v end
@@ -297,7 +298,7 @@ end
 local function ShowCustomMenu(owner, entries)
     local m = customMenu
     if not m then
-        m = CreateFrame("Frame", "BetterGaarForeverMinimapMenu", _G.UIParent, "BackdropTemplate")
+        m = CreateFrame("Frame", "BetterForeverMinimapMenu", _G.UIParent, "BackdropTemplate")
         m:SetFrameStrata("DIALOG")
         if type(m.SetBackdrop) == "function" then
             m:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
@@ -309,7 +310,7 @@ local function ShowCustomMenu(owner, entries)
         m:SetClampedToScreen(true)
         m.rows = {}
         m:Hide()
-        if type(_G.UISpecialFrames) == "table" then table.insert(_G.UISpecialFrames, "BetterGaarForeverMinimapMenu") end
+        if type(_G.UISpecialFrames) == "table" then table.insert(_G.UISpecialFrames, "BetterForeverMinimapMenu") end
         -- Close once the mouse has been away from both the menu and the button for a moment.
         m:SetScript("OnUpdate", function(self, elapsed)
             local over = self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())
@@ -401,7 +402,7 @@ local function BuildMinimapButton()
     local mm = _G.Minimap
     if type(mm) ~= "table" then return nil end
 
-    local b = CreateFrame("Button", "BetterGaarForeverMinimapButton", mm)
+    local b = CreateFrame("Button", "BetterForeverMinimapButton", mm)
     b:SetSize(31, 31)
     b:SetFrameStrata("MEDIUM")
     b:SetFrameLevel((pcall1(mm.GetFrameLevel, mm) or 0) + 8)
@@ -488,7 +489,7 @@ SetMinimapHidden = function(hide)
     MinimapDB().hide = hide and true or false
     ApplyMinimap()
     if hide then
-        Print("minimap button hidden. Type |cffffd100/bgf minimap|r to show it again.")
+        Print("minimap button hidden. Type |cffffd100/bf minimap|r to show it again.")
     else
         Print("minimap button shown.")
     end
@@ -502,19 +503,63 @@ local function ResetMinimapButton()
     Print("minimap button reset to its default position.")
 end
 
+
+-- ---------------------------------------------------------------------------
+-- Options pages (Settings.lua) and the hub's own API
+-- ---------------------------------------------------------------------------
+
+local optionsReady
+
+local hub = {
+    version = VERSION,
+    ADDONS = ADDONS,
+    API = API,
+    StatusOf = StatusOf,
+    MinimapShown = function() return db ~= nil and not MinimapDB().hide end,
+    SetMinimapShown = function(shown) SetMinimapHidden(not shown) end,
+}
+
+local function InitOptions()
+    if optionsReady or not Lib.Options then return end
+    local ok, done = pcall(Lib.Options.Init, hub)
+    optionsReady = ok and done
+    if not ok then Print("the Options pages could not be built: " .. tostring(done)) end
+end
+
+local function OpenOptions(key)
+    InitOptions()
+    if not (Lib.Options and Lib.Options.Open(key)) then
+        Print("no Options page here (" .. (Lib.Options and Lib.Options.State() or "no Settings API") .. ").")
+    end
+end
+
+-- The hub's API, for other addons. BetterGaarForeverAPI is the same table, under the old name.
+_G.BetterForeverAPI = {
+    version = VERSION,
+    ADDONS = ADDONS,
+    PlaceMinimapButton = PlaceMinimapButton,
+    OpenOptions = OpenOptions,
+    SetMinimapHidden = function(hide) SetMinimapHidden(hide) end,
+}
+_G.BetterGaarForeverAPI = _G.BetterForeverAPI
+
 -- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
 
 local function PrintHelp()
-    Print("version " .. VERSION .. ": one minimap button for BetterBagsForever, BetterQuestsForever, BetterMapsForever, BetterCastbarsForever, BetterPlatesForever, BetterGpsForever, BetterFramesForever, BetterWindowsForever, BetterFishingForever and BetterBuffsForever.")
-    Print("/bgf status - this version and each addon's state")
-    Print("/bgf minimap - show or hide the minimap button; /bgf minimap reset - default place, shown")
-    Print("Each addon keeps its own commands: /bbf (BetterBagsForever), /bqf (BetterQuestsForever), /bmf (BetterMapsForever), /bcf (BetterCastbarsForever), /bpf (BetterPlatesForever), /bgps (BetterGpsForever), /bff (BetterFramesForever), /bwf (BetterWindowsForever), /bfish (BetterFishingForever) and /bbuff (BetterBuffsForever).")
+    Print("version " .. VERSION .. ": the hub of the Better...Forever family - one minimap button, the shared library"
+        .. " and the pages under Esc > Options > AddOns > Better Forever.")
+    Print("/bf status - this version and each addon's state")
+    Print("/bf options [name] - open the Options pages (name: bags, quests, maps, ... - one addon's page)")
+    Print("/bf minimap - show or hide the minimap button; /bf minimap reset - default place, shown")
+    local cmds = {}
+    for _, a in ipairs(ADDONS) do cmds[#cmds + 1] = a.slash .. " (" .. a.name .. ")" end
+    Print("Each addon keeps its own commands: " .. table.concat(cmds, ", ") .. ".")
 end
 
 local function PrintStatus()
-    Print("version " .. VERSION)
+    Print("version " .. VERSION .. ", library " .. tostring(Lib.version))
     for _, a in ipairs(ADDONS) do
         local api = API(a)
         if api then
@@ -527,9 +572,10 @@ local function PrintStatus()
         end
     end
     local mm = MinimapDB()
-    Print("minimap button: " .. (mm.hide and "hidden (/bgf minimap shows it)" or string.format("shown at %d degrees", mm.angle))
+    Print("minimap button: " .. (mm.hide and "hidden (/bf minimap shows it)" or string.format("shown at %d degrees", mm.angle))
         .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or "")
         .. "   menu: " .. (type(_G.MenuUtil) == "table" and "MenuUtil" or "own menu (no MenuUtil)"))
+    Print("Options pages: " .. (Lib.Options and Lib.Options.State() or "not loaded"))
 end
 
 local function OnSlash(msg)
@@ -544,6 +590,14 @@ local function OnSlash(msg)
         SetMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
         ResetMinimapButton()
+    elseif msg == "options" or msg == "config" then
+        OpenOptions()
+    elseif msg:match("^options ") or msg:match("^config ") then
+        local key = msg:match("^%S+ (%S+)")
+        for _, a in ipairs(ADDONS) do
+            if a.name:lower() == key or a.slash == "/" .. key then key = a.key end
+        end
+        OpenOptions(key)
     else
         PrintHelp()
     end
@@ -558,6 +612,10 @@ local function Start()
     started = true
     HideStandaloneButtons()
     pcall(ApplyMinimap)
+    InitOptions()
+    if AddOnLoaded("BetterGaarForever") then
+        Print("BetterGaarForever is the old name of this hub: disable it or delete its folder, BetterForever replaces it.")
+    end
 end
 
 local events = CreateFrame("Frame")
@@ -571,9 +629,12 @@ events:SetScript("OnEvent", function(_, event, arg1)
             -- Loaded after login (LoadAddOn): no PLAYER_LOGIN is coming, so start now.
             if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then Start() end
         elseif started then
-            -- One of them loaded after us (LoadAddOn): its button goes too.
+            -- One of them loaded after us (LoadAddOn): its button goes too, and it gets a page.
             for _, a in ipairs(ADDONS) do
-                if arg1 == a.name then HideStandaloneButtons() end
+                if arg1 == a.name then
+                    HideStandaloneButtons()
+                    if optionsReady then pcall(Lib.Options.AddAddon, a) end
+                end
             end
         end
     elseif event == "PLAYER_LOGIN" then
@@ -584,6 +645,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERGAARFOREVER1 = "/bgf"
-SLASH_BETTERGAARFOREVER2 = "/bettergaarforever"
-SlashCmdList.BETTERGAARFOREVER = OnSlash
+SLASH_BETTERFOREVER1 = "/bf"
+SLASH_BETTERFOREVER2 = "/betterforever"
+SLASH_BETTERFOREVER3 = "/bgf" -- the command before 3.0
+SlashCmdList.BETTERFOREVER = OnSlash

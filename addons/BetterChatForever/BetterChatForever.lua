@@ -31,7 +31,7 @@
   type(...) == "function" first, every handler runs in pcall (the last error is kept for
   /bchat status).
 
-  BetterChatForeverAPI is the small global table BetterGaarForever's hub menu reads (version,
+  BetterChatForeverAPI is the small global table BetterForever's hub menu reads (version,
   StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs the same without it.
 ]]
 
@@ -40,7 +40,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterChatForever"
 local PREFIX = "|cff33ff99BetterChatForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local COPY_LINES = 200
 local LINK_COLOR = "|cff66b3ff"
@@ -556,8 +556,12 @@ end
 -- Slash command
 -- ---------------------------------------------------------------------------
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels and arrow keys without Alt. Nice to know: click a URL to get it selected for Ctrl+C; /bchat copy [n] copies the last 200 lines of a chat frame; /bchat off turns every tweak off at once."
+
 local function PrintHelp()
-    Print("chat tweaks, each one switchable.")
+    Print(INTRO)
     Print("/bchat on | off - the master switch")
     for _, f in ipairs(FEATURES) do
         Print(string.format("/bchat %s on|off - %s (default %s)", f.key, f.label, f.default and "on" or "off"))
@@ -610,7 +614,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterChatForeverAPI
 --
--- For BetterGaarForever's hub menu. Settings live in BetterChatForeverDB and change only through
+-- For BetterForever's hub menu. Settings live in BetterChatForeverDB and change only through
 -- the same functions /bchat uses.
 --
 --   version              this addon's version, a string
@@ -664,6 +668,7 @@ end
 
 _G.BetterChatForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

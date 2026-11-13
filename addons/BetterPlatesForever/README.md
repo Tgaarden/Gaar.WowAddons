@@ -3,7 +3,7 @@
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It draws
 cleaner **enemy nameplates** over Blizzard's own: a softly shaded health bar with threat colours, a cast bar
 with the time left, your own debuffs and a clear mark on your target. It is a port of the suite's
-`GaarPlates` to the Better...Forever conventions and needs no other addon or library.
+`GaarPlates` to the Better...Forever conventions and needs BetterForever, the family hub, and no other addon or library.
 
 **It changes no CVars.** Plate stacking, overlap, size, distance and which plates are shown stay
 exactly what the game, or you, set them to.
@@ -120,11 +120,13 @@ exactly what the game, or you, set them to.
 
 A switch without `on` or `off` toggles it. `/betterplatesforever` is the long form of `/bpf`.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+Since 1.2.9 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.9 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu holds the options of the Better...Forever addons. Its **Plates** submenu is in
-BetterGaarForever 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
+the hub (then named BetterGaarForever) 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),
 **Health text** (Off / Percent / Current / Both), **Size** (Small 100x10 / Medium 120x12 / Large 140x16),
 a checkbox for each of friendly, threat, threat text, execute, debuffs, other players' debuffs, native debuffs, target of target, dim and
 target scale, and **Reset to defaults**: the same settings as `/bpf`, through the same functions.

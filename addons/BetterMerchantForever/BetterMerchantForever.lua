@@ -2,7 +2,7 @@
   BetterMerchantForever - sell junk and repair at a merchant, on WoW Forever.
 
   What it does, each part with its own switch (saved in BetterMerchantForeverDB, changed with
-  /bmerch <feature> on|off or from the BetterGaarForever hub menu):
+  /bmerch <feature> on|off or from the BetterForever hub menu):
 
     * enabled      master switch for everything below except /bmerch sell.
     * sellJunk     (default on) at MERCHANT_SHOW, sells every grey (quality 0) item in the bags, out
@@ -18,7 +18,7 @@
                    part prints its own line.
     * /bmerch sell sells the junk by hand while a merchant is open (no popup, no switch needed).
     * /bmerch status shows the settings and the last result; /bmerch help lists the commands.
-    * BetterMerchantForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterMerchantForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs the same without
       the hub.
 
@@ -40,7 +40,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMerchantForever"
 local PREFIX = "|cff33ff99BetterMerchantForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -381,8 +381,12 @@ local function FindFeature(word)
     end
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "At a merchant it sells your grey items and repairs your gear, optionally with guild funds, and sums it up in one chat line. Nice to know: items you locked in BetterBagsForever (Alt-click) are never sold; selling stops in combat or when the merchant closes; /bmerch sell sells the junk on demand."
+
 local function PrintHelp()
-    Print("sells grey items and repairs at a merchant. Commands:")
+    Print(INTRO)
     Print("/bmerch on | off - master switch (now " .. OnOff(Enabled()) .. ")")
     Print("/bmerch sell - sell the junk now (merchant must be open)")
     Print("/bmerch junk | confirm | repair | guild | summary on|off - one feature each")
@@ -433,7 +437,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterMerchantForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterMerchantForeverDB and change only through the
 -- same functions /bmerch uses, so the addon behaves the same with or without the hub.
 --
@@ -497,6 +501,7 @@ end
 
 _G.BetterMerchantForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

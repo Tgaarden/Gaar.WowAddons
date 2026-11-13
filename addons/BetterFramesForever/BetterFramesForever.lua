@@ -2,7 +2,7 @@
   BetterFramesForever - X-Perl-style unit frames of its own on WoW Forever.
 
   Standalone, no options panel, no minimap button: a slash command and a small API for
-  BetterGaarForever's hub. It builds its own frames, the way X-Perl and oUF do, and hides
+  BetterForever's hub. It builds its own frames, the way X-Perl and oUF do, and hides
   Blizzard's:
 
     * Frames for the player, target, target of target, focus (where the client has a focus
@@ -34,7 +34,7 @@
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /bff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
       editmode, portrait, text, classcolor and playerbuffs.
-    * BetterFramesForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterFramesForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
 
   Why its own frames. GaarFrames restyles Blizzard's unit frames in place and turns itself off on
@@ -64,7 +64,7 @@ local ADDON_NAME = ... or "BetterFramesForever"
 local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.11"
+local VERSION = "1.2.12"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -3547,8 +3547,13 @@ local function KeyList()
     return table.concat(list, "|")
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "X-Perl-style unit frames for player, target, target of target, focus, pet and party, in place of Blizzard's: portraits, health and power text, heal prediction, auras, raid marks and a threat border. Nice to know: /bff unlock, then drag a frame to move it, or let the frames follow Edit Mode; /bff test shows every frame with made-up data; frames are switched on or off out of combat only."
+
 local function PrintHelp()
-    Print("version " .. VERSION .. ": X-Perl-style unit frames of its own. Commands:")
+    Print(INTRO)
+    Print("version " .. VERSION .. ". Commands:")
     Print("/bff status - settings, frames and what this client allows")
     Print("/bff lock | unlock - stop or allow dragging the frames (now: " .. (db and db.locked and "locked" or "unlocked") .. ")")
     Print("/bff editmode on | off - player, target, focus and party follow Blizzard's frames placed in Edit Mode;"
@@ -3863,7 +3868,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterFramesForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterFramesForeverDB and change only through the
 -- same functions /bff uses, so the addon behaves the same with or without the hub.
 --
@@ -3949,6 +3954,7 @@ end
 
 _G.BetterFramesForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

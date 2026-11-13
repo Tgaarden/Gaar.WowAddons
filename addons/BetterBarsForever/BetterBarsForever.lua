@@ -27,7 +27,7 @@
       BetterBarsForeverDB (account-wide), and one menu entry each for the hub.
     * /bbars for help, /bbars status for the hooks found, the buttons handled and whether the
       client answered with secrets.
-    * BetterBarsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterBarsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -69,7 +69,7 @@ ADDON_NAME = ADDON_NAME or "BetterBarsForever"
 local PREFIX = "|cff33ff99BetterBarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local TICK = 0.2              -- seconds between ticker passes
 local GCD_MAX = 1.5           -- a cooldown this short or shorter is the global cooldown
@@ -907,8 +907,12 @@ end
 -- Slash command
 -- ---------------------------------------------------------------------------
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Clearer action buttons: a red icon when out of range, a blue icon when you lack mana, energy or rage, big cooldown numbers (56, 2m, 1h) and short hotkey labels (Mouse Button 4 becomes M4). Every part has its own switch. Nice to know: /bbars <feature> on|off; /bbars off gives every button back exactly as Blizzard draws it; the global cooldown gets no number."
+
 local function PrintHelp()
-    Print("clearer action buttons: red out of range, blue without mana, cooldown numbers, short hotkeys.")
+    Print(INTRO)
     Print("/bbars on | /bbars off - switch the addon on or off")
     for _, f in ipairs(FEATURES) do
         Print(string.format("/bbars %s on|off - %s (now %s, default %s)", f.cmd, f.label,
@@ -1000,7 +1004,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterBarsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBarsForeverDB and change only through the
 -- same functions /bbars uses, so the addon behaves the same with or without the hub.
 --
@@ -1065,6 +1069,7 @@ end
 
 _G.BetterBarsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

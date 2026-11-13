@@ -1,8 +1,7 @@
 # BetterTooltipsForever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001) that adds useful
-lines to item and unit tooltips. Every feature is individually switchable. It needs no other addon
-or library and is not part of the Gaar suite.
+lines to item and unit tooltips. Every feature is individually switchable. It needs BetterForever, the family hub, and no other addon or library and is not part of the Gaar suite.
 
 ## Features
 
@@ -38,7 +37,9 @@ Unit tooltips:
 
 Settings are saved account-wide in `BetterTooltipsForeverDB`.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
+
+Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
 The optional hub talks to this addon only through `BetterTooltipsForeverAPI`: `version`,
 `StatusLine()`, `MenuEntries()` (a master checkbox, a divider and one checkbox per feature, as

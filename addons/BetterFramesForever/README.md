@@ -2,7 +2,7 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It draws
 X-Perl-style unit frames of its own for the player, target, target of target, focus, pet and
-party, and switches Blizzard's off. It needs no other addon or library.
+party, and switches Blizzard's off. It needs BetterForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -152,10 +152,12 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 
 `/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
-menu has a submenu per Better...Forever addon. Its **Frames** row is in BetterGaarForever 2.4
+Since 1.2.12 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.12 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
+menu has a submenu per Better...Forever addon. Its **Frames** row is in the hub (then named BetterGaarForever) 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
 **Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**,
 **Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/bff` (both go through

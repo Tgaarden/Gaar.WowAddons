@@ -27,7 +27,7 @@
   kept for /btip status) and every client API is checked with type(...) == "function".
 
   BetterTooltipsForeverAPI: version, StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden,
-  in the shape BetterGaarForever's hub expects.
+  in the shape BetterForever's hub expects.
 ]]
 
 local _G = _G
@@ -35,7 +35,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterTooltipsForever"
 local PREFIX = "|cff33ff99BetterTooltipsForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 -- key, default, menu label, help text. Order = menu and status order.
 local FEATURES = {
@@ -555,7 +555,12 @@ local function PrintStatus()
     if lastError then Print("last error: " .. lastError) end
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Adds useful lines to item and unit tooltips: vendor price, item level, a comparison with what you wear, the unit's target, guild rank and health. Every line has its own switch. Nice to know: /btip <feature> on|off (/btip status lists them); item and spell IDs are off by default."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("v" .. VERSION)
     Print("  /btip on | off              master switch")
     Print("  /btip <feature> on | off    switch one feature (no argument toggles it)")
@@ -594,7 +599,7 @@ local function OnSlash(msg)
 end
 
 -- ---------------------------------------------------------------------------
--- Public API: BetterTooltipsForeverAPI (for BetterGaarForever's hub)
+-- Public API: BetterTooltipsForeverAPI (for BetterForever's hub)
 -- ---------------------------------------------------------------------------
 
 local function StatusLine()
@@ -642,6 +647,7 @@ end
 
 _G.BetterTooltipsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

@@ -3,7 +3,7 @@
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It
 changes how the **Quests** section of Blizzard's own objective tracker (`QuestObjectiveTracker`)
 orders and limits the tracked quests, and (with auto-watch, default on) which quests are tracked
-so that the lowest ones fill the tracker's height. It needs no other addon or library.
+so that the lowest ones fill the tracker's height. It needs BetterForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -139,9 +139,11 @@ shape.
 Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`, `autoWatch`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+Since 1.10.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.10.1 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Quests** submenu with exactly the options above (all but **Hide minimap button**).
 While it is loaded, this addon's own minimap button is hidden for the session; the saved
 `minimap.hide` setting is not changed, so without the hub the button is back as you left it.
@@ -159,7 +161,7 @@ The hub talks to this addon only through `BetterQuestsForeverAPI` (since 1.5):
 | `SetMinimapHidden(hidden)` | Hides (`true`) or shows again (`false`) this addon's own button for this session only |
 
 The addon's own menu and the API build on the same list of options, so they cannot drift apart.
-It also checks `C_AddOns.IsAddOnLoaded("BetterGaarForever")` (or the older `IsAddOnLoaded`)
+It also checks `C_AddOns.IsAddOnLoaded("BetterForever")` (or the old name `BetterGaarForever`; the older `IsAddOnLoaded` where `C_AddOns` is missing)
 before it shows its button, so the load order does not matter.
 
 ## How it works

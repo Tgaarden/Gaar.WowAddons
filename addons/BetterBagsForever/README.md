@@ -156,6 +156,10 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
 
 Since 1.9.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.9.1 (it is also the first line of the slash command's help).
 
+Since 1.9.2 the small helpers (the chat prefix, the combat check, secret-value checks, client API
+lookups and the menu drawing) come from BetterForever's shared library (`BetterForever`,
+`Lib.lua`) instead of a copy in this addon. Nothing you see changed.
+
 [BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Auto clean-up when bags open**, **Hide
 Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as

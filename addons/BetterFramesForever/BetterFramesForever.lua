@@ -61,10 +61,9 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterFramesForever"
-local PREFIX = "|cff33ff99BetterFramesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.12"
+local VERSION = "1.2.13"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -208,37 +207,20 @@ local UpdateFrame, StartDrag, StopDrag, ApplyBorder
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+-- Print, OnOff, IsSecret, Plain and Num come from the shared library (BetterForever, loaded
+-- first as a dependency). Where the client hides a value it hands back a secret: it may be
+-- passed to a widget, but arithmetic, comparison, a boolean test and even "or" on it are refused.
+-- IsSecret is false on a client where nothing is secret; Plain is the value, or nil when it is
+-- secret, so every later test on it is an ordinary one; Num is a plain, finite number or nil.
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local function Print(msg) A:Print(msg) end
+local OnOff, IsSecret, Plain, Num = BF.OnOff, BF.IsSecret, BF.Plain, BF.Num
 
-local function OnOff(v) return v and "on" or "off" end
-
--- Where the client hides a value it hands back a secret: it may be passed to a widget, but
--- arithmetic, comparison, a boolean test and even "or" on it are refused. issecretvalue does not
--- exist on a client where nothing is secret, so the guard costs nothing there.
-local issecretvalue = _G.issecretvalue
-local function IsSecret(v)
-    if type(issecretvalue) ~= "function" then return false end
-    return issecretvalue(v) and true or false
-end
-
+-- Either of two values is secret (the library's IsSecret takes one).
 local function Secret(a, b)
     if IsSecret(a) then return true end
     return b ~= nil and IsSecret(b) or false
-end
-
--- The value, or nil when it is secret: every later test on it is then an ordinary one.
-local function Plain(v)
-    if IsSecret(v) then return nil end
-    return v
-end
-
-local function Num(v)
-    v = Plain(v)
-    if type(v) ~= "number" or v ~= v then return nil end
-    return v
 end
 
 local function Clamp(v, lo, hi)
@@ -362,9 +344,7 @@ function Look.UpdateMark(f, idx)
 end
 end
 
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
+local InCombat = BF.InCombat
 
 -- Following Blizzard's Edit Mode is on (and this client has not refused it this session).
 local function FollowOn()
@@ -383,19 +363,7 @@ local function EditModeActive()
     return ok and not IsSecret(active) and active and true or false
 end
 
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    return false
-end
+local AddOnLoaded = BF.AddOnLoaded
 
 local function LoadedConflicts()
     local list = {}
@@ -419,11 +387,8 @@ local function HasKey(key)
     return true
 end
 
-local function Short(n)
-    if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
-    if n >= 1e4 then return string.format("%.1fk", n / 1e3) end
-    return tostring(math.floor(n + 0.5))
-end
+-- "950", "12.3k", "1.2M" (the library's ShortNumber, the same text for the plain numbers used here).
+local Short = BF.ShortNumber
 
 local function ClassToken(unit)
     local _, cls = UnitClass(unit)
@@ -741,15 +706,8 @@ function AuraTime.NewText(icon, size)
 end
 
 -- "45", "9m", "2h", "3d" from a plain number of seconds - rounded up, so 0 never shows while
--- the aura is still on.
-function AuraTime.Text(left)
-    if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
-    local s = math.ceil(left)
-    if s < 60 then return tostring(s) end
-    if s < 3600 then return math.ceil(s / 60) .. "m" end
-    if s < 86400 then return math.ceil(s / 3600) .. "h" end
-    return math.ceil(s / 86400) .. "d"
-end
+-- the aura is still on. The library's TimeShort.
+AuraTime.Text = BF.TimeShort
 
 -- Our own icons count down from a plain end time (icon.timeEnd, nil while the timing is hidden).
 function AuraTime.Tick(icon, elapsed)
@@ -3787,7 +3745,7 @@ local function PrintStatus()
     Print("SecureUnitButtonTemplate frames: " .. (unsupported and ("no - " .. unsupported) or (started and "built" or "not built yet"))
         .. "   RegisterUnitWatch: " .. Yes(type(_G.RegisterUnitWatch) == "function")
         .. "   focus: " .. (HAS_FOCUS and "yes" or "no (no focus unit)"))
-    Print("hidden values: " .. (type(issecretvalue) == "function" and "possible" or "no")
+    Print("hidden values: " .. (type(_G.issecretvalue) == "function" and "possible" or "no")
         .. "   text for hidden values: " .. SecretTextSupport()
         .. "   range: " .. (type(_G.UnitInRange) == "function" and "UnitInRange"
             or (type(_G.CheckInteractDistance) == "function" and "CheckInteractDistance" or "none")))
@@ -3927,37 +3885,12 @@ local function MenuEntries()
     return list
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterFramesForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

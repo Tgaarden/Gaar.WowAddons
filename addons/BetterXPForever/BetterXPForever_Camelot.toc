@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterXPForever
+## Notes: XP at a glance on WoW Forever: a small movable panel with XP, rested XP, XP per hour, time to level and kills/quests to level; text on the XP bar; time played per level on level-up; quest XP in tooltips. Every part can be switched off. /bxp
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## SavedVariables: BetterXPForeverDB
+
+BetterXPForever.lua

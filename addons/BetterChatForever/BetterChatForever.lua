@@ -31,6 +31,9 @@
   type(...) == "function" first, every handler runs in pcall (the last error is kept for
   /bchat status).
 
+  Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
+  through ## Dependencies): the chat prefix, the secret check and the menu drawing.
+
   BetterChatForeverAPI is the small global table BetterForever's hub menu reads (version,
   StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs the same without it.
 ]]
@@ -38,9 +41,11 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterChatForever"
-local PREFIX = "|cff33ff99BetterChatForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
+
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
 
 local COPY_LINES = 200
 local LINK_COLOR = "|cff66b3ff"
@@ -68,15 +73,9 @@ local applied = false       -- PLAYER_LOGIN ran: features may be applied
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
-local issecretvalue = _G.issecretvalue
-local function Secret(v)
-    return issecretvalue and issecretvalue(v) and true or false
-end
+local Secret = BF.IsSecret
 
 local function Fail(where, err)
     lastError = where .. ": " .. tostring(err)
@@ -646,32 +645,13 @@ local function MenuEntries()
     return list
 end
 
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then RenderMenu(root:CreateButton(e.text), e.submenu) end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
 
 _G.BetterChatForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

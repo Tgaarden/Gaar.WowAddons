@@ -41,7 +41,6 @@
 local _, ns = ...
 if type(ns) ~= "table" then return end
 local _G = _G
-local PREFIX = "|cff33ff99BetterFishingForever|r: "
 local DOT = " \194\183 "
 
 local TICK = 0.1                  -- seconds between minimap pin updates while the route is on
@@ -79,53 +78,15 @@ local spotCache           -- world positions of the current step's pins
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+-- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies). This file
+-- loads before BetterFishingForever.lua, so it makes the addon object both share (ns.addon).
+local BF = _G.BetterForever
+local A = ns.addon or BF.NewAddon("BetterFishingForever")
+ns.addon = A
+local Secret, Num, Str, Bool = BF.IsSecret, BF.Num, BF.Str, BF.Bool
+local Call, Method, API = BF.Call, BF.Method, BF.API
 
-local issecretvalue = _G.issecretvalue
-local function Secret(v)
-    return issecretvalue and issecretvalue(v) and true or false
-end
-
-local function Num(v)
-    if Secret(v) or type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then return nil end
-    return v
-end
-
-local function Str(v)
-    if Secret(v) or type(v) ~= "string" or v == "" then return nil end
-    return v
-end
-
-local function Bool(v)
-    if Secret(v) then return nil end
-    return v and true or false
-end
-
-local function pack(ok, ...)
-    if ok then return ... end
-end
-
-local function Call(fn, ...)
-    if type(fn) ~= "function" then return nil end
-    return pack(pcall(fn, ...))
-end
-
-local function Method(obj, name, ...)
-    if type(obj) ~= "table" then return nil end
-    local fn = obj[name]
-    if type(fn) ~= "function" then return nil end
-    return pack(pcall(fn, obj, ...))
-end
-
-local function API(nsName, name)
-    local t = _G[nsName]
-    if type(t) ~= "table" then return nil end
-    local fn = t[name]
-    if type(fn) == "function" then return fn end
-end
+local function Print(msg) A:Print(msg) end
 
 local function Fail(where, err)
     lastError = where .. ": " .. tostring(err)

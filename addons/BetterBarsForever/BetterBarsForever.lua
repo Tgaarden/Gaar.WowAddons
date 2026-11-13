@@ -61,15 +61,21 @@
   numbers, and textures, font strings and one plain frame per button that the addon creates
   itself (out of combat). Every client API is checked with type(...) == "function" first, every
   handler runs in pcall (the last error is kept for /bbars status).
+
+  Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
+  through ## Dependencies): the chat prefix, the secret checks, Num / Str, InCombat, the "56" /
+  "2m" / "1h" cooldown text (TimeShort) and the menu drawing.
 ]]
 
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterBarsForever"
-local PREFIX = "|cff33ff99BetterBarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
+
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
 
 local TICK = 0.2              -- seconds between ticker passes
 local GCD_MAX = 1.5           -- a cooldown this short or shorter is the global cooldown
@@ -143,38 +149,26 @@ local secrets = { usable = 0, range = 0, cooldown = 0, setterMissing = 0, setter
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
 local function Fail(where, err)
     lastError = where .. ": " .. tostring(err)
 end
 
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
+local InCombat = BF.InCombat
 
 -- Where the client hides a value it hands back a secret, which can be neither compared nor
--- tested. Those are checked before anything else touches the value.
-local issecretvalue = _G.issecretvalue
+-- tested. Those are checked before anything else touches the value. A table can be secret as a
+-- whole too (issecrettable), which the library's IsSecret does not check.
+local IsSecret = BF.IsSecret
 local issecrettable = _G.issecrettable
 local function Secret(v)
-    if issecretvalue and issecretvalue(v) then return true end
+    if IsSecret(v) then return true end
     if type(v) == "table" and issecrettable and issecrettable(v) then return true end
     return false
 end
 
-local function Num(v)
-    if Secret(v) or type(v) ~= "number" or v ~= v then return nil end
-    return v
-end
-
-local function Str(v)
-    if Secret(v) or type(v) ~= "string" or v == "" then return nil end
-    return v
-end
+local Num, Str = BF.Num, BF.Str
 
 local function Now()
     return type(_G.GetTime) == "function" and (Num(_G.GetTime()) or 0) or 0
@@ -211,18 +205,10 @@ end
 -- rule formatter for the client's own countdown when the time is secret)
 -- ---------------------------------------------------------------------------
 
-local TimeText = {}   -- Plain, Formatter
+-- The plain text is the library's BetterForever.TimeShort (the same format).
+local TimeText = {}   -- Formatter
 do
 local UNITS = { { 60, "m" }, { 3600, "h" }, { 86400, "d" } }
-
-function TimeText.Plain(left)
-    if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
-    local s = math.ceil(left)
-    if s < 60 then return tostring(s) end
-    if s < 3600 then return math.ceil(s / 60) .. "m" end
-    if s < 86400 then return math.ceil(s / 3600) .. "h" end
-    return math.ceil(s / 86400) .. "d"
-end
 
 local function Build(spec)
     local SU, E = _G.C_StringUtil, _G.Enum
@@ -727,7 +713,7 @@ local function UpdateCooldown(st, now)
         fs:Hide()
         return
     end
-    fs:SetText(TimeText.Plain(left))
+    fs:SetText(BF.TimeShort(left))
     fs:Show()
 end
 
@@ -942,7 +928,7 @@ local function PrintStatus()
         secrets.usable, secrets.range, secrets.cooldown, secrets.setterMissing, secrets.setterFailed))
     local sample = list[1] and list[1].icon
     local cd = list[1] and list[1].cd
-    Print("issecretvalue: " .. YesNo(issecretvalue ~= nil)
+    Print("issecretvalue: " .. YesNo(_G.issecretvalue ~= nil)
         .. "   SetVertexColorFromBoolean: " .. YesNo(sample and type(sample.SetVertexColorFromBoolean) == "function")
         .. "   SetAlphaFromBoolean: " .. YesNo(sample and type(sample.SetAlphaFromBoolean) == "function")
         .. "   CreateColor: " .. YesNo(type(_G.CreateColor) == "function"))
@@ -1042,37 +1028,13 @@ local function MenuEntries()
     return entries
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
 
 _G.BetterBarsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

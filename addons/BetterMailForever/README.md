@@ -42,7 +42,7 @@ Also `/bettermailforever`. Settings are saved account-wide in `BetterMailForever
 
 ## With BetterForever (required)
 
-Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
+Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help). Since 1.0.2 it also takes its small helpers (the chat line, the secret-value check, the combat check, the coin text, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
 The hub talks to this addon only through `BetterMailForeverAPI`:
 

@@ -49,6 +49,8 @@ Settings are saved account-wide in `BetterXPForeverDB`: `enabled`, `panel`, `xpb
 
 Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
+Since 1.0.2 it takes its shared helpers from BetterForever's library (`BetterForever`, `Lib.lua`) instead of carrying its own copies: the chat prefix, the secret-value checks (`IsSecret`, `Num`) and the drawing of its menu (`RenderMenu`). Nothing you see or set changed.
+
 The optional hub talks to this addon only through `BetterXPForeverAPI`:
 
 | Field | What it is |

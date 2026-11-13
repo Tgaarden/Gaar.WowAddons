@@ -25,14 +25,19 @@
   helpers and a HookScript on GameTooltip; the XP bar is only polled (IsMouseOver). Every client API is checked
   with type(...) == "function", every handler runs in pcall (the last error is kept for
   /bxp status), and a secret value is never compared or tested: it is treated as no value.
+
+  Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
+  through ## Dependencies): the chat prefix, Secret / Num and the menu drawing.
 ]]
 
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterXPForever"
-local PREFIX = "|cff33ff99BetterXPForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
+
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
 
 local DEFAULT_MAX_LEVEL = 60
 local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session
@@ -58,17 +63,9 @@ local lastError
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+local function Print(msg) A:Print(msg) end
 
-local issecretvalue = _G.issecretvalue
-local function Secret(v) return issecretvalue and issecretvalue(v) and true or false end
-local function Num(v)
-    if Secret(v) or type(v) ~= "number" or v ~= v then return nil end
-    return v
-end
+local Secret, Num = BF.IsSecret, BF.Num
 local function Now() return type(_G.GetTime) == "function" and (Num(_G.GetTime()) or 0) or 0 end
 local function Fail(where, err) lastError = where .. ": " .. tostring(err) end
 local function Safe(where, fn, ...)
@@ -535,32 +532,13 @@ local function MenuEntries()
     }
 end
 
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then RenderMenu(root:CreateButton(e.text), e.submenu) end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
 
 _G.BetterXPForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

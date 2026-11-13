@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 3.0
+## Version: 3.0.1
 ## X-Curse-Project-ID: 1790363
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## SavedVariables: BetterForeverDB

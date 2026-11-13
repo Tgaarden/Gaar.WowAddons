@@ -31,7 +31,8 @@
     BetterForever.ShortNumber(n)   "950", "12.3k", "1.2M"
 
   Menus:
-    BetterForever.RenderMenu(root, entries)  draws MenuEntries() data into a MenuUtil description
+    BetterForever.RenderMenu(root, entries, title)  draws MenuEntries() data into a MenuUtil description
+    BetterForever.Report(err, title)  a click's error: one chat line and the error handler, once each
     BetterForever.IntroOf(api)     an addon API table's intro text (Intro() or intro), or nil
 
   Addons:
@@ -47,7 +48,7 @@ if type(Lib) ~= "table" then
     Lib = {}
     _G.BetterForever = Lib
 end
-Lib.version = "3.0"
+Lib.version = "3.0.1"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -55,9 +56,17 @@ local PREFIX_COLOR = "|cff33ff99"
 -- Values
 -- ---------------------------------------------------------------------------
 
+-- Looked up once at load; a client that defines it later is still asked (looked up per call
+-- until it appears).
+local issecretvalue = type(_G.issecretvalue) == "function" and _G.issecretvalue or nil
+
 local function IsSecret(v)
-    local f = _G.issecretvalue
-    if type(f) ~= "function" then return false end
+    local f = issecretvalue
+    if not f then
+        f = _G.issecretvalue
+        if type(f) ~= "function" then return false end
+        issecretvalue = f
+    end
     return f(v) and true or false
 end
 
@@ -116,12 +125,17 @@ function Lib.Method(obj, name, ...)
     return Pass(pcall(fn, obj, ...))
 end
 
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-function Lib.AddOnLoaded(name)
-    local f = Lib.API("C_AddOns", "IsAddOnLoaded") or Lib.API("IsAddOnLoaded")
+local function AskLoaded(f, name)
     if not f then return false end
     local ok, loaded = pcall(f, name)
     return ok and Bool(loaded) == true
+end
+
+-- Whether an addon is loaded: C_AddOns on newer clients; when that does not say yes (false, an
+-- error, or missing), the old global is asked too.
+function Lib.AddOnLoaded(name)
+    if AskLoaded(Lib.API("C_AddOns", "IsAddOnLoaded"), name) then return true end
+    return AskLoaded(Lib.API("IsAddOnLoaded"), name)
 end
 
 function Lib.InCombat()
@@ -194,15 +208,22 @@ end
 --   { text, slider = true, min, max, step, value, set, format }   a number (new in 3.0)
 -- ---------------------------------------------------------------------------
 
+-- The number of steps from min to the largest value on the grid that is not above max.
+local function GridSteps(lo, hi, step)
+    return math.floor((hi - lo) / step + 1e-9)
+end
+
+-- At most about 25 values for a menu: every value on the grid, or every k-th one (k = ceil(n / 25))
+-- across the whole range; the top of the range is always the last one.
+local MENU_STEPS = 25
 local function SliderValues(e)
     local lo, hi, step = Num(e.min), Num(e.max), Num(e.step) or 1
     if not lo or not hi or step <= 0 or hi < lo then return {} end
+    local last = GridSteps(lo, hi, step)
+    local stride = math.max(1, math.ceil((last + 1) / MENU_STEPS))
     local list = {}
-    local v = lo
-    while v <= hi + step / 1000 and #list < 25 do
-        list[#list + 1] = v
-        v = v + step
-    end
+    for i = 0, last, stride do list[#list + 1] = lo + i * step end
+    if (last % stride) ~= 0 then list[#list + 1] = lo + last * step end
     return list
 end
 Lib.SliderValues = SliderValues
@@ -222,27 +243,37 @@ local function Checked(e)
     return ok and v and true or false
 end
 
-local function Click(e)
+local function Click(e, title)
     if type(e.func) == "function" then
         local ok, err = pcall(e.func)
-        if not ok then Lib.Report(err) end
+        if not ok then Lib.Report(err, title) end
     end
 end
 
--- Errors from a menu click go to the chat frame once each, not to the error frame.
+-- Errors from a menu click or an Options page: one chat line each, under the title of the addon
+-- they came from (title; "BetterForever" when not given), and once each to the game's error
+-- handler, so a tool such as BugSack has a copy. Each distinct error is reported once a session.
 local reported = {}
-function Lib.Report(err)
+function Lib.Report(err, title)
     err = tostring(err)
-    if reported[err] then return end
-    reported[err] = true
+    title = (type(title) == "string" and title ~= "") and title or "BetterForever"
+    local id = title .. "\0" .. err
+    if reported[id] then return end
+    reported[id] = true
     local chat = _G.DEFAULT_CHAT_FRAME
     if chat and type(chat.AddMessage) == "function" then
-        chat:AddMessage(PREFIX_COLOR .. "BetterForever|r: " .. err)
+        chat:AddMessage(PREFIX_COLOR .. title .. "|r: " .. err)
+    end
+    local geh = _G.geterrorhandler
+    if type(geh) == "function" then
+        local okH, handler = pcall(geh)
+        if okH and type(handler) == "function" then pcall(handler, title .. ": " .. err) end
     end
 end
 
 -- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-function Lib.RenderMenu(root, entries)
+-- title: the addon the entries belong to, for the chat line of an error (see Lib.Report).
+function Lib.RenderMenu(root, entries, title)
     if type(root) ~= "table" or type(entries) ~= "table" then return end
     for _, e in ipairs(entries) do
         if type(e) ~= "table" then
@@ -256,7 +287,7 @@ function Lib.RenderMenu(root, entries)
             end
         elseif e.submenu then
             local sub = type(root.CreateButton) == "function" and root:CreateButton(tostring(e.text))
-            if type(sub) == "table" then Lib.RenderMenu(sub, e.submenu) end
+            if type(sub) == "table" then Lib.RenderMenu(sub, e.submenu, title) end
         elseif e.slider then
             -- MenuUtil has no slider: a submenu of the steps, as radios.
             local sub = type(root.CreateButton) == "function" and root:CreateButton(tostring(e.text))
@@ -268,19 +299,26 @@ function Lib.RenderMenu(root, entries)
                             local ok, cur = pcall(e.value)
                             return ok and Num(cur) ~= nil and math.abs(cur - v) < 1e-6
                         end,
-                        func = function() if type(e.set) == "function" then pcall(e.set, v) end end }
+                        func = function()
+                            if type(e.set) ~= "function" then return end
+                            local ok, err = pcall(e.set, v)
+                            if not ok then Lib.Report(err, title) end
+                        end }
                 end
-                Lib.RenderMenu(sub, radios)
+                Lib.RenderMenu(sub, radios, title)
             end
         elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(tostring(e.text), function() return Checked(e) end, function() Click(e) end)
+            root:CreateCheckbox(tostring(e.text), function() return Checked(e) end, function() Click(e, title) end)
         elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(tostring(e.text), function() return Checked(e) end, function() Click(e) end)
+            root:CreateRadio(tostring(e.text), function() return Checked(e) end, function() Click(e, title) end)
         elseif (e.checkbox or e.radio) and type(root.CreateButton) == "function" then
-            -- A menu without checkboxes or radios: the state goes in the label instead.
-            root:CreateButton((Checked(e) and "[x] " or "[ ] ") .. tostring(e.text), function() Click(e) end)
+            -- A menu without checkboxes or radios: the state goes in the label instead,
+            -- "[x] " / "[ ] " for a checkbox, "(o) " / "( ) " for a radio.
+            local mark
+            if e.radio then mark = Checked(e) and "(o) " or "( ) " else mark = Checked(e) and "[x] " or "[ ] " end
+            root:CreateButton(mark .. tostring(e.text), function() Click(e, title) end)
         elseif type(root.CreateButton) == "function" then
-            root:CreateButton(tostring(e.text), function() Click(e) end)
+            root:CreateButton(tostring(e.text), function() Click(e, title) end)
         end
     end
 end
@@ -408,10 +446,13 @@ function Addon:Choice(key, label, values, default, onChange, opts)
         onChange = onChange, cmd = opts.cmd or key:lower(), tooltip = opts.tooltip })
 end
 
--- A number from min to max in steps, stored in db[key]. format(v) gives its text.
+-- A number from min to max in steps, stored in db[key]. format(v) gives its text. A step that is
+-- not a positive number becomes 1.
 function Addon:Slider(key, label, min, max, step, default, onChange, format, opts)
     opts = opts or {}
-    return AddOption(self, { kind = "slider", key = key, label = label, min = min, max = max, step = step or 1,
+    step = Num(step)
+    if not step or step <= 0 then step = 1 end
+    return AddOption(self, { kind = "slider", key = key, label = label, min = min, max = max, step = step,
         default = default, onChange = onChange, format = format, cmd = opts.cmd or key:lower(), tooltip = opts.tooltip })
 end
 
@@ -432,8 +473,9 @@ function Addon:Get(key)
     return v
 end
 
--- Sets an option, checked against its kind, and calls its onChange (in pcall). Returns true when
--- the value was accepted.
+-- Sets an option, checked against its kind, writes it to the db and then calls
+-- onChange(value, key, old) in pcall. A slider value is snapped to the step grid, then clamped to
+-- min .. the largest grid value not above max. Returns true when the value was accepted.
 function Addon:Set(key, value)
     local o = self.byKey[key]
     if not o or not self.db then return false end
@@ -448,13 +490,20 @@ function Addon:Set(key, value)
     elseif o.kind == "slider" then
         value = Num(tonumber(value))
         if not value then return false end
-        if value < o.min then value = o.min end
-        if value > o.max then value = o.max end
-        value = o.min + math.floor((value - o.min) / o.step + 0.5) * o.step
+        local lo, hi, step = Num(o.min), Num(o.max), o.step
+        if lo then
+            value = lo + math.floor((value - lo) / step + 0.5) * step
+            if value < lo then value = lo end
+            if hi and hi >= lo then
+                local top = lo + GridSteps(lo, hi, step) * step
+                if value > top then value = top end
+            end
+        end
     end
+    local old = self.db[key]
     self.db[key] = value
     if type(o.onChange) == "function" then
-        local ok, err = pcall(o.onChange, value)
+        local ok, err = pcall(o.onChange, value, key, old)
         if not ok then self:Print("error: " .. tostring(err)) end
     end
     return true
@@ -546,6 +595,7 @@ function Addon:PrintStatus()
     for feature, why in pairs(self.blockedWhy) do
         self:Print("  switched off this session: " .. feature .. " (" .. why .. ")")
     end
+    if self.lastError then self:Print("  last error: " .. tostring(self.lastError)) end
 end
 
 local function OnOffWord(w)
@@ -553,6 +603,8 @@ local function OnOffWord(w)
     if w == "off" or w == "0" or w == "false" or w == "no" then return false end
     return nil
 end
+
+local NOT_READY = "not ready yet - its settings load with the addon; try again in a moment."
 
 function Addon:HandleSlash(msg)
     msg = tostring(msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -564,6 +616,7 @@ function Addon:HandleSlash(msg)
     if lcmd == "" or lcmd == "help" then return self:PrintHelp() end
     if lcmd == "status" then return self:PrintStatus() end
     if (lcmd == "on" or lcmd == "off") and self.byKey.enabled then
+        if not self.db then return self:Print(NOT_READY) end
         self:Set("enabled", lcmd == "on")
         return self:Print(self.byKey.enabled.label .. ": " .. lcmd)
     end
@@ -588,6 +641,7 @@ function Addon:HandleSlash(msg)
     elseif o.kind == "slider" then
         value = tonumber(word)
     end
+    if not self.db then return self:Print(NOT_READY) end
     if value == nil or not self:Set(o.key, value) then
         return self:Print("unknown value for " .. o.cmd .. ": " .. rest)
     end
@@ -630,20 +684,31 @@ function Addon:Run(feature, fn, ...)
     return Finish(self, feature, pcall(fn, ...))
 end
 
--- Events: handler(event, ...) in pcall; the last error is kept for /x status.
+-- Events: handler(event, ...) in pcall; an event may have several handlers, run in the order they
+-- were added (the same handler twice is kept once). The last error is kept for /x status.
 function Addon:On(event, handler)
+    if type(handler) ~= "function" then return end
     if not self.events then
         self.events = {}
         self.eventFrame = CreateFrame("Frame")
         self.eventFrame:SetScript("OnEvent", function(_, ev, ...)
-            local h = self.events[ev]
-            if h then
-                local ok, err = pcall(h, ev, ...)
+            local list = self.events[ev]
+            if not list then return end
+            for i = 1, #list do
+                local ok, err = pcall(list[i], ev, ...)
                 if not ok then self.lastError = ev .. ": " .. tostring(err) end
             end
         end)
     end
-    self.events[event] = handler
+    local list = self.events[event]
+    if not list then
+        list = {}
+        self.events[event] = list
+    end
+    for _, h in ipairs(list) do
+        if h == handler then return end
+    end
+    list[#list + 1] = handler
     pcall(self.eventFrame.RegisterEvent, self.eventFrame, event)
 end
 
@@ -654,7 +719,7 @@ function Addon:API(extra)
         version = self.version,
         StatusLine = function() return self:StatusLine() end,
         MenuEntries = function() return self:MenuEntries() end,
-        AddMenuEntries = function(root) Lib.RenderMenu(root, self:MenuEntries()) end,
+        AddMenuEntries = function(root) Lib.RenderMenu(root, self:MenuEntries(), self.title) end,
         SetMinimapHidden = function() end,
         Intro = function() return self.intro end,
     }

@@ -42,7 +42,7 @@ local ADDON_NAME = ... or "BetterForever"
 local Lib = _G.BetterForever
 
 local TITLE = "BetterForever"
-local VERSION = "3.0"
+local VERSION = "3.0.1"
 local PREFIX = "|cff33ff99BetterForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -486,6 +486,7 @@ local function ApplyMinimap()
 end
 
 SetMinimapHidden = function(hide)
+    if not db then return end -- before ADDON_LOADED (another addon calling the API early)
     MinimapDB().hide = hide and true or false
     ApplyMinimap()
     if hide then
@@ -509,6 +510,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local optionsReady
+local optionsFailed -- Init failed or errored: not tried again this session (the reason stays in State())
 
 local hub = {
     version = VERSION,
@@ -520,15 +522,21 @@ local hub = {
 }
 
 local function InitOptions()
-    if optionsReady or not Lib.Options then return end
+    if optionsReady or optionsFailed or not Lib.Options then return end
     local ok, done = pcall(Lib.Options.Init, hub)
-    optionsReady = ok and done
-    if not ok then Print("the Options pages could not be built: " .. tostring(done)) end
+    optionsReady = ok and done and true or false
+    if not optionsReady then optionsFailed = true end
+    if not ok then
+        Lib.Options.why = Lib.Options.why or tostring(done)
+        Print("the Options pages could not be built: " .. tostring(done))
+    end
 end
 
 local function OpenOptions(key)
     InitOptions()
-    if not (Lib.Options and Lib.Options.Open(key)) then
+    local okOpen, opened = false, false
+    if Lib.Options then okOpen, opened = pcall(Lib.Options.Open, key) end
+    if not (okOpen and opened) then
         Print("no Options page here (" .. (Lib.Options and Lib.Options.State() or "no Settings API") .. ").")
     end
 end
@@ -593,9 +601,16 @@ local function OnSlash(msg)
     elseif msg == "options" or msg == "config" then
         OpenOptions()
     elseif msg:match("^options ") or msg:match("^config ") then
-        local key = msg:match("^%S+ (%S+)")
+        local word = msg:match("^%S+ (%S+)")
+        local key
         for _, a in ipairs(ADDONS) do
-            if a.name:lower() == key or a.slash == "/" .. key then key = a.key end
+            if a.key == word or a.label:lower() == word or a.name:lower() == word or a.slash == "/" .. word then key = a.key end
+        end
+        if not key then
+            local names = {}
+            for _, a in ipairs(ADDONS) do names[#names + 1] = a.key end
+            Print("unknown addon: " .. tostring(word) .. ". One of: " .. table.concat(names, ", ") .. ".")
+            return
         end
         OpenOptions(key)
     else

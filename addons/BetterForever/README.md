@@ -66,7 +66,7 @@ thing the rename removes; for two settings that are back with one drag, it is no
 | `MenuEntries()` entry | On the Options page |
 |---|---|
 | `{ text, checkbox = true, checked, func }` | A checkbox. It reads `checked()`; a click calls `func()` when the new state differs |
-| A submenu whose entries are all radios | A dropdown named after the submenu (a trailing `: <current choice>` is dropped, as in BetterBuffsForever's `Warrior: Might`) |
+| A submenu whose entries are all radios | A dropdown named after the submenu (a trailing `: <current choice>` is dropped, as in BetterBuffsForever's `Warrior: Might`). A divider between the radios starts another dropdown, named by its radios' shared prefix or numbered |
 | Radios in a row, outside a submenu | A dropdown; when they share a prefix (`Timer: Total`, `Timer: Remain`) it becomes the name |
 | `{ text, func }` | A button row: the text on the left, its first word (`Reset`, `Clear`, `Sell`) on the button |
 | `{ divider = true }` | A small gap between groups |
@@ -76,7 +76,9 @@ thing the rename removes; for two settings that are back with one drag, it is no
 
 The page is rebuilt from `MenuEntries()` every time it is shown, after a button, and after any
 change that alters its shape (an entry appearing, disappearing or being renamed), so it always
-shows the live state.
+shows the live state. Any other change rebuilds nothing: the intro and `Now:` lines take their new
+text in place, and every control shows its current value again (an option that changes another
+shows at once).
 
 How they are built: each page is a canvas category (`Settings.RegisterCanvasLayoutCategory` /
 `RegisterCanvasLayoutSubcategory`, then `Settings.RegisterAddOnCategory`) that holds its own copy
@@ -147,7 +149,7 @@ name): `version`, `ADDONS` (the list above), `PlaceMinimapButton()`, `OpenOption
 |---|---|
 | `/bf` (also `/betterforever`, and `/bgf` from before 3.0) | Help |
 | `/bf status` | The hub's and the library's version, each addon's version and state line (or `not installed`), the minimap button and the Options pages |
-| `/bf options [name]` | Opens the Options pages, or one addon's page (`bags`, `quests`, `maps`, ..., the addon's name or its slash command) |
+| `/bf options [name]` | Opens the Options pages, or one addon's page (`bags`, `quests`, `maps`, ..., the addon's name or its slash command; an unknown name is answered with the list of names) |
 | `/bf minimap`, `/bf minimap reset` | Show or hide the minimap button; back to its default place (285 degrees) and shown |
 
 `/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps` (and `/way`), `/bff`, `/bwf`, `/bfish`, `/bbuff`,
@@ -206,7 +208,8 @@ but comparing, testing or doing arithmetic on one is refused. Check before anyth
 
 | Helper | Does |
 |---|---|
-| `BetterForever.RenderMenu(root, entries)` | Draws `MenuEntries()` data into a `MenuUtil` description (checkbox, radio, submenu, label, divider, button; a slider as a submenu of its steps) - the `RenderMenu` every addon carries a copy of |
+| `BetterForever.RenderMenu(root, entries, title)` | Draws `MenuEntries()` data into a `MenuUtil` description (checkbox, radio, submenu, label, divider, button; a slider as a submenu of its steps, at most about 25 of them across the whole range) - the `RenderMenu` every addon carries a copy of. `title` (optional) names the addon in the chat line of a click that errors |
+| `BetterForever.Report(err, title)` | One chat line, `<title>: <err>` (`BetterForever` without a title), and the error to the game's error handler, once per distinct error a session |
 | `BetterForever.IntroOf(api)` | An API table's intro (`Intro()` or `intro`), or `nil` |
 | `BetterForever.Options.Rows(entries)` | The rows an Options page makes of `MenuEntries()` data, for checking a new shape with `/dump` |
 
@@ -227,14 +230,14 @@ local A = BetterForever.NewAddon("BetterExampleForever", {
 | `A:InitDB(globalName, defaults)` | Binds the saved variable (call it at `ADDON_LOADED`): creates the table, fills missing keys from `defaults` (nested tables too, copied) and from every option's default; returns it, also as `A.db` |
 | `A:Toggle(key, label, default, onChange, opts)` | A checkbox stored in `db[key]`: `/x <key> on\|off` (no value toggles), a menu checkbox and an Options-page checkbox. `opts.cmd` renames the command word. The key `enabled` is the master switch: `/x on`, `/x off` |
 | `A:Choice(key, label, values, default, onChange, opts)` | One of `values` (`{ "a", "b" }` or `{ { value = "a", label = "A" } }`): `/x <key> <value>`, a submenu of radios, a dropdown |
-| `A:Slider(key, label, min, max, step, default, onChange, format, opts)` | A number: `/x <key> <n>` (clamped, snapped to the step), a submenu of steps in the menu, a slider on the Options page |
+| `A:Slider(key, label, min, max, step, default, onChange, format, opts)` | A number: `/x <key> <n>` (snapped to the step, then clamped to `min` .. the largest step not above `max`), a submenu of steps in the menu, a slider on the Options page. A `step` that is not a positive number becomes 1 |
 | `A:Button(label, func, opts)` | A button; with `opts.cmd`, `/x <cmd>` runs it too |
 | `A:Divider()` | A gap in the menu and on the page |
-| `A:Get(key)`, `A:Set(key, value)` | Read (the default while unset); write, checked against the option's kind, then `onChange(value)` in `pcall` |
+| `A:Get(key)`, `A:Set(key, value)` | Read (the default while unset); write, checked against the option's kind, then `onChange(value, key, old)` in `pcall` - after the value is in the db |
 | `A:MenuEntries()` | The options as `MenuEntries()` data |
 | `A:Slash({ "/x", "/longname" }, handlers)` | Registers the commands (`SlashCmdList[<NAME>]`, the same key the addons use today). `handlers[word] = function(rest, msg)` run first; built in: `help` (the intro, one line per option, the extra help lines), `status`, `on\|off`, and one command per option |
 | `A:Run(feature, fn, ...)` | `fn(...)` in `pcall`; the first error switches that feature off for the session with one chat line (BetterPlatesForever's `Run`), later calls return at once. `A:IsBlocked(feature)`, `A:Latch(feature, err)` |
-| `A:On(event, handler)` | Registers an event on the addon's own frame; `handler(event, ...)` runs in `pcall`, the last error kept in `A.lastError` |
+| `A:On(event, handler)` | Registers an event on the addon's own frame; `handler(event, ...)` runs in `pcall`. An event can have several handlers, run in the order added. The last error is kept in `A.lastError` and shown by `/x status` |
 | `A:API(extra)` | Builds and exports `_G[<name> .. "API"]`: `version`, `StatusLine`, `MenuEntries`, `AddMenuEntries`, `SetMinimapHidden` (does nothing), `Intro`, plus `extra` |
 
 ### Migrating an addon (phase 2)
@@ -254,12 +257,33 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    addon's own clean-up of old keys after it.
 5. **Options.** Turn each on/off feature into `A:Toggle(...)` (and choices into `A:Choice`), with the
    existing setter as `onChange`, so the slash commands, the menu and the Options page come from
-   one list. Keep hand-written slash commands as `handlers`.
+   one list. Keep hand-written slash commands as `handlers`. `onChange(value, key, old)` runs
+   after the new value is written to the db: read the db (or `value`) in it, not a copy taken
+   before; `old` is what was stored before.
 6. **API.** Replace the hand-built `_G.BetterXForeverAPI = { ... }` and its `RenderMenu` copy with
    `A:API({ StatusLine = StatusLine })` (or `BF.RenderMenu` inside the existing table). The API's
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.0.1
+
+- Sliders: `A:Set` snaps to the step first and then clamps, so a value can no longer land above
+  `max` (a 0-10 slider in steps of 4 stored 12); a step that is not a positive number becomes 1.
+  A slider's menu covers its whole range in at most about 25 steps, the top value always included.
+- Options pages: radios split by a divider in one submenu become separate dropdowns; a change in
+  an addon's intro or "Now:" line no longer rebuilds the page (the text is updated in place);
+  after any change every control shows its current value again, so an option that changes
+  another shows at once. A client where the pages cannot be registered is not asked again on
+  every `/bf options`.
+- `/bf options <name>` says "unknown addon" (and lists the names) for a name it does not know,
+  and "no Options page" when the page did not open.
+- `A:On` keeps every handler of an event; `/x status` shows the last error. `onChange` gets
+  `(value, key, old)`. A slash command before the addon's settings are loaded says "not ready
+  yet". Menu-click errors name the addon they came from and also go to the error handler once.
+- The plain menu (no checkboxes) marks radios `(o)` / `( )` again; `AddOnLoaded` also asks the old
+  `IsAddOnLoaded` when `C_AddOns` does not say yes; `BetterForeverAPI.SetMinimapHidden` before
+  the hub has loaded does nothing instead of erroring.
 
 ## 3.0
 

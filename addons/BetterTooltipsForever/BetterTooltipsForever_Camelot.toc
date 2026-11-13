@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterTooltipsForever
+## Notes: Better tooltips on WoW Forever: vendor price, item ID, item level and a vs-equipped stat diff on items; target, guild rank, health, class colours and cursor anchoring on units. Every feature can be switched on or off. /btip
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Note_01
+## SavedVariables: BetterTooltipsForeverDB
+
+BetterTooltipsForever.lua

@@ -88,6 +88,8 @@ A feature command with no `on`/`off` toggles it. `/betterbarsforever` works as w
 
 Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
+Since 1.0.2 it takes its shared helpers from BetterForever's library (`BetterForever`, `Lib.lua`) instead of carrying its own copies: the chat prefix, the secret-value checks (`IsSecret`, `Num`, `Str`), `InCombat`, the cooldown text (`TimeShort`) and the drawing of its menu (`RenderMenu`). Nothing you see or set changed.
+
 [BetterForever](../BetterForever/README.md) is the family hub with one minimap button
 whose menu can hold this addon's options: **Enabled**, then one checkbox per feature (**Red icon
 out of range**, **Blue icon without mana**, **Cooldown numbers**, **Short hotkeys**, **Macro

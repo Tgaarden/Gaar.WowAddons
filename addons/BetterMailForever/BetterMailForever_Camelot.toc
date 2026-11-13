@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterMailForever
+## Notes: Mailbox helpers for WoW Forever: an Open All button on the inbox (money and items, never COD, optional delete of empty system mail), a recipient dropdown of recent names and your alts, Alt-click in your bags to attach items to a letter (Ctrl+Alt for up to 12 stacks of the same item), and a new-mail notice in chat. Each feature can be switched off. /bmail
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Letter_15
+## SavedVariables: BetterMailForeverDB
+
+BetterMailForever.lua

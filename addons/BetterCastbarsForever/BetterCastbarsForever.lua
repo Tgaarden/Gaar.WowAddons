@@ -56,10 +56,9 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterCastbarsForever"
-local PREFIX = "|cff33ff99BetterCastbarsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -149,53 +148,27 @@ local driver             -- the one OnUpdate frame that runs every bar
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+-- Print, OnOff, IsSecret, Num and AddOnLoaded come from the shared library (BetterForever,
+-- loaded first as a dependency). Where the client hides a value it hands back a secret, which can
+-- be neither compared, used in a sum nor tested for truth; IsSecret is true only for those, and
+-- Num is a plain, finite number or nil.
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local function Print(msg) A:Print(msg) end
+local OnOff, IsSecret, Num, AddOnLoaded = BF.OnOff, BF.IsSecret, BF.Num, BF.AddOnLoaded
 
-local function OnOff(v) return v and "on" or "off" end
-
--- Where the client hides a value it hands back a secret, which can be neither compared, used in
--- a sum nor tested for truth. issecretvalue exists only where that can happen.
-local issecretvalue = _G.issecretvalue
-local function IsSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v) and true or false
-end
-
+-- True when any of the values is secret (the library's IsSecret takes one).
 local function Secret(...)
-    if not issecretvalue then return false end
     for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
+        if IsSecret((select(i, ...))) then return true end
     end
     return false
-end
-
--- A plain number, or nil for a secret, a non-number or NaN.
-local function Num(v)
-    if IsSecret(v) then return nil end
-    if type(v) ~= "number" or v ~= v then return nil end
-    return v
 end
 
 local function Clamp(v, lo, hi)
     if v < lo then return lo end
     if v > hi then return hi end
     return v
-end
-
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and not IsSecret(loaded) and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and not IsSecret(loaded) and loaded then return true end
-    end
-    return false
 end
 
 local function TexturePath(key)
@@ -1677,7 +1650,7 @@ local function PrintStatus()
     Print("UnitCastingInfo: " .. Yes(type(_G.UnitCastingInfo) == "function")
         .. "   UnitChannelInfo: " .. Yes(type(_G.UnitChannelInfo) == "function")
         .. "   GetNetStats: " .. Yes(type(_G.GetNetStats) == "function")
-        .. "   secret values: " .. (issecretvalue and "possible" or "no")
+        .. "   secret values: " .. (_G.issecretvalue and "possible" or "no")
         .. "   focus: " .. (HAS_FOCUS and "yes" or "no")
         .. "   Edit Mode: " .. (type(_G.EditModeManagerFrame) == "table" and "yes" or "no"))
     Print("locked: " .. ((db and db.locked) and "yes" or "no") .. "   follow Blizzard: " .. OnOff(db and db.follow)
@@ -1846,37 +1819,12 @@ local function MenuEntries()
     return list
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterCastbarsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

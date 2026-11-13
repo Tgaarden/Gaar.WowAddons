@@ -112,10 +112,17 @@ local _G = _G
 local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "BetterFishingForever"
 ns = type(ns) == "table" and ns or {}
-local PREFIX = "|cff33ff99BetterFishingForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
+
+-- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies); the addon
+-- object is made by RouteGuide.lua, which loads first.
+local BF = _G.BetterForever
+local A = ns.addon or BF.NewAddon("BetterFishingForever")
+ns.addon = A
+A.version = VERSION
+local InCombat, Secret, Str = BF.InCombat, BF.IsSecret, BF.Str
 
 local MIN_WINDOW, MAX_WINDOW, DEFAULT_WINDOW = 0.2, 0.8, 0.4
 local HOLD_CAP = 2.0          -- seconds an armed binding may wait for a held second press
@@ -156,29 +163,13 @@ local lastRightAt         -- pole swap: GetTime() of the previous right press on
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
-
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
+local function Print(msg) A:Print(msg) end
 
 -- Where the client hides a value it hands back a secret, which can be neither compared nor
--- tested. Those are treated as no value at all, and checked before anything else.
-local issecretvalue = _G.issecretvalue
-local function Secret(v)
-    return issecretvalue and issecretvalue(v) and true or false
-end
-
+-- tested. Those are treated as no value at all, and checked before anything else. Num stays
+-- here: unlike BF.Num it lets infinity through.
 local function Num(v)
     if Secret(v) or type(v) ~= "number" or v ~= v then return nil end
-    return v
-end
-
-local function Str(v)
-    if Secret(v) or type(v) ~= "string" or v == "" then return nil end
     return v
 end
 
@@ -973,37 +964,12 @@ local function MenuEntries()
     }
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterFishingForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

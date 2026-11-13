@@ -29,8 +29,9 @@
     * /bbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
       unlockall, stop and status.
     * BetterBagsForeverAPI, a small global table for BetterForever's hub menu (version,
-      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
-      without the hub; the API only exposes the settings the slash command already changes.
+      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The API only exposes the settings
+      the slash command already changes. The small helpers (Print, InCombat, OnOff, Plain, the
+      client API lookups and the menu drawing) come from BetterForever's library.
 
   Names come from Blizzard's retail FrameXML (Interface/AddOns/Blizzard_UIPanels_Game/Mainline/
   ContainerFrame.xml and ContainerFrame.lua): ContainerFrameCombinedBags, BagItemSearchBox,
@@ -49,7 +50,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterBagsForever"
-local PREFIX = "|cff33ff99BetterBagsForever|r: "
+local VERSION = "1.9.2"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -92,13 +93,16 @@ local frameHooked, anchorsHooked
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+-- The shared helpers come from BetterForever's library (Lib.lua; the addon depends on
+-- BetterForever). The addon object is scoped to the do-block: the main chunk is close to Lua's
+-- limit of 200 locals.
+local BF = _G.BetterForever
+local InCombat, OnOff, Plain, PlainString = BF.InCombat, BF.OnOff, BF.Plain, BF.Str
 
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
+local Print
+do
+    local A = BF.NewAddon("BetterBagsForever", { version = VERSION })
+    function Print(msg) A:Print(msg) end
 end
 
 -- True when changing this region now could trip combat protection.
@@ -367,14 +371,11 @@ end
 
 -- Modern C_Container first, then the old global of the same name.
 local function ContainerFunction(name)
-    local c = ContainerAPI()
-    if c and type(c[name]) == "function" then return c[name] end
-    if type(_G[name]) == "function" then return _G[name] end
+    return BF.API("C_Container", name) or BF.API(name)
 end
 
 local function TimerAfter()
-    local timer = _G.C_Timer
-    if type(timer) == "table" and type(timer.After) == "function" then return timer.After end
+    return BF.API("C_Timer", "After")
 end
 
 -- Everything the reversal needs to move items safely.
@@ -886,7 +887,6 @@ local function SetCombatLook(inCombat)
     if tex and tex.SetDesaturated then tex:SetDesaturated(inCombat) end
 end
 
-local function OnOff(v) return v and "on" or "off" end
 
 -- Blizzard's own title and description, then what each mouse button does here.
 local function ShowCleanupTooltip(self)
@@ -1070,14 +1070,9 @@ local SCAN_DELAY = 0.5          -- seconds that bag, bank and equipment events a
 local LOGIN_SCAN_DELAY = 1.5    -- the first scan after login, once the bags have arrived
 local DOT = " \194\183 "        -- " · "
 
-local issecretvalue = _G.issecretvalue
-
--- A value the client hides comes back secret; it can be neither compared nor counted.
-local function Plain(v)
-    if issecretvalue and issecretvalue(v) then return nil end
-    return v
-end
-
+-- A value the client hides comes back secret; it can be neither compared nor counted. Plain (the
+-- value, or nil when secret) and PlainString (a plain, non-empty string) are the library's Plain
+-- and Str. PlainNumber stays here: it also reads a number from a string.
 local function PlainNumber(v)
     v = Plain(v)
     if type(v) == "number" then return v end
@@ -1085,11 +1080,6 @@ local function PlainNumber(v)
     return nil
 end
 
-local function PlainString(v)
-    v = Plain(v)
-    if type(v) == "string" and v ~= "" then return v end
-    return nil
-end
 
 local playerName, playerRealm   -- known from PLAYER_LOGIN on
 local bankOpen, mailOpen = false, false
@@ -1440,13 +1430,8 @@ end
 local SOURCES = { "bags", "bank", "equipped", "mail" }
 
 local function CoinText(copper)
-    local ci = _G.C_CurrencyInfo
-    local fn = (type(ci) == "table" and type(ci.GetCoinTextureString) == "function" and ci.GetCoinTextureString)
-        or (type(_G.GetCoinTextureString) == "function" and _G.GetCoinTextureString)
-    if fn then
-        local ok, s = pcall(fn, copper)
-        if ok and type(s) == "string" then return s end
-    end
+    local text = BF.Call(BF.API("C_CurrencyInfo", "GetCoinTextureString") or BF.API("GetCoinTextureString"), copper)
+    if type(text) == "string" then return text end
     local g = math.floor(copper / 10000)
     local s = math.floor((copper % 10000) / 100)
     return string.format("%dg %ds %dc", g, s, copper % 100)
@@ -2618,8 +2603,6 @@ end
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.9.1"
-
 local function StatusLine()
     if not db then return "not loaded yet" end
     return "Reverse " .. OnOff(ReverseOn()) .. " \194\183 " .. (db.locked and "locked" or "unlocked")
@@ -2647,29 +2630,12 @@ local function MenuEntries()
     }
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox then
-            -- A menu without checkboxes: show the state in the label instead.
-            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
-        else
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterBagsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

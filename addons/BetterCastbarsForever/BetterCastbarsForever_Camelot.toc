@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.1.4
+## Version: 1.1.5
 ## IconTexture: Interface\Icons\Spell_Fire_FlameBolt
 ## Dependencies: BetterForever
 ## SavedVariables: BetterCastbarsForeverDB

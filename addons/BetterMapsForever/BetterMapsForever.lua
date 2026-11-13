@@ -43,10 +43,9 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterMapsForever"
-local PREFIX = "|cff33ff99BetterMapsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -83,23 +82,13 @@ local hooked, panelHooked
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
-
-local function InCombat()
-    return type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
-end
-
--- Where the client hides a number it hands back a secret value, which can be neither compared
--- nor used in a sum. Those are treated as no number at all, and checked before anything else.
-local issecretvalue = _G.issecretvalue
-local function Num(v)
-    if issecretvalue and issecretvalue(v) then return nil end
-    if type(v) ~= "number" or v ~= v then return nil end
-    return v
-end
+-- Print, InCombat, Num, OnOff and AddOnLoaded come from the shared library (BetterForever,
+-- loaded first as a dependency). Num treats a secret value - the client hands one back where it
+-- hides a number, and it can be neither compared nor used in a sum - as no number at all.
+local BF = _G.BetterForever
+local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local function Print(msg) A:Print(msg) end
+local InCombat, Num, OnOff, AddOnLoaded = BF.InCombat, BF.Num, BF.OnOff, BF.AddOnLoaded
 
 local function Clamp(v, lo, hi)
     if v < lo then return lo end
@@ -108,22 +97,6 @@ local function Clamp(v, lo, hi)
 end
 
 local function Percent(v) return math.floor(v * 100 + 0.5) end
-
-local function OnOff(v) return v and "on" or "off" end
-
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
-local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    return false
-end
 
 local function GetMap()
     local f = _G.WorldMapFrame
@@ -489,7 +462,7 @@ end
 local function PlayerIsMoving()
     if type(_G.IsPlayerMoving) == "function" then
         local m = _G.IsPlayerMoving()
-        if not (issecretvalue and issecretvalue(m)) then return m and true or false end
+        if not BF.IsSecret(m) then return m and true or false end
     end
     if type(_G.GetUnitSpeed) == "function" then
         local sp = Num(_G.GetUnitSpeed("player"))
@@ -820,37 +793,12 @@ local function MenuEntries()
     }
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            root:CreateButton(mark .. e.text, function() e.func() end)
-        else
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterMapsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

@@ -4,8 +4,9 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.1.3
+## Version: 1.1.4
 ## IconTexture: Interface\Icons\Spell_Fire_FlameBolt
+## Dependencies: BetterForever
 ## SavedVariables: BetterCastbarsForeverDB
 ## X-Curse-Project-ID: 1793607
 

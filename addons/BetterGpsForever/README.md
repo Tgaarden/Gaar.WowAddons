@@ -2,7 +2,7 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001): one
 TomTom-style waypoint with an arrow, the distance and the time to get there, a world map pin and a
-minimap pin. It needs no other addon or library, and it is not part of the Gaar suite.
+minimap pin. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -89,9 +89,11 @@ register `/way`, so TomTom's keeps working. It says so once at login, `/bgps way
 job, and `/bgps status` shows who owns `/way`. The check runs at `PLAYER_LOGIN`, when every addon
 has loaded.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) 2.3 and later has a **GPS** submenu with
+Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) 2.3 and later has a **GPS** submenu with
 **Show arrow**, **Lock arrow**, **Reset arrow position**, **Route to corpse when dead** (1.1) and
 **Clear waypoint** (a grey line that cannot be clicked while there is no waypoint), the same as
 `/bgps arrow on|off`, `/bgps lock|unlock`, `/bgps reset`, `/bgps corpse on|off` and `/bgps

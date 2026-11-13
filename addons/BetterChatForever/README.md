@@ -1,13 +1,13 @@
 # BetterChatForever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001): chat tweaks,
-each one individually switchable. It needs no other addon or library and is not part of the Gaar
+each one individually switchable. It needs BetterForever, the family hub, and no other addon or library and is not part of the Gaar
 suite.
 
 ## Features
 
 Every feature has a saved setting (account-wide, `BetterChatForeverDB`), a `/bchat <feature> on|off`
-command and a checkbox in the optional BetterGaarForever menu. A master switch turns them all off.
+command and a checkbox in the BetterForever menu. A master switch turns them all off.
 
 | Feature | Default | What it does |
 |---|---|---|
@@ -37,9 +37,11 @@ especially in instances and in combat. A secret value is never compared, tested,
 `gsub`'ed: the filter and the `AddMessage` wrapper pass it on untouched, the copy window skips such
 lines (and says how many), and the whisper sound never reads the event arguments.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub with one minimap button. The
+Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub with one minimap button. The
 hub talks to this addon only through `BetterChatForeverAPI`:
 
 | Field | What it is |

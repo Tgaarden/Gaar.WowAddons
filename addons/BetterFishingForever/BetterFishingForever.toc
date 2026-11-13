@@ -4,8 +4,9 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.2
+## Version: 1.2.1
 ## IconTexture: Interface\Icons\Trade_Fishing
+## Dependencies: BetterForever
 ## SavedVariables: BetterFishingForeverDB
 ## SavedVariablesPerCharacter: BetterFishingForeverCharDB
 

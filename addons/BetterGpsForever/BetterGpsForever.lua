@@ -30,7 +30,7 @@
     * /bgps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear,
       corpse on|off and way <x y>. When TomTom is loaded /way stays TomTom's and /bgps way does
       the same job.
-    * BetterGpsForeverAPI, a small global table for BetterGaarForever's hub menu and for other
+    * BetterGpsForeverAPI, a small global table for BetterForever's hub menu and for other
       addons that set the waypoint (BetterQuestsForever's "Set GPS target"): SetWaypoint,
       ClearWaypoint, GetWaypoint.
 
@@ -61,7 +61,7 @@ local ADDON_NAME = ... or "BetterGpsForever"
 local PREFIX = "|cff33ff99BetterGpsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2"
+local VERSION = "1.2.1"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -1265,8 +1265,13 @@ local function WayCommandText()
     return "/bgps way"
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "One TomTom-style waypoint with an arrow showing distance and time to get there, plus world map and minimap pins; while you are a ghost it routes you to your corpse. Nice to know: /way x y or /way <zone> x y sets it; Alt-click (Option-click on a Mac) the world map to set it there; right-click the arrow to clear it; /way is left to TomTom when TomTom is loaded."
+
 local function PrintHelp()
-    Print("version " .. VERSION .. ": one waypoint with an arrow and map pins.")
+    Print(INTRO)
+    Print("version " .. VERSION .. ". Commands:")
     Print(WayCommandText() .. " x y | " .. WayCommandText() .. " <zone> x y | " .. WayCommandText()
         .. " clear - set or clear the waypoint (0-100, x first); Alt + left-click (Option on Mac) on the world map sets it too")
     Print("/bgps arrow on | /bgps arrow off - show the arrow (now: " .. OnOff(db and db.arrow) .. ")")
@@ -1377,7 +1382,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterGpsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterGpsForeverDB and change only through the same
 -- functions /bgps uses, so the addon behaves the same with or without the hub.
 --
@@ -1457,6 +1462,7 @@ end
 
 _G.BetterGpsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

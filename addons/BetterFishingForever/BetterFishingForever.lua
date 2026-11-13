@@ -19,7 +19,7 @@
       the nearest spot. The data is in Route.lua, the logic in RouteGuide.lua (ns.guide); this
       file only wires it into /bfish, the saved variables and the hub menu.
     * /bfish for help, on, off, window <0.2-0.8>, swap, route and status.
-    * BetterFishingForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterFishingForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -115,7 +115,7 @@ ns = type(ns) == "table" and ns or {}
 local PREFIX = "|cff33ff99BetterFishingForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2"
+local VERSION = "1.2.1"
 
 local MIN_WINDOW, MAX_WINDOW, DEFAULT_WINDOW = 0.2, 0.8, 0.4
 local HOLD_CAP = 2.0          -- seconds an armed binding may wait for a held second press
@@ -864,8 +864,12 @@ end
 
 local function YesNo(v) return v and "yes" or "no" end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped; a single right-click still loots and interacts as usual. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
+
 local function PrintHelp()
-    Print("double right-click in the world to cast Fishing while a fishing pole is equipped.")
+    Print(INTRO)
     Print("/bfish on | /bfish off - switch it on or off")
     Print(string.format("/bfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",
         MIN_WINDOW, MAX_WINDOW, Window()))
@@ -925,7 +929,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterFishingForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterFishingForeverDB and change only through the
 -- same functions /bfish uses, so the addon behaves the same with or without the hub.
 --
@@ -996,6 +1000,7 @@ end
 
 _G.BetterFishingForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

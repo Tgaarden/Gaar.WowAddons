@@ -4,8 +4,9 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.10
+## Version: 1.10.1
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
+## Dependencies: BetterForever
 ## SavedVariables: BetterQuestsForeverDB
 ## OptionalDeps: BetterGpsForever
 ## X-Curse-Project-ID: 1786827

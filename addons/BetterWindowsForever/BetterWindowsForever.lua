@@ -19,7 +19,7 @@
     * Load-on-demand windows (Blizzard_Collections, Blizzard_AchievementUI, ...) are picked up at
       ADDON_LOADED. A window this client does not have is listed as such and left out of the menu.
     * /bwf for help, list, on <name>, off <name>, reset <name>|all and status.
-    * BetterWindowsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterWindowsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -49,7 +49,7 @@ local ADDON_NAME = ... or "BetterWindowsForever"
 local PREFIX = "|cff33ff99BetterWindowsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local SCALE_STEP = 0.05     -- per mouse-wheel notch
@@ -824,7 +824,12 @@ local function Counts()
     return found, on, moved
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Move and scale Blizzard's own windows (Character, Spellbook, Professions, Bank, Auction House and many more); position and scale are remembered per window. Nice to know: drag a window's title bar to move it; Ctrl + mouse wheel over it scales it (50-150%); /bwf list shows every window and its key; protected windows are not moved in combat."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("drag a Blizzard window's title bar to move it; Ctrl + mouse wheel over it to scale it (50-150%).")
     Print("/bwf list - every window, its key and its state")
     Print("/bwf on <name> | /bwf off <name> - let the addon move the window, or leave it to Blizzard")
@@ -892,7 +897,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterWindowsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterWindowsForeverDB and change only through the
 -- same functions /bwf uses, so the addon behaves the same with or without the hub.
 --
@@ -954,6 +959,7 @@ end
 
 _G.BetterWindowsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

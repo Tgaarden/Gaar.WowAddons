@@ -32,7 +32,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterXPForever"
 local PREFIX = "|cff33ff99BetterXPForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local DEFAULT_MAX_LEVEL = 60
 local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session
@@ -455,7 +455,12 @@ local function StatusLine()
         .. (rate and (DOT .. Commas(rate) .. " xp/h") or "")
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, and quest XP in tooltips. Nice to know: Alt-drag moves the panel (or /bxp unlock); /bxp reset starts a new session."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("/bxp  " .. VERSION)
     Print("/bxp on|off - everything on or off")
     Print("/bxp panel|xpbar|always|levellog|questxp on|off - one part (no value shows its state)")
@@ -503,7 +508,7 @@ local function OnSlash(msg)
 end
 
 -- ---------------------------------------------------------------------------
--- Public API: BetterXPForeverAPI (for BetterGaarForever's hub)
+-- Public API: BetterXPForeverAPI (for BetterForever's hub)
 --   version, StatusLine(), MenuEntries(), AddMenuEntries(root), SetMinimapHidden(b)
 -- ---------------------------------------------------------------------------
 
@@ -552,6 +557,7 @@ end
 
 _G.BetterXPForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

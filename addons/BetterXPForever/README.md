@@ -2,8 +2,7 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001; classic-era
 content, level cap 60). XP at a glance: a movable text panel, text on the XP bar, time played per
-level on level-up, and quest XP in tooltips. Every part has its own switch. It needs no other addon
-or library and is not part of the Gaar suite.
+level on level-up, and quest XP in tooltips. Every part has its own switch. It needs BetterForever, the family hub, and no other addon or library and is not part of the Gaar suite.
 
 ## What it does
 
@@ -46,7 +45,9 @@ Settings are saved account-wide in `BetterXPForeverDB`: `enabled`, `panel`, `xpb
 | `/bxp reset` | Reset the session |
 | `/bxp status` | Version, every setting, the XP bar frame found, session numbers and the last error |
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
+
+Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
 The optional hub talks to this addon only through `BetterXPForeverAPI`:
 

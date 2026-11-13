@@ -4,8 +4,9 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.0
+## Version: 1.0.1
 ## IconTexture: Interface\Icons\INV_Misc_Coin_01
+## Dependencies: BetterForever
 ## SavedVariables: BetterMerchantForeverDB
 
 BetterMerchantForever.lua

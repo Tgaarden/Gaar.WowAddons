@@ -2,7 +2,7 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It draws its
 own cast bars for the player, target, focus and pet, which you can place yourself or let follow
-Blizzard's own bars (Edit Mode). It needs no other addon or library. It is a port of
+Blizzard's own bars (Edit Mode). It needs BetterForever, the family hub, and no other addon or library. It is a port of
 [GaarCast](../GaarCast/GaarCast.lua) to the Better...Forever conventions, and keeps everything
 GaarCast learnt about secret values.
 
@@ -107,11 +107,13 @@ it parries you does not apply (only your own timer is tracked).
 
 `/bettercastbarsforever` works the same as `/bcf`.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub: one minimap button whose
+Since 1.1.4 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.1.4 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a submenu per Better...Forever addon. Its **Castbars** row is in
-BetterGaarForever 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
+the hub (then named BetterGaarForever) 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
 size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Swing timer** (Show swing
 timer, Off hand, Ranged), **Follow Blizzard (Edit Mode)**,
 **Latency safe-zone**, **Texture**, **Font size**, the two **Timer** styles and **Reset positions

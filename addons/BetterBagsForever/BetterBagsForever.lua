@@ -28,7 +28,7 @@
       bought back once. /bbf locked, /bbf unlockall yes.
     * /bbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
       unlockall, stop and status.
-    * BetterBagsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterBagsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -2509,7 +2509,12 @@ end
 
 local function Yes(v) return v and "yes" or "MISSING" end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it. Clean-up does not run in combat."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("the Combined Backpack is movable: drag its title bar, or Alt-drag an empty part of it.")
     Print("/bbf reset - put the bags back at Blizzard's default position")
     Print("/bbf lock | /bbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
@@ -2601,7 +2606,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterBagsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBagsForeverDB and change only through the
 -- same functions /bbf uses, so the addon behaves the same with or without the hub.
 --
@@ -2613,7 +2618,7 @@ end
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.9"
+local VERSION = "1.9.1"
 
 local function StatusLine()
     if not db then return "not loaded yet" end
@@ -2661,6 +2666,7 @@ end
 
 _G.BetterBagsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

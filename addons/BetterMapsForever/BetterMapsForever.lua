@@ -16,7 +16,7 @@
     * The maximized map is left to Blizzard: no handle, no grip, 100% scale. Going back to the
       windowed map puts the saved position and scale back.
     * /bmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off and fade <percent>.
-    * BetterMapsForeverAPI, a small global table for BetterGaarForever's hub menu (version,
+    * BetterMapsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
 
@@ -46,7 +46,7 @@ local ADDON_NAME = ... or "BetterMapsForever"
 local PREFIX = "|cff33ff99BetterMapsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.0"
+local VERSION = "1.1.1"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -711,7 +711,12 @@ local function PositionText()
     return pos and string.format("moved (%.0f, %.0f)", pos.x, pos.y) or "default position"
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Move, scale and fade Blizzard's world map window (Map & Quest Log). Nice to know: drag the title bar to move it and the bottom-right grip to scale it (50-150%); it fades while you move (35% by default); the map is never moved or scaled in combat, and the maximized map is left alone."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("drag the world map's title bar to move it, and the grip in its bottom-right corner to resize it (windowed map only).")
     Print("/bmf lock | /bmf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
     Print("/bmf reset - Blizzard's default position and 100% scale")
@@ -770,7 +775,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Public API: BetterMapsForeverAPI
 --
--- For BetterGaarForever, the optional hub that puts this addon's options in its own minimap menu.
+-- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterMapsForeverDB and change only through the
 -- same functions /bmf uses, so the addon behaves the same with or without the hub.
 --
@@ -842,6 +847,7 @@ end
 
 _G.BetterMapsForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

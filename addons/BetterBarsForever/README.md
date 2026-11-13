@@ -3,8 +3,7 @@
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It makes
 Blizzard's own action buttons easier to read: a red icon when the action is out of range, a blue
 icon when you lack the mana, energy or rage, big cooldown numbers, short hotkey labels, and macro
-names you can switch off. Every part can be switched on or off on its own. It needs no other addon
-or library, and it is not part of the Gaar suite.
+names you can switch off. Every part can be switched on or off on its own. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -85,9 +84,11 @@ one checked first:
 
 A feature command with no `on`/`off` toggles it. `/betterbarsforever` works as well as `/bbars`.
 
-## With BetterGaarForever (optional)
+## With BetterForever (required)
 
-[BetterGaarForever](../BetterGaarForever/README.md) is an optional hub with one minimap button
+Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
+
+[BetterForever](../BetterForever/README.md) is the family hub with one minimap button
 whose menu can hold this addon's options: **Enabled**, then one checkbox per feature (**Red icon
 out of range**, **Blue icon without mana**, **Cooldown numbers**, **Short hotkeys**, **Macro
 names**, **Out of range: red hotkey instead of red icon**). They go through the same functions as

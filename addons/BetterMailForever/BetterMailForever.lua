@@ -31,7 +31,7 @@
   API is checked with type(...) == "function", and a secret value is treated as no value, never
   compared or tested. Saved variables are read at ADDON_LOADED, never at file scope.
 
-  BetterMailForeverAPI is the small global table BetterGaarForever's hub reads: version,
+  BetterMailForeverAPI is the small global table BetterForever's hub reads: version,
   StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden.
 ]]
 
@@ -40,7 +40,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMailForever"
 local PREFIX = "|cff33ff99BetterMailForever|r: "
 local DOT = " \194\183 "
-local VERSION = "1.0"
+local VERSION = "1.0.1"
 
 local MAX_RECENT = 15
 local STEP_DELAY = 0.3        -- seconds between two mail actions, at the fastest
@@ -565,7 +565,12 @@ local function StatusLine()
     return OnOff(db.enabled) .. DOT .. (#on > 0 and table.concat(on, ", ") or "no features")
 end
 
+-- The intro BetterForever shows at the top of this addon's Options page, and the first line of
+-- the help.
+local INTRO = "Mailbox helpers: an Open All button, an optional clean-up of empty mail, a recipient list with your own characters and recent names, Alt-click to attach items and a new-mail notice. Nice to know: Shift-click Open All for money only; COD mail is never paid; Ctrl+Alt-click attaches up to 12 stacks of an item; attaching works out of combat only."
+
 local function PrintHelp()
+    Print(INTRO)
     Print("/bmail on|off - master switch")
     Print("/bmail openall|deleteempty|recipients|sendmulti|notice on|off - one feature")
     Print("/bmail open - run Open All (mailbox open); /bmail status")
@@ -604,7 +609,7 @@ local function OnSlash(msg)
 end
 
 -- ---------------------------------------------------------------------------
--- Public API: BetterMailForeverAPI (for BetterGaarForever's hub)
+-- Public API: BetterMailForeverAPI (for BetterForever's hub)
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state
@@ -648,6 +653,7 @@ end
 
 _G.BetterMailForeverAPI = {
     version = VERSION,
+    Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,

@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.1.1
+## Version: 1.1.2
 ## X-Curse-Project-ID: 1790375
 ## IconTexture: Interface\Icons\INV_Misc_Map_01
 ## Dependencies: BetterForever

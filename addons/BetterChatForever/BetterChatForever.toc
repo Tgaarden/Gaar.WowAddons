@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: BetterChatForever
+## Notes: Chat tweaks for WoW Forever, each one switchable: short channel names, class-coloured names, timestamps, clickable and copyable links, a copy-chat button, a whisper sound, sticky chat types and arrow keys in the edit box. /bchat
+## Category: Better Forever
+## Category-enUS: Better Forever
+## Author: Gaar
+## Version: 1.0
+## IconTexture: Interface\Icons\INV_Misc_Note_01
+## SavedVariables: BetterChatForeverDB
+
+BetterChatForever.lua

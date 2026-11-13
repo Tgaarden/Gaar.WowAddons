@@ -7,7 +7,8 @@
   the same data the minimap menu draws, so the two can never drift apart:
 
     checkbox                 -> a checkbox (getter: checked(), setter: func() when it differs)
-    radio group (a submenu of radios, or radios in a row) -> a dropdown
+    radio group (a submenu of radios, or radios in a row) -> a dropdown (a divider in the
+                             submenu starts another one)
     button { text, func }    -> a button row ("Reset" etc.)
     divider                  -> a small gap between groups
     submenu of other entries -> a section header, then its entries
@@ -25,7 +26,9 @@
   where it exists), so the panel's "Defaults" never flips these addons' options.
 
   The page is rebuilt from MenuEntries() each time it is shown and after a change that alters its
-  shape (an entry that appears, disappears or is renamed), so it always shows the live state.
+  shape (an entry that appears, disappears or is renamed), so it always shows the live state. A
+  change that keeps the shape rebuilds nothing: the text rows (intro, "Now: <state>") take their
+  new words in place and every control is told to show its setting's value again.
 
   If any of that is missing on a client, or fails, the page falls back to a plain panel drawn
   here (check buttons, buttons, one line per choice). Without a Settings API at all, the old
@@ -51,10 +54,11 @@ local function Checked(e)
     return ok and v and true or false
 end
 
-local function Click(fn, ...)
+-- owner: the title of the addon the page belongs to, for the error's chat line (Lib.Report).
+local function Click(owner, fn, ...)
     if type(fn) ~= "function" then return end
     local ok, err = pcall(fn, ...)
-    if not ok then Lib.Report(err) end
+    if not ok then Lib.Report(err, owner) end
 end
 
 local function After0(fn)
@@ -86,19 +90,26 @@ end
 -- plus what that kind needs. Both renderers below draw the same rows.
 -- ---------------------------------------------------------------------------
 
+-- A submenu of nothing but radios (and dividers): its runs of radios, split at the dividers, each
+-- its own group; nil when the submenu holds anything else.
 local function AllRadios(list)
-    local radios, any = {}, false
+    local runs, run = {}, nil
     for _, e in ipairs(list) do
         if type(e) == "table" then
             if e.radio then
-                radios[#radios + 1] = e
-                any = true
-            elseif not e.divider then
+                if not run then
+                    run = {}
+                    runs[#runs + 1] = run
+                end
+                run[#run + 1] = e
+            elseif e.divider then
+                run = nil
+            else
                 return nil
             end
         end
     end
-    return any and radios or nil
+    return #runs > 0 and runs or nil
 end
 
 -- "Timer: Total", "Timer: Remain" -> "Timer: ", shared by every radio of a run; nil otherwise.
@@ -112,7 +123,7 @@ local function SharedPrefix(run)
     return prefix
 end
 
-local function DropdownRow(label, radios, strip)
+local function DropdownRow(owner, label, radios, strip)
     local options = {}
     for i, r in ipairs(radios) do
         local t = tostring(r.text or "?")
@@ -128,11 +139,11 @@ local function DropdownRow(label, radios, strip)
         end,
         set = function(i)
             local r = radios[tonumber(i) or 0]
-            if r and not Checked(r) then Click(r.func) end
+            if r and not Checked(r) then Click(owner, r.func) end
         end }
 end
 
-local function AddEntries(rows, entries)
+local function AddEntries(rows, entries, owner)
     if type(entries) ~= "table" then return end
     local i = 1
     while entries[i] ~= nil do
@@ -145,7 +156,7 @@ local function AddEntries(rows, entries)
             end
             local prefix = SharedPrefix(run)
             local label = prefix and (prefix:gsub(": $", "")) or "Choose"
-            rows[#rows + 1] = DropdownRow(label, run, prefix)
+            rows[#rows + 1] = DropdownRow(owner, label, run, prefix)
         else
             if type(e) ~= "table" then
                 -- skipped
@@ -154,12 +165,19 @@ local function AddEntries(rows, entries)
             elseif e.label then
                 rows[#rows + 1] = { kind = "text", text = tostring(e.label), grey = true }
             elseif e.submenu then
-                local radios = AllRadios(e.submenu)
-                if radios then
-                    rows[#rows + 1] = DropdownRow(ChoiceLabel(e.text), radios)
+                local runs = AllRadios(e.submenu)
+                if runs then
+                    -- One dropdown per group; a later group is named by its shared prefix
+                    -- ("Size: Small", "Size: Large" -> "Size"), else numbered.
+                    local base = ChoiceLabel(e.text)
+                    for k, run in ipairs(runs) do
+                        local prefix = k > 1 and SharedPrefix(run) or nil
+                        local label = prefix and (prefix:gsub(": $", "")) or (k > 1 and (base .. " " .. k) or base)
+                        rows[#rows + 1] = DropdownRow(owner, label, run, prefix)
+                    end
                 else
                     rows[#rows + 1] = { kind = "header", text = tostring(e.text or "") }
-                    AddEntries(rows, e.submenu)
+                    AddEntries(rows, e.submenu, owner)
                 end
             elseif e.slider then
                 rows[#rows + 1] = { kind = "slider", text = tostring(e.text or ""),
@@ -168,13 +186,13 @@ local function AddEntries(rows, entries)
                         local ok, v = pcall(e.value)
                         return ok and Lib.Num(v) or (Lib.Num(e.min) or 0)
                     end,
-                    set = function(v) Click(e.set, v) end,
+                    set = function(v) Click(owner, e.set, v) end,
                     format = function(v) return Lib.SliderText(e, v) end }
             elseif e.checkbox then
                 rows[#rows + 1] = { kind = "checkbox", text = tostring(e.text or ""),
                     get = function() return Checked(e) end,
                     set = function(v)
-                        if (v and true or false) ~= Checked(e) then Click(e.func) end
+                        if (v and true or false) ~= Checked(e) then Click(owner, e.func) end
                     end }
             elseif type(e.func) == "function" then
                 rows[#rows + 1] = { kind = "button", text = tostring(e.text or ""),
@@ -201,19 +219,26 @@ local function Tidy(rows)
 end
 
 -- The rows a list of MenuEntries() becomes (also for debugging: /dump BetterForever.Options.Rows(...)).
-function Pages.Rows(entries)
+function Pages.Rows(entries, owner)
     local rows = {}
-    AddEntries(rows, entries)
+    AddEntries(rows, entries, owner)
     return Tidy(rows)
 end
 
+-- The page's shape. A text row counts by its place and colour, not its words: the intro and the
+-- "Now: <state>" line change with the addon's state and are updated in place (UpdateTexts).
 local function Signature(rows)
     local parts = {}
     for i, r in ipairs(rows) do
-        parts[i] = r.kind .. "=" .. tostring(r.text) .. (r.options and ("[" .. table.concat(r.options, "|") .. "]") or "")
+        if r.kind == "text" then
+            parts[i] = r.grey and "text=grey" or "text"
+        else
+            parts[i] = r.kind .. "=" .. tostring(r.text) .. (r.options and ("[" .. table.concat(r.options, "|") .. "]") or "")
+        end
     end
     return table.concat(parts, "\n")
 end
+Pages.Signature = Signature
 
 -- ---------------------------------------------------------------------------
 -- Native renderer: Blizzard's settings list and row initializers inside our canvas
@@ -261,6 +286,9 @@ local TextRow = _G.BetterForeverSettingsTextRowMixin
 
 function TextRow:Init(initializer)
     local d = type(initializer) == "table" and type(initializer.GetData) == "function" and initializer:GetData() or {}
+    -- The row's data knows the frame showing it, so a new text can go straight in (UpdateTexts).
+    self.bfData = d
+    d.frame = self
     local fs = self.Text
     if not fs then return end
     fs:ClearAllPoints()
@@ -271,15 +299,19 @@ function TextRow:Init(initializer)
 end
 
 function TextRow:Release()
+    local d = self.bfData
+    if type(d) == "table" and d.frame == self then d.frame = nil end
+    self.bfData = nil
     if self.Text then self.Text:SetText("") end
 end
 
 local function NoParent() return false end
 
-local function TextInitializer(page, row)
+local function TextInitializer(page, row, idx)
     local init = _G.CreateFromMixins(_G.SettingsListElementInitializer)
-    init:Init("BetterForeverSettingsTextRowTemplate", { text = row.text or "", grey = row.grey,
-        spacer = row.kind == "spacer" })
+    local data = { text = row.text or "", grey = row.grey, spacer = row.kind == "spacer" }
+    init:Init("BetterForeverSettingsTextRowTemplate", data)
+    if row.kind == "text" then page.textData[idx] = data end
     init.GetExtent = function(self)
         local d = self:GetData()
         if d.spacer then return 10 end
@@ -294,7 +326,10 @@ local binding = {}      -- variable -> the row it reads and writes now
 
 local function ProxySetting(page, variable, kind, name, default)
     local s = settingCache[variable]
-    if s then return s end
+    if s then
+        page.settings[#page.settings + 1] = s
+        return s
+    end
     local function get()
         local r = binding[variable]
         if not r then return default end
@@ -306,8 +341,15 @@ local function ProxySetting(page, variable, kind, name, default)
     local function set(v)
         local r = binding[variable]
         if not r then return end
+        -- A control showing the value it already has (a refresh) changes nothing.
+        local cur = get()
+        if kind == "boolean" then
+            if (v and true or false) == cur then return end
+        elseif tonumber(v) ~= nil and tonumber(v) == cur then
+            return
+        end
         local ok, err = pcall(r.set, v)
-        if not ok then Lib.Report(err) end
+        if not ok then Lib.Report(err, page.owner) end
         page:AfterChange(false)
     end
     local vt = VarType(kind)
@@ -317,6 +359,7 @@ local function ProxySetting(page, variable, kind, name, default)
         s = _G.Settings.RegisterProxySetting(page.category, variable, vt, name, default, get, set)
     end
     settingCache[variable] = s
+    page.settings[#page.settings + 1] = s
     return s
 end
 
@@ -334,6 +377,7 @@ local function RenderNative(page, rows)
     end
     page.list:Show()
 
+    page.textData, page.settings = {}, {}
     local inits = {}
     for idx, r in ipairs(rows) do
         local init
@@ -343,7 +387,7 @@ local function RenderNative(page, rows)
         if r.kind == "header" then
             init = _G.CreateSettingsListSectionHeaderInitializer(r.text)
         elseif r.kind == "text" or r.kind == "spacer" then
-            init = TextInitializer(page, r)
+            init = TextInitializer(page, r, idx)
         elseif r.kind == "checkbox" then
             binding[variable] = r
             init = S.CreateCheckboxInitializer(ProxySetting(page, variable, "boolean", r.text, false), nil, r.tooltip)
@@ -367,7 +411,7 @@ local function RenderNative(page, rows)
         elseif r.kind == "button" then
             local fn = r.func
             init = _G.CreateSettingsButtonInitializer(r.text, r.buttonText, function()
-                Click(fn)
+                Click(page.owner, fn)
                 page:AfterChange(true)
             end, r.tooltip, false)
         end
@@ -382,7 +426,47 @@ local function RenderNative(page, rows)
         for _, init in ipairs(inits) do layout:AddInitializer(init) end
         inits = layout:GetInitializers()
     end
+    page.inits = inits
     page.list:Display(inits)
+end
+
+-- The page keeps its shape: the text rows take their new words in place. False when one would
+-- change height (the list must be laid out again) or the rows do not match what is shown.
+local function UpdateTexts(page, rows)
+    local datas = page.textData
+    if not datas then return false end
+    local width
+    for idx, r in ipairs(rows) do
+        if r.kind == "text" then
+            local d = datas[idx]
+            if not d then return false end
+            local text = r.text or ""
+            if d.text ~= text then
+                width = width or (page:RowWidth() - 57)
+                if MeasureText(text, width) ~= MeasureText(d.text, width) then return false end
+                d.text = text
+                local f = d.frame
+                if f and f.bfData == d and f.Text then f.Text:SetText(text) end
+            end
+        end
+    end
+    return true
+end
+
+-- Every native control shows its setting's value again (after a change elsewhere on the page, or
+-- by the addon itself): each setting announces its value; without NotifyUpdate the list is shown
+-- again with the same rows. Nothing is rebuilt.
+local function RefreshValues(page)
+    if not page.list then return end
+    local all = true
+    for _, s in ipairs(page.settings or {}) do
+        if type(s) == "table" and type(s.NotifyUpdate) == "function" then
+            pcall(s.NotifyUpdate, s)
+        else
+            all = false
+        end
+    end
+    if not all and page.inits then pcall(page.list.Display, page.list, page.inits) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -448,6 +532,19 @@ local function MakeCheck(parent)
     return cb
 end
 
+-- A pooled font string keeps the colour it was last given: without one, the font's own.
+local function FontColor(fs, font)
+    local fo = _G[font]
+    if type(fo) == "table" and type(fo.GetTextColor) == "function" then
+        local ok, r, g, b, a = pcall(fo.GetTextColor, fo)
+        if ok and Lib.Num(r) and Lib.Num(g) and Lib.Num(b) then
+            fs:SetTextColor(r, g, b, Lib.Num(a) or 1)
+            return
+        end
+    end
+    if type(fs.SetFontObject) == "function" then pcall(fs.SetFontObject, fs, font) end
+end
+
 local function RenderFallback(page, rows)
     if page.list then page.list:Hide() end
     local fb = FallbackFrame(page)
@@ -466,7 +563,7 @@ local function RenderFallback(page, rows)
         fs:SetWidth(width - indent - 16)
         fs:SetJustifyH("LEFT")
         fs:SetText(text or "")
-        if r then fs:SetTextColor(r, g, b) end
+        if r then fs:SetTextColor(r, g, b) else FontColor(fs, font) end
         local h = Lib.Num(fs:GetStringHeight()) or 14
         y = y - h - 6
         return fs
@@ -502,21 +599,21 @@ local function RenderFallback(page, rows)
         elseif r.kind == "spacer" then
             y = y - 8
         elseif r.kind == "checkbox" then
-            Check(r.text, r.get(), function(v) Click(r.set, v); page:AfterChange(true) end, 10)
+            Check(r.text, r.get(), function(v) Click(page.owner, r.set, v); page:AfterChange(true) end, 10)
         elseif r.kind == "dropdown" then
             Text("GameFontNormalSmall", r.text, 12)
             local cur = r.get()
             for i, t in ipairs(r.options) do
-                Check(t, cur == i, function() Click(r.set, i); page:AfterChange(true) end, 26)
+                Check(t, cur == i, function() Click(page.owner, r.set, i); page:AfterChange(true) end, 26)
             end
         elseif r.kind == "slider" then
             local v = r.get()
             Text("GameFontHighlight", r.text .. ": " .. tostring(r.format(v)), 12)
-            Button("-", function() Click(r.set, math.max(r.min, v - r.step)); page:AfterChange(true) end, 26)
-            Button("+", function() Click(r.set, math.min(r.max, v + r.step)); page:AfterChange(true) end, 92)
+            Button("-", function() Click(page.owner, r.set, math.max(r.min, v - r.step)); page:AfterChange(true) end, 26)
+            Button("+", function() Click(page.owner, r.set, math.min(r.max, v + r.step)); page:AfterChange(true) end, 92)
             y = y - 26
         elseif r.kind == "button" then
-            if Button(r.text, function() Click(r.func); page:AfterChange(true) end, 12) then y = y - 28 end
+            if Button(r.text, function() Click(page.owner, r.func); page:AfterChange(true) end, 12) then y = y - 28 end
         end
     end
     content:SetHeight(math.max(1, -y + 12))
@@ -540,29 +637,33 @@ end
 function PageMixin:Refresh(force)
     local ok, rows = pcall(self.Build)
     if not ok then
-        Lib.Report(rows)
+        Lib.Report(rows, self.owner)
         rows = {}
     end
     rows = Tidy(rows)
     local sig = Signature(rows)
     if self.native ~= false and NativeReady() then
-        if force or sig ~= self.sig then
-            local okN, err = pcall(RenderNative, self, rows)
-            if okN then
-                self.sig = sig
+        if not force and sig == self.sig then
+            -- Same shape: new words in the text rows, every control shows its value again.
+            local okT, same = pcall(UpdateTexts, self, rows)
+            if okT and same then
+                pcall(RefreshValues, self)
                 return
             end
-            self.native = false
-            self.nativeError = tostring(err)
-        else
+        end
+        local okN, err = pcall(RenderNative, self, rows)
+        if okN then
+            self.sig = sig
             return
         end
+        self.native = false
+        self.nativeError = tostring(err)
     else
         self.native = false
     end
     self.sig = sig
     local okF, err = pcall(RenderFallback, self, rows)
-    if not okF then Lib.Report(err) end
+    if not okF then Lib.Report(err, self.owner) end
 end
 
 -- After a change: rebuilt on the next frame, once, and only while shown. force: also when the
@@ -586,11 +687,11 @@ function PageMixin:OnCommit() end
 function PageMixin:OnDefault() end
 function PageMixin:OnCancel() end
 
-local function NewPage(key, title, build)
+local function NewPage(key, title, build, owner)
     local page = CreateFrame("Frame")
     for k, v in pairs(PageMixin) do page[k] = v end
     page:Hide()
-    page.key, page.title, page.Build = key, title, build
+    page.key, page.title, page.Build, page.owner = key, title, build, owner
     page:SetScript("OnShow", function(self) self:Refresh(true) end)
     return page
 end
@@ -619,7 +720,7 @@ local function BuildOverview(page, hub)
     if cb then
         cb:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -10)
         cb.label:SetText("Show the Better Forever minimap button")
-        cb:SetScript("OnClick", function(self) Click(hub.SetMinimapShown, self:GetChecked() and true or false) end)
+        cb:SetScript("OnClick", function(self) Click(nil, hub.SetMinimapShown, self:GetChecked() and true or false) end)
     end
     local head = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     head:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -46)
@@ -670,7 +771,7 @@ local function AddonRows(a)
     local ok, entries = pcall(api.MenuEntries)
     if ok and type(entries) == "table" then
         rows[#rows + 1] = { kind = "header", text = "Options" }
-        AddEntries(rows, entries)
+        AddEntries(rows, entries, a.name)
     else
         rows[#rows + 1] = { kind = "text", grey = true, text = "This version of " .. a.name .. " has no options to show here." }
     end
@@ -699,7 +800,7 @@ end
 function Pages.AddAddon(a)
     if not Pages.category or pagesByKey[a.key] or not hubRef.API(a) then return end
     local api = hubRef.API(a)
-    local page = NewPage(a.key, a.name .. " " .. tostring(api.version or ""), function() return AddonRows(a) end)
+    local page = NewPage(a.key, a.name .. " " .. tostring(api.version or ""), function() return AddonRows(a) end, a.name)
     local ok, cat = pcall(Register, page, a.label, Pages.category)
     if ok and cat then
         page.category = cat
@@ -708,14 +809,18 @@ function Pages.AddAddon(a)
 end
 
 -- hub: { version, ADDONS, API(a), StatusOf(a), MinimapShown(), SetMinimapShown(b) }
+-- Tried once a session: after a failure (Pages.failed, the reason in Pages.why) it returns false at
+-- once instead of building the overview again.
 function Pages.Init(hub)
     if Pages.category then return true end
+    if Pages.failed then return false end
     hubRef = hub
     local overview = CreateFrame("Frame")
     overview:Hide()
     BuildOverview(overview, hub)
     local ok, cat = pcall(Register, overview, "Better Forever")
     if not ok or not cat then
+        Pages.failed = true
         Pages.why = ok and "this client has no Settings API" or tostring(cat)
         return false
     end
@@ -736,19 +841,22 @@ local function CategoryID(cat)
     return cat and cat.ID
 end
 
--- Opens the overview, or one addon's page by hub key ("bags", "quests", ...).
+-- Opens the overview, or one addon's page by hub key ("bags", "quests", ...). True when it opened:
+-- the call did not error and did not answer false.
 function Pages.Open(key)
     local cat = Pages.category
     if key and pagesByKey[key] then cat = pagesByKey[key].category end
     if not cat then return false end
     local S = _G.Settings
+    local ok, res
     if type(S) == "table" and type(S.OpenToCategory) == "function" then
-        return (pcall(S.OpenToCategory, CategoryID(cat)))
+        ok, res = pcall(S.OpenToCategory, CategoryID(cat))
+    elseif type(_G.InterfaceOptionsFrame_OpenToCategory) == "function" then
+        ok, res = pcall(_G.InterfaceOptionsFrame_OpenToCategory, cat)
+    else
+        return false
     end
-    if type(_G.InterfaceOptionsFrame_OpenToCategory) == "function" then
-        return (pcall(_G.InterfaceOptionsFrame_OpenToCategory, cat))
-    end
-    return false
+    return ok and res ~= false
 end
 
 function Pages.State()

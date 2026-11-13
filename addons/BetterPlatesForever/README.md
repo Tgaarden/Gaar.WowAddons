@@ -124,6 +124,10 @@ A switch without `on` or `off` toggles it. `/betterplatesforever` is the long fo
 
 Since 1.2.9 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.9 (it is also the first line of the slash command's help).
 
+Since 1.2.10 the small helpers (the chat prefix, secret-value and number checks, the debuff time
+text and the menu drawing) come from BetterForever's shared library (`BetterForever`, `Lib.lua`)
+instead of a copy in this addon. Nothing you see changed.
+
 [BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu holds the options of the Better...Forever addons. Its **Plates** submenu is in
 the hub (then named BetterGaarForever) 2.2 and later. It holds **Enabled**, **Colour mode** (Reaction / Class / Health / Solid),

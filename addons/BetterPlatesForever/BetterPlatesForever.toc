@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.2.9
+## Version: 1.2.10
 ## IconTexture: Interface\Icons\Ability_Hunter_SniperShot
 ## Dependencies: BetterForever
 ## SavedVariables: BetterPlatesForeverDB

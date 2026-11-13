@@ -37,8 +37,9 @@
     * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
       threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
     * BetterPlatesForeverAPI, a small global table for BetterForever's hub menu (version,
-      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
-      without the hub; the API only exposes the settings the slash command already changes.
+      StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The API only exposes the settings
+      the slash command already changes. The small helpers (Print, Plain, Num, OnOff, the debuff
+      time text and the menu drawing) come from BetterForever's library.
 
   It changes no CVars at all: stacking, overlap, plate size, distance and which plates are shown
   stay whatever the game (or you) set them to.
@@ -66,10 +67,12 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterPlatesForever"
-local PREFIX = "|cff33ff99BetterPlatesForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.9"
+local VERSION = "1.2.10"
+
+-- The shared helpers (BetterForever's library, Lib.lua; the addon depends on BetterForever).
+local BF = _G.BetterForever
 
 local MARK_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local MARK_SZ, MARK_GAP = 20, 3
@@ -132,14 +135,8 @@ local TimeText = {}   -- Plain, Formatter
 do
 local UNITS = { { 60, "m" }, { 3600, "h" }, { 86400, "d" } }
 
-function TimeText.Plain(left)
-    if type(left) ~= "number" or left ~= left or left <= 0 then return "" end
-    local s = math.ceil(left)
-    if s < 60 then return tostring(s) end
-    if s < 3600 then return math.ceil(s / 60) .. "m" end
-    if s < 86400 then return math.ceil(s / 3600) .. "h" end
-    return math.ceil(s / 86400) .. "d"
-end
+-- "56", "2m", "1h", "3d", rounded up; "" for 0 or less.
+TimeText.Plain = BF.TimeShort
 
 local function Build(spec)
     local SU, E = _G.C_StringUtil, _G.Enum
@@ -248,33 +245,19 @@ local warnedGaarPlates
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
-
-local function OnOff(v) return v and "on" or "off" end
-
 -- Where the client hides a value it hands back a secret: it may be passed to a widget, but
--- arithmetic, comparison, a boolean test and even "or" on it are refused. issecretvalue does not
--- exist on a client where nothing is secret, so the guard costs nothing there.
-local issecretvalue = _G.issecretvalue
+-- arithmetic, comparison, a boolean test and even "or" on it are refused. IsSecret is false on a
+-- client where nothing is secret, Plain gives the value or nil when it is secret (every later test
+-- on it is then an ordinary one), Num a plain finite number or nil.
+local IsSecret, Plain, Num, OnOff = BF.IsSecret, BF.Plain, BF.Num, BF.OnOff
+local A = BF.NewAddon("BetterPlatesForever", { version = VERSION })
+
+local function Print(msg) A:Print(msg) end
+
+-- Whether either of two values is secret.
 local function Secret(a, b)
-    if not issecretvalue then return false end
-    if issecretvalue(a) then return true end
-    return b ~= nil and issecretvalue(b) or false
-end
-
--- The value, or nil when it is secret: every later test on it is then an ordinary one.
-local function Plain(v)
-    if issecretvalue and issecretvalue(v) then return nil end
-    return v
-end
-
-local function Num(v)
-    v = Plain(v)
-    if type(v) ~= "number" or v ~= v then return nil end
-    return v
+    if IsSecret(a) then return true end
+    return b ~= nil and IsSecret(b)
 end
 
 local function Clamp(v, lo, hi)
@@ -352,18 +335,11 @@ local function Shadow(box, level)
     return f
 end
 
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
+-- Whether an addon is loaded: C_AddOns on newer clients, and the old global as well (the
+-- library asks only one of them).
 local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and loaded then return true end
-    end
-    return false
+    if BF.AddOnLoaded(name) then return true end
+    return BF.Call(BF.API("IsAddOnLoaded"), name) and true or false
 end
 
 local function HasPlateAPI()
@@ -562,7 +538,7 @@ end
 
 -- "secret", "nil" or the plain value as text, for /bpf status. Never compares a secret.
 local function Kind(v)
-    if issecretvalue and issecretvalue(v) then return "secret" end
+    if IsSecret(v) then return "secret" end
     if v == nil then return "nil" end
     return tostring(v)
 end
@@ -1777,7 +1753,7 @@ local function PrintStatus()
             or (type(_G.UnitAura) == "function" and "UnitAura" or "MISSING"))
         .. "   threat: " .. Yes(type(_G.UnitDetailedThreatSituation) == "function")
         .. "/" .. Yes(type(_G.UnitThreatSituation) == "function")
-        .. "   hidden values: " .. (issecretvalue and "possible" or "no"))
+        .. "   hidden values: " .. (_G.issecretvalue and "possible" or "no"))
     Print("plates styled now: " .. CountActive())
     local off = {}
     for _, f in ipairs(FEATURE_ORDER) do if blocked[f] then off[#off + 1] = f end end
@@ -1890,37 +1866,12 @@ local function MenuEntries()
     return entries
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" then return end
-    for _, e in ipairs(entries) do
-        if e.divider then
-            if type(root.CreateDivider) == "function" then root:CreateDivider() end
-        elseif e.submenu then
-            if type(root.CreateButton) == "function" then
-                local sub = root:CreateButton(e.text)
-                RenderMenu(sub, e.submenu)
-            end
-        elseif e.radio and type(root.CreateRadio) == "function" then
-            root:CreateRadio(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox or e.radio then
-            -- A menu without checkboxes or radios: show the state in the label instead.
-            local mark = e.radio and (e.checked() and "(o) " or "( ) ") or (e.checked() and "[x] " or "[ ] ")
-            if type(root.CreateButton) == "function" then root:CreateButton(mark .. e.text, function() e.func() end) end
-        elseif type(root.CreateButton) == "function" then
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 _G.BetterPlatesForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
 }
 

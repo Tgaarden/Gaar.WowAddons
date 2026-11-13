@@ -93,6 +93,10 @@ has loaded.
 
 Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help).
 
+Since 1.2.2 the small helpers (the chat prefix, secret-value and number checks, safe client
+calls, the time text and the menu drawing) come from BetterForever's shared library
+(`BetterForever`, `Lib.lua`) instead of a copy in this addon. Nothing you see changed.
+
 [BetterForever](../BetterForever/README.md) 2.3 and later has a **GPS** submenu with
 **Show arrow**, **Lock arrow**, **Reset arrow position**, **Route to corpse when dead** (1.1) and
 **Clear waypoint** (a grey line that cannot be clicked while there is no waypoint), the same as

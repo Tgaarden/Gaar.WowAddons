@@ -58,10 +58,9 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterGpsForever"
-local PREFIX = "|cff33ff99BetterGpsForever|r: "
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -121,56 +120,23 @@ local mapHooked
 -- Small helpers
 -- ---------------------------------------------------------------------------
 
-local function Print(msg)
-    local chat = _G.DEFAULT_CHAT_FRAME
-    if chat and chat.AddMessage then chat:AddMessage(PREFIX .. msg) end
-end
+-- The shared helpers come from BetterForever's library (Lib.lua). Where the client hides a number
+-- it hands back a secret value, which can be neither compared nor used in a sum: Num, Bool and Str
+-- treat those as no value at all, and are checked before anything else. Call and Method give all
+-- the return values of a function, or nothing when it is missing or errors.
+local BF = _G.BetterForever
+local IsSecret, Num, Bool = BF.IsSecret, BF.Num, BF.Bool
+local Call, Method, API = BF.Call, BF.Method, BF.API
+local OnOff, Clock = BF.OnOff, BF.Clock
+local A = BF.NewAddon("BetterGpsForever", { version = VERSION })
 
--- Where the client hides a number it hands back a secret value, which can be neither compared
--- nor used in a sum. Those are treated as no number at all, and checked before anything else.
-local issecretvalue = _G.issecretvalue
-local function IsSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v) and true or false
-end
+local function Print(msg) A:Print(msg) end
 
-local function Num(v)
-    if IsSecret(v) then return nil end
-    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then return nil end
-    return v
-end
-
-local function Bool(v)
-    if IsSecret(v) then return nil end
-    return v and true or false
-end
-
+-- Kept here: unlike the library's Str, an empty string counts as a string (a map name or title
+-- of "" is shown as it is).
 local function Str(v)
     if IsSecret(v) or type(v) ~= "string" then return nil end
     return v
-end
-
-local function pack(ok, ...)
-    if ok then return ... end
-end
-
--- All the return values of fn, or nothing when it is missing or errors.
-local function Call(fn, ...)
-    if type(fn) ~= "function" then return nil end
-    return pack(pcall(fn, ...))
-end
-
-local function Method(obj, name, ...)
-    if type(obj) ~= "table" then return nil end
-    local fn = obj[name]
-    if type(fn) ~= "function" then return nil end
-    return pack(pcall(fn, obj, ...))
-end
-
-local function API(ns, name)
-    local t = _G[ns]
-    if type(t) ~= "table" then return nil end
-    local fn = t[name]
-    if type(fn) == "function" then return fn end
 end
 
 local function MapAPI(name) return API("C_Map", name) end
@@ -187,28 +153,10 @@ local function YardsText(d)
     return string.format("%d yd", math.floor(d + 0.5))
 end
 
-local function OnOff(v) return v and "on" or "off" end
-
--- m:ss, or h:mm:ss from an hour up.
-local function DurationText(sec)
-    sec = math.floor(sec + 0.5)
-    local h, m, s = math.floor(sec / 3600), math.floor(sec / 60) % 60, sec % 60
-    if h > 0 then return string.format("%d:%02d:%02d", h, m, s) end
-    return string.format("%d:%02d", m, s)
-end
-
--- Whether an addon is loaded: C_AddOns on newer clients, the old global otherwise.
+-- Whether an addon is loaded: C_AddOns on newer clients, and the old global as well (the
+-- library asks only one of them).
 local function AddOnLoaded(name)
-    local c = _G.C_AddOns
-    if type(c) == "table" and type(c.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(c.IsAddOnLoaded, name)
-        if ok and Bool(loaded) then return true end
-    end
-    if type(_G.IsAddOnLoaded) == "function" then
-        local ok, loaded = pcall(_G.IsAddOnLoaded, name)
-        if ok and Bool(loaded) then return true end
-    end
-    return false
+    return BF.AddOnLoaded(name) or Bool(Call(API("IsAddOnLoaded"), name)) == true
 end
 
 -- A Vector2D for the map API: Blizzard's own where it exists, otherwise the plain fields it reads.
@@ -351,7 +299,7 @@ end
 
 local function EtaText(nav)
     local eta = nav and nav.state == "ok" and nav.eta
-    return eta and DurationText(eta) or "--"
+    return eta and Clock(eta) or "--"
 end
 
 -- ---------------------------------------------------------------------------
@@ -1433,23 +1381,6 @@ local function MenuEntries()
     return entries
 end
 
--- Draws the entries into a MenuUtil description (root or submenu); every method is checked first.
-local function RenderMenu(root, entries)
-    if type(root) ~= "table" or type(root.CreateButton) ~= "function" then return end
-    for _, e in ipairs(entries) do
-        if e.label then
-            local d = root:CreateButton("|cff808080" .. e.label .. "|r")
-            if type(d) == "table" and type(d.SetEnabled) == "function" then pcall(d.SetEnabled, d, false) end
-        elseif e.checkbox and type(root.CreateCheckbox) == "function" then
-            root:CreateCheckbox(e.text, function() return e.checked() and true or false end, function() e.func() end)
-        elseif e.checkbox then
-            root:CreateButton((e.checked() and "[x] " or "[ ] ") .. e.text, function() e.func() end)
-        else
-            root:CreateButton(e.text, function() e.func() end)
-        end
-    end
-end
-
 -- A title from another addon: one line, no escape sequences, at most TITLE_MAX characters.
 local function CleanTitle(title)
     title = Str(title)
@@ -1465,7 +1396,7 @@ _G.BetterGpsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
     SetMinimapHidden = function() end,
     SetWaypoint = function(mapID, x, y, title)
         return SetWaypoint(mapID, x, y, { title = CleanTitle(title) }) and true or false

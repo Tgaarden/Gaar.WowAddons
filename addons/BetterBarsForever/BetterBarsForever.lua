@@ -72,10 +72,10 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon("BetterBarsForever", { version = VERSION })
 
 local TICK = 0.2              -- seconds between ticker passes
 local GCD_MAX = 1.5           -- a cooldown this short or shorter is the global cooldown

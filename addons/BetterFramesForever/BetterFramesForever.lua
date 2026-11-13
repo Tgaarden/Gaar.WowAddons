@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.13"
+local VERSION = "1.2.14"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -219,8 +219,8 @@ local OnOff, IsSecret, Plain, Num = BF.OnOff, BF.IsSecret, BF.Plain, BF.Num
 
 -- Either of two values is secret (the library's IsSecret takes one).
 local function Secret(a, b)
-    if IsSecret(a) then return true end
-    return b ~= nil and IsSecret(b) or false
+    -- No comparison on the raw values (b may itself be secret): IsSecret(nil) is false.
+    return IsSecret(a) or IsSecret(b)
 end
 
 local function Clamp(v, lo, hi)

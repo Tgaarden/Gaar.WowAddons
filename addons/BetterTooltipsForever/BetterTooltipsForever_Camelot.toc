@@ -4,7 +4,7 @@
 ## Category: Better Forever
 ## Category-enUS: Better Forever
 ## Author: Gaar
-## Version: 1.0.2
+## Version: 1.0.3
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## Dependencies: BetterForever
 ## SavedVariables: BetterTooltipsForeverDB

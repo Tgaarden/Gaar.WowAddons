@@ -70,7 +70,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever

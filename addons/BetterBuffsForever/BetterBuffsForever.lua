@@ -39,7 +39,7 @@
     * A box at the top centre of the screen, shown only while something is missing: one section
       per thing missing ("Missing Mark of the Wild:", "Missing Blessing of Might:", ...), one row
       per member with a class-coloured name. Dead or ghost, offline and not-visible members
-      (UnitIsVisible) are never warned about; out-of-range members are shown dimmed (still
+      (UnitIsVisible) are never warned about; out-of-range members are left out unless /bbuff range on (then dimmed, still
       clickable, the cast just fails). A member whose auras cannot be read (secret) counts as
       unknown, never as missing.
     * Click to buff: every row is a SecureActionButtonTemplate button, type "spell", spell = the
@@ -59,7 +59,7 @@
     * Low reagents (on by default): a "Low reagents:" line in the same box when the bags hold
       fewer than a threshold of a reagent the module checks. Not clickable.
     * An optional short sound when something new goes missing (off by default).
-    * /bbuff for help; the shared commands are on, off, group, sound, reagents, tank, unlock,
+    * /bbuff for help; the shared commands are on, off, group, sound, range, reagents, tank, unlock,
       lock, reset, test and status, and each module adds its own.
     * BetterBuffsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -85,7 +85,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
@@ -104,13 +104,14 @@ local FLAT = "Interface\\Buttons\\WHITE8x8"
 -- The shared settings; each module adds its own (module.options, module.thresholds,
 -- module.savedKeys) at ADDON_LOADED, whatever the class, so one character never wipes
 -- another class's settings from the account-wide table.
-local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, pos = true, reagents = true }
-local DEFAULTS = { enabled = true, group = true, sound = false, locked = true, reagents = true }
+local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, pos = true, reagents = true, showOutOfRange = true }
+local DEFAULTS = { enabled = true, group = true, sound = false, locked = true, reagents = true, showOutOfRange = false }
 local LABELS = {
     enabled = "BetterBuffsForever",
     group = "List group members",
     sound = "Sound when something goes missing",
     reagents = "Low reagent warning",
+    showOutOfRange = "Show members out of range",
 }
 
 ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, PriestMage.lua
@@ -170,6 +171,22 @@ end
 local function On(key)
     if not db then return DEFAULTS[key] end
     return db[key] ~= false
+end
+
+-- Off by default (a plain false in the saved table; On() would read a missing key as on).
+local function ShowFar()
+    return db ~= nil and db.showOutOfRange == true
+end
+
+-- Drops the rows whose member is plainly out of range (e.far is only set from a plain false;
+-- an unknown or secret range stays), unless "show out of range" is on. Shared with Dispel.lua.
+local function DropFar(entries)
+    if ShowFar() then return entries end
+    local kept = {}
+    for _, e in ipairs(entries) do
+        if not e.far then kept[#kept + 1] = e end
+    end
+    return kept
 end
 
 local function Active()
@@ -833,6 +850,7 @@ local function Update()
     stats.tankSource = tankSource
 
     module.Check(units, tankSet, entries, missing, stats)
+    entries = DropFar(entries)
 
     local reagents = {}
     if On("reagents") then
@@ -849,7 +867,7 @@ local function Update()
     end
     prevMissing = missing
     missingCount = #entries + #reagents
-    if new and On("sound") then PlayMissingSound() end
+    if new and #entries + #reagents > 0 and On("sound") then PlayMissingSound() end
 
     if testMode then
         local fe, fr = module.Fake()
@@ -1001,6 +1019,7 @@ local function PrintHelp()
     end
     Print("/bbuff group [on|off] - list group members (off: only you)")
     Print("/bbuff sound [on|off] - a short sound when something goes missing")
+    Print("/bbuff range [on|off] - show members who are out of range, dimmed (off: left out, the default)")
     local parts = {}
     for _, t in ipairs(ThresholdList()) do
         parts[#parts + 1] = string.format("/bbuff reagents %s <n> (now %d)", t.word, Threshold(t.key, t.default))
@@ -1022,7 +1041,7 @@ local function PrintStatus()
         line = line .. "   " .. o.short .. ": " .. OnOff(On(o.key))
     end
     Print(line .. "   group: " .. OnOff(On("group")) .. "   sound: " .. OnOff(On("sound"))
-        .. "   reagents: " .. OnOff(On("reagents")))
+        .. "   reagents: " .. OnOff(On("reagents")) .. "   range: " .. OnOff(ShowFar()))
     if module then
         for _, l in ipairs(module.StatusSpells(spellsPending)) do Print(l) end
         local okR, _, checked = pcall(module.LowReagents)
@@ -1072,6 +1091,9 @@ local function OnSlash(msg)
     elseif cmd == "group" or cmd == "sound" then
         local v = Toggle(arg, On(cmd))
         if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
+    elseif cmd == "range" then
+        local v = Toggle(arg, ShowFar())
+        if v == nil then Print("/bbuff range [on|off]") else Set("showOutOfRange", v) end
     elseif cmd == "reagents" then
         local which, n = arg:match("^(%a+)%s*(.*)$")
         local v = tonumber(n or "")
@@ -1174,6 +1196,9 @@ local function MenuEntries()
     list[#list + 1] = CheckEntry("group")
     list[#list + 1] = CheckEntry("sound")
     list[#list + 1] = CheckEntry("reagents")
+    list[#list + 1] = { text = LABELS.showOutOfRange, checkbox = true,
+        checked = ShowFar,
+        func = function() Set("showOutOfRange", not ShowFar()) end }
     for _, t in ipairs(m and m.thresholds or {}) do list[#list + 1] = ThresholdMenu(t) end
     if m and m.Menu then
         for _, e in ipairs(m.Menu()) do list[#list + 1] = e end
@@ -1216,7 +1241,7 @@ ns.ReadBuffs, ns.Matches = ReadBuffs, Matches
 ns.InGroup, ns.InRaid, ns.Eligible = InGroup, InRaid, Eligible
 ns.UnitGUIDPlain, ns.UnitLabel, ns.UnitClassFile, ns.ClassHex = UnitGUIDPlain, UnitLabel, UnitClassFile, ClassHex
 ns.Threshold, ns.CheckReagent = Threshold, CheckReagent
-ns.MakeEntry, ns.FakeEntry = MakeEntry, FakeEntry
+ns.MakeEntry, ns.FakeEntry, ns.DropFar = MakeEntry, FakeEntry, DropFar
 ns.GroupUnits, ns.InSpellRange, ns.UseKeyDown, ns.PlayerClass = GroupUnits, InSpellRange, UseKeyDown, PlayerClass
 ns.Holder = function() return holder end
 ns.TestMode = function() return testMode end

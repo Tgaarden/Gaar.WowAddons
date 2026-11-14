@@ -1074,7 +1074,7 @@ local function UpdateList()
         return
     end
     panel:Show()
-    local entries = Active() and Entries() or {}
+    local entries = Active() and ns.DropFar(Entries()) or {}
     if testing then
         for _, e in ipairs(FakeEntries()) do entries[#entries + 1] = e end
     end

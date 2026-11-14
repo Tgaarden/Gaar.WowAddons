@@ -1,6 +1,7 @@
 --[[
   BetterBuffsForever - a buff check on WoW Forever for druids, paladins and shamans: who in your
-  group lacks your buff, in a box at the top centre of the screen. Click a name to buff it.
+  group lacks your buff, in a box at the top centre of the screen. Click a name to buff it. Every
+  class that can remove something (druid, shaman, priest, paladin, mage) also gets a dispel panel.
 
   This file is the shared part; the class-specific parts are modules in their own files, loaded
   after this one (both TOCs list all five):
@@ -11,18 +12,23 @@
                  there), "No aura", Righteous Fury while you tank, and Symbol of Kings.
     Shaman.lua   A weapon without an imbue (click casts the chosen imbue), Lightning Shield, and
                  the Ankh, totem, Fish Oil and Shiny Fish Scales reagents. Only you are checked.
-    Dispel.lua   The dispel panel of a druid (curses and poisons) and a shaman (poisons and
-                 diseases): its own movable frame, a list of who has one out of combat and a strip
-                 of one secure button per member in combat (druid: left-click Remove Curse,
-                 right-click Abolish/Cure Poison; shaman: left-click Cure Poison, right-click Cure
-                 Disease). It hooks into the druid and shaman modules and keeps its own frames and
-                 events; see that file.
+    Dispel.lua   The dispel panel of a druid (curses and poisons), a shaman (poisons and
+                 diseases), a priest (magic and diseases), a paladin (poisons and diseases, magic
+                 too with Cleanse) and a mage (curses): its own movable frame, a list of who has
+                 one out of combat and a strip of one secure button per member in combat (druid:
+                 left-click Remove Curse, right-click Abolish/Cure Poison; shaman: left-click Cure
+                 Poison, right-click Cure Disease; priest: left-click Dispel Magic, right-click
+                 Abolish/Cure Disease; paladin: either click Cleanse, else Purify; mage: either
+                 click Remove Lesser Curse). It hooks into the druid, paladin and shaman modules,
+                 registers a dispel-only module for the priest and the mage, and keeps its own
+                 frames and events; see that file.
 
   A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
   else from here:
 
-    * Only for a class with a module (Druid, Paladin, Shaman). Any other class leaves the addon idle: no
-      scans, no box; /bbuff status says so.
+    * Only for a class with a module (Druid, Paladin, Shaman; Priest and Mage have a dispel-only
+      module from Dispel.lua, with no buff check). Any other class (Warrior, Rogue, Hunter,
+      Warlock) leaves the addon idle: no scans, no box; /bbuff status says so.
     * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
       every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
       (/bbuff tank, your current target, per character); else there is no tank. You count too.
@@ -75,7 +81,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.4.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
@@ -103,8 +109,8 @@ local LABELS = {
     reagents = "Low reagent warning",
 }
 
-ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua
-local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN" }
+ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, Dispel.lua
+local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN", "PRIEST", "MAGE" }
 
 local db                  -- BetterBuffsForeverDB, bound at ADDON_LOADED (never at file scope)
 local charDb              -- BetterBuffsForeverCharDB: the tank set by hand, plus module keys
@@ -195,7 +201,7 @@ local function PlayerClass()
     return Str(classFile), Num(classID)
 end
 
-local CLASS_BY_ID = { [11] = "DRUID", [2] = "PALADIN", [7] = "SHAMAN" }
+local CLASS_BY_ID = { [11] = "DRUID", [2] = "PALADIN", [7] = "SHAMAN", [5] = "PRIEST", [8] = "MAGE" }
 
 local function CheckClass()
     local classFile, classID = PlayerClass()
@@ -975,7 +981,7 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids, paladins and shamans: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Druids and shamans also get a dispel panel with a click button per member in combat. Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on other classes the addon stays idle."
+local INTRO = "For druids, paladins and shamans: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
 
 local function PrintHelp()
     Print(INTRO)
@@ -983,7 +989,7 @@ local function PrintHelp()
         Print(module.blurb)
     else
         Print("a buff check for druids, paladins and shamans: who lacks your buffs. Click a name to buff it."
-            .. (module == false and " Idle on this character (not a druid, paladin or shaman)." or ""))
+            .. (module == false and " Idle on this character (not a druid, mage, paladin, priest or shaman)." or ""))
     end
     Print("/bbuff on | off - switch it on or off")
     for _, m in ipairs(module and { module } or Modules()) do
@@ -1003,7 +1009,7 @@ end
 local function PrintStatus()
     Print("version " .. VERSION .. "   class module: " .. (module and module.name or "none"))
     if module == false then
-        Print("not a druid, paladin or shaman: the addon is idle on this character.")
+        Print("not a druid, mage, paladin, priest or shaman: the addon is idle on this character.")
     elseif module == nil then
         Print("class not known yet.")
     end
@@ -1023,7 +1029,8 @@ local function PrintStatus()
             end
         end
         Print("reagents: " .. OnOff(On("reagents")) .. "   " .. (#parts > 0 and table.concat(parts, ", ")
-            or ("nothing to check (" .. module.reagentSpells .. " not known)")))
+            or (module.reagentSpells and ("nothing to check (" .. module.reagentSpells .. " not known)")
+                or "nothing to check for this class")))
     end
     Print("group: " .. (InRaid() and "raid" or InGroup() and "party" or "solo")
         .. "   tank: " .. tostring(lastScan.tanks) .. " (" .. tostring(lastScan.tankSource) .. ")"
@@ -1057,7 +1064,7 @@ local function OnSlash(msg)
     cmd, arg = cmd or "", arg or ""
     if cmd == "on" or cmd == "off" then
         Set("enabled", cmd == "on")
-        if cmd == "on" and module == false then Print("not a druid, paladin or shaman: it stays idle on this character.") end
+        if cmd == "on" and module == false then Print("not a druid, mage, paladin, priest or shaman: it stays idle on this character.") end
     elseif cmd == "group" or cmd == "sound" then
         local v = Toggle(arg, On(cmd))
         if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
@@ -1115,8 +1122,9 @@ end
 -- /bbuff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
---   StatusLine()         one short line of state, e.g. "on · 2 missing" or "idle (not a druid,
---                        paladin or shaman)"
+--   StatusLine()         one short line of state, e.g. "on · 2 missing", "on · dispel panel
+--                        only" (priest, mage) or "idle (not a druid, mage, paladin, priest or
+--                        shaman)"
 --   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
 --                        { text, func }, { text, checkbox = true, checked, func },
 --                        { text, radio = true, checked, func }, { text, submenu } and
@@ -1127,8 +1135,9 @@ end
 
 local function StatusLine()
     if not db then return "not loaded yet" end
-    if module == false then return "idle (not a druid, paladin or shaman)" end
+    if module == false then return "idle (not a druid, mage, paladin, priest or shaman)" end
     if not On("enabled") then return "off" end
+    if module and module.dispelOnly then return "on" .. DOT .. "dispel panel only" end
     if InCombat() then return "on" .. DOT .. "hidden in combat" end
     return "on" .. DOT .. (missingCount > 0 and (missingCount .. " missing") or "all buffed")
         .. ((lastScan.unknown or 0) > 0 and (DOT .. lastScan.unknown .. " unknown") or "")

@@ -26,8 +26,10 @@
       when the client answers "has one" with a secret boolean it goes straight to
       SetAlphaFromBoolean(has, 1, 0), never tested). An invisible button still takes clicks in
       combat (EnableMouse cannot change then), and its tooltip is skipped. The strip itself has
-      no background, so a fight with nothing to remove shows nothing at all. Unknown altogether
-      (method "none") = visible with the name only, or it could not be used.
+      no background, so a fight with nothing to remove shows nothing at all. Unknown counts as
+      nothing (since 1.2.4): when no way answers (method "none", a failed detection, a secret
+      answer SetAlphaFromBoolean refuses) the button is invisible too; only a real "has one"
+      shows it.
     * A visible button shows what to remove, like the buff box's rows: the debuff's icon on the
       left, then "Name:" and the debuff's name (party/solo, 150 px wide, truncated to fit; in a
       raid the buttons are 58 px and show the icon and a short name only). The name and icon
@@ -58,7 +60,9 @@
     3. "filtered read": GetAuraDataByIndex(unit, 1..2, filter): a non-nil answer means "has
        one"; the kind from a plain dispelName, else the colour API on its auraInstanceID, else
        yellow.
-    4. "none": the button stays visible and clickable, with the name only and no glow.
+    4. "none": unknown, so the button is invisible (still clickable where it sits).
+  /bbuff status counts, per way, how each paint ended (shown, hidden, secret = left to
+  SetAlphaFromBoolean, unknown = hidden) and why the earlier ways gave no answer.
   Throttled: UNIT_AURA marks a member, the strip repaints marked members at most 10 times a
   second in combat (and everyone once a second); the list updates at most 4 times a second, and
   every 1.5 s in a group for range, death and visibility.
@@ -151,6 +155,12 @@ local function Present(v)
     return Secret(v) or v ~= nil
 end
 
+-- A short, plain reason from an error (for /bbuff status).
+local function Why(err)
+    local s = tostring(err):gsub("^.-:%d+: ", "")
+    return "error: " .. s:sub(1, 70)
+end
+
 local function IndexSecret(unit, i, f)
     local S = _G.C_Secrets
     if type(S) ~= "table" or type(S.ShouldUnitAuraIndexBeSecret) ~= "function" then return false end
@@ -160,26 +170,29 @@ end
 
 -- Every debuff with a plain dispelName: { curse, poison, and the name and icon of the first
 -- curse and the first poison (curseName, curseIcon, poisonName, poisonIcon; as they came) },
--- or nil when one cannot be read.
+-- or nil and why when one cannot be read.
 local function ScanPlain(unit)
     local C = _G.C_UnitAuras
     local byData = type(C) == "table" and type(C.GetAuraDataByIndex) == "function"
     local old = type(_G.UnitDebuff) == "function" and _G.UnitDebuff
-    if not byData and not old then return nil end
+    if not byData and not old then return nil, "no API" end
     local out = { curse = false, poison = false }
     for i = 1, MAX_DEBUFFS do
-        if IndexSecret(unit, i, "HARMFUL") then return nil end
+        if IndexSecret(unit, i, "HARMFUL") then return nil, "index secret" end
         local dn, nm, ic
         if byData then
             local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HARMFUL")
-            if not ok or Secret(a) then return nil end
+            if not ok then return nil, Why(a) end
+            if Secret(a) then return nil, "secret aura" end
             if type(a) ~= "table" then break end
             local ok2, v, n2, i2 = pcall(function() return a.dispelName, a.name, a.icon end)
-            if not ok2 or Secret(v) then return nil end
+            if not ok2 then return nil, Why(v) end
+            if Secret(v) then return nil, "secret dispelName" end
             dn, nm, ic = v, n2, i2
         else
             local ok, name, icon, _, kind = pcall(old, unit, i)
-            if not ok or Secret(name) or Secret(kind) then return nil end
+            if not ok then return nil, Why(name) end
+            if Secret(name) or Secret(kind) then return nil, "secret aura" end
             if not Str(name) then break end
             dn, nm, ic = kind, name, icon
         end
@@ -270,9 +283,10 @@ end
 -- What one member has: has = true / false / nil (unknown) / a secret boolean (only passed on),
 -- how to colour it: curse/poison (known kinds) or ids (aura instance IDs for the colour API),
 -- and what it is: name and icon of the first dispellable debuff (either may be secret or nil);
--- method = which way answered.
+-- method = which way answered; why = { way -> why it did not answer } for the ways before it.
 local function Detect(unit)
-    local p = ScanPlain(unit)
+    local why = {}
+    local p, whyPlain = ScanPlain(unit)
     if p then
         local c, po = p.curse and WantCurse(), p.poison and WantPoison()
         local r = { has = c or po, curse = c, poison = po, method = "plain read" }
@@ -283,28 +297,44 @@ local function Detect(unit)
         end
         return r
     end
+    why["plain read"] = whyPlain
     local f = ChooseFilter()
-    if not f then return { method = "none" } end
+    if not f then
+        why["aura instance IDs"] = "no dispel filter"
+        return { method = "none", why = why }
+    end
     local C = _G.C_UnitAuras
-    if type(C) ~= "table" then return { method = "none" } end
-    if type(C.GetUnitAuraInstanceIDs) == "function" then
+    if type(C) ~= "table" then return { method = "none", why = why } end
+    if type(C.GetUnitAuraInstanceIDs) ~= "function" then
+        why["aura instance IDs"] = "no API"
+    else
         local ok, ids = pcall(C.GetUnitAuraInstanceIDs, unit, f, 2)
-        if ok and not Secret(ids) and type(ids) == "table" then
+        if not ok then
+            why["aura instance IDs"] = Why(ids)
+        elseif Secret(ids) then
+            why["aura instance IDs"] = "secret list"     -- may be empty: not counted as one
+        elseif type(ids) ~= "table" then
+            why["aura instance IDs"] = "no list (" .. type(ids) .. ")"
+        else
             local okN, n = pcall(function() return #ids end)
             n = okN and Num(n)
             if n then
-                local r = { has = n > 0, ids = ids, method = "aura instance IDs" }
+                local r = { has = n > 0, ids = ids, method = "aura instance IDs", why = why }
                 if n > 0 then r.name, r.icon = AuraNameIcon(unit, ids[1]) end
                 return r
             end
+            why["aura instance IDs"] = "count secret or refused"
         end
     end
     if type(C.GetAuraDataByIndex) == "function" then
-        local r = { method = "filtered read", ids = {} }
+        local r = { method = "filtered read", ids = {}, why = why }
         for i = 1, 2 do
             local ok, a = pcall(C.GetAuraDataByIndex, unit, i, f)
             if not ok then
-                if i == 1 then return { method = "none" } end
+                if i == 1 then
+                    why["filtered read"] = Why(a)
+                    return { method = "none", why = why }
+                end
                 break
             end
             if Secret(a) then
@@ -330,7 +360,8 @@ local function Detect(unit)
         if r.unknownKind then r.curse, r.poison = nil, nil else r.ids = nil end
         return r
     end
-    return { method = "none" }
+    why["filtered read"] = "no API"
+    return { method = "none", why = why }
 end
 
 -- ---------------------------------------------------------------------------
@@ -409,26 +440,31 @@ local function ShowDebuff(b, r)
     end
 end
 
--- r from Detect (or a test one). Nothing to remove = the whole button invisible; unknown = the
--- name only; else visible with the debuff and the glow.
+-- Invisible, with nothing left on it.
+local function Blank(b)
+    b:SetAlpha(0)
+    b.icon:Hide()
+    b.debuff:SetText("")
+    Glow(b.glowL) Glow(b.glowR)
+end
+
+-- r from Detect (or a test one). Only a real "has one" is seen: nothing to remove and unknown
+-- alike = the whole button invisible; else visible with the debuff and the glow. Returns how it
+-- ended: "shown", "hidden" (nothing), "secret" (left to SetAlphaFromBoolean) or "unknown" (hidden).
 local function Paint(b, r)
     local has, secret = r.has, Secret(r.has)
+    local outcome = "shown"
     if not secret and not has then
-        if has == false then
-            b:SetAlpha(0)
-        else
-            b:SetAlpha(1)               -- unknown: keep it usable
-            b.icon:Hide()
-            b.debuff:SetText("")
-        end
-        Glow(b.glowL) Glow(b.glowR)
-        return
+        Blank(b)
+        return has == false and "hidden" or "unknown"
     end
     if secret then
         -- Visible only when the client's secret answer is true; never tested here.
         if not (type(b.SetAlphaFromBoolean) == "function" and pcall(b.SetAlphaFromBoolean, b, has, 1, 0)) then
-            b:SetAlpha(1)
+            Blank(b)
+            return "unknown"
         end
+        outcome = "secret"
     else
         b:SetAlpha(1)
     end
@@ -436,7 +472,7 @@ local function Paint(b, r)
     if r.curse or r.poison then
         Glow(b.glowL, r.curse and CURSE_RGB or POISON_RGB)
         Glow(b.glowR, r.poison and POISON_RGB or CURSE_RGB)
-        return
+        return outcome
     end
     local ids = r.ids
     local first, second = ids and ids[1], ids and ids[2]
@@ -444,9 +480,10 @@ local function Paint(b, r)
         if not (Present(second) and PaintFromAPI(b.glowR, b.unit, second)) then
             PaintFromAPI(b.glowR, b.unit, first)
         end
-        return
+        return outcome
     end
     Glow(b.glowL, ANY_RGB) Glow(b.glowR, ANY_RGB)
+    return outcome
 end
 
 -- ---------------------------------------------------------------------------
@@ -693,9 +730,17 @@ local function BuildStrip()
     paintAll = true
 end
 
-local function NoteMethod(method)
+-- Per fight: per way, how many paints ended shown / hidden / secret / unknown, and the first
+-- reason seen why each earlier way gave no answer.
+local function NoteMethod(method, outcome, why)
     if not fightStats or not InCombat() then return end
-    fightStats[method] = (fightStats[method] or 0) + 1
+    local m = fightStats[method] or {}
+    fightStats[method] = m
+    m[outcome] = (m[outcome] or 0) + 1
+    fightStats.why = fightStats.why or {}
+    for way, text in pairs(why or {}) do
+        if fightStats.why[way] == nil then fightStats.why[way] = text end
+    end
 end
 
 local function PaintButton(b)
@@ -703,11 +748,15 @@ local function PaintButton(b)
     local ok, r = pcall(Detect, b.unit)
     if not ok then
         ns.Fail("dispel detection", r)
-        r = { method = "none" }
+        r = { method = "none", why = { detection = Why(r) } }
     end
-    NoteMethod(r.method)
-    local okP, err = pcall(Paint, b, r)
-    if not okP then ns.Fail("dispel paint", err) end
+    local okP, outcome = pcall(Paint, b, r)
+    if not okP then
+        ns.Fail("dispel paint", outcome)
+        pcall(b.SetAlpha, b, 0)         -- unknown = hidden
+        outcome = "unknown"
+    end
+    NoteMethod(r.method, outcome or "unknown", r.why)
 end
 
 local function PaintStrip(now)
@@ -1005,18 +1054,43 @@ end
 
 Druid.Help = function()
     local out = baseHelp()
-    out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a curse or poison (out of combat), in combat a button per member, seen only when there is one to remove, with the debuff's icon and name; left-click Remove Curse, right-click Abolish Poison"
+    out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a curse or poison (out of combat), in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; left-click Remove Curse, right-click Abolish Poison"
     out[#out + 1] = "/bbuff dispel curse|poison [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
     return out
 end
 
+local WAYS = { "plain read", "aura instance IDs", "filtered read", "none" }
+local OUTCOMES = { "shown", "hidden", "secret", "unknown" }
+
+-- "way N (shown a, hidden b, ...)" per way that answered.
 local function Methods(stats)
     if not stats then return nil end
     local parts = {}
-    for _, m in ipairs({ "plain read", "aura instance IDs", "filtered read", "none" }) do
-        if stats[m] then parts[#parts + 1] = m .. " " .. stats[m] end
+    for _, m in ipairs(WAYS) do
+        local s = stats[m]
+        if s then
+            local n, ends = 0, {}
+            for _, o in ipairs(OUTCOMES) do
+                if s[o] then
+                    n = n + s[o]
+                    ends[#ends + 1] = o .. " " .. s[o]
+                end
+            end
+            parts[#parts + 1] = m .. " " .. n .. " (" .. table.concat(ends, ", ") .. ")"
+        end
     end
-    return #parts > 0 and table.concat(parts, ", ") or nil
+    return #parts > 0 and table.concat(parts, "; ") or nil
+end
+
+-- Why the earlier ways gave no answer, in order.
+local function Reasons(stats)
+    local why = stats and stats.why
+    if not why then return nil end
+    local parts = {}
+    for _, w in ipairs({ "plain read", "aura instance IDs", "filtered read", "detection" }) do
+        if why[w] then parts[#parts + 1] = w .. ": " .. why[w] end
+    end
+    return #parts > 0 and table.concat(parts, "; ") or nil
 end
 
 Druid.StatusExtra = function()
@@ -1033,9 +1107,10 @@ Druid.StatusExtra = function()
     else
         detection = (seen == fightStats and "this fight: " or "last fight: ") .. detection
         if not (seen["plain read"] or seen["aura instance IDs"] or seen["filtered read"]) then
-            detection = detection .. " - no answer in combat on this client: every button stays visible with the name only, no glow"
+            detection = detection .. " - no answer in combat on this client: unknown = hidden, so the strip shows nothing"
         end
     end
+    local reasons = Reasons(seen)
     return {
         "dispel panel: " .. ns.OnOff(On("dispel")) .. "   " .. (Active() and "active" or "idle")
             .. "   " .. (InCombat() and "strip (combat)" or (panel and panel:IsShown() and listBox:IsShown()) and ("shown, " .. shownRows .. " rows") or "hidden")
@@ -1051,7 +1126,8 @@ Druid.StatusExtra = function()
         "dispel filter: " .. (f or "none") .. " (" .. tostring(filterInfo) .. ")   GetUnitAuraInstanceIDs "
             .. Has("GetUnitAuraInstanceIDs") .. "   GetAuraDispelTypeColor " .. Has("GetAuraDispelTypeColor")
             .. "   colour curve " .. ns.YesNo(Curve() ~= nil),
-        "in-combat detection (tried in order: " .. ORDER .. "): " .. detection,
+        "in-combat detection (tried in order: " .. ORDER .. "; shown / hidden / secret = SetAlphaFromBoolean / unknown = hidden): " .. detection,
+        reasons and ("ways that gave no answer: " .. reasons) or nil,
     }
 end
 

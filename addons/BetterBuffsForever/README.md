@@ -88,8 +88,9 @@ New in 1.2, druids only, in `Dispel.lua`. On by default (`/bbuff dispel off` to 
   its own, so a fight with nothing to remove shows nothing. When the client answers "has one" with
   a secret boolean, it goes straight to `SetAlphaFromBoolean(has, 1, 0)`. An invisible button still
   takes clicks in combat (a secure button's mouse cannot be switched off then), but shows no
-  tooltip. When nothing can be read at all (method 4 below) the button stays visible with just the
-  name, or it could not be used.
+  tooltip. Since 1.2.4 **unknown counts as nothing**: when no way answers (method 4 below), the
+  detection fails, or `SetAlphaFromBoolean` refuses a secret answer, the button is invisible too.
+  Only a real "has one" shows a button.
 - **What to remove**, like the buff box's rows: the debuff's icon on the left, then `Name:` and the
   debuff's name (party/solo: 150 px wide buttons, the name truncated to fit; raid: 58 px buttons
   with the icon and a short name only). Name and icon are the first dispellable debuff's
@@ -121,8 +122,12 @@ which ways answered in the last fight:
    passed straight to `SetVertexColor` and never read. Without a colour: yellow.
 3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
    one, the kind from a plain `dispelName` or else the colour API, else yellow.
-4. **None**: the button stays visible and clickable with the name only and no glow; `/bbuff status`
+4. **None**: unknown, so the button is invisible (still clickable where it sits); `/bbuff status`
    says so.
+
+`/bbuff status` counts, per way, how each paint in the fight ended: `shown`, `hidden` (nothing to
+remove), `secret` (left to `SetAlphaFromBoolean`) or `unknown` (hidden), and lists why the earlier
+ways gave no answer (`ways that gave no answer: plain read: error: ...; aura instance IDs: ...`).
 
 With method 2 a member counts as having something when the filter finds any debuff you can
 dispel, even one of a kind you switched off (it is then shown, with that debuff's name, but gets
@@ -242,7 +247,7 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff tank clear` | Clear the tank set by hand |
 | `/bbuff unlock`, `/bbuff lock`, `/bbuff reset` | Move the box, stop moving it, put it back at the top centre |
 | `/bbuff test` | Show the box with test rows for your class (they cast nothing), and for a druid the dispel panel with sample rows and a sample strip; again to hide them |
-| `/bbuff status` | Version, the class module (Druid, Paladin, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A druid also gets the dispel panel (state, spells, strip layout, filter and APIs, and which in-combat detection answered in the last fight) |
+| `/bbuff status` | Version, the class module (Druid, Paladin, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A druid also gets the dispel panel (state, spells, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
 | **Druid** | |
 | `/bbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
 | `/bbuff thorns [on\|off]` | Warn when you lack Thorns |

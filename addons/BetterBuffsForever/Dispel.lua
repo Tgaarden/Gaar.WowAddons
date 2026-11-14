@@ -21,9 +21,22 @@
       only relabels the names and the rebuild waits for PLAYER_REGEN_ENABLED (the buttons follow
       unit tokens, so they keep working). A state driver shows the strip for the whole fight
       ("[combat] show; hide") and the out-of-combat list the other way round.
-    * The look of a strip button is plain child textures (allowed in combat): no dispellable
-      debuff = dimmed name; a curse = purple, a poison = green, both = left half purple and right
-      half green; dispellable but of an unknown kind = yellow. Unknown altogether = neither.
+    * A strip button is only seen when that member has something to remove: no dispellable
+      debuff = the whole button at alpha 0 (SetAlpha is allowed on a secure button in combat;
+      when the client answers "has one" with a secret boolean it goes straight to
+      SetAlphaFromBoolean(has, 1, 0), never tested). An invisible button still takes clicks in
+      combat (EnableMouse cannot change then), and its tooltip is skipped. The strip itself has
+      no background, so a fight with nothing to remove shows nothing at all. Unknown altogether
+      (method "none") = visible with the name only, or it could not be used.
+    * A visible button shows what to remove, like the buff box's rows: the debuff's icon on the
+      left, then "Name:" and the debuff's name (party/solo, 150 px wide, truncated to fit; in a
+      raid the buttons are 58 px and show the icon and a short name only). The name and icon
+      come from the first dispellable debuff Detect found (aura.name / aura.icon, or
+      C_UnitAuras.GetAuraDataByAuraInstanceID on the aura instance ID); they may be secret and go
+      straight to SetText / SetTexture in their own font string and texture, never joined to
+      anything. Without them: a question mark and the kind, "Curse" / "Poison" / "Dispel". The
+      colour is plain child textures (allowed in combat): a curse = purple, a poison = green,
+      both = left half purple and right half green; dispellable but of an unknown kind = yellow.
     * Clicks, on the rows and the strip alike: left-click (type1/spell1) = Remove Curse,
       right-click (type2/spell2) = Abolish Poison, else Cure Poison; unit = the member's token.
       A click whose spell you do not know, or whose kind is switched off, does nothing. Registered
@@ -45,7 +58,7 @@
     3. "filtered read": GetAuraDataByIndex(unit, 1..2, filter): a non-nil answer means "has
        one"; the kind from a plain dispelName, else the colour API on its auraInstanceID, else
        yellow.
-    4. "none": the strip stays clickable, with no glow and no dimming.
+    4. "none": the button stays visible and clickable, with the name only and no glow.
   Throttled: UNIT_AURA marks a member, the strip repaints marked members at most 10 times a
   second in combat (and everyone once a second); the list updates at most 4 times a second, and
   every 1.5 s in a group for range, death and visibility.
@@ -66,12 +79,12 @@ local PAD, ROW_H, HEADER_H, MIN_W = 6, 18, 16, 170
 local LIST_THROTTLE, LIST_REFRESH = 0.25, 1.5
 local STRIP_THROTTLE, STRIP_REFRESH = 0.1, 1.0
 local OUT_OF_RANGE = 0.45
-local DIM_TEXT = 0.35            -- alpha of a strip name with nothing to dispel
 local GLOW_ALPHA = 0.8
 local GAP = 2
-local PARTY_W, PARTY_H, RAID_W, RAID_H = 72, 22, 48, 16
+local PARTY_W, PARTY_H, RAID_W, RAID_H = 150, 22, 58, 16
 local MAX_DEBUFFS = 40
 local FLAT = "Interface\\Buttons\\WHITE8x8"
+local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local CURSE_RGB, POISON_RGB, ANY_RGB = { 0.64, 0.21, 0.93 }, { 0.2, 0.8, 0.2 }, { 1, 0.82, 0 }
 local CURSE_TAG, POISON_TAG = "|cffa335eeCurse|r", "|cff33cc33Poison|r"
 local DISPEL_CURSE, DISPEL_POISON = 2, 4          -- SpellDispelType IDs
@@ -145,32 +158,57 @@ local function IndexSecret(unit, i, f)
     return ok and not Secret(s) and s == true
 end
 
--- Every debuff with a plain dispelName: { curse, poison }, or nil when one cannot be read.
+-- Every debuff with a plain dispelName: { curse, poison, and the name and icon of the first
+-- curse and the first poison (curseName, curseIcon, poisonName, poisonIcon; as they came) },
+-- or nil when one cannot be read.
 local function ScanPlain(unit)
     local C = _G.C_UnitAuras
     local byData = type(C) == "table" and type(C.GetAuraDataByIndex) == "function"
     local old = type(_G.UnitDebuff) == "function" and _G.UnitDebuff
     if not byData and not old then return nil end
-    local curse, poison = false, false
+    local out = { curse = false, poison = false }
     for i = 1, MAX_DEBUFFS do
         if IndexSecret(unit, i, "HARMFUL") then return nil end
-        local dn
+        local dn, nm, ic
         if byData then
             local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HARMFUL")
             if not ok or Secret(a) then return nil end
             if type(a) ~= "table" then break end
-            local ok2, v = pcall(function() return a.dispelName end)
+            local ok2, v, n2, i2 = pcall(function() return a.dispelName, a.name, a.icon end)
             if not ok2 or Secret(v) then return nil end
-            dn = v
+            dn, nm, ic = v, n2, i2
         else
-            local ok, name, _, _, kind = pcall(old, unit, i)
+            local ok, name, icon, _, kind = pcall(old, unit, i)
             if not ok or Secret(name) or Secret(kind) then return nil end
             if not Str(name) then break end
-            dn = kind
+            dn, nm, ic = kind, name, icon
         end
-        if dn == "Curse" then curse = true elseif dn == "Poison" then poison = true end
+        if dn == "Curse" then
+            if not out.curse then out.curseName, out.curseIcon = nm, ic end
+            out.curse = true
+        elseif dn == "Poison" then
+            if not out.poison then out.poisonName, out.poisonIcon = nm, ic end
+            out.poison = true
+        end
     end
-    return { curse = curse, poison = poison }
+    return out
+end
+
+-- The name and icon of a readable aura table, as they are (either may be secret).
+local function NameIcon(a)
+    if Secret(a) or type(a) ~= "table" then return nil end
+    local ok, name, icon = pcall(function() return a.name, a.icon end)
+    if not ok then return nil end
+    return name, icon
+end
+
+-- The same by aura instance ID (which may be secret; it is only passed on).
+local function AuraNameIcon(unit, id)
+    local C = _G.C_UnitAuras
+    if not Present(id) or type(C) ~= "table" or type(C.GetAuraDataByAuraInstanceID) ~= "function" then return nil end
+    local ok, a = pcall(C.GetAuraDataByAuraInstanceID, unit, id)
+    if not ok then return nil end
+    return NameIcon(a)
 end
 
 local function ChooseFilter()
@@ -229,13 +267,21 @@ local function PaintFromAPI(tex, unit, id)
     return ok
 end
 
--- What one member has: has = true / false / nil (unknown), and how to colour it: curse/poison
--- (known kinds) or ids (aura instance IDs for the colour API); method = which way answered.
+-- What one member has: has = true / false / nil (unknown) / a secret boolean (only passed on),
+-- how to colour it: curse/poison (known kinds) or ids (aura instance IDs for the colour API),
+-- and what it is: name and icon of the first dispellable debuff (either may be secret or nil);
+-- method = which way answered.
 local function Detect(unit)
     local p = ScanPlain(unit)
     if p then
         local c, po = p.curse and WantCurse(), p.poison and WantPoison()
-        return { has = c or po, curse = c, poison = po, method = "plain read" }
+        local r = { has = c or po, curse = c, poison = po, method = "plain read" }
+        if c then
+            r.name, r.icon = p.curseName, p.curseIcon
+        elseif po then
+            r.name, r.icon = p.poisonName, p.poisonIcon
+        end
+        return r
     end
     local f = ChooseFilter()
     if not f then return { method = "none" } end
@@ -246,7 +292,11 @@ local function Detect(unit)
         if ok and not Secret(ids) and type(ids) == "table" then
             local okN, n = pcall(function() return #ids end)
             n = okN and Num(n)
-            if n then return { has = n > 0, ids = ids, method = "aura instance IDs" } end
+            if n then
+                local r = { has = n > 0, ids = ids, method = "aura instance IDs" }
+                if n > 0 then r.name, r.icon = AuraNameIcon(unit, ids[1]) end
+                return r
+            end
         end
     end
     if type(C.GetAuraDataByIndex) == "function" then
@@ -265,6 +315,10 @@ local function Detect(unit)
                 r.has, r.unknownKind = true, true
             else
                 r.has = true
+                if not r.named then
+                    r.named = true
+                    r.name, r.icon = NameIcon(a)
+                end
                 local ok2, dn, id = pcall(function() return a.dispelName, a.auraInstanceID end)
                 if ok2 and not Secret(dn) and dn == "Curse" then r.curse = true
                 elseif ok2 and not Secret(dn) and dn == "Poison" then r.poison = true
@@ -299,28 +353,86 @@ local function Style(b)
         g:SetAlpha(GLOW_ALPHA)
         g:SetVertexColor(0, 0, 0, 0)
     end
+    -- The debuff's icon, the member's name, and (party/solo) the debuff's name in a font string
+    -- of its own, so a secret name is set as it is and never joined to anything.
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    b.icon:Hide()
     b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.text:SetPoint("LEFT", 2, 0)
-    b.text:SetPoint("RIGHT", -2, 0)
-    if type(b.text.SetWordWrap) == "function" then b.text:SetWordWrap(false) end
+    b.text:SetJustifyH("LEFT")
+    b.debuff = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    b.debuff:SetJustifyH("LEFT")
+    for _, fs in ipairs({ b.text, b.debuff }) do
+        if type(fs.SetWordWrap) == "function" then fs:SetWordWrap(false) end
+    end
+end
+
+-- Size and inner layout of a strip button (out of combat): compact (raid) = icon and name only.
+local function Layout(b, w, h, compact)
+    b:SetSize(w, h)
+    b.icon:SetSize(h - 4, h - 4)
+    b.icon:ClearAllPoints()
+    b.icon:SetPoint("LEFT", b, "LEFT", 2, 0)
+    b.text:ClearAllPoints()
+    b.text:SetPoint("LEFT", b.icon, "RIGHT", 3, 0)
+    b.debuff:ClearAllPoints()
+    if compact then
+        b.text:SetPoint("RIGHT", b, "RIGHT", -2, 0)
+        b.debuff:SetText("")
+        b.debuff:Hide()
+    else
+        b.debuff:SetPoint("LEFT", b.text, "RIGHT", 3, 0)
+        b.debuff:SetPoint("RIGHT", b, "RIGHT", -2, 0)
+        b.debuff:Show()
+    end
 end
 
 local function Glow(tex, rgb)
     if rgb then tex:SetVertexColor(rgb[1], rgb[2], rgb[3], 1) else tex:SetVertexColor(0, 0, 0, 0) end
 end
 
--- r from Detect (or a test one): dim, glow, or neither.
+-- A value that is secret (passed on as it is) or a plain one of type t1 / t2.
+local function Usable(v, t1, t2)
+    if Secret(v) then return true end
+    local t = type(v)
+    return t == t1 or (t2 ~= nil and t == t2)
+end
+
+-- The debuff's icon and name; a question mark and the kind when they are not there.
+local function ShowDebuff(b, r)
+    if not (Usable(r.icon, "number", "string") and pcall(b.icon.SetTexture, b.icon, r.icon)) then
+        b.icon:SetTexture(QUESTION)
+    end
+    b.icon:Show()
+    if not (Usable(r.name, "string") and pcall(b.debuff.SetText, b.debuff, r.name)) then
+        b.debuff:SetText(r.curse and "Curse" or r.poison and "Poison" or "Dispel")
+    end
+end
+
+-- r from Detect (or a test one). Nothing to remove = the whole button invisible; unknown = the
+-- name only; else visible with the debuff and the glow.
 local function Paint(b, r)
-    if r.has == false then
-        b.text:SetAlpha(DIM_TEXT)
+    local has, secret = r.has, Secret(r.has)
+    if not secret and not has then
+        if has == false then
+            b:SetAlpha(0)
+        else
+            b:SetAlpha(1)               -- unknown: keep it usable
+            b.icon:Hide()
+            b.debuff:SetText("")
+        end
         Glow(b.glowL) Glow(b.glowR)
         return
     end
-    b.text:SetAlpha(1)
-    if r.has == nil then
-        Glow(b.glowL) Glow(b.glowR)
-        return
+    if secret then
+        -- Visible only when the client's secret answer is true; never tested here.
+        if not (type(b.SetAlphaFromBoolean) == "function" and pcall(b.SetAlphaFromBoolean, b, has, 1, 0)) then
+            b:SetAlpha(1)
+        end
+    else
+        b:SetAlpha(1)
     end
+    ShowDebuff(b, r)
     if r.curse or r.poison then
         Glow(b.glowL, r.curse and CURSE_RGB or POISON_RGB)
         Glow(b.glowR, r.poison and POISON_RGB or CURSE_RGB)
@@ -373,6 +485,10 @@ end
 local function Tooltip(self)
     local tip = _G.GameTooltip
     if not tip then return end
+    -- An invisible strip button (nothing to remove) still gets the mouse in combat: no tooltip.
+    local okA, alpha = pcall(self.GetAlpha, self)
+    alpha = okA and Num(alpha)
+    if alpha and alpha < 0.05 then return end
     tip:SetOwner(self, "ANCHOR_RIGHT")
     tip:AddLine(self.plainName or "?")
     if self.fake then
@@ -449,15 +565,10 @@ local function CreatePanel()
     hint = listBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetJustifyH("LEFT")
 
-    strip = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    -- No background of its own: only the buttons of members with something to remove are seen.
+    strip = CreateFrame("Frame", nil, panel)
     strip:SetPoint("TOPLEFT", panel, "TOPLEFT")
     strip:SetSize(PARTY_W + 2 * GAP, PARTY_H + 2 * GAP)
-    if type(strip.SetBackdrop) == "function" then
-        strip:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
-            insets = { left = 1, right = 1, top = 1, bottom = 1 } })
-        strip:SetBackdropColor(0.07, 0.08, 0.10, 0.75)
-        strip:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
-    end
 
     -- The strip for the whole fight, the list the rest of the time, by secure code.
     if type(_G.RegisterStateDriver) == "function" then
@@ -487,9 +598,10 @@ end
 local function Label(b)
     local name = Str(Call("UnitName", b.unit)) or b.unit
     local hex = ns.ClassHex(ns.UnitClassFile(b.unit))
-    local short = Short(name, stripMode == "raid" and 6 or 10)
+    local raid = stripMode == "raid"
+    local short = Short(name, raid and 6 or 8)
     b.plainName = name
-    b.text:SetText(hex and ("|c" .. hex .. short .. "|r") or short)
+    b.text:SetText((hex and ("|c" .. hex .. short .. "|r") or short) .. (raid and "" or ":"))
 end
 
 -- { { unit, group } }, "solo" / "party" / "raid".
@@ -553,7 +665,7 @@ local function BuildStrip()
         local b = StripButton(i)
         b.unit = e.unit
         Bind(b, e.unit)
-        b:SetSize(w, h)
+        Layout(b, w, h, mode == "raid")
         local x, y
         if mode == "raid" then
             local c = colIndex[e.group]
@@ -566,7 +678,7 @@ local function BuildStrip()
         b:SetPoint("TOPLEFT", strip, "TOPLEFT", x, y)
         maxW, maxH = math.max(maxW, x + w + GAP), math.max(maxH, -y + h + GAP)
         Label(b)
-        Paint(b, { has = nil })
+        Paint(b, { has = false })       -- unseen until the first paint says otherwise
         b:Show()
         stripByUnit[e.unit] = b
         if mode == "raid" and Bool(Call("UnitIsUnit", e.unit, "player")) then selfButton = b end
@@ -644,7 +756,7 @@ local function Fake(i)
     if f then return f end
     f = CreateFrame("Frame", nil, listBox)
     Style(f)
-    f:SetSize(PARTY_W, PARTY_H)
+    Layout(f, PARTY_W, PARTY_H, false)
     f:EnableMouse(true)
     f.fake = true
     f:SetScript("OnEnter", function(self) pcall(Tooltip, self) end)
@@ -700,10 +812,14 @@ local function FakeEntries()
     }
 end
 
+-- Members with nothing to remove are invisible in combat, so the sample has none of them.
 local FAKE_STRIP = {
-    { "|cffff7d0aYou|r", { has = false } }, { "|cffc79c6eTankyboy|r", { has = true, curse = true } },
-    { "|cfff58cbaHealbot|r", { has = true, poison = true } },
-    { "|cff69ccf0Frostmage|r", { has = true, curse = true, poison = true } },
+    { "|cffc79c6eTankyboy|r", { has = true, curse = true, name = "Curse of Weakness",
+        icon = "Interface\\Icons\\Spell_Shadow_CurseOfMannoroth" } },
+    { "|cfff58cbaHealbot|r", { has = true, poison = true, name = "Deadly Poison",
+        icon = "Interface\\Icons\\Ability_Rogue_DualWeild" } },
+    { "|cff69ccf0Frostmage|r", { has = true, curse = true, poison = true, name = "Curse of Agony",
+        icon = "Interface\\Icons\\Spell_Shadow_CurseOfSargeras" } },
     { "|cfffff569Stabby|r", { has = true } },
 }
 
@@ -761,7 +877,7 @@ local function UpdateList()
     if testing then
         stripTitle:ClearAllPoints()
         stripTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + 2, y)
-        stripTitle:SetText("In combat (left: curse, right: poison):")
+        stripTitle:SetText("In combat, only members with something to remove (left: curse, right: poison):")
         stripTitle:Show()
         w = math.max(w, (Num(stripTitle:GetStringWidth()) or 0) + 2 * PAD + 4)
         y = y - 14
@@ -769,7 +885,7 @@ local function UpdateList()
             local f = Fake(i)
             f:ClearAllPoints()
             f:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + (i - 1) * (PARTY_W + GAP), y)
-            f.text:SetText(s[1])
+            f.text:SetText(s[1] .. ":")
             f.plainName = s[1]:match("|c%x%x%x%x%x%x%x%x(.-)|r") or s[1]
             Paint(f, s[2])
             f:Show()
@@ -889,7 +1005,7 @@ end
 
 Druid.Help = function()
     local out = baseHelp()
-    out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a curse or poison (out of combat), one button per member (in combat); left-click Remove Curse, right-click Abolish Poison"
+    out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a curse or poison (out of combat), in combat a button per member, seen only when there is one to remove, with the debuff's icon and name; left-click Remove Curse, right-click Abolish Poison"
     out[#out + 1] = "/bbuff dispel curse|poison [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
     return out
 end
@@ -917,7 +1033,7 @@ Druid.StatusExtra = function()
     else
         detection = (seen == fightStats and "this fight: " or "last fight: ") .. detection
         if not (seen["plain read"] or seen["aura instance IDs"] or seen["filtered read"]) then
-            detection = detection .. " - no answer in combat on this client: the strip stays clickable, no glow"
+            detection = detection .. " - no answer in combat on this client: every button stays visible with the name only, no glow"
         end
     end
     return {

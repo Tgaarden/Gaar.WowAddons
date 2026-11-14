@@ -83,9 +83,21 @@ New in 1.2, druids only, in `Dispel.lua`. On by default (`/bbuff dispel off` to 
   a rebuild is still due. A roster change in combat only updates the names; the buttons follow
   unit tokens so they keep casting on whoever holds the token, and the rebuild runs at
   `PLAYER_REGEN_ENABLED`.
-- **The look** (plain textures, allowed in combat): nothing to remove = dimmed name; a curse =
-  purple, a poison = green, both = left half purple, right half green; dispellable but of an
-  unknown kind = yellow; not known at all = neither.
+- **Only who has something to remove is seen** (since 1.2.3): a button whose member has nothing
+  to remove is fully invisible (alpha 0, background included), and the strip has no background of
+  its own, so a fight with nothing to remove shows nothing. When the client answers "has one" with
+  a secret boolean, it goes straight to `SetAlphaFromBoolean(has, 1, 0)`. An invisible button still
+  takes clicks in combat (a secure button's mouse cannot be switched off then), but shows no
+  tooltip. When nothing can be read at all (method 4 below) the button stays visible with just the
+  name, or it could not be used.
+- **What to remove**, like the buff box's rows: the debuff's icon on the left, then `Name:` and the
+  debuff's name (party/solo: 150 px wide buttons, the name truncated to fit; raid: 58 px buttons
+  with the icon and a short name only). Name and icon are the first dispellable debuff's
+  (`aura.name` / `aura.icon`, or `C_UnitAuras.GetAuraDataByAuraInstanceID`); they may be secret
+  and are set as they are in a font string and texture of their own. Without them: a question
+  mark and `Curse`, `Poison` or `Dispel`.
+- **The colour** (plain textures, allowed in combat): a curse = purple, a poison = green, both =
+  left half purple, right half green; dispellable but of an unknown kind = yellow.
 - **Clicks**, on the rows and the strip alike: **left-click = Remove Curse**, **right-click =
   Abolish Poison** (Cure Poison until Abolish is known), on that member (`type1`/`spell1`,
   `type2`/`spell2`, `unit`). A click whose spell you do not know or whose kind is switched off does
@@ -109,10 +121,12 @@ which ways answered in the last fight:
    passed straight to `SetVertexColor` and never read. Without a colour: yellow.
 3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
    one, the kind from a plain `dispelName` or else the colour API, else yellow.
-4. **None**: the strip stays clickable with no glow and no dimming; `/bbuff status` says so.
+4. **None**: the button stays visible and clickable with the name only and no glow; `/bbuff status`
+   says so.
 
 With method 2 a member counts as having something when the filter finds any debuff you can
-dispel, even one of a kind you switched off (it is then not dimmed but gets no colour).
+dispel, even one of a kind you switched off (it is then shown, with that debuff's name, but gets
+no colour).
 `UNIT_AURA` marks a member; in combat the strip repaints marked members at most 10 times a second
 and everyone once a second. The list updates at most 4 times a second, and every 1.5 s in a
 group.
@@ -343,7 +357,8 @@ four, the shared file first.
 From Blizzard's retail FrameXML and API documentation, which Forever's UI follows
 ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source)): `SecureActionButtonTemplate`,
 `RegisterStateDriver`, `C_UnitAuras.GetAuraDataByIndex`, `C_Secrets.ShouldUnitAuraIndexBeSecret`,
-`C_UnitAuras.GetUnitAuraInstanceIDs`, `C_UnitAuras.GetAuraDispelTypeColor`,
+`C_UnitAuras.GetUnitAuraInstanceIDs`, `C_UnitAuras.GetAuraDataByAuraInstanceID`,
+`C_UnitAuras.GetAuraDispelTypeColor`, `Region:SetAlphaFromBoolean`,
 `C_CurveUtil.CreateColorCurve`, `AuraUtil.IsValidFilterString`, `C_Spell.GetSpellInfo`,
 `C_Spell.IsSpellInRange`, `C_Item.GetItemCount`,
 `C_Item.GetItemNameByID`, `UnitGroupRolesAssigned`, `GetPartyAssignment`, `GetNumShapeshiftForms`,

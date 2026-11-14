@@ -38,7 +38,8 @@ of the code.
 | `BetterXPForever` | Not part of the suite, Forever only, needs `BetterForever`: a movable XP panel (rested, XP per hour, time to level, kills or quests to level), text on the XP bar, time played per level on level-up, quest XP in tooltips | `/bxp` |
 | `BetterChatForever` | Not part of the suite, Forever only, needs `BetterForever`: chat tweaks, each switchable - short channel names, class-coloured names, timestamps, clickable URLs, a copy-chat window, a whisper sound, sticky channels, arrow keys without Alt | `/bchat` |
 | `BetterBarsForever` | Not part of the suite, Forever only, needs `BetterForever`: clearer action buttons - red out of range, blue without mana, big cooldown numbers, short hotkey labels, macro names on or off; `/bbars off` gives the buttons back exactly as Blizzard draws them | `/bbars` |
-| `BetterForever` | The hub of the Better...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all sixteen: the shared library (`BetterForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Better Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. No feature code of its own | `/bf`, minimap button, Options |
+| `BetterLootForever` | Not part of the suite, Forever only, needs `BetterForever`: on a group loot roll, a small number on the Need, Greed and Pass buttons counting how many in the group chose each for that roll; hover a button to see who ("Need: Elex, Bob"). Read from the loot chat lines (the client's own `LOOT_ROLL_*` strings, so any locale) and the loot history where the client fills it; counts and names each switchable; `/bloot test` previews it | `/bloot` |
+| `BetterForever` | The hub of the Better...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all seventeen: the shared library (`BetterForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Better Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. No feature code of its own | `/bf`, minimap button, Options |
 
 ## GaarBags: sorting and junk
 
@@ -329,9 +330,9 @@ Unlock, Alt + drag, reset; position saved. `/bbuff` for help, `on`, `off`, `grou
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).
 
-## BetterMerchantForever, BetterTooltipsForever, BetterMailForever, BetterXPForever, BetterChatForever, BetterBarsForever
+## BetterMerchantForever, BetterTooltipsForever, BetterMailForever, BetterXPForever, BetterChatForever, BetterBarsForever, BetterLootForever
 
-Six smaller Forever-only addons, each with one master switch and a switch per feature
+Seven smaller Forever-only addons, each with one master switch and a switch per feature
 (`/<cmd> <feature> on|off`), an API table for the hub and a `_Camelot` TOC plus a plain fallback
 TOC, both at 16001:
 
@@ -350,15 +351,18 @@ TOC, both at 16001:
   [`addons/BetterChatForever/README.md`](addons/BetterChatForever/README.md)
 - **BetterBarsForever** (`/bbars`): range and mana colours, cooldown numbers, short hotkeys, macro
   names. [`addons/BetterBarsForever/README.md`](addons/BetterBarsForever/README.md)
+- **BetterLootForever** (`/bloot`): how many chose Need, Greed and Pass, as a number on each button
+  of a group loot roll, and who, in the button's tooltip; `/bloot test` for a preview.
+  [`addons/BetterLootForever/README.md`](addons/BetterLootForever/README.md)
 
-## BetterForever: the hub of all sixteen
+## BetterForever: the hub of all seventeen
 
 Named `BetterGaarForever` until 2.8. Not part of the Gaar suite and not listed in `GaarUI`, but
 **every Better...Forever addon requires it**: each lists `## Dependencies: BetterForever` in both
 TOCs, so the client loads none of them without the `BetterForever` folder. It carries no feature
 code of its own; the addons keep their logic, their saved variables and their slash commands
 (`/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps`, `/bff`, `/bwf`, `/bfish`, `/bbuff`, `/bmerch`,
-`/btip`, `/bmail`, `/bxp`, `/bchat`, `/bbars`). What it adds:
+`/btip`, `/bmail`, `/bxp`, `/bchat`, `/bbars`, `/bloot`). What it adds:
 
 - **The shared library**, global `BetterForever`: secret-safe value helpers (`Plain`, `Num`,
   `Str`, `Bool`, `IsSecret`), guarded calls (`API`, `Call`, `Method`), formatters (`TimeShort`,
@@ -373,10 +377,10 @@ code of its own; the addons keep their logic, their saved variables and their sl
   headers for submenus - so the page and the minimap menu always match. `/bf options [name]`.
 - **One minimap button** whose menu has a submenu per addon: **Bags**, **Quests**, **Maps**,
   **Castbars**, **Plates**, **GPS**, **Frames**, **Windows**, **Fishing**, **Buffs**,
-  **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat** and **Bars**. While it is loaded,
+  **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat**, **Bars** and **Loot**. While it is loaded,
   `BetterQuestsForever`'s own minimap button is hidden for the session.
 
-Each addon exports a small global API (`BetterBagsForeverAPI` ... `BetterBarsForeverAPI`:
+Each addon exports a small global API (`BetterBagsForeverAPI` ... `BetterLootForeverAPI`:
 `version`, `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`,
 `Intro()`). An addon that is not installed shows as a disabled `– not installed` line. `/bf` for
 help (`/bgf` still works), `/bf status` for each addon's version and state, `/bf minimap [reset]`.

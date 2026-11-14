@@ -42,7 +42,7 @@ local ADDON_NAME = ... or "BetterForever"
 local Lib = _G.BetterForever
 
 local TITLE = "BetterForever"
-local VERSION = "3.0.1"
+local VERSION = "3.0.2"
 local PREFIX = "|cff33ff99BetterForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -64,6 +64,7 @@ local ADDONS = {
     { key = "xp", label = "XP", name = "BetterXPForever", api = "BetterXPForeverAPI", slash = "/bxp" },
     { key = "chat", label = "Chat", name = "BetterChatForever", api = "BetterChatForeverAPI", slash = "/bchat" },
     { key = "bars", label = "Bars", name = "BetterBarsForever", api = "BetterBarsForeverAPI", slash = "/bbars" },
+    { key = "loot", label = "Loot", name = "BetterLootForever", api = "BetterLootForeverAPI", slash = "/bloot" },
 }
 
 local db          -- BetterForeverDB, bound at ADDON_LOADED (never at file scope)

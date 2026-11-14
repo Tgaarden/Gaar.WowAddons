@@ -2,7 +2,9 @@
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). Double
 right-click in the 3D world casts Fishing while a fishing pole is equipped, and Shift + double
-right-click swaps the fishing pole in and out. Since 1.2 it also carries an optional **Fishing
+right-click swaps the fishing pole in and out. Since 1.3, while the line is out, the same double
+right-click anywhere on the screen **reels in** (no need to hit the bobber), and one **Cast / Reel**
+key binding does both from the keyboard. Since 1.2 it also carries an optional **Fishing
 1-300 route**: the current step from your Fishing skill, pins on the world map and minimap, and
 BetterGpsForever's arrow on the nearest spot. It needs BetterForever, the family hub, and no other addon or library (the arrow needs
 BetterGpsForever), and it is not part of the Gaar suite.
@@ -27,14 +29,61 @@ BetterGpsForever), and it is not part of the Gaar suite.
   entry under the localized name of 7620. The button casts it by localized name (the highest
   known rank), or by ID when the client gives no name.
 
+- **Double right-click reels in while the line is out** (1.3, `/bfish reel on|off`, on by
+  default). See [Reel in](#reel-in-13).
+- **Cast / Reel key** (1.3): bind one key under Esc > Options > Keybindings > BetterFishingForever.
+  See [Reel in](#reel-in-13).
 - **Shift + double right-click swaps the pole** (1.1). See [Pole swap](#pole-swap).
 - **Fishing 1-300 route** (1.2, off until `/bfish route on`). See
   [Fishing route](#fishing-route-1-300).
 
-Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on) and
-`dblClick` (the window in seconds, default 0.4). The pole swap's memory is saved per character in
+Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on),
+`dblClick` (the window in seconds, default 0.4), `reel` (default on), `held` (the soft interact
+CVars changed for reeling and their previous values, only while the line is out or until the next
+login puts them back) and `reelHint` (the first-time chat hint was shown). The pole swap's memory is saved per character in
 `BetterFishingForeverCharDB.swap`, the route's state in `BetterFishingForeverCharDB.route` (on/off,
 skipped steps, a step picked by hand, and the waypoint the route set).
+
+## Reel in (1.3)
+
+The retail engine Forever runs has soft targeting: the **Interact With Target** binding
+(`INTERACTTARGET`, which calls `C_PlayerInteractionManager.InteractUnit("anyinteract")`)
+interacts with the soft interact target, and the fishing bobber becomes one once the
+`SoftTargetInteract` CVar allows keyboard and mouse. `InteractUnit` is restricted, so the addon
+never calls it; it only points a key press at the binding.
+
+- **The line is out** from `UNIT_SPELLCAST_CHANNEL_START` (player, a Fishing rank or the resolved
+  Fishing by name) to `UNIT_SPELLCAST_CHANNEL_STOP`.
+- **Double right-click** while the line is out: the first click goes to the game as always, its
+  release arms `SetOverrideBinding(owner, true, "BUTTON2", "INTERACTTARGET")` instead of the cast,
+  and the second press, wherever the cursor is, reels in. Cleared exactly like the cast binding.
+  If the channel ends between the two clicks (the first click looted the bobber), the binding is
+  re-armed as the cast, so a double right-click on the bobber still loots and casts again.
+- **CVars**, set only while the line is out and only out of combat, each only when the client has
+  it and the current value is not already enough:
+
+  | CVar | Set to | Left alone at |
+  |---|---|---|
+  | `SoftTargetInteract` | 3 (Any) | 2 (Kbm) or 3 |
+  | `SoftTargetInteractRange` | 30 | 30 or more |
+  | `SoftTargetInteractArc` | 2 | 2 or more |
+  | `SoftTargetInteractRangeIsHard` | 0 | 0 |
+
+  The previous values are kept in `BetterFishingForeverDB.held` and put back at the channel stop,
+  when the pole comes off, at `PLAYER_REGEN_DISABLED`, at `/bfish reel off`, at `PLAYER_LOGOUT`,
+  and at the next login for anything a crash or a logout in combat left behind. Nothing is set or
+  put back in combat; that waits for `PLAYER_REGEN_ENABLED`.
+- **Cast / Reel key.** `Bindings.xml` adds `CLICK BetterFishingForeverKeyButton:LeftButton` under
+  the **BetterFishingForever** section of the Key Bindings page. The key clicks a second secure
+  button (`type` = `spell`, the same Fishing; `useOnKeyDown` = true and registered for
+  `AnyDown` only, so it casts on the press and its release never does anything). It casts with or
+  without a pole (without one, Fishing just fails). While the line is out and reeling is on, the
+  keys bound to it are overridden to `INTERACTTARGET` on a frame of their own, and cleared again
+  with the CVars. It does not follow `/bfish on|off` (that is the double-click), only
+  `/bfish reel`.
+- **First time:** a one-line chat hint the first time the line goes out (saved, shown once).
+- **Not supported** (no `INTERACTTARGET` binding or no `SoftTargetInteract` CVar): the double
+  right-click casts again as before, and the first cast says so once per session.
 
 ## Pole swap
 
@@ -187,6 +236,14 @@ with both settings and never takes the first click away from the bobber.
   water. Only the second one casts.
 - **After a right-click**, for the rest of the window, the next right press casts instead of
   turning the camera. That is the double-click; set a shorter window if it gets in the way.
+- **Reeling needs the soft interact target to be the bobber.** With the CVars above that is
+  normal, but if the bobber lands out of range or arc, or another interactable object is nearer,
+  the second press interacts with that instead (or with nothing). Right-click the bobber itself
+  then.
+- **In combat** neither the double-click nor the key reels: no binding or CVar is changed, so the
+  key casts again there.
+- **Shift + double right-click while the line is out** reels in if Shift and the second press come
+  in the same frame; the pole swap refuses while fishing anyway (`stop fishing first`).
 - **A client without `IsMouseButtonDown`** gets the older way (arm on the second press, catch its
   release, `AnyUp`), which casts only with `ActionButtonUseKeyDown` = 0. `/bfish status` says so.
 
@@ -197,13 +254,14 @@ with both settings and never takes the first click away from the bobber.
 | `/bfish` or `/bfish help` | Help |
 | `/bfish on`, `/bfish off` | Switch double right-click fishing on or off |
 | `/bfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
+| `/bfish reel on`, `/bfish reel off` | While the line is out, double right-click anywhere (and the Cast / Reel key) reels in; on by default |
 | `/bfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
 | `/bfish route on`, `/bfish route off` | Switch the Fishing 1-300 route (pins and GPS arrow) on or off, per character; off by default |
 | `/bfish route` | Your Fishing skill, the current step with its NPC and note, and the next step |
 | `/bfish route next`, `/bfish route prev` | Move one step by hand; next on an optional vendor or quest step skips it for good |
 | `/bfish route list` | Every step for your faction with its range; the current one marked, done ones say so |
 | `/bfish route gear` | Poles and lures worth having on the way |
-| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
+| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, reel on/off, supported, line out, the Cast / Reel key, the soft interact CVars and what is held to put back, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
 
 ## With BetterForever (required)
 
@@ -211,7 +269,7 @@ Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install th
 
 [BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/bfish
-on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`) and **Fishing
+on|off`), **Double right-click reels in** (the same as `/bfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`) and **Fishing
 route** (the same as `/bfish route on|off`). Both go through
 the same functions as the slash command. This addon has no minimap button or menu of its own, so
 nothing here changes with or without the hub.
@@ -238,7 +296,11 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
   `pcall` (the last error is kept for `/bfish status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled` and `dblClick`
-  are kept account-wide, and only `swap` and `route` per character.
+  are kept account-wide (plus `reel`, `held` and `reelHint` since 1.3), and only `swap` and
+  `route` per character.
+- Soft interact CVars are changed only while the line is out, out of combat, and always put back
+  (see [Reel in](#reel-in-13)); the right mouse button's and your Cast / Reel key's own bindings
+  are never changed, only overridden on the addon's own frames.
 - The route's pins are plain frames of our own on the map canvas and the minimap; its only hook is
   `hooksecurefunc` on `WorldMapFrame.OnMapChanged`.
 
@@ -252,7 +314,11 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 (or `EquipItemByName`), `EquipCursorItem`, `UnitCastingInfo`, `UnitChannelInfo`, `C_Item.GetItemInfoInstant` (or
 `GetItemInfoInstant`), `C_Spell.GetSpellInfo` (or `GetSpellInfo`), `C_SpellBook.IsSpellKnown`,
 `IsPlayerSpell`, `IsSpellKnown`, `C_CVar.GetCVarBool("ActionButtonUseKeyDown")` and
-`InCombatLockdown`; for the route `GetNumSkillLines`, `GetSkillLineInfo`, `GetProfessions`,
+`InCombatLockdown`; for reeling `SetOverrideBinding`, the `INTERACTTARGET` binding
+(`Bindings_Standard.xml` / `Bindings_Camelot.xml` on the `forever` branch),
+`C_KeyBindings.GetBindingIndex`, `GetBindingKey`, `C_CVar.GetCVar` / `SetCVar`, the
+`SoftTargetInteract*` CVars (`Enum.SoftTargetEnableFlags`: 0 None, 1 Gamepad, 2 Kbm, 3 Any) and
+`UNIT_SPELLCAST_CHANNEL_START` / `_STOP`; for the route `GetNumSkillLines`, `GetSkillLineInfo`, `GetProfessions`,
 `GetProfessionInfo`, `UnitFactionGroup`, `C_Map.GetWorldPosFromMapPos`, `C_Map.GetMapPosFromWorldPos`,
 `C_Map.GetBestMapForUnit`, `C_Map.GetPlayerMapPosition`, `WorldMapFrame` (`GetCanvas`, `GetMapID`,
 `OnMapChanged`), `Minimap`, `C_Minimap.GetViewRadius`, `GetPlayerFacing`, `GetMinimapShape` and

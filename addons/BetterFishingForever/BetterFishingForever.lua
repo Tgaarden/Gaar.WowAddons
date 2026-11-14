@@ -18,7 +18,12 @@
       Fishing skill and cap, pins on the world map and minimap, and BetterGpsForever's arrow on
       the nearest spot. The data is in Route.lua, the logic in RouteGuide.lua (ns.guide); this
       file only wires it into /bfish, the saved variables and the hub menu.
-    * /bfish for help, on, off, window <0.2-0.8>, swap, route and status.
+    * Reel in (1.3, /bfish reel on|off, on by default): while the Fishing channel runs (the line
+      is out), the same double right-click anywhere in the world reels in - it interacts with the
+      bobber instead of casting again. See "Reel in" below.
+    * A "Cast / Reel" key binding (1.3, Esc > Options > Keybindings > BetterFishingForever): one
+      key casts Fishing, and reels in while the line is out.
+    * /bfish for help, on, off, window <0.2-0.8>, reel, swap, route and status.
     * BetterFishingForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -101,6 +106,41 @@
   then the itemID. A two-hander puts back only the main hand. The off hand is equipped once the
   main-hand swap has landed (polled, at most 3 s), so the two swaps never race the pole out.
 
+  Reel in (1.3). The retail engine Forever runs has soft targeting: the "Interact With Target"
+  binding (INTERACTTARGET, Bindings_Standard/_Camelot.xml: C_PlayerInteractionManager.InteractUnit(
+  "anyinteract")) interacts with the soft interact target, and the fishing bobber is one once the
+  SoftTargetInteract CVar allows keyboard and mouse (Enum.SoftTargetEnableFlags: 0 None, 1 Gamepad,
+  2 Kbm, 3 Any). InteractUnit is restricted, so the addon never calls it: it only points the
+  second press at the binding.
+
+    * The line is out from UNIT_SPELLCAST_CHANNEL_START (player, a Fishing spell ID, or a spell
+      whose name is the resolved Fishing) to UNIT_SPELLCAST_CHANNEL_STOP. While it is, step 2 of
+      the sequence above binds SetOverrideBinding(owner, true, "BUTTON2", "INTERACTTARGET")
+      instead of the click on the secure button. The binding runs on the press; the release is
+      swallowed and cleared exactly as for a cast (step 4). The first click is untouched.
+    * CVars, only while the line is out and only out of combat: SoftTargetInteract 3 (left alone
+      at 2 or 3), SoftTargetInteractRange 30 (left alone at 30 or more), SoftTargetInteractArc 2
+      (left alone at 2 or more) and SoftTargetInteractRangeIsHard 0, each only when the client
+      has it. The previous value of each one changed is kept in BetterFishingForeverDB.held and
+      put back at the channel stop, when the pole comes off, at PLAYER_REGEN_DISABLED, at
+      /bfish reel off, at PLAYER_LOGOUT, and at the next login for anything a crash or a logout
+      in combat left behind. In combat nothing is set or put back; it waits for
+      PLAYER_REGEN_ENABLED. /bfish reel follows only its own setting, not /bfish on|off.
+    * The channel ends while armed for reeling but before the second press (the bobber was
+      looted by the first click): the binding is re-armed as the cast, so the double-click on
+      the bobber still loots and casts again, as before 1.3.
+    * The "Cast / Reel" key (Bindings.xml: CLICK BetterFishingForeverKeyButton:LeftButton, in
+      the "BetterFishingForever" section of the Key Bindings page). A second secure button
+      (type "spell", the same Fishing; useOnKeyDown = true and registered for "AnyDown" only, so
+      it casts on the press and its release never does anything) casts, pole or not. While the
+      line is out and reeling is on, the keys bound to it (GetBindingKey) are overridden to
+      INTERACTTARGET on a frame of their own (SetOverrideBinding(keyOwner, true, key,
+      "INTERACTTARGET")), and cleared again with the CVars. In combat the override is neither set
+      nor kept (it is cleared at PLAYER_REGEN_DISABLED), so there the key casts.
+    * Not on a client without the INTERACTTARGET binding or the SoftTargetInteract CVar, and not
+      on the fallback path (it catches the release, and the binding acts on the press): there the
+      double-click casts again as before, and the first cast says so once per session.
+
   Taint: Blizzard code is only followed, never replaced. WorldFrame gets a HookScript; no Blizzard
   function or table is written. Bindings and attributes are only ever changed out of combat, on
   the addon's own frames. Every client API is checked with type(...) == "function" first, every
@@ -114,7 +154,7 @@ ADDON_NAME = ADDON_NAME or "BetterFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.3.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
@@ -129,17 +169,37 @@ local HOLD_CAP = 2.0          -- seconds an armed binding may wait for a held se
 local LEGACY_TIMEOUT = 0.6    -- fallback path: how long the binding waits for the release
 local POLE_SLOT = 16          -- INVSLOT_MAINHAND
 local BUTTON_NAME = "BetterFishingForeverButton"
+local KEY_BUTTON_NAME = "BetterFishingForeverKeyButton"
+local KEY_BINDING = "CLICK " .. KEY_BUTTON_NAME .. ":LeftButton"   -- as in Bindings.xml
+
+-- The Key Bindings page (Esc > Options > Keybindings, section "BetterFishingForever") names the
+-- binding by this global; Bindings.xml declares it.
+_G["BINDING_NAME_" .. KEY_BINDING] = "Cast / Reel"
 
 -- Fishing, highest rank first: Artisan, Expert, Journeyman, Apprentice, then retail's one spell.
 local FISHING_IDS = { 18248, 7732, 7731, 7620, 131474 }
 
--- Every key BetterFishingForeverDB may hold.
-local SAVED_KEYS = { enabled = true, dblClick = true }
+-- Every key BetterFishingForeverDB may hold. reel: reel in while the line is out (1.3); held: the
+-- CVars changed for reeling, name = the value before; reelHint: the first-time hint was shown.
+local SAVED_KEYS = { enabled = true, dblClick = true, reel = true, held = true, reelHint = true }
+
+-- Reel in (1.3): what soft interact needs to target the bobber by itself. want is set while the
+-- line is out, unless enough() already holds for the current value.
+local REEL_CVARS = {
+    { name = "SoftTargetInteract", want = 3, enough = function(v) return v == 2 or v == 3 end },
+    { name = "SoftTargetInteractRange", want = 30, enough = function(v) return v >= 30 end },
+    { name = "SoftTargetInteractArc", want = 2, enough = function(v) return v >= 2 end },
+    { name = "SoftTargetInteractRangeIsHard", want = 0, enough = function(v) return v == 0 end },
+}
+local REEL_CVAR_KNOWN = {}
+for _, c in ipairs(REEL_CVARS) do REEL_CVAR_KNOWN[c.name] = true end
 
 local db                  -- BetterFishingForeverDB, bound at ADDON_LOADED (never at file scope)
 local charDb              -- BetterFishingForeverCharDB (per character): the pole swap's memory
 local button              -- the secure button the binding clicks
 local owner               -- the plain frame that owns the override binding
+local keyButton           -- the secure button the "Cast / Reel" key binding clicks (1.3)
+local keyOwner            -- owns the key's INTERACTTARGET override while the line is out
 local watcher             -- runs OnUpdate only while a press or an armed binding is pending
 
 local spellValue          -- what the button's "spell" attribute holds (name or ID), or nil
@@ -158,6 +218,13 @@ local held                -- the right button was pressed again while armed
 local fired               -- the secure button's PostClick ran while armed
 local lastPressAt         -- fallback path only: the previous right press
 local lastRightAt         -- pole swap: GetTime() of the previous right press on WorldFrame
+
+-- Reel in (1.3).
+local lineOut             -- the Fishing channel runs
+local armedReel           -- the armed binding is INTERACTTARGET, not the click
+local reelSupport         -- nil: not checked yet; true / false: the client has what reeling needs
+local reelNoticeShown     -- "not supported" was printed this session
+local releasePending      -- the held CVars wait for combat to end to go back
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -329,6 +396,10 @@ local function ApplySpell()
         spellValue, spellText = FindFishing()
         button:SetAttribute("type", "spell")
         button:SetAttribute("spell", spellValue)
+        if keyButton then
+            keyButton:SetAttribute("type", "spell")
+            keyButton:SetAttribute("spell", spellValue)
+        end
     end)
     if not ok then Fail("resolving Fishing", err) end
 end
@@ -659,6 +730,149 @@ local function CreateSwapFrames()
 end
 
 -- ---------------------------------------------------------------------------
+-- Reel in (1.3): soft interact CVars, the line, and the "Cast / Reel" key.
+-- See the header ("Reel in").
+-- ---------------------------------------------------------------------------
+
+local function ReelOn()
+    return db ~= nil and db.reel ~= false
+end
+
+-- A CVar's value as a string, or nil when the client has no such CVar.
+local function GetCVarValue(name)
+    local c = _G.C_CVar
+    local get = (type(c) == "table" and type(c.GetCVar) == "function" and c.GetCVar)
+        or (type(_G.GetCVar) == "function" and _G.GetCVar)
+    if not get then return nil end
+    local ok, v = pcall(get, name)
+    if not ok or Secret(v) then return nil end
+    if type(v) == "number" then return tostring(v) end
+    return Str(v)
+end
+
+local function SetCVarValue(name, value)
+    local c = _G.C_CVar
+    local set = (type(c) == "table" and type(c.SetCVar) == "function" and c.SetCVar)
+        or (type(_G.SetCVar) == "function" and _G.SetCVar)
+    if not set then return false end
+    local ok, err = pcall(set, name, tostring(value))
+    if not ok then Fail("setting " .. name, err) end
+    return ok
+end
+
+-- The client has the INTERACTTARGET binding and the SoftTargetInteract CVar. Checked once.
+local function ReelSupported()
+    if reelSupport ~= nil then return reelSupport end
+    local ok = GetCVarValue("SoftTargetInteract") ~= nil and type(_G.SetOverrideBinding) == "function"
+    if ok then
+        local kb = _G.C_KeyBindings
+        if type(kb) == "table" and type(kb.GetBindingIndex) == "function" then
+            local fine, index = pcall(kb.GetBindingIndex, "INTERACTTARGET")
+            ok = fine and Num(index) ~= nil
+        else
+            local pim = _G.C_PlayerInteractionManager
+            ok = type(pim) == "table" and type(pim.InteractUnit) == "function"
+        end
+    end
+    reelSupport = ok and true or false
+    return reelSupport
+end
+
+-- Puts back every CVar changed for reeling; in combat it waits for PLAYER_REGEN_ENABLED.
+local function ReleaseCVars()
+    if not db or type(db.held) ~= "table" then
+        releasePending = false
+        return
+    end
+    if InCombat() then
+        releasePending = true
+        return
+    end
+    releasePending = false
+    for name, value in pairs(db.held) do SetCVarValue(name, value) end
+    db.held = nil
+end
+
+-- Sets what soft interact needs to target the bobber, keeping the value before. Out of combat.
+local function HoldCVars()
+    if not db or InCombat() then return end
+    local held = type(db.held) == "table" and db.held or {}
+    for _, c in ipairs(REEL_CVARS) do
+        if held[c.name] == nil then
+            local cur = GetCVarValue(c.name)
+            local n = cur and Num(tonumber(cur))
+            if n and not c.enough(n) and SetCVarValue(c.name, c.want) then held[c.name] = cur end
+        end
+    end
+    db.held = next(held) ~= nil and held or nil
+end
+
+-- The "Cast / Reel" key: while the line is out, the keys bound to it interact instead.
+local function ClearKeyReel()
+    if not keyOwner or type(_G.ClearOverrideBindings) ~= "function" then return end
+    if InCombat() then
+        bindingStuck = true         -- PLAYER_REGEN_ENABLED clears it
+        return
+    end
+    local ok, err = pcall(_G.ClearOverrideBindings, keyOwner)
+    if not ok then Fail("clearing the key", err) end
+end
+
+local function BindKeyReel()
+    if not keyOwner or InCombat() or type(_G.GetBindingKey) ~= "function" then return end
+    local ok, err = pcall(function()
+        local keys = { _G.GetBindingKey(KEY_BINDING) }
+        for i = 1, 2 do
+            local key = Str(keys[i])
+            if key then _G.SetOverrideBinding(keyOwner, true, key, "INTERACTTARGET") end
+        end
+    end)
+    if not ok then Fail("binding the key to reel", err) end
+end
+
+local function KeyText()
+    if type(_G.GetBindingKey) ~= "function" then return "not bound" end
+    local ok, k1, k2 = pcall(_G.GetBindingKey, KEY_BINDING)
+    k1, k2 = ok and Str(k1) or nil, ok and Str(k2) or nil
+    if not k1 and not k2 then return "not bound" end
+    return (k1 or "") .. ((k1 and k2) and ", " or "") .. (k2 or "")
+end
+
+local function IsFishingSpell(spellID)
+    local id = Num(spellID)
+    if not id then return false end
+    for _, f in ipairs(FISHING_IDS) do
+        if f == id then return true end
+    end
+    local name = SpellName(id)
+    return name ~= nil and type(spellValue) == "string" and name == spellValue
+end
+
+-- Line out: hold the CVars and point the key at INTERACTTARGET. Out of combat only.
+local function StartReel()
+    if not lineOut or not ReelOn() or InCombat() then return end
+    if not ReelSupported() then
+        if not reelNoticeShown then
+            reelNoticeShown = true
+            Print("reeling in with a double right-click or the key is not supported on this client"
+                .. " (no Interact With Target / soft interact); a double right-click casts again as before.")
+        end
+        return
+    end
+    HoldCVars()
+    BindKeyReel()
+    if db and not db.reelHint then
+        db.reelHint = true
+        Print("line out: double right-click anywhere reels in (no need to hit the bobber). /bfish reel off switches it off.")
+    end
+end
+
+local function StopReel()
+    ClearKeyReel()
+    ReleaseCVars()
+end
+
+-- ---------------------------------------------------------------------------
 -- The binding
 -- ---------------------------------------------------------------------------
 
@@ -683,26 +897,57 @@ end
 
 local function Disarm()
     if state == "armed" then ClearBinding() end
-    state, downAt, armedAt, held, fired = "idle", nil, nil, nil, nil
+    state, downAt, armedAt, held, fired, armedReel = "idle", nil, nil, nil, nil, nil
     StopWatching()
 end
 
--- Binds BUTTON2 to the secure button, registered for the one click direction the CVar acts on.
+-- Reel in: the line is out and the client can (never on the fallback path, which needs the
+-- release; INTERACTTARGET acts on the press).
+local function ReelReady()
+    return lineOut and ReelOn() and HasReleaseCheck() and ReelSupported()
+end
+
+-- Binds BUTTON2 to the secure button, registered for the one click direction the CVar acts on;
+-- while the line is out, to INTERACTTARGET instead (reel in).
 local function Arm(direction)
-    if InCombat() or not button or not owner or type(_G.SetOverrideBindingClick) ~= "function" then
-        return false
-    end
+    if InCombat() or not button or not owner then return false end
+    local reel = ReelReady() and true or false
+    if not reel and type(_G.SetOverrideBindingClick) ~= "function" then return false end
     local ok, err = pcall(function()
-        button:RegisterForClicks(direction)
-        _G.SetOverrideBindingClick(owner, true, "BUTTON2", BUTTON_NAME)
+        if reel then
+            _G.SetOverrideBinding(owner, true, "BUTTON2", "INTERACTTARGET")
+        else
+            button:RegisterForClicks(direction)
+            _G.SetOverrideBindingClick(owner, true, "BUTTON2", BUTTON_NAME)
+        end
     end)
     if not ok then
         Fail("arming the binding", err)
         return false
     end
-    state, armedAt, held, fired = "armed", Now(), false, false
+    state, armedAt, held, fired, armedReel = "armed", Now(), false, false, reel
     StartWatching()
     return true
+end
+
+-- The channel ended while armed for reeling, before the second press: arm the cast instead.
+local function RearmAsCast()
+    if state == "armed" and armedReel and not held and not InCombat() then
+        Arm(UseKeyDown() and "AnyDown" or "AnyUp")
+    end
+end
+
+local function OnChannelStart(unit, spellID)
+    if Str(unit) ~= "player" or not IsFishingSpell(spellID) then return end
+    lineOut = true
+    StartReel()
+end
+
+local function OnChannelStop(unit)
+    if Str(unit) ~= "player" then return end
+    lineOut = false
+    StopReel()
+    RearmAsCast()
 end
 
 -- Everything a press must pass before it may lead to a cast.
@@ -826,6 +1071,19 @@ local function CreateFrames()
     end)
     button:Show()
 
+    -- The "Cast / Reel" key (1.3, Bindings.xml: CLICK BetterFishingForeverKeyButton:LeftButton).
+    -- It casts Fishing on the press (useOnKeyDown, whatever ActionButtonUseKeyDown says), and the
+    -- release does nothing, so a release after the binding moved to INTERACTTARGET and back never
+    -- casts. While the line is out its keys are overridden to INTERACTTARGET (StartReel).
+    keyOwner = CreateFrame("Frame", nil, _G.UIParent)
+    keyButton = CreateFrame("Button", KEY_BUTTON_NAME, _G.UIParent, "SecureActionButtonTemplate")
+    keyButton:SetSize(1, 1)
+    keyButton:SetPoint("LEFT", _G.UIParent, "RIGHT", 10000, 0)
+    keyButton:RegisterForClicks("AnyDown")
+    keyButton:SetAttribute("useOnKeyDown", true)
+    keyButton:SetAttribute("type", "spell")
+    keyButton:Show()
+
     local world = _G.WorldFrame
     if type(world) == "table" and type(world.HookScript) == "function" then
         world:HookScript("OnMouseDown", OnWorldMouseDown)
@@ -844,6 +1102,15 @@ local function SetEnabled(on, quiet)
     if not quiet then Print(on and "on: double right-click casts Fishing while a pole is equipped." or "off.") end
 end
 
+local function SetReel(on, quiet)
+    db.reel = on and true or false
+    if on then StartReel() else StopReel() end
+    if not quiet then
+        Print(on and "reel on: while the line is out, double right-click anywhere (or the Cast / Reel key) reels in."
+            or "reel off: double right-click casts again while the line is out, as before 1.3.")
+    end
+end
+
 local function SetWindow(v, quiet)
     db.dblClick = Clamp(math.floor(v * 100 + 0.5) / 100, MIN_WINDOW, MAX_WINDOW)
     if not quiet then Print(string.format("double-click window: %.2f s.", db.dblClick)) end
@@ -857,13 +1124,17 @@ local function YesNo(v) return v and "yes" or "no" end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped; a single right-click still loots and interacts as usual. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
+local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, BetterFishingForever) to do both from the keyboard. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
 
 local function PrintHelp()
     Print(INTRO)
     Print("/bfish on | /bfish off - switch it on or off")
     Print(string.format("/bfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",
         MIN_WINDOW, MAX_WINDOW, Window()))
+    Print("/bfish reel on | off - while the line is out, double right-click anywhere reels in (now "
+        .. (ReelOn() and "on" or "off") .. ")")
+    Print("Cast / Reel key: Esc > Options > Keybindings > BetterFishingForever. One key casts, and reels in while the line is out (now "
+        .. KeyText() .. ").")
     Print("Shift + double right-click in the world, or /bfish swap: swap the fishing pole in or out (out of combat).")
     if ns.guide then
         for _, line in ipairs(ns.guide.HelpLines()) do Print(line) end
@@ -881,6 +1152,21 @@ local function PrintStatus()
     if not HasReleaseCheck() then
         Print("no IsMouseButtonDown on this client: using the fallback, which only casts with ActionButtonUseKeyDown 0.")
     end
+    local cvars = {}
+    for _, c in ipairs(REEL_CVARS) do
+        local v = GetCVarValue(c.name)
+        if v then cvars[#cvars + 1] = c.name .. " " .. v end
+    end
+    local heldText = {}
+    if type(db.held) == "table" then
+        for name, v in pairs(db.held) do heldText[#heldText + 1] = name .. " " .. tostring(v) end
+    end
+    Print("reel: " .. (ReelOn() and "on" or "off") .. "   supported: " .. YesNo(ReelSupported())
+        .. "   line out: " .. YesNo(lineOut) .. "   armed to reel: " .. YesNo(state == "armed" and armedReel)
+        .. "   Cast / Reel key: " .. KeyText())
+    Print("soft interact: " .. (#cvars > 0 and table.concat(cvars, ", ") or "none on this client")
+        .. "   held (to put back): " .. (#heldText > 0 and table.concat(heldText, ", ") or "none")
+        .. (releasePending and " (after combat)" or ""))
     Print("swap: " .. SwapMemoryText() .. "   equip path: " .. (EquipPath() or "none on this client")
         .. (lastBlocked and ("   blocked: " .. lastBlocked) or ""))
     if ns.guide then
@@ -905,6 +1191,14 @@ local function OnSlash(msg)
             Print(string.format("/bfish window <%.1f-%.1f>, e.g. /bfish window 0.4 (now %.2f).", MIN_WINDOW, MAX_WINDOW, Window()))
         else
             SetWindow(v)
+        end
+    elseif cmd == "reel" then
+        local a = (arg or ""):lower()
+        if a == "on" or a == "off" then
+            SetReel(a == "on")
+        else
+            Print("/bfish reel on | off - reel in with a double right-click while the line is out (now "
+                .. (ReelOn() and "on" or "off") .. ").")
         end
     elseif cmd == "status" then
         PrintStatus()
@@ -957,6 +1251,9 @@ local function MenuEntries()
         { text = "Double right-click casts Fishing", checkbox = true,
           checked = function() return Enabled() end,
           func = function() SetEnabled(not Enabled()) end },
+        { text = "Double right-click reels in", checkbox = true,
+          checked = function() return ReelOn() end,
+          func = function() SetReel(not ReelOn()) end },
         { text = "Double-click window", submenu = windows },
         ns.guide and { text = "Fishing route", checkbox = true,
           checked = function() return ns.guide.IsOn() end,
@@ -986,6 +1283,20 @@ local function BindSavedVariables()
     if type(db.enabled) ~= "boolean" then db.enabled = true end
     local w = Num(tonumber(db.dblClick))
     db.dblClick = w and Clamp(w, MIN_WINDOW, MAX_WINDOW) or DEFAULT_WINDOW
+    if type(db.reel) ~= "boolean" then db.reel = true end
+    if db.reelHint ~= true then db.reelHint = nil end
+    -- held: only CVars this addon changes, name = the previous value as a string.
+    if type(db.held) == "table" then
+        local clean = {}
+        for name, v in pairs(db.held) do
+            if REEL_CVAR_KNOWN[name] and (type(v) == "string" or type(v) == "number") then
+                clean[name] = tostring(v)
+            end
+        end
+        db.held = next(clean) ~= nil and clean or nil
+    else
+        db.held = nil
+    end
 
     -- Per character: the pole swap's memory, { mainID, mainLink, offID, offLink }, and the
     -- route's state (route = { on, skipped, manual, manualAuto, pointed, wp }, see RouteGuide.lua).
@@ -1012,17 +1323,36 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("SPELLS_CHANGED")
 -- Gone from retail 11.0; registering an event the client does not know raises an error.
 pcall(events.RegisterEvent, events, "LEARNED_SPELL_IN_TAB")
+-- Reel in: the Fishing channel, the pole coming off, and the logout.
+if type(events.RegisterUnitEvent) == "function" then
+    pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_CHANNEL_START", "player")
+    pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_CHANNEL_STOP", "player")
+else
+    pcall(events.RegisterEvent, events, "UNIT_SPELLCAST_CHANNEL_START")
+    pcall(events.RegisterEvent, events, "UNIT_SPELLCAST_CHANNEL_STOP")
+end
+pcall(events.RegisterEvent, events, "PLAYER_EQUIPMENT_CHANGED")
+events:RegisterEvent("PLAYER_LOGOUT")
 -- Pole swap: tells us if the client ever blocks an equip call from this addon.
 pcall(events.RegisterEvent, events, "ADDON_ACTION_BLOCKED")
 pcall(events.RegisterEvent, events, "ADDON_ACTION_FORBIDDEN")
-events:SetScript("OnEvent", function(_, event, arg1, arg2)
+events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
     local ok, err = pcall(function()
-        if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
+        if event == "UNIT_SPELLCAST_CHANNEL_START" then
+            OnChannelStart(arg1, arg3)          -- unit, castGUID, spellID
+        elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+            OnChannelStop(arg1)
+        elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+            if Num(arg1) == POLE_SLOT and not PoleEquipped() then StopReel() end
+        elseif event == "PLAYER_LOGOUT" then
+            if not InCombat() then ReleaseCVars() end   -- else the next login puts them back
+        elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
             OnActionBlocked(arg1, arg2)
         elseif event == "ADDON_LOADED" then
             if arg1 == ADDON_NAME then BindSavedVariables() end
         elseif event == "PLAYER_LOGIN" then
             CreateSwapFrames()          -- a plain frame: fine in combat
+            ReleaseCVars()              -- whatever a crash or a disconnect left held
             if InCombat() then
                 setupPending = true     -- a secure button cannot be set up in combat
             else
@@ -1030,8 +1360,10 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
                 ApplySpell()
             end
         elseif event == "PLAYER_REGEN_DISABLED" then
-            -- Fires just before combat locks bindings: clear the override while that still works.
+            -- Fires just before combat locks bindings: clear the override while that still works,
+            -- and put the soft interact CVars back (reeling waits for combat to end).
             Disarm()
+            StopReel()
         elseif event == "PLAYER_REGEN_ENABLED" then
             if setupPending then
                 setupPending = false
@@ -1040,7 +1372,12 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             elseif spellPending then
                 ApplySpell()
             end
-            if bindingStuck then ClearBinding() end
+            if bindingStuck then
+                ClearBinding()
+                ClearKeyReel()
+            end
+            if releasePending then ReleaseCVars() end
+            StartReel()                 -- the line is still out: reel again
         else
             ApplySpell()        -- SPELLS_CHANGED, LEARNED_SPELL_IN_TAB
         end

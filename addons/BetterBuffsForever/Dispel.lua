@@ -1,27 +1,41 @@
 --[[
-  BetterBuffsForever - the dispel panel of a druid (curses and poisons) and a shaman (poisons and
-  diseases). Loaded after Druid.lua and Shaman.lua; it hooks into both modules (options, slash
-  command, help, status, hub menu) and keeps its own frames and events, so the buff box and the
-  paladin module are untouched. What differs per class is one table, CLASS_CONFIG: the kind
-  removed by left-click, the kind removed by right-click, and their spells.
+  BetterBuffsForever - the dispel panel of every class that can remove something: a druid
+  (curses and poisons), a shaman (poisons and diseases), a priest (magic and diseases), a paladin
+  (poisons and diseases, plus magic with Cleanse) and a mage (curses). Loaded after Druid.lua,
+  Paladin.lua and Shaman.lua; it hooks into those modules (options, slash command, help, status,
+  hub menu), registers a small dispel-only module for the priest and the mage (no buff check),
+  and keeps its own frames and events, so the buff box is untouched. What differs per class is
+  one table, CLASS_CONFIG: one or two actions, each with its spells (the first one known is
+  cast) and the kinds each spell removes. Two actions: left-click casts the first, right-click
+  the second. One action: both mouse buttons cast it.
 
                 left-click                      right-click
     Druid       Curse (purple): Remove Curse    Poison (green): Abolish Poison, else Cure Poison
     Shaman      Poison (green): Cure Poison     Disease (ochre): Cure Disease
+    Priest      Magic (blue): Dispel Magic      Disease (ochre): Abolish Disease, else Cure Disease
+    Paladin     both: Cleanse (poison, disease, magic), else Purify (poison, disease)
+    Mage        both: Remove Lesser Curse (curse, purple)
+    Warrior, Rogue, Hunter, Warlock: no panel (the warlock's Felhunter Devour Magic is left out
+    on purpose: it is the pet's spell).
 
-    * Only for those two classes, and only spells you know: Remove Curse (2782), Abolish Poison
+    * Only for those classes, and only spells you know: Remove Curse (2782), Abolish Poison
       (2893) and the druid's Cure Poison (8946; used for right-click only while Abolish Poison is
-      not known); the shaman's Cure Poison (526) and Cure Disease (2870). The IDs are the classic
-      ones (WhatsTraining's Vanilla/Camelot druid and shaman data have the same); they are
-      resolved at login and on SPELLS_CHANGED like the buffs (by ID, else by the localized name),
-      and /bbuff status shows what was found.
+      not known); the shaman's Cure Poison (526) and Cure Disease (2870); the priest's Dispel
+      Magic (988, 527: the highest rank, cast by name), Abolish Disease (552) and Cure Disease
+      (528); the paladin's Cleanse (4987) and Purify (1152); the mage's Remove Lesser Curse (475).
+      The IDs are the classic ones (WhatsTraining's Vanilla/Camelot class data have the same);
+      they are resolved at login and on SPELLS_CHANGED / LEARNED_SPELL_IN_TAB like the buffs (by
+      ID, else by the localized name), and /bbuff status shows what was found. Until the class's
+      dispel spell is known (a low-level character) the panel stays hidden.
+    * The kinds a member counts for are the ones the known spell removes: a paladin with only
+      Purify is never shown a magic debuff; with Cleanse it is.
     * A panel of its own, not part of the buff box: by default just below the box (it follows the
       box), movable (/bbuff dispel unlock, or Alt + drag; /bbuff dispel reset), position saved
       account-wide as an offset from the top centre.
     * Out of combat: one row per member (you too) with something you can remove: the
-      class-coloured name and a coloured tag per kind ("Curse" purple, "Poison" green, "Disease"
-      ochre). Dead, offline and unseen members are skipped; out-of-range members are dimmed. Read
-      with plain dispelName ("Curse", "Poison", "Disease") from
+      class-coloured name and a coloured tag per kind ("Magic" blue, "Curse" purple, "Poison"
+      green, "Disease" ochre). Dead, offline and unseen members are skipped; out-of-range members
+      are dimmed. Read with plain dispelName ("Magic", "Curse", "Poison", "Disease") from
       C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL").
     * In combat: a fixed strip with one secure button per group member: you alone, you and
       party1-4, or in a raid every raidN by subgroup (one column per subgroup that has members,
@@ -45,14 +59,16 @@
       come from the first dispellable debuff Detect found (aura.name / aura.icon, or
       C_UnitAuras.GetAuraDataByAuraInstanceID on the aura instance ID); they may be secret and go
       straight to SetText / SetTexture in their own font string and texture, never joined to
-      anything. Without them: a question mark and the kind ("Curse" / "Poison" / "Disease") or
-      "Dispel". The colour is plain child textures (allowed in combat): the left half shows the
-      left-click kind, the right half the right-click kind; a member with only one of them is
-      that colour all over; dispellable but of an unknown kind = yellow.
-    * Clicks, on the rows and the strip alike: left-click (type1/spell1) = the left kind's spell,
-      right-click (type2/spell2) = the right kind's; unit = the member's token. A click whose
-      spell you do not know, or whose kind is switched off, does nothing. Registered for the one
-      direction ActionButtonUseKeyDown acts on, like the buff rows.
+      anything. Without them: a question mark and the kind ("Magic" / "Curse" / "Poison" /
+      "Disease") or "Dispel". The colour is plain child textures (allowed in combat): the kinds
+      found, in the class's order (left-click's first), the first on the left half and the second
+      on the right half; a member with only one kind is that colour all over (a paladin with
+      three kinds shows the first two); dispellable but of an unknown kind = yellow.
+    * Clicks, on the rows and the strip alike: left-click (type1/spell1) = the first action's
+      spell, right-click (type2/spell2) = the second's, or the same spell for a one-action class
+      (paladin, mage); unit = the member's token. A click whose spell you do not know, or whose
+      kinds are all switched off, does nothing. Registered for the one direction
+      ActionButtonUseKeyDown acts on, like the buff rows.
 
   Detecting a dispellable debuff in combat. On this client (Forever 1.60.1, retail 12.x rules)
   auras are secret in combat and an index read from addon code is refused with an error (see
@@ -64,8 +80,9 @@
        dispellable filter (the first of "HARMFUL|RAID_PLAYER_DISPELLABLE", "HARMFUL|RAID" that
        AuraUtil.IsValidFilterString accepts). A plain count answers "has one or not"; the colour
        comes from C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve) with a step
-       colour curve over the dispel type (Curse 2 = purple, Disease 3 = ochre, Poison 4 = green,
-       each only for the class's two kinds while switched on; anything else = transparent),
+       colour curve over the dispel type (Magic 1 = blue, Curse 2 = purple, Disease 3 = ochre,
+       Poison 4 = green, each only for a kind your known spell removes while it is switched on;
+       anything else = transparent),
        passed straight to SetVertexColor, never read here. Without a colour it glows yellow.
     3. "filtered read": GetAuraDataByIndex(unit, 1..2, filter): a non-nil answer means "has
        one"; the kind from a plain dispelName, else the colour API on its auraInstanceID, else
@@ -87,6 +104,10 @@ local _, ns = ...
 
 -- The kinds: dispelName, SpellDispelType ID, colour, tag, the option that switches it, plural.
 local KINDS = {
+    magic = { name = "Magic", type = 1, rgb = { 0.2, 0.6, 1.0 }, tag = "|cff3399ffMagic|r",
+        key = "dispelMagic", plural = "magic", sample = "Shadow Word: Pain",
+        sampleIcon = "Interface\\Icons\\Spell_Shadow_ShadowWordPain", sample2 = "Frost Nova",
+        sampleIcon2 = "Interface\\Icons\\Spell_Frost_FrostNova" },
     curse = { name = "Curse", type = 2, rgb = { 0.64, 0.21, 0.93 }, tag = "|cffa335eeCurse|r",
         key = "dispelCurse", plural = "curses", sample = "Curse of Weakness",
         sampleIcon = "Interface\\Icons\\Spell_Shadow_CurseOfMannoroth", sample2 = "Curse of Agony",
@@ -99,18 +120,31 @@ local KINDS = {
         sampleIcon = "Interface\\Icons\\Spell_Nature_NullifyDisease" },
 }
 
--- Per class: the kind left-click removes and the kind right-click removes, each with its spells
--- (the first one known is cast).
+local KIND_BY_NAME = {}             -- dispelName -> kind key
+for k, v in pairs(KINDS) do KIND_BY_NAME[v.name] = k end
+local KIND_ORDER = { "magic", "curse", "disease", "poison" }
+
+-- Per class: one or two actions. Two: left-click casts the first, right-click the second. One:
+-- both mouse buttons cast it. Each action lists its spells (the first one known is cast), each
+-- spell with the kinds it removes (ids highest rank first).
 local CLASS_CONFIG = {
-    DRUID = { class = "DRUID", id = 11,
-        left = { kind = "curse", spells = { { ids = { 2782 }, name = "Remove Curse" } } },
-        right = { kind = "poison", spells = { { ids = { 2893 }, name = "Abolish Poison" },
-                                              { ids = { 8946 }, name = "Cure Poison" } } } },
-    SHAMAN = { class = "SHAMAN", id = 7,
-        left = { kind = "poison", spells = { { ids = { 526 }, name = "Cure Poison" } } },
-        right = { kind = "disease", spells = { { ids = { 2870 }, name = "Cure Disease" } } } },
+    DRUID = { class = "DRUID", id = 11, actions = {
+        { spells = { { ids = { 2782 }, name = "Remove Curse", kinds = { "curse" } } } },
+        { spells = { { ids = { 2893 }, name = "Abolish Poison", kinds = { "poison" } },
+                     { ids = { 8946 }, name = "Cure Poison", kinds = { "poison" } } } } } },
+    SHAMAN = { class = "SHAMAN", id = 7, actions = {
+        { spells = { { ids = { 526 }, name = "Cure Poison", kinds = { "poison" } } } },
+        { spells = { { ids = { 2870 }, name = "Cure Disease", kinds = { "disease" } } } } } },
+    PRIEST = { class = "PRIEST", id = 5, actions = {
+        { spells = { { ids = { 988, 527 }, name = "Dispel Magic", kinds = { "magic" } } } },
+        { spells = { { ids = { 552 }, name = "Abolish Disease", kinds = { "disease" } },
+                     { ids = { 528 }, name = "Cure Disease", kinds = { "disease" } } } } } },
+    PALADIN = { class = "PALADIN", id = 2, actions = {
+        { spells = { { ids = { 4987 }, name = "Cleanse", kinds = { "poison", "disease", "magic" } },
+                     { ids = { 1152 }, name = "Purify", kinds = { "poison", "disease" } } } } } },
+    MAGE = { class = "MAGE", id = 8, actions = {
+        { spells = { { ids = { 475 }, name = "Remove Lesser Curse", kinds = { "curse" } } } } } },
 }
-local SIDES = { "left", "right" }
 
 local PAD, ROW_H, HEADER_H, MIN_W = 6, 18, 16, 170
 local LIST_THROTTLE, LIST_REFRESH = 0.25, 1.5
@@ -129,7 +163,7 @@ local ORDER = "plain read, aura instance IDs + dispel colour, filtered read, non
 local Secret, Num, Str, Bool, Call, On = ns.Secret, ns.Num, ns.Str, ns.Bool, ns.Call, ns.On
 local InCombat, Print = ns.InCombat, ns.Print
 
-local spells = { left = {}, right = {} }   -- side -> ns.ResolveSpell results, in order
+local spells = {}                -- action index -> ns.ResolveSpell results (plus .kinds), in order
 local spellsPending = true
 local cfg                        -- your class's CLASS_CONFIG entry; nil until PLAYER_LOGIN or for another class
 local panel, listBox, list, strip, header, stripTitle, hint
@@ -154,22 +188,114 @@ local function DB() return ns.DB() end
 -- Your class's config; the druid's before login or on another class (help, test texts).
 local function Cfg() return cfg or CLASS_CONFIG.DRUID end
 
--- The kind a side removes: { name, type, rgb, tag, key, plural, ... }.
-local function Kind(side) return KINDS[Cfg()[side].kind] end
+local function Actions() return Cfg().actions end
 
--- The first spell of a side you know, or nil.
-local function SideSpell(side)
-    for _, s in ipairs(spells[side]) do
+-- One action for both mouse buttons (paladin, mage).
+local function Single() return #Actions() == 1 end
+
+-- The first spell of an action you know, or nil.
+local function ActionSpell(a)
+    for _, s in ipairs(spells[a] or {}) do
         if s.value then return s end
     end
     return nil
 end
 
--- A side you can and want to remove.
-local function Want(side) return On(Kind(side).key) and SideSpell(side) ~= nil end
+-- The kinds an action removes: its known spell's, else its first spell's (for texts).
+local function ActionKinds(a)
+    local s = ActionSpell(a)
+    if s then return s.kinds end
+    return Actions()[a].spells[1].kinds
+end
+
+-- Every kind a class's spells can remove, in order, once each (option labels, help).
+local function ClassKinds(c)
+    local out, seen = {}, {}
+    for _, act in ipairs(c.actions) do
+        for _, sp in ipairs(act.spells) do
+            for _, k in ipairs(sp.kinds) do
+                if not seen[k] then
+                    seen[k] = true
+                    out[#out + 1] = k
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- The kinds of every action as it stands (known spell, else the first), in order, once each,
+-- and kind -> action. For the test samples and to name a debuff's kind.
+local function ShownKinds()
+    local out, of = {}, {}
+    for a in ipairs(Actions()) do
+        for _, k in ipairs(ActionKinds(a)) do
+            if not of[k] then
+                of[k] = a
+                out[#out + 1] = k
+            end
+        end
+    end
+    return out, of
+end
+
+-- The kinds you can remove now: a known spell removes it and it is switched on. In order
+-- (left-click's first), and kind -> action.
+local function Removable()
+    local out, of = {}, {}
+    for a in ipairs(Actions()) do
+        local s = ActionSpell(a)
+        for _, k in ipairs(s and s.kinds or {}) do
+            if not of[k] and On(KINDS[k].key) then
+                of[k] = a
+                out[#out + 1] = k
+            end
+        end
+    end
+    return out, of
+end
+
+-- An action you can and want to use: a known spell with at least one kind switched on.
+local function Want(a)
+    local s = ActionSpell(a)
+    if not s then return false end
+    for _, k in ipairs(s.kinds) do
+        if On(KINDS[k].key) then return true end
+    end
+    return false
+end
+
+-- The spell a mouse button (1 left, 2 right) casts, or nil.
+local function ButtonSpell(button)
+    local a = (button == 2 and not Single()) and 2 or 1
+    return Want(a) and ActionSpell(a) or nil
+end
+
+-- "curse", "poison/disease/magic": a field of each kind, joined.
+local function KindsText(list, field, sep)
+    local parts = {}
+    for _, k in ipairs(list) do parts[#parts + 1] = KINDS[k][field] end
+    return table.concat(parts, sep or ", ")
+end
+
+-- The spell names of an action: "Abolish Poison, else Cure Poison".
+local function SpellNames(act)
+    local parts = {}
+    for _, sp in ipairs(act.spells) do parts[#parts + 1] = sp.name end
+    return table.concat(parts, ", else ")
+end
+
+-- The given kinds in the order of the list (a set in, an ordered list out).
+local function Ordered(set, order)
+    local out = {}
+    for _, k in ipairs(order) do
+        if set[k] then out[#out + 1] = k end
+    end
+    return out
+end
 
 local function Active()
-    return cfg ~= nil and DB() ~= nil and On("enabled") and On("dispel") and (Want("left") or Want("right"))
+    return cfg ~= nil and DB() ~= nil and On("enabled") and On("dispel") and #(Removable()) > 0
         and true or false
 end
 
@@ -267,11 +393,12 @@ local function ChooseFilter()
     return filter or nil
 end
 
--- A step colour curve over the dispel type: the class's two kinds in their colours (each only
--- while that kind is wanted), everything else transparent. false where the client has no
--- colour curves.
+-- A step colour curve over the dispel type (None 0, Magic 1, Curse 2, Disease 3, Poison 4,
+-- anything from 5 on): the kinds you can remove now in their colours, everything else
+-- transparent. false where the client has no colour curves.
 local function Curve()
-    local key = Cfg()[SIDES[1]].kind .. tostring(Want("left")) .. tostring(Want("right"))
+    local removable = Removable()
+    local key = Cfg().class .. ":" .. table.concat(removable, ",")
     if curve ~= nil and curveKey == key then return curve or nil end
     curveKey, curve = key, false
     local CU, E, CC = _G.C_CurveUtil, _G.Enum, _G.CreateColor
@@ -281,19 +408,11 @@ local function Curve()
         if type(E) == "table" and type(E.LuaCurveType) == "table" and E.LuaCurveType.Step ~= nil then
             c:SetType(E.LuaCurveType.Step)
         end
-        -- x -> colour (false = transparent): each kind's type, and the type after it back to
-        -- transparent unless that is the other kind (Disease 3 and Poison 4 are neighbours).
-        local points = { [0] = false }
-        for _, side in ipairs(SIDES) do
-            local k = Kind(side)
-            points[k.type] = Want(side) and k.rgb or false
-            if points[k.type + 1] == nil then points[k.type + 1] = false end
-        end
-        local xs = {}
-        for x in pairs(points) do xs[#xs + 1] = x end
-        table.sort(xs)
-        for _, x in ipairs(xs) do
-            local rgb = points[x]
+        -- A point on every type from 0 to 5, so each type gets exactly its own colour.
+        local rgbOf = {}
+        for _, k in ipairs(removable) do rgbOf[KINDS[k].type] = KINDS[k].rgb end
+        for x = 0, 5 do
+            local rgb = rgbOf[x]
             c:AddPoint(x, rgb and CC(rgb[1], rgb[2], rgb[3], 1) or CC(0, 0, 0, 0))
         end
         return c
@@ -315,18 +434,23 @@ local function PaintFromAPI(tex, unit, id)
 end
 
 -- What one member has: has = true / false / nil (unknown) / a secret boolean (only passed on),
--- how to colour it: left/right (the class's two kinds, known) or ids (aura instance IDs for the
--- colour API),
+-- how to colour it: found (the kinds found, known, in the class's order) or ids (aura instance
+-- IDs for the colour API),
 -- and what it is: name and icon of the first dispellable debuff (either may be secret or nil);
 -- method = which way answered; why = { way -> why it did not answer } for the ways before it.
 local function Detect(unit)
     local why = {}
     local p, whyPlain = ScanPlain(unit)
     if p then
-        local fl, fr = p.found[Kind("left").name], p.found[Kind("right").name]
-        local l, rt = fl ~= nil and Want("left"), fr ~= nil and Want("right")
-        local r = { has = l or rt, left = l, right = rt, method = "plain read" }
-        local first = (l and fl) or (rt and fr)
+        local found, first = {}, nil
+        for _, k in ipairs((Removable())) do
+            local f = p.found[KINDS[k].name]
+            if f then
+                found[#found + 1] = k
+                first = first or f
+            end
+        end
+        local r = { has = #found > 0, found = found, method = "plain read" }
         if first then r.name, r.icon = first.name, first.icon end
         return r
     end
@@ -361,6 +485,8 @@ local function Detect(unit)
     end
     if type(C.GetAuraDataByIndex) == "function" then
         local r = { method = "filtered read", ids = {}, why = why }
+        local order, of = ShownKinds()
+        local set = {}
         for i = 1, 2 do
             local ok, a = pcall(C.GetAuraDataByIndex, unit, i, f)
             if not ok then
@@ -383,14 +509,13 @@ local function Detect(unit)
                     r.name, r.icon = NameIcon(a)
                 end
                 local ok2, dn, id = pcall(function() return a.dispelName, a.auraInstanceID end)
-                if ok2 and not Secret(dn) and dn == Kind("left").name then r.left = true
-                elseif ok2 and not Secret(dn) and dn == Kind("right").name then r.right = true
-                else r.unknownKind = true end
+                local k = ok2 and not Secret(dn) and type(dn) == "string" and KIND_BY_NAME[dn]
+                if k and of[k] then set[k] = true else r.unknownKind = true end
                 if ok2 then r.ids[#r.ids + 1] = id end
             end
         end
         if not r.has then r.has = false end
-        if r.unknownKind then r.left, r.right = nil, nil else r.ids = nil end
+        if r.unknownKind then r.found = nil else r.found, r.ids = Ordered(set, order), nil end
         return r
     end
     why["filtered read"] = "no API"
@@ -469,7 +594,8 @@ local function ShowDebuff(b, r)
     end
     b.icon:Show()
     if not (Usable(r.name, "string") and pcall(b.debuff.SetText, b.debuff, r.name)) then
-        b.debuff:SetText(r.left and Kind("left").name or r.right and Kind("right").name or "Dispel")
+        local k = r.found and r.found[1]
+        b.debuff:SetText(k and KINDS[k].name or "Dispel")
     end
 end
 
@@ -502,10 +628,11 @@ local function Paint(b, r)
         b:SetAlpha(1)
     end
     ShowDebuff(b, r)
-    if r.left or r.right then
-        local L, R = Kind("left").rgb, Kind("right").rgb
-        Glow(b.glowL, r.left and L or R)
-        Glow(b.glowR, r.right and R or L)
+    local found = r.found
+    if found and found[1] then
+        -- The first kind on the left half, the second (else the first again) on the right.
+        Glow(b.glowL, KINDS[found[1]].rgb)
+        Glow(b.glowR, KINDS[found[2] or found[1]].rgb)
         return outcome
     end
     local ids = r.ids
@@ -565,10 +692,10 @@ local function Tooltip(self)
     if self.fake then
         tip:AddLine("Test button: clicking does nothing.", 0.7, 0.7, 0.7)
     else
-        for _, side in ipairs(SIDES) do
-            local s = SideSpell(side)
-            tip:AddLine((side == "left" and "Left-click: " or "Right-click: ")
-                .. ((Want(side) and s) and s.label or ("nothing (" .. Kind(side).plural .. " off or not known)")), 1, 1, 1)
+        for a in ipairs(Actions()) do
+            local s = ButtonSpell(a)
+            tip:AddLine((Single() and "Left- or right-click: " or a == 1 and "Left-click: " or "Right-click: ")
+                .. (s and s.label or ("nothing (" .. KindsText(ActionKinds(a), "plural") .. " off or not known)")), 1, 1, 1)
         end
         if self.far then tip:AddLine("Out of range", 1, 0.3, 0.3) end
     end
@@ -580,9 +707,10 @@ local function HookTooltip(b)
     b:HookScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
 end
 
--- The click attributes, out of combat only: left = the left kind's spell, right = the right's.
+-- The click attributes, out of combat only: left = the first action's spell, right = the
+-- second's (the same one for a one-action class).
 local function Bind(b, unit)
-    local c, p = Want("left") and SideSpell("left"), Want("right") and SideSpell("right")
+    local c, p = ButtonSpell(1), ButtonSpell(2)
     b:RegisterForClicks(ns.UseKeyDown() and "AnyDown" or "AnyUp")
     b:SetAttribute("type", nil)
     b:SetAttribute("spell", nil)
@@ -851,13 +979,13 @@ local function Fake(i)
     return f
 end
 
-local function Entry(unit, has)
+-- found: the kinds the member has that you can remove, in order; of: kind -> action.
+local function Entry(unit, found, of)
     local text, plain = ns.UnitLabel(unit)
     local tags, suffix = {}, {}
-    if has.left then tags[#tags + 1] = Kind("left").tag end
-    if has.right then tags[#tags + 1] = Kind("right").tag end
+    for _, k in ipairs(found) do tags[#tags + 1] = KINDS[k].tag end
     if unit == "player" then suffix[#suffix + 1] = "you" end
-    local spell = has.left and SideSpell("left") or SideSpell("right")
+    local spell = ActionSpell(of[found[1]])
     local e = { unit = unit, plainName = plain, icon = spell and spell.icon }
     local inRange, isSecret, secretRange = ns.InSpellRange(spell and spell.value, unit)
     if inRange == false then
@@ -873,44 +1001,67 @@ end
 
 local function Entries()
     local out = {}
+    local removable, of = Removable()
     for _, u in ipairs(ns.GroupUnits()) do
         local ok, eligible = pcall(ns.Eligible, u)
         if ok and eligible then
             local okS, p = pcall(ScanPlain, u)
             if okS and p then
-                local has = { left = p.found[Kind("left").name] ~= nil and Want("left"),
-                    right = p.found[Kind("right").name] ~= nil and Want("right") }
-                if has.left or has.right then out[#out + 1] = Entry(u, has) end
+                local found = {}
+                for _, k in ipairs(removable) do
+                    if p.found[KINDS[k].name] ~= nil then found[#found + 1] = k end
+                end
+                if #found > 0 then out[#out + 1] = Entry(u, found, of) end
             end
         end
     end
     return out
 end
 
+-- The icon of the spell that removes a kind (its action's known spell, else nil).
+local function KindIcon(of, k)
+    local s = ActionSpell(of[k])
+    return s and s.icon
+end
+
+-- Test rows for your class: the first kind, the second (else the first) out of range, and the
+-- first two together.
 local function FakeEntries()
-    local L, R = Kind("left"), Kind("right")
-    local c = SideSpell("left") or { label = Cfg().left.spells[1].name }
-    local p = SideSpell("right") or { label = Cfg().right.spells[1].name }
+    local kinds, of = ShownKinds()
+    local k1, k2 = kinds[1], kinds[2] or kinds[1]
+    local both = KINDS[k1].tag .. (kinds[2] and (" " .. KINDS[kinds[2]].tag) or "")
     return {
-        { text = "|cffc79c6eTankyboy|r " .. L.tag, icon = c.icon, plainName = "Tankyboy", fake = true },
-        { text = "|cfff58cbaHealbot|r " .. R.tag .. "|cffaaaaaa (out of range)|r", icon = p.icon,
+        { text = "|cffc79c6eTankyboy|r " .. KINDS[k1].tag, icon = KindIcon(of, k1), plainName = "Tankyboy", fake = true },
+        { text = "|cfff58cbaHealbot|r " .. KINDS[k2].tag .. "|cffaaaaaa (out of range)|r", icon = KindIcon(of, k2),
           plainName = "Healbot", fake = true, far = true },
-        { text = "|cff69ccf0Frostmage|r " .. L.tag .. " " .. R.tag, icon = c.icon,
+        { text = "|cff69ccf0Frostmage|r " .. both, icon = KindIcon(of, k1),
           plainName = "Frostmage", fake = true },
     }
 end
 
--- A sample of the strip for your class. Members with nothing to remove are invisible in combat,
--- so the sample has none of them.
+-- A sample of the strip for your class: one member per kind, the first two kinds together, and
+-- one of an unknown kind. Members with nothing to remove are invisible in combat, so the sample
+-- has none of them.
 local function FakeStrip()
-    local L, R = Kind("left"), Kind("right")
-    return {
-        { "|cffc79c6eTankyboy|r", { has = true, left = true, name = L.sample, icon = L.sampleIcon } },
-        { "|cfff58cbaHealbot|r", { has = true, right = true, name = R.sample, icon = R.sampleIcon } },
-        { "|cff69ccf0Frostmage|r", { has = true, left = true, right = true, name = L.sample2 or L.sample,
-            icon = L.sampleIcon2 or L.sampleIcon } },
-        { "|cfffff569Stabby|r", { has = true } },
-    }
+    local kinds = ShownKinds()
+    local names = { "|cffc79c6eTankyboy|r", "|cfff58cbaHealbot|r", "|cffabd473Arrowz|r" }
+    local out = {}
+    for i, k in ipairs(kinds) do
+        local K = KINDS[k]
+        out[#out + 1] = { names[i] or "|cffffffffMember|r", { has = true, found = { k }, name = K.sample, icon = K.sampleIcon } }
+    end
+    local K = KINDS[kinds[1]]
+    out[#out + 1] = { "|cff69ccf0Frostmage|r", { has = true, found = { kinds[1], kinds[2] },
+        name = K.sample2 or K.sample, icon = K.sampleIcon2 or K.sampleIcon } }
+    out[#out + 1] = { "|cfffff569Stabby|r", { has = true } }
+    return out
+end
+
+-- What each mouse button removes: "left: curse, right: poison" or "left or right: poison/disease".
+local function ClickText()
+    if Single() then return "left or right: " .. KindsText(ActionKinds(1), "name", "/"):lower() end
+    return "left: " .. KindsText(ActionKinds(1), "name", "/"):lower()
+        .. ", right: " .. KindsText(ActionKinds(2), "name", "/"):lower()
 end
 
 local function UpdateList()
@@ -967,8 +1118,7 @@ local function UpdateList()
     if testing then
         stripTitle:ClearAllPoints()
         stripTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + 2, y)
-        stripTitle:SetText("In combat, only members with something to remove (left: " .. Kind("left").name:lower()
-            .. ", right: " .. Kind("right").name:lower() .. "):")
+        stripTitle:SetText("In combat, only members with something to remove (" .. ClickText() .. "):")
         stripTitle:Show()
         w = math.max(w, (Num(stripTitle:GetStringWidth()) or 0) + 2 * PAD + 4)
         y = y - 14
@@ -1021,9 +1171,14 @@ local function ResolveSpells()
         return
     end
     spellsPending = false
-    for _, side in ipairs(SIDES) do
-        spells[side] = {}
-        for _, e in ipairs(Cfg()[side].spells) do spells[side][#spells[side] + 1] = ns.ResolveSpell(e.ids, e.name) end
+    spells = {}
+    for a, act in ipairs(Actions()) do
+        spells[a] = {}
+        for _, e in ipairs(act.spells) do
+            local s = ns.ResolveSpell(e.ids, e.name)
+            s.kinds = e.kinds
+            spells[a][#spells[a] + 1] = s
+        end
     end
     curve = nil
     stripPending, listDirty = true, true
@@ -1031,8 +1186,8 @@ end
 
 -- Everything a rebuild depends on; a change means rebuild (out of combat).
 local function Signature()
-    local c, p = SideSpell("left"), SideSpell("right")
-    return table.concat({ tostring(Active()), tostring(Testing()), tostring(Want("left")), tostring(Want("right")),
+    local c, p = ButtonSpell(1), ButtonSpell(2)
+    return table.concat({ tostring(Active()), tostring(Testing()), table.concat((Removable()), "/"),
         tostring(Locked()), tostring(ns.UseKeyDown()), tostring(c and c.value), tostring(p and p.value) }, ",")
 end
 
@@ -1059,9 +1214,11 @@ local function Slash(arg)
     if what == "" or what == "on" or what == "off" then
         local v = ns.Toggle(what, On("dispel"))
         ns.Set("dispel", v)
-        if not cfg then Print("the dispel panel is for druids and shamans; it stays hidden on this character.") end
+        if not cfg then
+            Print("the dispel panel is for druids, mages, paladins, priests and shamans; it stays hidden on this character.")
+        end
     elseif KINDS[what] then
-        -- Any kind, whatever the class (the settings are account-wide); only your class's two
+        -- Any kind, whatever the class (the settings are account-wide); only your class's
         -- kinds matter on this character.
         local key = KINDS[what].key
         local v = ns.Toggle(rest, On(key))
@@ -1073,14 +1230,14 @@ local function Slash(arg)
     elseif what == "reset" then
         ResetPosition()
     else
-        Print("/bbuff dispel [on|off], /bbuff dispel " .. Cfg().left.kind .. "|" .. Cfg().right.kind
+        Print("/bbuff dispel [on|off], /bbuff dispel " .. table.concat(cfg and ClassKinds(cfg) or KIND_ORDER, "|")
             .. " [on|off], /bbuff dispel unlock|lock|reset")
     end
     listDirty = true
 end
 
 -- ---------------------------------------------------------------------------
--- Into the druid and shaman modules: options, slash, help, status, hub menu
+-- Into the class modules: options, slash, help, status, hub menu
 -- ---------------------------------------------------------------------------
 
 local WAYS = { "plain read", "aura instance IDs", "filtered read", "none" }
@@ -1117,19 +1274,32 @@ local function Reasons(stats)
     return #parts > 0 and table.concat(parts, "; ") or nil
 end
 
--- What a side resolved to: the known spell's text, else every spell's ("... not known").
-local function SideText(side)
-    local s = SideSpell(side)
+-- What an action resolved to: the known spell's text, else every spell's ("... not known").
+local function ActionText(a)
+    local s = ActionSpell(a)
     if s then return s.text end
     local parts = {}
-    for _, r in ipairs(spells[side]) do parts[#parts + 1] = r.text end
+    for _, r in ipairs(spells[a] or {}) do parts[#parts + 1] = r.text end
     return #parts > 0 and table.concat(parts, "; ") or "not resolved yet"
+end
+
+-- "curses (left-click): ...   poisons (right-click): ..." or "poisons, diseases, magic (left-
+-- or right-click): ...".
+local function SpellsLine()
+    local parts = {}
+    for a in ipairs(Actions()) do
+        parts[#parts + 1] = KindsText(ActionKinds(a), "plural")
+            .. (Single() and " (left- or right-click): " or a == 1 and " (left-click): " or " (right-click): ")
+            .. ActionText(a)
+    end
+    return table.concat(parts, "   ")
 end
 
 local function StatusExtra()
     local db = DB()
     local p = db and db.dispelPos
-    local c, po = SideSpell("left"), SideSpell("right")
+    local c, po = ButtonSpell(1), ButtonSpell(2)
+    local removable = Removable()
     local C = _G.C_UnitAuras
     local function Has(name) return ns.YesNo(type(C) == "table" and type(C[name]) == "function") end
     local f = ChooseFilter()
@@ -1149,13 +1319,12 @@ local function StatusExtra()
             .. "   " .. (InCombat() and "strip (combat)" or (panel and panel:IsShown() and listBox:IsShown()) and ("shown, " .. shownRows .. " rows") or "hidden")
             .. "   " .. (Locked() and "locked" or "unlocked")
             .. "   position: " .. (type(p) == "table" and string.format("%d, %d", p.x or 0, p.y or 0) or "default (below the box)"),
-        Kind("left").plural .. " (left-click): " .. SideText("left")
-            .. "   " .. Kind("right").plural .. " (right-click): " .. SideText("right")
-            .. (spellsPending and " (update waits for combat to end)" or ""),
+        SpellsLine() .. (spellsPending and " (update waits for combat to end)" or ""),
+        "removes now: " .. (#removable > 0 and KindsText(removable, "plural") or "nothing (no dispel spell known yet, or every kind off)"),
         "strip: " .. stripMode .. ", " .. stripCount .. " buttons" .. ((stripPending or rosterInCombat) and " (rebuild after combat)" or "")
             .. "   combat show: " .. (drivers and "state driver" or "PLAYER_REGEN_DISABLED")
-            .. "   left: " .. ((Want("left") and c) and c.label or "nothing")
-            .. "   right: " .. ((Want("right") and po) and po.label or "nothing"),
+            .. "   left: " .. (c and c.label or "nothing")
+            .. "   right: " .. (po and po.label or "nothing"),
         "dispel filter: " .. (f or "none") .. " (" .. tostring(filterInfo) .. ")   GetUnitAuraInstanceIDs "
             .. Has("GetUnitAuraInstanceIDs") .. "   GetAuraDispelTypeColor " .. Has("GetAuraDispelTypeColor")
             .. "   colour curve " .. ns.YesNo(Curve() ~= nil),
@@ -1173,20 +1342,27 @@ local function Menu()
     }
 end
 
--- Adds the panel to one class module: its options (labelled for that class), the dispel slash
--- command, help lines, status lines and hub menu entries (after the module's own).
+-- Adds the panel to one class module: its options (labelled for that class, one per kind the
+-- class can remove), the dispel slash command, help lines, status lines and hub menu entries
+-- (after the module's own).
 local function Hook(mod, classFile)
     local c = CLASS_CONFIG[classFile]
-    local L, R = KINDS[c.left.kind], KINDS[c.right.kind]
-    local Lspell, Rspell = c.left.spells[1].name, c.right.spells[1].name
+    local kinds = ClassKinds(c)
     mod.options = mod.options or {}
     mod.options[#mod.options + 1] = { key = "dispel", short = "dispel",
-        label = "Dispel panel (" .. L.plural .. ", " .. R.plural .. ")" }
-    mod.options[#mod.options + 1] = { key = L.key, short = c.left.kind, label = "Dispel: " .. L.plural }
-    mod.options[#mod.options + 1] = { key = R.key, short = c.right.kind, label = "Dispel: " .. R.plural }
+        label = "Dispel panel (" .. KindsText(kinds, "plural") .. ")" }
+    for _, k in ipairs(kinds) do
+        mod.options[#mod.options + 1] = { key = KINDS[k].key, short = k, label = "Dispel: " .. KINDS[k].plural }
+    end
     mod.savedKeys = mod.savedKeys or {}
     mod.savedKeys.dispelPos, mod.savedKeys.dispelLocked = true, true
 
+    local clicks
+    if #c.actions == 1 then
+        clicks = "left- or right-click " .. SpellNames(c.actions[1])
+    else
+        clicks = "left-click " .. SpellNames(c.actions[1]) .. ", right-click " .. SpellNames(c.actions[2])
+    end
     local baseSlash, baseHelp, baseMenu = mod.Slash, mod.Help, mod.Menu
     mod.Slash = function(cmd, arg)
         if cmd == "dispel" then
@@ -1197,10 +1373,12 @@ local function Hook(mod, classFile)
     end
     mod.Help = function()
         local out = baseHelp()
-        out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a " .. L.name:lower() .. " or "
-            .. R.name:lower() .. " (out of combat), in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; left-click "
-            .. Lspell .. ", right-click " .. Rspell
-        out[#out + 1] = "/bbuff dispel " .. c.left.kind .. "|" .. c.right.kind .. " [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
+        -- Only your class's dispel lines (the druid's on a class without a panel), not once per module.
+        if cfg ~= c and not (cfg == nil and classFile == "DRUID") then return out end
+        out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has something you can remove ("
+            .. KindsText(kinds, "plural") .. ") out of combat, in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; "
+            .. clicks
+        out[#out + 1] = "/bbuff dispel " .. table.concat(kinds, "|") .. " [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
         return out
     end
     mod.StatusExtra = StatusExtra
@@ -1210,6 +1388,26 @@ local function Hook(mod, classFile)
         return out
     end
 end
+
+-- A class with a dispel panel but nothing for the buff box (priest, mage): a module with no buff
+-- check, so the shared part still gives it its options, commands, status and menu.
+local function DispelOnlyModule(classFile, name)
+    local M = { class = classFile, name = name, dispelOnly = true, options = {}, thresholds = {},
+        blurb = "a " .. name:lower() .. "'s dispel panel: who in your group has something you can remove, and a click button per member in combat. There is no buff check for this class." }
+    function M.ResolveSpells() end
+    function M.WantsGroup() return false end
+    function M.Sections() return {} end
+    function M.Check() end
+    function M.LowReagents() return {}, {} end
+    function M.Fake() return {}, {} end
+    function M.Help() return {} end
+    function M.Slash() return false end
+    function M.StatusSpells() return { "buff check: none for a " .. name:lower() .. " (dispel panel only)" } end
+    function M.StatusLast() return "last check: no buff check for this class" end
+    return M
+end
+ns.modules.PRIEST = ns.modules.PRIEST or DispelOnlyModule("PRIEST", "Priest")
+ns.modules.MAGE = ns.modules.MAGE or DispelOnlyModule("MAGE", "Mage")
 
 for classFile in pairs(CLASS_CONFIG) do
     if ns.modules[classFile] then Hook(ns.modules[classFile], classFile) end

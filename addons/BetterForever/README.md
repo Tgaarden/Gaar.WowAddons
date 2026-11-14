@@ -27,8 +27,9 @@ The family: [BetterBagsForever](../BetterBagsForever/README.md),
 [BetterTooltipsForever](../BetterTooltipsForever/README.md),
 [BetterMailForever](../BetterMailForever/README.md),
 [BetterXPForever](../BetterXPForever/README.md),
-[BetterChatForever](../BetterChatForever/README.md) and
-[BetterBarsForever](../BetterBarsForever/README.md). It is not part of the Gaar suite.
+[BetterChatForever](../BetterChatForever/README.md),
+[BetterBarsForever](../BetterBarsForever/README.md) and
+[BetterLootForever](../BetterLootForever/README.md). It is not part of the Gaar suite.
 
 The hub carries no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, window, fishing,
 buff, merchant, tooltip, mail, XP, chat or action-bar code of its own. Each addon keeps its logic,
@@ -109,7 +110,7 @@ minimap (`GetMinimapShape() == "SQUARE"`), dragged around it, angle saved, 285 d
 (clear of GaarOptions at 205 and GaarVanguard at 245). The tooltip shows each addon's state line.
 A click opens a submenu per addon - **Bags**, **Quests**, **Maps**, **Castbars**, **Plates**,
 **GPS**, **Frames**, **Windows**, **Fishing**, **Buffs**, **Merchant**, **Tooltips**, **Mail**,
-**XP**, **Chat** and **Bars** - each filled by the addon itself through its API, then
+**XP**, **Chat**, **Bars** and **Loot** - each filled by the addon itself through its API, then
 **Hide minimap button** (`/bf minimap` brings it back). An addon that is not installed shows a
 disabled `BetterBagsForever – not installed` line instead; one that is loaded but older than its
 API says to update it.
@@ -128,7 +129,7 @@ addons load after the hub (they depend on it), so at `PLAYER_LOGIN` the hub call
 
 ## The API each addon exports
 
-`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, ... `BetterBarsForeverAPI`:
+`BetterBagsForeverAPI`, `BetterQuestsForeverAPI`, ... `BetterLootForeverAPI`:
 
 | Field | What it is |
 |---|---|
@@ -153,7 +154,7 @@ name): `version`, `ADDONS` (the list above), `PlaceMinimapButton()`, `OpenOption
 | `/bf minimap`, `/bf minimap reset` | Show or hide the minimap button; back to its default place (285 degrees) and shown |
 
 `/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps` (and `/way`), `/bff`, `/bwf`, `/bfish`, `/bbuff`,
-`/bmerch`, `/btip`, `/bmail`, `/bxp`, `/bchat` and `/bbars` belong to the addons themselves.
+`/bmerch`, `/btip`, `/bmail`, `/bxp`, `/bchat`, `/bbars` and `/bloot` belong to the addons themselves.
 
 ## Saved variables
 
@@ -265,6 +266,13 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.0.2
+
+- A **Loot** row for the new BetterLootForever 1.0 (`BetterLootForeverAPI`, `/bloot`): its
+  submenu in the minimap menu, its Options page, its line in `/bf status`. The library is
+  unchanged (still 3.0.1); BetterLootForever is the first addon built on `NewAddon`'s option
+  registry.
 
 ## 3.0.1
 

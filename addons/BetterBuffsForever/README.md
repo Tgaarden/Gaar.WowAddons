@@ -42,8 +42,11 @@ whether your reagents are running low. Click a name to buff that member. It need
   name, `(you)` for yourself and `(tank)` for a tank, then the low-reagent lines
   (`Low reagents: Wild Thornroot 3/10`). It hides again when everything is covered.
 - **Who is never warned about:** dead or ghost members, offline members, and members the client
-  does not see (`UnitIsVisible`, too far away). Members out of the spell's range are shown dimmed
-  with `(out of range)`; they stay clickable, the cast just fails.
+  does not see (`UnitIsVisible`, too far away). Members out of the spell's range are left out of the
+  box (and of the out-of-combat dispel list) by default; with `/bbuff range on` (or the menu
+  toggle `Show members out of range`, saved account-wide) they are shown dimmed with
+  `(out of range)` and stay clickable, the cast just fails. An unknown (secret) range is always
+  shown. If every missing member is out of range the section, and the box, disappears.
 - **Unknown is not missing.** A member whose buffs cannot be read (a secret aura, a refused read)
   counts as unknown and is never warned about. `/bbuff status` gives the count.
 - **Low reagents** (on by default): counted in the bags only (`C_Item.GetItemCount`, else
@@ -129,7 +132,7 @@ out on purpose).
   class-coloured name and a tag per kind, `Magic` (blue), `Curse` (purple), `Poison` (green),
   `Disease` (ochre);
   `(you)`,
-  `(out of range)` (dimmed). Dead, offline and unseen members are skipped. Read from the plain
+  `(out of range)` (dimmed, only with `/bbuff range on`; left out otherwise). Dead, offline and unseen members are skipped. Read from the plain
   `dispelName` of `C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")` (`UnitDebuff` on an older
   client).
 - **In combat**: the list is replaced by a fixed strip, one secure button per group member, shown
@@ -341,6 +344,7 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff on`, `/bbuff off` | Switch the addon on or off |
 | `/bbuff group [on\|off]` | List group members (off: only you are checked) |
 | `/bbuff sound [on\|off]` | A short sound when something new goes missing (off by default) |
+| `/bbuff range [on\|off]` | Show members out of range, dimmed (off by default: they are left out of the box and the dispel list) |
 | `/bbuff reagents [on\|off]` | The low-reagent warning (on by default) |
 | `/bbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
 | `/bbuff tank clear` | Clear the tank set by hand |

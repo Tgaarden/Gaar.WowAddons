@@ -1,23 +1,27 @@
 --[[
-  BetterBuffsForever - a buff check on WoW Forever for druids and paladins: who in your group
-  lacks your buff, in a box at the top centre of the screen. Click a name to buff it.
+  BetterBuffsForever - a buff check on WoW Forever for druids, paladins and shamans: who in your
+  group lacks your buff, in a box at the top centre of the screen. Click a name to buff it.
 
   This file is the shared part; the class-specific parts are modules in their own files, loaded
-  after this one (both TOCs list all four):
+  after this one (both TOCs list all five):
 
     Druid.lua    Mark of the Wild / Gift of the Wild, Thorns on you and the tank, and the Gift of
                  the Wild and Rebirth reagents.
     Paladin.lua  Blessings by class (with a fallback when another paladin's blessing is already
                  there), "No aura", Righteous Fury while you tank, and Symbol of Kings.
-    Dispel.lua   The druid's dispel panel (curses and poisons): its own movable frame, a list of
-                 who has one out of combat and a strip of one secure button per member in
-                 combat (left-click Remove Curse, right-click Abolish/Cure Poison). It hooks into
-                 the druid module and keeps its own frames and events; see that file.
+    Shaman.lua   A weapon without an imbue (click casts the chosen imbue), Lightning Shield, and
+                 the Ankh, totem, Fish Oil and Shiny Fish Scales reagents. Only you are checked.
+    Dispel.lua   The dispel panel of a druid (curses and poisons) and a shaman (poisons and
+                 diseases): its own movable frame, a list of who has one out of combat and a strip
+                 of one secure button per member in combat (druid: left-click Remove Curse,
+                 right-click Abolish/Cure Poison; shaman: left-click Cure Poison, right-click Cure
+                 Disease). It hooks into the druid and shaman modules and keeps its own frames and
+                 events; see that file.
 
   A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
   else from here:
 
-    * Only for a class with a module (Druid, Paladin). Any other class leaves the addon idle: no
+    * Only for a class with a module (Druid, Paladin, Shaman). Any other class leaves the addon idle: no
       scans, no box; /bbuff status says so.
     * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
       every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
@@ -40,7 +44,8 @@
     * The box can be moved: drag it while unlocked (/bbuff unlock), or Alt + drag at any time.
       The position is saved account-wide. /bbuff reset puts it back at the top centre.
     * Updates are throttled to 4 a second (UNIT_AURA, GROUP_ROSTER_UPDATE, ...), plus a refresh
-      every 1.5 s while in a group, for range, death and visibility, which have no cheap event.
+      every 1.5 s while in a group, for range, death and visibility, which have no cheap event,
+      and while the module's Tick() says so (the shaman's weapon imbue check).
     * Low reagents (on by default): a "Low reagents:" line in the same box when the bags hold
       fewer than a threshold of a reagent the module checks. Not clickable.
     * An optional short sound when something new goes missing (off by default).
@@ -70,7 +75,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.2.4"
+local VERSION = "1.3.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
@@ -98,8 +103,8 @@ local LABELS = {
     reagents = "Low reagent warning",
 }
 
-ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua and Paladin.lua
-local MODULE_ORDER = { "DRUID", "PALADIN" }
+ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua
+local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN" }
 
 local db                  -- BetterBuffsForeverDB, bound at ADDON_LOADED (never at file scope)
 local charDb              -- BetterBuffsForeverCharDB: the tank set by hand, plus module keys
@@ -190,12 +195,14 @@ local function PlayerClass()
     return Str(classFile), Num(classID)
 end
 
-local CLASS_BY_ID = { [11] = "DRUID", [2] = "PALADIN" }
+local CLASS_BY_ID = { [11] = "DRUID", [2] = "PALADIN", [7] = "SHAMAN" }
 
 local function CheckClass()
     local classFile, classID = PlayerClass()
     classFile = classFile or (classID and (CLASS_BY_ID[classID] or "OTHER"))
     if classFile then module = ns.modules[classFile] or false end
+    -- A key two modules share (the dispel panel's) gets your class's label.
+    for _, o in ipairs(module and module.options or {}) do LABELS[o.key] = o.label end
 end
 
 local function SpellName(spell)
@@ -491,21 +498,27 @@ local function ItemName(itemID, fallback)
     return name or fallback or ("item " .. itemID)
 end
 
--- In the bags (bank not counted); nil when the client gives no count.
-local function BagCount(itemID)
+-- In the bags (bank not counted); nil when the client gives no count. item is an ID or a name.
+local function BagCount(item)
     local c = _G.C_Item
     if type(c) == "table" and type(c.GetItemCount) == "function" then
-        local ok, n = pcall(c.GetItemCount, itemID, false)
+        local ok, n = pcall(c.GetItemCount, item, false)
         if ok and Num(n) then return n end
     end
-    return Num(Call("GetItemCount", itemID, false))
+    return Num(Call("GetItemCount", item, false))
 end
 
 -- One reagent check: an entry { item, name, count, min, spell } added to checked, and to low
--- when the bags hold fewer than the threshold.
-local function CheckReagent(low, checked, item, fallbackName, key, default, spellLabel)
+-- when the bags hold fewer than the threshold. byName: when the ID finds none, count by the
+-- item's name too (the client's name, else fallbackName) and keep the larger count.
+local function CheckReagent(low, checked, item, fallbackName, key, default, spellLabel, byName)
     local count, min = BagCount(item), Threshold(key, default)
-    local e = { item = item, name = ItemName(item, fallbackName), count = count, min = min, spell = spellLabel }
+    local name = ItemName(item, fallbackName)
+    if byName and (count or 0) == 0 then
+        local n = BagCount(name)
+        if n and n > (count or 0) then count = n end
+    end
+    local e = { item = item, name = name, count = count, min = min, spell = spellLabel }
     checked[#checked + 1] = e
     if count and count < min then low[#low + 1] = e end
 end
@@ -962,15 +975,15 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids and paladins: a box at the top centre lists who in your group lacks your buffs, and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on other classes the addon stays idle."
+local INTRO = "For druids, paladins and shamans: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Druids and shamans also get a dispel panel with a click button per member in combat. Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on other classes the addon stays idle."
 
 local function PrintHelp()
     Print(INTRO)
     if module then
         Print(module.blurb)
     else
-        Print("a buff check for druids and paladins: who lacks your buffs. Click a name to buff it."
-            .. (module == false and " Idle on this character (not a druid or paladin)." or ""))
+        Print("a buff check for druids, paladins and shamans: who lacks your buffs. Click a name to buff it."
+            .. (module == false and " Idle on this character (not a druid, paladin or shaman)." or ""))
     end
     Print("/bbuff on | off - switch it on or off")
     for _, m in ipairs(module and { module } or Modules()) do
@@ -990,7 +1003,7 @@ end
 local function PrintStatus()
     Print("version " .. VERSION .. "   class module: " .. (module and module.name or "none"))
     if module == false then
-        Print("not a druid or paladin: the addon is idle on this character.")
+        Print("not a druid, paladin or shaman: the addon is idle on this character.")
     elseif module == nil then
         Print("class not known yet.")
     end
@@ -1044,7 +1057,7 @@ local function OnSlash(msg)
     cmd, arg = cmd or "", arg or ""
     if cmd == "on" or cmd == "off" then
         Set("enabled", cmd == "on")
-        if cmd == "on" and module == false then Print("not a druid or paladin: it stays idle on this character.") end
+        if cmd == "on" and module == false then Print("not a druid, paladin or shaman: it stays idle on this character.") end
     elseif cmd == "group" or cmd == "sound" then
         local v = Toggle(arg, On(cmd))
         if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
@@ -1084,7 +1097,7 @@ local function OnSlash(msg)
     elseif cmd == "status" then
         PrintStatus()
     else
-        -- The class commands: yours first, then the other module's (their settings are
+        -- The class commands: yours first, then the other modules' (their settings are
         -- account-wide, so a druid can set a paladin's options and the other way round).
         for _, m in ipairs(Modules()) do
             if m.Slash(cmd, arg) then return end
@@ -1102,8 +1115,8 @@ end
 -- /bbuff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
---   StatusLine()         one short line of state, e.g. "on · 2 missing" or "idle (not a druid
---                        or paladin)"
+--   StatusLine()         one short line of state, e.g. "on · 2 missing" or "idle (not a druid,
+--                        paladin or shaman)"
 --   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
 --                        { text, func }, { text, checkbox = true, checked, func },
 --                        { text, radio = true, checked, func }, { text, submenu } and
@@ -1114,15 +1127,15 @@ end
 
 local function StatusLine()
     if not db then return "not loaded yet" end
-    if module == false then return "idle (not a druid or paladin)" end
+    if module == false then return "idle (not a druid, paladin or shaman)" end
     if not On("enabled") then return "off" end
     if InCombat() then return "on" .. DOT .. "hidden in combat" end
     return "on" .. DOT .. (missingCount > 0 and (missingCount .. " missing") or "all buffed")
         .. ((lastScan.unknown or 0) > 0 and (DOT .. lastScan.unknown .. " unknown") or "")
 end
 
-local function CheckEntry(key)
-    return { text = LABELS[key] or key, checkbox = true,
+local function CheckEntry(key, label)
+    return { text = label or LABELS[key] or key, checkbox = true,
         checked = function() return On(key) end,
         func = function() Set(key, not On(key)) end }
 end
@@ -1146,7 +1159,7 @@ local function MenuEntries()
           func = function() Set("enabled", not On("enabled")) end },
     }
     local m = module or nil
-    for _, o in ipairs(m and m.options or {}) do list[#list + 1] = CheckEntry(o.key) end
+    for _, o in ipairs(m and m.options or {}) do list[#list + 1] = CheckEntry(o.key, o.label) end
     list[#list + 1] = CheckEntry("group")
     list[#list + 1] = CheckEntry("sound")
     list[#list + 1] = CheckEntry("reagents")
@@ -1272,7 +1285,8 @@ ticker:SetScript("OnUpdate", function()
         if InCombat() then return end
         local now = Now()
         if now - lastUpdate < THROTTLE then return end
-        if dirty or (Active() and InGroup() and now - lastUpdate >= GROUP_REFRESH) then
+        local tick = Active() and (InGroup() or (type(module.Tick) == "function" and module.Tick()))
+        if dirty or (tick and now - lastUpdate >= GROUP_REFRESH) then
             Update()
         end
     end)
@@ -1295,6 +1309,9 @@ pcall(events.RegisterEvent, events, "UNIT_CONNECTION")
 pcall(events.RegisterEvent, events, "LEARNED_SPELL_IN_TAB")
 pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORM")    -- a paladin's aura changed
 pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORMS")
+pcall(events.RegisterEvent, events, "UNIT_INVENTORY_CHANGED")     -- a shaman's weapon or imbue
+pcall(events.RegisterEvent, events, "PLAYER_EQUIPMENT_CHANGED")
+pcall(events.RegisterEvent, events, "WEAPON_ENCHANT_CHANGED")
 events:SetScript("OnEvent", function(_, event, arg1)
     local ok, err = pcall(function()
         if event == "ADDON_LOADED" then
@@ -1320,8 +1337,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
             ApplyPosition()
         elseif event == "UNIT_AURA" then
             if not Active() or Secret(arg1) or not GROUP_UNIT[arg1] then return end
+        elseif event == "UNIT_INVENTORY_CHANGED" then
+            if not Active() or Secret(arg1) or arg1 ~= "player" then return end
         elseif event == "GROUP_ROSTER_UPDATE" or event == "UNIT_CONNECTION" or event == "PLAYER_ROLES_ASSIGNED"
-            or event == "BAG_UPDATE_DELAYED" then
+            or event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" or event == "WEAPON_ENCHANT_CHANGED" then
             if not Active() then return end
         elseif event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" then
             if module then ResolveSpells() end

@@ -31,7 +31,7 @@ of the code.
 | `BetterGpsForever` | Not part of the suite, Forever only, needs `BetterForever`: one TomTom-style waypoint (`/way x y`, `/way <zone> x y`, or Alt + left-click (Option on Mac) the world map) with a movable arrow showing distance and time to get there, a world map pin and a minimap pin; also sets Blizzard's own user waypoint; clears itself on arrival; routes you to your corpse while you are a ghost and brings the old waypoint back after resurrection; leaves `/way` to TomTom when TomTom is loaded | `/bgps`, `/way` |
 | `BetterWindowsForever` | Not part of the suite, Forever only, needs `BetterForever`: makes Blizzard's own windows movable by their title bar (Character, Spellbook & Talents, Professions, Collections, Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip, Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn List, Inspect, Trade, Game Menu and more); Ctrl + mouse wheel scales a window (50-150%); position and scale remembered per window and put back after Blizzard's panel layout; on/off and reset per window; world map and bags left to their own addons | `/bwf` |
 | `BetterFishingForever` | Not part of the suite, Forever only, needs `BetterForever`: double right-click in the world casts Fishing while a fishing pole is equipped (a secure button and a short-lived `BUTTON2` override binding, armed after the first click so a single right-click still loots the bobber); Shift + double right-click swaps the pole in and out; never in combat; works with `ActionButtonUseKeyDown` on or off; on/off and a 0.2-0.8 s double-click window; an optional Fishing 1-300 route (current step from your skill, world map and minimap pins, BetterGpsForever's arrow) | `/bfish` |
-| `BetterBuffsForever` | Not part of the suite, Forever only, needs `BetterForever`, druids and paladins: a box at the top centre lists who lacks your buffs. Druid: Mark of the Wild (Gift of the Wild counts) in your party or raid, Thorns on you and your tank (role, raid main tank, or one set by hand), low Gift of the Wild / Rebirth reagents. Paladin: a blessing per class (Might for Warrior/Rogue/Hunter, Wisdom for the rest, editable; a fallback when another paladin's blessing is already there; no Salvation for the tank), No aura, Righteous Fury while you tank, low Symbol of Kings. Each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild or the Greater Blessing); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
+| `BetterBuffsForever` | Not part of the suite, Forever only, needs `BetterForever`, druids, paladins and shamans (picked by class): a box at the top centre lists who lacks your buffs. Druid: Mark of the Wild (Gift of the Wild counts) in your party or raid, Thorns on you and your tank (role, raid main tank, or one set by hand), low Gift of the Wild / Rebirth reagents. Paladin: a blessing per class (Might for Warrior/Rogue/Hunter, Wisdom for the rest, editable; a fallback when another paladin's blessing is already there; no Salvation for the tank), No aura, Righteous Fury while you tank, low Symbol of Kings. Shaman: a weapon without an imbue (click casts the chosen imbue, auto = Windfury > Flametongue > Rockbiter), Lightning Shield, low Ankh / totem items / Fish Oil / Shiny Fish Scales. Druids and shamans get a dispel panel (druid: curse left-click, poison right-click; shaman: poison left, disease right). Each name is a secure button, click to cast the buff on that member (right-click: Gift of the Wild or the Greater Blessing); dead, offline and unseen members are skipped, out-of-range ones dimmed, unreadable (secret) auras never warned about; hidden in combat; movable | `/bbuff` |
 | `BetterMerchantForever` | Not part of the suite, Forever only, needs `BetterForever`: at a merchant sells your grey items (3 every 0.2 s, never an item locked in BetterBagsForever) and repairs your gear, optionally with guild funds first and an ask-first popup; one summary line; every part switchable | `/bmerch` |
 | `BetterTooltipsForever` | Not part of the suite, Forever only, needs `BetterForever`: extra lines in item tooltips (vendor price for the stack, item level, item and spell IDs, a compare against what you wear) and unit tooltips (target, guild rank, health); every line switchable | `/btip` |
 | `BetterMailForever` | Not part of the suite, Forever only, needs `BetterForever`: mailbox helpers - Open All (Shift: money only, COD never paid, stops on full bags), an optional delete of empty system mail, a recipient list with your own characters and recent names, Alt-click to attach (Ctrl+Alt: up to 12 stacks), a new-mail notice | `/bmail` |
@@ -266,12 +266,12 @@ dumps, NPCs and quests from warcraft.wiki.gg and method.gg (credits in the addon
 TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterFishingForever/README.md`](addons/BetterFishingForever/README.md).
 
-## BetterBuffsForever: a druid's and a paladin's buff check on Forever
+## BetterBuffsForever: a druid's, a paladin's and a shaman's buff check on Forever
 
 A standalone addon - no Gaar addon or library needed, and not part of the suite - that does
-something only for a Druid or a Paladin (any other class leaves it idle). A box at the top centre
+something only for a Druid, a Paladin or a Shaman, picked by class (any other class leaves it idle). A box at the top centre
 of the screen, shown only while something is missing, lists who lacks your buffs. The class parts
-are modules (`Druid.lua`, `Paladin.lua`, and the druid's `Dispel.lua`) sharing the box, rows, aura scan and tank detection in
+are modules (`Druid.lua`, `Paladin.lua`, `Shaman.lua`, and the druid's and shaman's `Dispel.lua`) sharing the box, rows, aura scan and tank detection in
 `BetterBuffsForever.lua`. The tank is every member with the `TANK` role, else in a raid every
 main tank, else the one set by hand with `/bbuff tank` (your target); you can be the tank.
 
@@ -298,6 +298,14 @@ main tank, else the one set by hand with `/bbuff tank` (your target); you can be
   bar; the row casts the aura you used last), Righteous Fury while you are the tank or say you
   are tanking (`/bbuff tanking on`), and low Symbol of Kings (below 20) once you know a Greater
   Blessing.
+- **Shaman** (1.3): only you are checked. A `No weapon imbue:` row per hand holding a weapon
+  without a temporary enchant (`GetWeaponEnchantInfo`; the off hand only when it holds a weapon);
+  the row casts the imbue chosen per character (`/bbuff imbue auto|rockbiter|flametongue|frostbrand|windfury`,
+  auto = Windfury, else Flametongue, else Rockbiter). Lightning Shield when you lack it. Low
+  reagents once the spell is known: Ankh (Reincarnation, below 2), Earth/Fire/Water/Air Totem
+  (any totem of that element, warned only when missing), Shiny Fish Scales (Water Breathing) and
+  Fish Oil (Water Walking), below 5. The same **dispel panel** as the druid's, with left-click
+  Cure Poison (green) and right-click Cure Disease (ochre).
 
 Each name is a `SecureActionButtonTemplate` button (`type` spell, the highest known rank by name,
 `unit` the member). Dead, offline and unseen members are skipped, out-of-range ones dimmed, and a
@@ -305,7 +313,7 @@ member whose auras are secret counts as unknown, never as missing. The box is hi
 `[combat] hide` state driver; nothing is scanned or rebuilt until `PLAYER_REGEN_ENABLED`).
 Unlock, Alt + drag, reset; position saved. `/bbuff` for help, `on`, `off`, `group`, `sound`,
 `reagents`, `tank`, `unlock`, `lock`, `reset`, `test` and `status`; a druid adds `motw`,
-`thorns`, `tank on|off` and `dispel` (`on|off`, `curse|poison on|off`, `unlock|lock|reset`), a paladin `bless`, `aura`, `fury` and `tanking`. It exports
+`thorns`, `tank on|off` and `dispel` (`on|off`, `curse|poison on|off`, `unlock|lock|reset`), a paladin `bless`, `aura`, `fury` and `tanking`, a shaman `imbue`, `shield` and `dispel` (`poison|disease on|off`). It exports
 `BetterBuffsForeverAPI`, and the BetterForever hub has a Buffs row for it with the options for your
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).

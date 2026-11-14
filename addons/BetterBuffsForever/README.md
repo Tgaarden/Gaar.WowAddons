@@ -1,7 +1,7 @@
 # BetterBuffsForever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001), for druids,
-paladins and shamans, with a dispel panel for every class that can remove something (druids,
+paladins, shamans, priests and mages, with a dispel panel for every class that can remove something (druids,
 shamans, priests, paladins and mages). A box at the top centre of the screen lists who in your group lacks your buffs and
 whether your reagents are running low. Click a name to buff that member. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
@@ -14,15 +14,18 @@ whether your reagents are running low. Click a name to buff that member. It need
 - **Shaman** (new in 1.3): a **weapon without an imbue** (click casts the imbue you chose),
   **Lightning Shield**, **Ankh, totem, Fish Oil and Shiny Fish Scales reagents**, and the same
   **dispel panel** for poisons and diseases.
-- **Priest** (new in 1.4): only the **dispel panel**, for magic (left-click Dispel Magic) and
-  diseases (right-click Abolish Disease, else Cure Disease). No buff check.
-- **Mage** (new in 1.4): only the **dispel panel**, for curses (Remove Lesser Curse on either
-  mouse button). No buff check.
+- **Priest**: (new in 1.5) **Power Word: Fortitude** (Prayer of Fortitude counts) on you and the
+  group, **Sacred Candle** once you know Prayer of Fortitude, and (since 1.4) the **dispel panel**
+  for magic (left-click Dispel Magic) and diseases (right-click Abolish Disease, else Cure
+  Disease).
+- **Mage**: (new in 1.5) **Arcane Intellect** (Arcane Brilliance counts) on you and every group
+  member whose class uses mana, **Arcane Powder** once you know Arcane Brilliance, and (since 1.4)
+  the **dispel panel** for curses (Remove Lesser Curse on either mouse button).
 
 ## What it does (every class)
 
-- **Druids, paladins and shamans** get the buff box, and they, **priests and mages** get the
-  dispel panel, picked by your class: there is nothing to set. On any other class (warrior,
+- **Druids, paladins, shamans, priests and mages** get the buff box and the dispel panel,
+  picked by your class: there is nothing to set. On any other class (warrior,
   rogue, hunter, warlock) the addon stays idle: no scans, no box, no panel. `/bbuff status` says
   `not a druid, mage, paladin, priest or shaman: the addon is idle on this character.` A
   warlock's Felhunter (Devour Magic) is left out on purpose: it is the pet's spell, not yours.
@@ -67,6 +70,31 @@ whether your reagents are running low. Click a name to buff that member. It need
   | Rebirth | 3 (20742) | Ashwood Seed (17036) | 2 |
   | Rebirth | 4 (20747) | Hornbeam Seed (17037) | 2 |
   | Rebirth | 5 (20748) | Ironwood Seed (17038) | 2 |
+
+## Priest and mage
+
+New in 1.5, in `PriestMage.lua`: one group buff each, checked the way the druid checks Mark of
+the Wild.
+
+- **Priest: Power Word: Fortitude.** Warns when you lack it and, in a party or raid, lists every
+  member who lacks it. Prayer of Fortitude counts as having it.
+- **Mage: Arcane Intellect**, the same way, but only for members whose class uses mana: a warrior
+  or a rogue is never listed (hunters, paladins, priests, shamans, druids, mages and warlocks
+  are). A member whose class the client does not give is listed. Arcane Brilliance counts as
+  having it.
+- **Clicks.** Left-click casts the highest rank you know on that member. Right-click casts
+  **Prayer of Fortitude** / **Arcane Brilliance** (the whole party of that member) when you know
+  it and are in a group (it needs its reagent). Otherwise right-click does what left-click does.
+- **Reagents**, only once the group version is known (it is learned from a book):
+
+  | Spell | Reagent | Default threshold |
+  |---|---|---|
+  | Prayer of Fortitude (21562, 21564) | Sacred Candle (17029) | 10 |
+  | Arcane Brilliance (23028) | Arcane Powder (17020) | 10 |
+
+- `/bbuff fort on|off` (priest) and `/bbuff ai on|off` (mage) switch the check, on by default;
+  `/bbuff reagents prayer <n>` and `/bbuff reagents brilliance <n>` set the thresholds. The hub
+  menu and the Options page have the same switches.
 
 ## The dispel panel (druid, shaman, priest, paladin, mage)
 
@@ -279,7 +307,7 @@ only while you know a Greater Blessing.
 Every row is a `SecureActionButtonTemplate` button of the addon's own: `type` = `spell`, `spell` =
 the localized name of the highest rank you know (or its spell ID when the client gives no name),
 `unit` = that member's unit token (`player`, `party1`, `raid7`, ...). Right-click uses `type2` /
-`spell2` (Gift of the Wild, a Greater Blessing).
+`spell2` (Gift of the Wild, a Greater Blessing, Prayer of Fortitude, Arcane Brilliance).
 
 - The rows are registered for the one click direction `ActionButtonUseKeyDown` acts on (read at
   every rebuild), so one click casts once with the CVar on or off.
@@ -343,9 +371,13 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff reagents ankh <n>`, `totems <n>`, `water <n>` | Warn below n Ankhs (default 2), totem items (default 1), Fish Oil / Shiny Fish Scales (default 5) |
 | `/bbuff dispel [on\|off]`, `/bbuff dispel poison\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel, as for a druid |
 | **Priest** | |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel magic\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel (no buff check) |
+| `/bbuff fort [on\|off]` | The Power Word: Fortitude check (Prayer of Fortitude counts; no argument toggles) |
+| `/bbuff reagents prayer <n>` | Warn below n Sacred Candles (default 10), 0-200, once Prayer of Fortitude is known |
+| `/bbuff dispel [on\|off]`, `/bbuff dispel magic\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
 | **Mage** | |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel curse [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel (no buff check) |
+| `/bbuff ai [on\|off]` | The Arcane Intellect check, classes with mana only (Arcane Brilliance counts; no argument toggles) |
+| `/bbuff reagents brilliance <n>` | Warn below n Arcane Powder (default 10), 0-200, once Arcane Brilliance is known |
+| `/bbuff dispel [on\|off]`, `/bbuff dispel curse [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
 
 The class settings are account-wide (except the shaman's imbue choice, per character), so the
 druid commands also work on a paladin and the other way round; they only matter on that class.
@@ -376,10 +408,12 @@ menu has a **Buffs** submenu with the options for your class:
   **Blessings by class** (one submenu per class with a radio list of the blessings and None, plus
   Reset to defaults), **I'm tanking (this character)**, **Lock dispel panel** and **Reset dispel
   panel position**;
-- a priest: **Dispel panel (magic, diseases)**, **Dispel: magic**, **Dispel: diseases**, **Lock
-  dispel panel**, **Reset dispel panel position**;
-- a mage: **Dispel panel (curses)**, **Dispel: curses**, **Lock dispel panel**, **Reset dispel
-  panel position**.
+- a priest: **Power Word: Fortitude check**, **Dispel panel (magic, diseases)**, **Dispel:
+  magic**, **Dispel: diseases**, **Prayer of Fortitude reagent warning below** (0/5/10/20/40),
+  **Lock dispel panel**, **Reset dispel panel position**;
+- a mage: **Arcane Intellect check**, **Dispel panel (curses)**, **Dispel: curses**, **Arcane
+  Brilliance reagent warning below** (0/5/10/20/40), **Lock dispel panel**, **Reset dispel panel
+  position**.
 
 They go through the same functions as the slash command. This addon has no minimap button or menu
 of its own, so nothing here changes with or without the hub.
@@ -389,7 +423,7 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
 | Field | What it is |
 |---|---|
 | `version` | This addon's version, a string |
-| `StatusLine()` | One line of state, e.g. `on · 2 missing`, `on · all buffed`, `on · hidden in combat`, `on · dispel panel only` (priest, mage) or `idle (not a druid, mage, paladin, priest or shaman)` |
+| `StatusLine()` | One line of state, e.g. `on · 2 missing`, `on · all buffed`, `on · hidden in combat` or `idle (not a druid, mage, paladin, priest or shaman)` |
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, submenu }`, `{ divider }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
@@ -415,6 +449,11 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
     rank 1, for "an element is known": Earth 8071, 2484, 5730, 8075, 8143; Fire 3599, 1535, 8181,
     8190, 8227; Water 5394, 8166, 5675, 8184, 8170; Air 8177, 10595, 8512, 6495, 15107, 8835,
     25908. Checked against WhatsTraining's Vanilla shaman data.
+  - Priest: Power Word: Fortitude 1243, 1244, 1245, 2791, 10937, 10938; Prayer of Fortitude
+    21562, 21564.
+  - Mage: Arcane Intellect 1459, 1460, 1461, 10156, 10157; Arcane Brilliance 23028. Checked
+    against WhatsTraining's Vanilla priest and mage data (the book-learned group versions against
+    its TBC data, same IDs).
 
   The highest rank known (`C_SpellBook.IsSpellKnown`, `IsPlayerSpell`, `IsSpellKnown`) is resolved
   at login and on `SPELLS_CHANGED`, out of combat.
@@ -434,15 +473,14 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
 ## Files
 
 `BetterBuffsForever.lua` is the shared part (box, rows, aura scan, group and tank, settings, slash
-command, API, events). `Druid.lua`, `Paladin.lua` and `Shaman.lua` are the class modules; each registers itself
-in the addon's private namespace (`local _, ns = ...`), so the modules add no globals.
+command, API, events). `Druid.lua`, `Paladin.lua`, `Shaman.lua` and `PriestMage.lua` (one
+factory, two modules: priest and mage) are the class modules; each registers itself in the
+addon's private namespace (`local _, ns = ...`), so the modules add no globals.
 `Dispel.lua` is the dispel panel of a druid, a shaman, a priest, a paladin and a mage: it adds its
-options, commands, status lines and menu entries to the druid, paladin and shaman modules,
-registers a small dispel-only module for the priest and the mage (no buff check, so the shared
-part still gives them options, commands, status and menu), and keeps its own (unnamed) frames and
-events. One `CLASS_CONFIG` table says, per class, which spell each click casts and which kinds
-each spell removes. Both TOCs list all
-five, the shared file first and `Dispel.lua` last.
+options, commands, status lines and menu entries to those five modules and keeps its own
+(unnamed) frames and events. One `CLASS_CONFIG` table says, per class, which spell each click
+casts and which kinds each spell removes. Both TOCs list all six, the shared file first and
+`Dispel.lua` last.
 
 ## How it stays out of the way
 
@@ -458,7 +496,8 @@ five, the shared file first and `Dispel.lua` last.
   `motw`, `thorns`, `thornsTank`, `gotwMin`, `rebirthMin`, `dispel`, `dispelCurse`,
   `dispelPoison`, `dispelPos`, `dispelLocked`; paladin `bless`, `aura`, `fury`,
   `kingsMin` and `blessings` (only the classes changed from the default), and the shared dispel
-  keys plus `dispelMagic`; priest `dispelMagic`, `dispelDisease`; mage `dispelCurse`; shaman `imbue`,
+  keys plus `dispelMagic`; priest `fort`, `prayerMin`, `dispelMagic`, `dispelDisease`; mage `ai`,
+  `brillianceMin`, `dispelCurse`; shaman `imbue`,
   `shield`, `ankhMin`, `totemMin`, `waterMin`, `dispelDisease` (and the shared `dispel`,
   `dispelPoison`, `dispelPos`, `dispelLocked`). Per character
   (`BetterBuffsForeverCharDB`): `tank` (`{ guid, name }`), for a paladin `lastAura` and

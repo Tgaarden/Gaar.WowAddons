@@ -1,19 +1,28 @@
 --[[
-  BetterBuffsForever - the druid's dispel panel (curses and poisons). Loaded after Druid.lua; it
-  hooks into the druid module (options, slash command, help, status, hub menu) and keeps its own
-  frames and events, so the buff box and the paladin module are untouched.
+  BetterBuffsForever - the dispel panel of a druid (curses and poisons) and a shaman (poisons and
+  diseases). Loaded after Druid.lua and Shaman.lua; it hooks into both modules (options, slash
+  command, help, status, hub menu) and keeps its own frames and events, so the buff box and the
+  paladin module are untouched. What differs per class is one table, CLASS_CONFIG: the kind
+  removed by left-click, the kind removed by right-click, and their spells.
 
-    * Druid only, and only spells you know: Remove Curse (2782), Abolish Poison (2893) and Cure
-      Poison (8946; used for right-click only while Abolish Poison is not known). The IDs are the
-      classic ones (WhatsTraining's Vanilla/Camelot druid data has the same); they are resolved at
-      login and on SPELLS_CHANGED like the buffs, and /bbuff status shows what was found.
+                left-click                      right-click
+    Druid       Curse (purple): Remove Curse    Poison (green): Abolish Poison, else Cure Poison
+    Shaman      Poison (green): Cure Poison     Disease (ochre): Cure Disease
+
+    * Only for those two classes, and only spells you know: Remove Curse (2782), Abolish Poison
+      (2893) and the druid's Cure Poison (8946; used for right-click only while Abolish Poison is
+      not known); the shaman's Cure Poison (526) and Cure Disease (2870). The IDs are the classic
+      ones (WhatsTraining's Vanilla/Camelot druid and shaman data have the same); they are
+      resolved at login and on SPELLS_CHANGED like the buffs (by ID, else by the localized name),
+      and /bbuff status shows what was found.
     * A panel of its own, not part of the buff box: by default just below the box (it follows the
       box), movable (/bbuff dispel unlock, or Alt + drag; /bbuff dispel reset), position saved
       account-wide as an offset from the top centre.
-    * Out of combat: one row per member (you too) with a curse or poison you can remove: the
-      class-coloured name and a coloured tag, "Curse" (purple) and/or "Poison" (green). Dead,
-      offline and unseen members are skipped; out-of-range members are dimmed. Read with plain
-      dispelName ("Curse", "Poison") from C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL").
+    * Out of combat: one row per member (you too) with something you can remove: the
+      class-coloured name and a coloured tag per kind ("Curse" purple, "Poison" green, "Disease"
+      ochre). Dead, offline and unseen members are skipped; out-of-range members are dimmed. Read
+      with plain dispelName ("Curse", "Poison", "Disease") from
+      C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL").
     * In combat: a fixed strip with one secure button per group member: you alone, you and
       party1-4, or in a raid every raidN by subgroup (one column per subgroup that has members,
       up to 8 columns of 5: at most 40 small buttons). It is built out of combat on every roster
@@ -36,13 +45,14 @@
       come from the first dispellable debuff Detect found (aura.name / aura.icon, or
       C_UnitAuras.GetAuraDataByAuraInstanceID on the aura instance ID); they may be secret and go
       straight to SetText / SetTexture in their own font string and texture, never joined to
-      anything. Without them: a question mark and the kind, "Curse" / "Poison" / "Dispel". The
-      colour is plain child textures (allowed in combat): a curse = purple, a poison = green,
-      both = left half purple and right half green; dispellable but of an unknown kind = yellow.
-    * Clicks, on the rows and the strip alike: left-click (type1/spell1) = Remove Curse,
-      right-click (type2/spell2) = Abolish Poison, else Cure Poison; unit = the member's token.
-      A click whose spell you do not know, or whose kind is switched off, does nothing. Registered
-      for the one direction ActionButtonUseKeyDown acts on, like the buff rows.
+      anything. Without them: a question mark and the kind ("Curse" / "Poison" / "Disease") or
+      "Dispel". The colour is plain child textures (allowed in combat): the left half shows the
+      left-click kind, the right half the right-click kind; a member with only one of them is
+      that colour all over; dispellable but of an unknown kind = yellow.
+    * Clicks, on the rows and the strip alike: left-click (type1/spell1) = the left kind's spell,
+      right-click (type2/spell2) = the right kind's; unit = the member's token. A click whose
+      spell you do not know, or whose kind is switched off, does nothing. Registered for the one
+      direction ActionButtonUseKeyDown acts on, like the buff rows.
 
   Detecting a dispellable debuff in combat. On this client (Forever 1.60.1, retail 12.x rules)
   auras are secret in combat and an index read from addon code is refused with an error (see
@@ -54,9 +64,9 @@
        dispellable filter (the first of "HARMFUL|RAID_PLAYER_DISPELLABLE", "HARMFUL|RAID" that
        AuraUtil.IsValidFilterString accepts). A plain count answers "has one or not"; the colour
        comes from C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve) with a step
-       colour curve over the dispel type (Curse 2 = purple, Poison 4 = green, anything else and a
-       switched-off kind = transparent), passed straight to SetVertexColor, never read here.
-       Without a colour it glows yellow.
+       colour curve over the dispel type (Curse 2 = purple, Disease 3 = ochre, Poison 4 = green,
+       each only for the class's two kinds while switched on; anything else = transparent),
+       passed straight to SetVertexColor, never read here. Without a colour it glows yellow.
     3. "filtered read": GetAuraDataByIndex(unit, 1..2, filter): a non-nil answer means "has
        one"; the kind from a plain dispelName, else the colour API on its auraInstanceID, else
        yellow.
@@ -75,9 +85,32 @@
 local _G = _G
 local _, ns = ...
 
-local CURSE_IDS = { 2782 }       -- Remove Curse
-local ABOLISH_IDS = { 2893 }     -- Abolish Poison
-local CURE_IDS = { 8946 }        -- Cure Poison
+-- The kinds: dispelName, SpellDispelType ID, colour, tag, the option that switches it, plural.
+local KINDS = {
+    curse = { name = "Curse", type = 2, rgb = { 0.64, 0.21, 0.93 }, tag = "|cffa335eeCurse|r",
+        key = "dispelCurse", plural = "curses", sample = "Curse of Weakness",
+        sampleIcon = "Interface\\Icons\\Spell_Shadow_CurseOfMannoroth", sample2 = "Curse of Agony",
+        sampleIcon2 = "Interface\\Icons\\Spell_Shadow_CurseOfSargeras" },
+    poison = { name = "Poison", type = 4, rgb = { 0.2, 0.8, 0.2 }, tag = "|cff33cc33Poison|r",
+        key = "dispelPoison", plural = "poisons", sample = "Deadly Poison",
+        sampleIcon = "Interface\\Icons\\Ability_Rogue_DualWeild" },
+    disease = { name = "Disease", type = 3, rgb = { 0.6, 0.4, 0.0 }, tag = "|cff996600Disease|r",
+        key = "dispelDisease", plural = "diseases", sample = "Infected Bite",
+        sampleIcon = "Interface\\Icons\\Spell_Nature_NullifyDisease" },
+}
+
+-- Per class: the kind left-click removes and the kind right-click removes, each with its spells
+-- (the first one known is cast).
+local CLASS_CONFIG = {
+    DRUID = { class = "DRUID", id = 11,
+        left = { kind = "curse", spells = { { ids = { 2782 }, name = "Remove Curse" } } },
+        right = { kind = "poison", spells = { { ids = { 2893 }, name = "Abolish Poison" },
+                                              { ids = { 8946 }, name = "Cure Poison" } } } },
+    SHAMAN = { class = "SHAMAN", id = 7,
+        left = { kind = "poison", spells = { { ids = { 526 }, name = "Cure Poison" } } },
+        right = { kind = "disease", spells = { { ids = { 2870 }, name = "Cure Disease" } } } },
+}
+local SIDES = { "left", "right" }
 
 local PAD, ROW_H, HEADER_H, MIN_W = 6, 18, 16, 170
 local LIST_THROTTLE, LIST_REFRESH = 0.25, 1.5
@@ -89,21 +122,16 @@ local PARTY_W, PARTY_H, RAID_W, RAID_H = 150, 22, 58, 16
 local MAX_DEBUFFS = 40
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
-local CURSE_RGB, POISON_RGB, ANY_RGB = { 0.64, 0.21, 0.93 }, { 0.2, 0.8, 0.2 }, { 1, 0.82, 0 }
-local CURSE_TAG, POISON_TAG = "|cffa335eeCurse|r", "|cff33cc33Poison|r"
-local DISPEL_CURSE, DISPEL_POISON = 2, 4          -- SpellDispelType IDs
+local ANY_RGB = { 1, 0.82, 0 }
 local FILTERS = { "HARMFUL|RAID_PLAYER_DISPELLABLE", "HARMFUL|RAID" }
 local ORDER = "plain read, aura instance IDs + dispel colour, filtered read, none"
 
 local Secret, Num, Str, Bool, Call, On = ns.Secret, ns.Num, ns.Str, ns.Bool, ns.Call, ns.On
 local InCombat, Print = ns.InCombat, ns.Print
 
-local Druid = ns.modules.DRUID
-if not Druid then return end
-
-local spells = {}                -- curse, abolish, cure: ns.ResolveSpell results
+local spells = { left = {}, right = {} }   -- side -> ns.ResolveSpell results, in order
 local spellsPending = true
-local isDruid                    -- nil until PLAYER_LOGIN
+local cfg                        -- your class's CLASS_CONFIG entry; nil until PLAYER_LOGIN or for another class
 local panel, listBox, list, strip, header, stripTitle, hint
 local rows, fakes, buttons = {}, {}, {}
 local stripByUnit = {}           -- unit token -> strip button
@@ -123,27 +151,30 @@ local shownRows = 0
 local function Now() return Num(Call("GetTime")) or 0 end
 local function DB() return ns.DB() end
 
-local function PoisonSpell()
-    if spells.abolish and spells.abolish.value then return spells.abolish end
-    if spells.cure and spells.cure.value then return spells.cure end
+-- Your class's config; the druid's before login or on another class (help, test texts).
+local function Cfg() return cfg or CLASS_CONFIG.DRUID end
+
+-- The kind a side removes: { name, type, rgb, tag, key, plural, ... }.
+local function Kind(side) return KINDS[Cfg()[side].kind] end
+
+-- The first spell of a side you know, or nil.
+local function SideSpell(side)
+    for _, s in ipairs(spells[side]) do
+        if s.value then return s end
+    end
     return nil
 end
 
-local function CurseSpell()
-    return spells.curse and spells.curse.value and spells.curse or nil
-end
-
--- The kinds you can and want to remove.
-local function WantCurse() return On("dispelCurse") and CurseSpell() ~= nil end
-local function WantPoison() return On("dispelPoison") and PoisonSpell() ~= nil end
+-- A side you can and want to remove.
+local function Want(side) return On(Kind(side).key) and SideSpell(side) ~= nil end
 
 local function Active()
-    return isDruid and DB() ~= nil and On("enabled") and On("dispel") and (WantCurse() or WantPoison())
+    return cfg ~= nil and DB() ~= nil and On("enabled") and On("dispel") and (Want("left") or Want("right"))
         and true or false
 end
 
 local function Testing()
-    return isDruid and ns.TestMode() and true or false
+    return cfg ~= nil and ns.TestMode() and true or false
 end
 
 -- ---------------------------------------------------------------------------
@@ -168,15 +199,14 @@ local function IndexSecret(unit, i, f)
     return ok and not Secret(s) and s == true
 end
 
--- Every debuff with a plain dispelName: { curse, poison, and the name and icon of the first
--- curse and the first poison (curseName, curseIcon, poisonName, poisonIcon; as they came) },
--- or nil and why when one cannot be read.
+-- Every debuff with a plain dispelName: { found = { dispelName -> { name, icon } of the first
+-- debuff of that kind, as they came } }, or nil and why when one cannot be read.
 local function ScanPlain(unit)
     local C = _G.C_UnitAuras
     local byData = type(C) == "table" and type(C.GetAuraDataByIndex) == "function"
     local old = type(_G.UnitDebuff) == "function" and _G.UnitDebuff
     if not byData and not old then return nil, "no API" end
-    local out = { curse = false, poison = false }
+    local out = { found = {} }
     for i = 1, MAX_DEBUFFS do
         if IndexSecret(unit, i, "HARMFUL") then return nil, "index secret" end
         local dn, nm, ic
@@ -196,13 +226,7 @@ local function ScanPlain(unit)
             if not Str(name) then break end
             dn, nm, ic = kind, name, icon
         end
-        if dn == "Curse" then
-            if not out.curse then out.curseName, out.curseIcon = nm, ic end
-            out.curse = true
-        elseif dn == "Poison" then
-            if not out.poison then out.poisonName, out.poisonIcon = nm, ic end
-            out.poison = true
-        end
+        if type(dn) == "string" and not out.found[dn] then out.found[dn] = { name = nm, icon = ic } end
     end
     return out
 end
@@ -243,10 +267,11 @@ local function ChooseFilter()
     return filter or nil
 end
 
--- A step colour curve over the dispel type: curse purple, poison green (each only while that
--- kind is wanted), everything else transparent. false where the client has no colour curves.
+-- A step colour curve over the dispel type: the class's two kinds in their colours (each only
+-- while that kind is wanted), everything else transparent. false where the client has no
+-- colour curves.
 local function Curve()
-    local key = tostring(WantCurse()) .. tostring(WantPoison())
+    local key = Cfg()[SIDES[1]].kind .. tostring(Want("left")) .. tostring(Want("right"))
     if curve ~= nil and curveKey == key then return curve or nil end
     curveKey, curve = key, false
     local CU, E, CC = _G.C_CurveUtil, _G.Enum, _G.CreateColor
@@ -256,12 +281,21 @@ local function Curve()
         if type(E) == "table" and type(E.LuaCurveType) == "table" and E.LuaCurveType.Step ~= nil then
             c:SetType(E.LuaCurveType.Step)
         end
-        local cu, po = WantCurse() and CURSE_RGB, WantPoison() and POISON_RGB
-        c:AddPoint(0, CC(0, 0, 0, 0))
-        c:AddPoint(DISPEL_CURSE, cu and CC(cu[1], cu[2], cu[3], 1) or CC(0, 0, 0, 0))
-        c:AddPoint(DISPEL_CURSE + 1, CC(0, 0, 0, 0))
-        c:AddPoint(DISPEL_POISON, po and CC(po[1], po[2], po[3], 1) or CC(0, 0, 0, 0))
-        c:AddPoint(DISPEL_POISON + 1, CC(0, 0, 0, 0))
+        -- x -> colour (false = transparent): each kind's type, and the type after it back to
+        -- transparent unless that is the other kind (Disease 3 and Poison 4 are neighbours).
+        local points = { [0] = false }
+        for _, side in ipairs(SIDES) do
+            local k = Kind(side)
+            points[k.type] = Want(side) and k.rgb or false
+            if points[k.type + 1] == nil then points[k.type + 1] = false end
+        end
+        local xs = {}
+        for x in pairs(points) do xs[#xs + 1] = x end
+        table.sort(xs)
+        for _, x in ipairs(xs) do
+            local rgb = points[x]
+            c:AddPoint(x, rgb and CC(rgb[1], rgb[2], rgb[3], 1) or CC(0, 0, 0, 0))
+        end
         return c
     end)
     if ok and c then curve = c end
@@ -281,20 +315,19 @@ local function PaintFromAPI(tex, unit, id)
 end
 
 -- What one member has: has = true / false / nil (unknown) / a secret boolean (only passed on),
--- how to colour it: curse/poison (known kinds) or ids (aura instance IDs for the colour API),
+-- how to colour it: left/right (the class's two kinds, known) or ids (aura instance IDs for the
+-- colour API),
 -- and what it is: name and icon of the first dispellable debuff (either may be secret or nil);
 -- method = which way answered; why = { way -> why it did not answer } for the ways before it.
 local function Detect(unit)
     local why = {}
     local p, whyPlain = ScanPlain(unit)
     if p then
-        local c, po = p.curse and WantCurse(), p.poison and WantPoison()
-        local r = { has = c or po, curse = c, poison = po, method = "plain read" }
-        if c then
-            r.name, r.icon = p.curseName, p.curseIcon
-        elseif po then
-            r.name, r.icon = p.poisonName, p.poisonIcon
-        end
+        local fl, fr = p.found[Kind("left").name], p.found[Kind("right").name]
+        local l, rt = fl ~= nil and Want("left"), fr ~= nil and Want("right")
+        local r = { has = l or rt, left = l, right = rt, method = "plain read" }
+        local first = (l and fl) or (rt and fr)
+        if first then r.name, r.icon = first.name, first.icon end
         return r
     end
     why["plain read"] = whyPlain
@@ -350,14 +383,14 @@ local function Detect(unit)
                     r.name, r.icon = NameIcon(a)
                 end
                 local ok2, dn, id = pcall(function() return a.dispelName, a.auraInstanceID end)
-                if ok2 and not Secret(dn) and dn == "Curse" then r.curse = true
-                elseif ok2 and not Secret(dn) and dn == "Poison" then r.poison = true
+                if ok2 and not Secret(dn) and dn == Kind("left").name then r.left = true
+                elseif ok2 and not Secret(dn) and dn == Kind("right").name then r.right = true
                 else r.unknownKind = true end
                 if ok2 then r.ids[#r.ids + 1] = id end
             end
         end
         if not r.has then r.has = false end
-        if r.unknownKind then r.curse, r.poison = nil, nil else r.ids = nil end
+        if r.unknownKind then r.left, r.right = nil, nil else r.ids = nil end
         return r
     end
     why["filtered read"] = "no API"
@@ -436,7 +469,7 @@ local function ShowDebuff(b, r)
     end
     b.icon:Show()
     if not (Usable(r.name, "string") and pcall(b.debuff.SetText, b.debuff, r.name)) then
-        b.debuff:SetText(r.curse and "Curse" or r.poison and "Poison" or "Dispel")
+        b.debuff:SetText(r.left and Kind("left").name or r.right and Kind("right").name or "Dispel")
     end
 end
 
@@ -469,9 +502,10 @@ local function Paint(b, r)
         b:SetAlpha(1)
     end
     ShowDebuff(b, r)
-    if r.curse or r.poison then
-        Glow(b.glowL, r.curse and CURSE_RGB or POISON_RGB)
-        Glow(b.glowR, r.poison and POISON_RGB or CURSE_RGB)
+    if r.left or r.right then
+        local L, R = Kind("left").rgb, Kind("right").rgb
+        Glow(b.glowL, r.left and L or R)
+        Glow(b.glowR, r.right and R or L)
         return outcome
     end
     local ids = r.ids
@@ -531,9 +565,11 @@ local function Tooltip(self)
     if self.fake then
         tip:AddLine("Test button: clicking does nothing.", 0.7, 0.7, 0.7)
     else
-        local c, p = CurseSpell(), PoisonSpell()
-        tip:AddLine("Left-click: " .. ((WantCurse() and c) and c.label or "nothing (curses off or not known)"), 1, 1, 1)
-        tip:AddLine("Right-click: " .. ((WantPoison() and p) and p.label or "nothing (poisons off or not known)"), 1, 1, 1)
+        for _, side in ipairs(SIDES) do
+            local s = SideSpell(side)
+            tip:AddLine((side == "left" and "Left-click: " or "Right-click: ")
+                .. ((Want(side) and s) and s.label or ("nothing (" .. Kind(side).plural .. " off or not known)")), 1, 1, 1)
+        end
         if self.far then tip:AddLine("Out of range", 1, 0.3, 0.3) end
     end
     tip:Show()
@@ -544,9 +580,9 @@ local function HookTooltip(b)
     b:HookScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
 end
 
--- The click attributes, out of combat only: left = Remove Curse, right = the poison spell.
+-- The click attributes, out of combat only: left = the left kind's spell, right = the right's.
 local function Bind(b, unit)
-    local c, p = WantCurse() and CurseSpell(), WantPoison() and PoisonSpell()
+    local c, p = Want("left") and SideSpell("left"), Want("right") and SideSpell("right")
     b:RegisterForClicks(ns.UseKeyDown() and "AnyDown" or "AnyUp")
     b:SetAttribute("type", nil)
     b:SetAttribute("spell", nil)
@@ -818,10 +854,10 @@ end
 local function Entry(unit, has)
     local text, plain = ns.UnitLabel(unit)
     local tags, suffix = {}, {}
-    if has.curse then tags[#tags + 1] = CURSE_TAG end
-    if has.poison then tags[#tags + 1] = POISON_TAG end
+    if has.left then tags[#tags + 1] = Kind("left").tag end
+    if has.right then tags[#tags + 1] = Kind("right").tag end
     if unit == "player" then suffix[#suffix + 1] = "you" end
-    local spell = has.curse and CurseSpell() or PoisonSpell()
+    local spell = has.left and SideSpell("left") or SideSpell("right")
     local e = { unit = unit, plainName = plain, icon = spell and spell.icon }
     local inRange, isSecret, secretRange = ns.InSpellRange(spell and spell.value, unit)
     if inRange == false then
@@ -842,8 +878,9 @@ local function Entries()
         if ok and eligible then
             local okS, p = pcall(ScanPlain, u)
             if okS and p then
-                local has = { curse = p.curse and WantCurse(), poison = p.poison and WantPoison() }
-                if has.curse or has.poison then out[#out + 1] = Entry(u, has) end
+                local has = { left = p.found[Kind("left").name] ~= nil and Want("left"),
+                    right = p.found[Kind("right").name] ~= nil and Want("right") }
+                if has.left or has.right then out[#out + 1] = Entry(u, has) end
             end
         end
     end
@@ -851,26 +888,30 @@ local function Entries()
 end
 
 local function FakeEntries()
-    local c, p = CurseSpell() or { label = "Remove Curse" }, PoisonSpell() or { label = "Abolish Poison" }
+    local L, R = Kind("left"), Kind("right")
+    local c = SideSpell("left") or { label = Cfg().left.spells[1].name }
+    local p = SideSpell("right") or { label = Cfg().right.spells[1].name }
     return {
-        { text = "|cffc79c6eTankyboy|r " .. CURSE_TAG, icon = c.icon, plainName = "Tankyboy", fake = true },
-        { text = "|cfff58cbaHealbot|r " .. POISON_TAG .. "|cffaaaaaa (out of range)|r", icon = p.icon,
+        { text = "|cffc79c6eTankyboy|r " .. L.tag, icon = c.icon, plainName = "Tankyboy", fake = true },
+        { text = "|cfff58cbaHealbot|r " .. R.tag .. "|cffaaaaaa (out of range)|r", icon = p.icon,
           plainName = "Healbot", fake = true, far = true },
-        { text = "|cff69ccf0Frostmage|r " .. CURSE_TAG .. " " .. POISON_TAG, icon = c.icon,
+        { text = "|cff69ccf0Frostmage|r " .. L.tag .. " " .. R.tag, icon = c.icon,
           plainName = "Frostmage", fake = true },
     }
 end
 
--- Members with nothing to remove are invisible in combat, so the sample has none of them.
-local FAKE_STRIP = {
-    { "|cffc79c6eTankyboy|r", { has = true, curse = true, name = "Curse of Weakness",
-        icon = "Interface\\Icons\\Spell_Shadow_CurseOfMannoroth" } },
-    { "|cfff58cbaHealbot|r", { has = true, poison = true, name = "Deadly Poison",
-        icon = "Interface\\Icons\\Ability_Rogue_DualWeild" } },
-    { "|cff69ccf0Frostmage|r", { has = true, curse = true, poison = true, name = "Curse of Agony",
-        icon = "Interface\\Icons\\Spell_Shadow_CurseOfSargeras" } },
-    { "|cfffff569Stabby|r", { has = true } },
-}
+-- A sample of the strip for your class. Members with nothing to remove are invisible in combat,
+-- so the sample has none of them.
+local function FakeStrip()
+    local L, R = Kind("left"), Kind("right")
+    return {
+        { "|cffc79c6eTankyboy|r", { has = true, left = true, name = L.sample, icon = L.sampleIcon } },
+        { "|cfff58cbaHealbot|r", { has = true, right = true, name = R.sample, icon = R.sampleIcon } },
+        { "|cff69ccf0Frostmage|r", { has = true, left = true, right = true, name = L.sample2 or L.sample,
+            icon = L.sampleIcon2 or L.sampleIcon } },
+        { "|cfffff569Stabby|r", { has = true } },
+    }
+end
 
 local function UpdateList()
     lastList, listDirty = Now(), false
@@ -926,11 +967,13 @@ local function UpdateList()
     if testing then
         stripTitle:ClearAllPoints()
         stripTitle:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + 2, y)
-        stripTitle:SetText("In combat, only members with something to remove (left: curse, right: poison):")
+        stripTitle:SetText("In combat, only members with something to remove (left: " .. Kind("left").name:lower()
+            .. ", right: " .. Kind("right").name:lower() .. "):")
         stripTitle:Show()
         w = math.max(w, (Num(stripTitle:GetStringWidth()) or 0) + 2 * PAD + 4)
         y = y - 14
-        for i, s in ipairs(FAKE_STRIP) do
+        local sample = FakeStrip()
+        for i, s in ipairs(sample) do
             local f = Fake(i)
             f:ClearAllPoints()
             f:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + (i - 1) * (PARTY_W + GAP), y)
@@ -939,7 +982,7 @@ local function UpdateList()
             Paint(f, s[2])
             f:Show()
         end
-        w = math.max(w, 2 * PAD + #FAKE_STRIP * (PARTY_W + GAP))
+        w = math.max(w, 2 * PAD + #sample * (PARTY_W + GAP))
         y = y - PARTY_H - 4
     else
         stripTitle:Hide()
@@ -978,17 +1021,18 @@ local function ResolveSpells()
         return
     end
     spellsPending = false
-    spells.curse = ns.ResolveSpell(CURSE_IDS, "Remove Curse")
-    spells.abolish = ns.ResolveSpell(ABOLISH_IDS, "Abolish Poison")
-    spells.cure = ns.ResolveSpell(CURE_IDS, "Cure Poison")
+    for _, side in ipairs(SIDES) do
+        spells[side] = {}
+        for _, e in ipairs(Cfg()[side].spells) do spells[side][#spells[side] + 1] = ns.ResolveSpell(e.ids, e.name) end
+    end
     curve = nil
     stripPending, listDirty = true, true
 end
 
 -- Everything a rebuild depends on; a change means rebuild (out of combat).
 local function Signature()
-    local c, p = CurseSpell(), PoisonSpell()
-    return table.concat({ tostring(Active()), tostring(Testing()), tostring(WantCurse()), tostring(WantPoison()),
+    local c, p = SideSpell("left"), SideSpell("right")
+    return table.concat({ tostring(Active()), tostring(Testing()), tostring(Want("left")), tostring(Want("right")),
         tostring(Locked()), tostring(ns.UseKeyDown()), tostring(c and c.value), tostring(p and p.value) }, ",")
 end
 
@@ -1015,9 +1059,11 @@ local function Slash(arg)
     if what == "" or what == "on" or what == "off" then
         local v = ns.Toggle(what, On("dispel"))
         ns.Set("dispel", v)
-        if not isDruid then Print("the dispel panel is for druids; it stays hidden on this character.") end
-    elseif what == "curse" or what == "poison" then
-        local key = what == "curse" and "dispelCurse" or "dispelPoison"
+        if not cfg then Print("the dispel panel is for druids and shamans; it stays hidden on this character.") end
+    elseif KINDS[what] then
+        -- Any kind, whatever the class (the settings are account-wide); only your class's two
+        -- kinds matter on this character.
+        local key = KINDS[what].key
         local v = ns.Toggle(rest, On(key))
         if v == nil then Print("/bbuff dispel " .. what .. " [on|off]") else ns.Set(key, v) end
     elseif what == "unlock" then
@@ -1027,37 +1073,15 @@ local function Slash(arg)
     elseif what == "reset" then
         ResetPosition()
     else
-        Print("/bbuff dispel [on|off], /bbuff dispel curse|poison [on|off], /bbuff dispel unlock|lock|reset")
+        Print("/bbuff dispel [on|off], /bbuff dispel " .. Cfg().left.kind .. "|" .. Cfg().right.kind
+            .. " [on|off], /bbuff dispel unlock|lock|reset")
     end
     listDirty = true
 end
 
 -- ---------------------------------------------------------------------------
--- Into the druid module: options, slash, help, status, hub menu
+-- Into the druid and shaman modules: options, slash, help, status, hub menu
 -- ---------------------------------------------------------------------------
-
-Druid.options = Druid.options or {}
-Druid.options[#Druid.options + 1] = { key = "dispel", short = "dispel", label = "Dispel panel (curses, poisons)" }
-Druid.options[#Druid.options + 1] = { key = "dispelCurse", short = "curse", label = "Dispel: curses" }
-Druid.options[#Druid.options + 1] = { key = "dispelPoison", short = "poison", label = "Dispel: poisons" }
-Druid.savedKeys = Druid.savedKeys or {}
-Druid.savedKeys.dispelPos, Druid.savedKeys.dispelLocked = true, true
-
-local baseSlash, baseHelp = Druid.Slash, Druid.Help
-Druid.Slash = function(cmd, arg)
-    if cmd == "dispel" then
-        Slash(arg or "")
-        return true
-    end
-    return baseSlash(cmd, arg)
-end
-
-Druid.Help = function()
-    local out = baseHelp()
-    out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a curse or poison (out of combat), in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; left-click Remove Curse, right-click Abolish Poison"
-    out[#out + 1] = "/bbuff dispel curse|poison [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
-    return out
-end
 
 local WAYS = { "plain read", "aura instance IDs", "filtered read", "none" }
 local OUTCOMES = { "shown", "hidden", "secret", "unknown" }
@@ -1093,10 +1117,19 @@ local function Reasons(stats)
     return #parts > 0 and table.concat(parts, "; ") or nil
 end
 
-Druid.StatusExtra = function()
+-- What a side resolved to: the known spell's text, else every spell's ("... not known").
+local function SideText(side)
+    local s = SideSpell(side)
+    if s then return s.text end
+    local parts = {}
+    for _, r in ipairs(spells[side]) do parts[#parts + 1] = r.text end
+    return #parts > 0 and table.concat(parts, "; ") or "not resolved yet"
+end
+
+local function StatusExtra()
     local db = DB()
     local p = db and db.dispelPos
-    local c, po = CurseSpell(), PoisonSpell()
+    local c, po = SideSpell("left"), SideSpell("right")
     local C = _G.C_UnitAuras
     local function Has(name) return ns.YesNo(type(C) == "table" and type(C[name]) == "function") end
     local f = ChooseFilter()
@@ -1116,13 +1149,13 @@ Druid.StatusExtra = function()
             .. "   " .. (InCombat() and "strip (combat)" or (panel and panel:IsShown() and listBox:IsShown()) and ("shown, " .. shownRows .. " rows") or "hidden")
             .. "   " .. (Locked() and "locked" or "unlocked")
             .. "   position: " .. (type(p) == "table" and string.format("%d, %d", p.x or 0, p.y or 0) or "default (below the box)"),
-        "Remove Curse: " .. (spells.curse and spells.curse.text or "not resolved yet")
-            .. "   poison: " .. (po and po.text or (spells.cure and spells.cure.text) or "not resolved yet")
+        Kind("left").plural .. " (left-click): " .. SideText("left")
+            .. "   " .. Kind("right").plural .. " (right-click): " .. SideText("right")
             .. (spellsPending and " (update waits for combat to end)" or ""),
         "strip: " .. stripMode .. ", " .. stripCount .. " buttons" .. ((stripPending or rosterInCombat) and " (rebuild after combat)" or "")
             .. "   combat show: " .. (drivers and "state driver" or "PLAYER_REGEN_DISABLED")
-            .. "   left: " .. ((WantCurse() and c) and c.label or "nothing")
-            .. "   right: " .. ((WantPoison() and po) and po.label or "nothing"),
+            .. "   left: " .. ((Want("left") and c) and c.label or "nothing")
+            .. "   right: " .. ((Want("right") and po) and po.label or "nothing"),
         "dispel filter: " .. (f or "none") .. " (" .. tostring(filterInfo) .. ")   GetUnitAuraInstanceIDs "
             .. Has("GetUnitAuraInstanceIDs") .. "   GetAuraDispelTypeColor " .. Has("GetAuraDispelTypeColor")
             .. "   colour curve " .. ns.YesNo(Curve() ~= nil),
@@ -1131,13 +1164,55 @@ Druid.StatusExtra = function()
     }
 end
 
-Druid.Menu = function()
+local function Menu()
     return {
         { text = "Lock dispel panel", checkbox = true,
           checked = function() return Locked() end,
           func = function() SetLocked(not Locked()) end },
         { text = "Reset dispel panel position", func = ResetPosition },
     }
+end
+
+-- Adds the panel to one class module: its options (labelled for that class), the dispel slash
+-- command, help lines, status lines and hub menu entries (after the module's own).
+local function Hook(mod, classFile)
+    local c = CLASS_CONFIG[classFile]
+    local L, R = KINDS[c.left.kind], KINDS[c.right.kind]
+    local Lspell, Rspell = c.left.spells[1].name, c.right.spells[1].name
+    mod.options = mod.options or {}
+    mod.options[#mod.options + 1] = { key = "dispel", short = "dispel",
+        label = "Dispel panel (" .. L.plural .. ", " .. R.plural .. ")" }
+    mod.options[#mod.options + 1] = { key = L.key, short = c.left.kind, label = "Dispel: " .. L.plural }
+    mod.options[#mod.options + 1] = { key = R.key, short = c.right.kind, label = "Dispel: " .. R.plural }
+    mod.savedKeys = mod.savedKeys or {}
+    mod.savedKeys.dispelPos, mod.savedKeys.dispelLocked = true, true
+
+    local baseSlash, baseHelp, baseMenu = mod.Slash, mod.Help, mod.Menu
+    mod.Slash = function(cmd, arg)
+        if cmd == "dispel" then
+            Slash(arg or "")
+            return true
+        end
+        return baseSlash(cmd, arg)
+    end
+    mod.Help = function()
+        local out = baseHelp()
+        out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has a " .. L.name:lower() .. " or "
+            .. R.name:lower() .. " (out of combat), in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; left-click "
+            .. Lspell .. ", right-click " .. Rspell
+        out[#out + 1] = "/bbuff dispel " .. c.left.kind .. "|" .. c.right.kind .. " [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
+        return out
+    end
+    mod.StatusExtra = StatusExtra
+    mod.Menu = function()
+        local out = baseMenu and baseMenu() or {}
+        for _, e in ipairs(Menu()) do out[#out + 1] = e end
+        return out
+    end
+end
+
+for classFile in pairs(CLASS_CONFIG) do
+    if ns.modules[classFile] then Hook(ns.modules[classFile], classFile) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1178,8 +1253,17 @@ events:SetScript("OnEvent", function(self, event, arg1)
     local ok, err = pcall(function()
         if event == "PLAYER_LOGIN" then
             local classFile, classID = ns.PlayerClass()
-            isDruid = classFile == "DRUID" or (classFile == nil and classID == 11)
-            if not isDruid then return end
+            if classFile then
+                cfg = CLASS_CONFIG[classFile]
+            else
+                for _, c in pairs(CLASS_CONFIG) do
+                    if c.id == classID then cfg = c end
+                end
+            end
+            if not cfg or not ns.modules[cfg.class] then
+                cfg = nil
+                return
+            end
             CreatePanel()
             ResolveSpells()
             for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",

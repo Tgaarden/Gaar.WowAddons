@@ -1,7 +1,7 @@
 # BetterBuffsForever
 
-A small standalone addon for the WoW Forever client (`_forever_`, interface 16001), for druids and
-paladins. A box at the top centre of the screen lists who in your group lacks your buffs and
+A small standalone addon for the WoW Forever client (`_forever_`, interface 16001), for druids,
+paladins and shamans. A box at the top centre of the screen lists who in your group lacks your buffs and
 whether your reagents are running low. Click a name to buff that member. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
@@ -9,11 +9,15 @@ whether your reagents are running low. Click a name to buff that member. It need
   poisons (a list out of combat, one click button per member in combat).
 - **Paladin**: a **blessing per class** on every member (with a fallback when another paladin's
   blessing is already there), **No aura**, **Righteous Fury** while you tank, **Symbol of Kings**.
+- **Shaman** (new in 1.3): a **weapon without an imbue** (click casts the imbue you chose),
+  **Lightning Shield**, **Ankh, totem, Fish Oil and Shiny Fish Scales reagents**, and the same
+  **dispel panel** for poisons and diseases.
 
 ## What it does (every class)
 
-- **Druids and paladins only.** On any other class the addon stays idle: no scans, no box.
-  `/bbuff status` says `not a druid or paladin: the addon is idle on this character.`
+- **Druids, paladins and shamans only**, picked by your class: there is nothing to set. On any
+  other class the addon stays idle: no scans, no box. `/bbuff status` says
+  `not a druid, paladin or shaman: the addon is idle on this character.`
 - **The tank** is, in this order:
   1. every member `UnitGroupRolesAssigned(unit)` calls `"TANK"`;
   2. else, in a raid, every main tank (`GetPartyAssignment("MAINTANK", unit)`);
@@ -56,19 +60,27 @@ whether your reagents are running low. Click a name to buff that member. It need
   | Rebirth | 4 (20747) | Hornbeam Seed (17037) | 2 |
   | Rebirth | 5 (20748) | Ironwood Seed (17038) | 2 |
 
-## Druid: the dispel panel
+## The dispel panel (druid and shaman)
 
-New in 1.2, druids only, in `Dispel.lua`. On by default (`/bbuff dispel off` to switch it off).
+New in 1.2 for druids, and since 1.3 for shamans, in `Dispel.lua`. On by default
+(`/bbuff dispel off` to switch it off). What differs per class is which kind each mouse button
+removes:
 
-- **Spells**, only those you know: Remove Curse (2782), Abolish Poison (2893), Cure Poison (8946,
-  used only while Abolish Poison is not known). The IDs are the classic ones (the same as in
-  WhatsTraining's Vanilla/Camelot druid data); `/bbuff status` shows what was resolved.
+| Class | Left-click | Right-click |
+|---|---|---|
+| Druid | Curse (purple): Remove Curse (2782) | Poison (green): Abolish Poison (2893), Cure Poison (8946) until Abolish is known |
+| Shaman | Poison (green): Cure Poison (526) | Disease (ochre): Cure Disease (2870) |
+
+- **Spells**, only those you know. The IDs are the classic ones (the same as in WhatsTraining's
+  Vanilla/Camelot druid and shaman data), resolved by ID, else by the localized name;
+  `/bbuff status` shows what was resolved.
 - **A panel of its own**, not part of the buff box. By default it sits just below the box (and
   follows it). `/bbuff dispel unlock` to drag it (Alt + drag works when locked),
   `/bbuff dispel lock`, `/bbuff dispel reset` to put it back below the box. The position is saved
   account-wide.
-- **Out of combat**: one row per member, you included, with a curse or poison you can remove: the
-  class-coloured name and a tag, `Curse` (purple) and/or `Poison` (green); `(you)`,
+- **Out of combat**: one row per member, you included, with something you can remove: the
+  class-coloured name and a tag per kind, `Curse` (purple), `Poison` (green), `Disease` (ochre);
+  `(you)`,
   `(out of range)` (dimmed). Dead, offline and unseen members are skipped. Read from the plain
   `dispelName` of `C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")` (`UnitDebuff` on an older
   client).
@@ -96,15 +108,18 @@ New in 1.2, druids only, in `Dispel.lua`. On by default (`/bbuff dispel off` to 
   with the icon and a short name only). Name and icon are the first dispellable debuff's
   (`aura.name` / `aura.icon`, or `C_UnitAuras.GetAuraDataByAuraInstanceID`); they may be secret
   and are set as they are in a font string and texture of their own. Without them: a question
-  mark and `Curse`, `Poison` or `Dispel`.
-- **The colour** (plain textures, allowed in combat): a curse = purple, a poison = green, both =
-  left half purple, right half green; dispellable but of an unknown kind = yellow.
-- **Clicks**, on the rows and the strip alike: **left-click = Remove Curse**, **right-click =
-  Abolish Poison** (Cure Poison until Abolish is known), on that member (`type1`/`spell1`,
-  `type2`/`spell2`, `unit`). A click whose spell you do not know or whose kind is switched off does
-  nothing. Registered for the click direction `ActionButtonUseKeyDown` acts on.
-- **`/bbuff dispel curse off`** / **`poison off`**: that kind is ignored (no rows, no colour, no
-  click).
+  mark and `Curse`, `Poison`, `Disease` or `Dispel`.
+- **The colour** (plain textures, allowed in combat): the left half shows the left-click kind, the
+  right half the right-click kind. Druid: a curse = purple, a poison = green, both = left half
+  purple, right half green. Shaman: a poison = green, a disease = ochre, both = left half green,
+  right half ochre. Dispellable but of an unknown kind (a druid's disease, say) = yellow.
+- **Clicks**, on the rows and the strip alike: **left-click** and **right-click** cast the spells
+  in the table above on that member (`type1`/`spell1`, `type2`/`spell2`, `unit`). A click whose
+  spell you do not know or whose kind is switched off does nothing. Registered for the click
+  direction `ActionButtonUseKeyDown` acts on.
+- **`/bbuff dispel curse off`** / **`poison off`** / **`disease off`**: that kind is ignored (no
+  rows, no colour, no click). The settings are account-wide, so `poison off` applies to a druid
+  and a shaman alike.
 
 ### Finding a dispellable debuff in combat
 
@@ -118,7 +133,8 @@ which ways answered in the last fight:
    `HARMFUL|RAID_PLAYER_DISPELLABLE` and `HARMFUL|RAID` (the first is in Forever's client). A plain
    count says whether there is one. The colour comes from
    `C_UnitAuras.GetAuraDispelTypeColor(unit, auraInstanceID, curve)` with a step colour curve over
-   the dispel type (Curse 2 purple, Poison 4 green, the rest and a switched-off kind transparent),
+   the dispel type (your class's two kinds: Curse 2 purple, Disease 3 ochre, Poison 4 green; the
+   rest and a switched-off kind transparent),
    passed straight to `SetVertexColor` and never read. Without a colour: yellow.
 3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
    one, the kind from a plain `dispelName` or else the colour API, else yellow.
@@ -135,6 +151,36 @@ no colour).
 `UNIT_AURA` marks a member; in combat the strip repaints marked members at most 10 times a second
 and everyone once a second. The list updates at most 4 times a second, and every 1.5 s in a
 group.
+
+## Shaman
+
+New in 1.3, in `Shaman.lua`. A shaman has no group buff, so only you are checked (the dispel
+panel still covers the group).
+
+- **Weapon imbue.** A `No weapon imbue:` row per hand that holds a weapon without a temporary
+  enchant (`GetWeaponEnchantInfo`): the main hand, and the off hand only when it holds a weapon
+  (not a shield, an off-hand item or nothing). Any temporary enchant counts (an imbue, but also a
+  poison or a sharpening stone); a fishing pole is never warned about. Only a missing imbue is
+  warned about, not one running out soon (the druid and paladin checks do not warn on expiry
+  either). While the check is on, the box also refreshes every 1.5 s out of combat, since an
+  imbue can run out without an event; `UNIT_INVENTORY_CHANGED`, `PLAYER_EQUIPMENT_CHANGED` and
+  `WEAPON_ENCHANT_CHANGED` (where the client has it) refresh it at once.
+- **Which imbue a click casts** (per character): `/bbuff imbue auto|rockbiter|flametongue|frostbrand|windfury`,
+  or the hub's **Weapon imbue** submenu. `auto`, the default, is Windfury Weapon when you know it,
+  else Flametongue Weapon, else Rockbiter Weapon. A chosen imbue you do not know yet falls back to
+  auto (the row says so). Always the highest rank you know, by name. Classic shamans cannot dual
+  wield; for a client that lets them, the game picks the weapon an imbue lands on.
+- **Lightning Shield.** A row when you lack it, once you know it (level 8). The row casts it.
+- **Reagents**, each only once you know the spell that needs it:
+
+  | Reagent | For | Default threshold |
+  |---|---|---|
+  | Ankh (17030) | Reincarnation (20608) | 2 (`/bbuff reagents ankh <n>`) |
+  | Earth Totem (5175), Fire Totem (5176), Water Totem (5177), Air Totem (5178) | any totem of that element | 1, so only when it is not in your bags; it is not used up (`/bbuff reagents totems 0` to switch off) |
+  | Shiny Fish Scales (17057) | Water Breathing (131) | 5 (`/bbuff reagents water <n>`) |
+  | Fish Oil (17058) | Water Walking (546) | 5 (the same threshold) |
+
+  Counted by item ID, and by the item's name when the ID finds none.
 
 ## Paladin
 
@@ -218,7 +264,7 @@ the localized name of the highest rank you know (or its spell ID when the client
 
 ## Combat
 
-**The buff box is hidden in combat** (the druid's dispel panel is not: see above), on purpose: aura data is secret then, secure attributes cannot
+**The buff box is hidden in combat** (the dispel panel is not: see above), on purpose: aura data is secret then, secure attributes cannot
 change, and buffing mid-fight is not what it is for. A visibility state driver
 (`RegisterStateDriver(holder, "visibility", "[combat] hide; show")`) hides it the moment combat
 starts, by secure code; on a client without state drivers `PLAYER_REGEN_DISABLED` does it.
@@ -246,15 +292,15 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
 | `/bbuff tank clear` | Clear the tank set by hand |
 | `/bbuff unlock`, `/bbuff lock`, `/bbuff reset` | Move the box, stop moving it, put it back at the top centre |
-| `/bbuff test` | Show the box with test rows for your class (they cast nothing), and for a druid the dispel panel with sample rows and a sample strip; again to hide them |
-| `/bbuff status` | Version, the class module (Druid, Paladin, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A druid also gets the dispel panel (state, spells, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
+| `/bbuff test` | Show the box with test rows for your class (they cast nothing), and for a druid or shaman the dispel panel with sample rows and a sample strip; again to hide them |
+| `/bbuff status` | Version, the class module (Druid, Paladin, Shaman, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A shaman also gets the imbues known, the imbue choice and what a click casts, both hands' weapon and imbue state, Lightning Shield, Reincarnation, the totem elements known and Water Breathing / Walking. A druid and a shaman also get the dispel panel (state, spells, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
 | **Druid** | |
 | `/bbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
 | `/bbuff thorns [on\|off]` | Warn when you lack Thorns |
 | `/bbuff tank on\|off` | Warn when the tank lacks Thorns |
 | `/bbuff reagents gotw <n>`, `/bbuff reagents rebirth <n>` | Warn below n Gift of the Wild reagents (default 10) or Rebirth seeds (default 2), 0-200 |
 | `/bbuff dispel [on\|off]` | The dispel panel (no argument toggles) |
-| `/bbuff dispel curse [on\|off]`, `/bbuff dispel poison [on\|off]` | Each kind |
+| `/bbuff dispel curse [on\|off]`, `/bbuff dispel poison [on\|off]` | Each kind (`disease` is the shaman's) |
 | `/bbuff dispel unlock`, `lock`, `reset` | Move the dispel panel, stop moving it, put it back below the box |
 | **Paladin** | |
 | `/bbuff bless [on\|off]` | The blessing check |
@@ -264,9 +310,15 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff fury [on\|off]` | Warn when you tank without Righteous Fury |
 | `/bbuff tanking [on\|off]` | Say you are tanking (this character), for the Righteous Fury check |
 | `/bbuff reagents kings <n>` | Warn below n Symbols of Kings (default 20), 0-200 |
+| **Shaman** | |
+| `/bbuff imbue [on\|off]` | Warn when a weapon has no imbue |
+| `/bbuff imbue auto\|rockbiter\|flametongue\|frostbrand\|windfury` | What a click on the imbue row casts (this character; default auto) |
+| `/bbuff shield [on\|off]` | Warn when you lack Lightning Shield |
+| `/bbuff reagents ankh <n>`, `totems <n>`, `water <n>` | Warn below n Ankhs (default 2), totem items (default 1), Fish Oil / Shiny Fish Scales (default 5) |
+| `/bbuff dispel [on\|off]`, `/bbuff dispel poison\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel, as for a druid |
 
-The class settings are account-wide, so the druid commands also work on a paladin and the other
-way round; they only matter on that class.
+The class settings are account-wide (except the shaman's imbue choice, per character), so the
+druid commands also work on a paladin and the other way round; they only matter on that class.
 
 ## With BetterForever (required)
 
@@ -283,6 +335,11 @@ menu has a **Buffs** submenu with the options for your class:
   (curses, poisons)**, **Dispel: curses**, **Dispel: poisons**, **Gift of the Wild reagent warning
   below** (0/5/10/20/40), **Rebirth reagent warning below** (0/1/2/3/5), **Lock dispel panel**,
   **Reset dispel panel position**;
+- a shaman: **Weapon imbue check**, **Lightning Shield on you**, **Dispel panel (poisons,
+  diseases)**, **Dispel: poisons**, **Dispel: diseases**, the **Ankh** (0/1/2/3/5), **Totem items**
+  (0/1) and **Fish Oil / Shiny Fish Scales** (0/1/5/10/20) reagent thresholds, **Weapon imbue
+  (this character)** (a radio list: Auto, Rockbiter, Flametongue, Frostbrand, Windfury), **Lock
+  dispel panel**, **Reset dispel panel position**;
 - a paladin: **Blessing check (by class)**, **Warn when no aura is on**, **Righteous Fury when
   tanking**, **Symbol of Kings reagent warning below** (0/10/20/40/60), **Blessings by class** (one
   submenu per class with a radio list of the blessings and None, plus Reset to defaults) and **I'm
@@ -296,7 +353,7 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
 | Field | What it is |
 |---|---|
 | `version` | This addon's version, a string |
-| `StatusLine()` | One line of state, e.g. `on · 2 missing`, `on · all buffed`, `on · hidden in combat` or `idle (not a druid or paladin)` |
+| `StatusLine()` | One line of state, e.g. `on · 2 missing`, `on · all buffed`, `on · hidden in combat` or `idle (not a druid, paladin or shaman)` |
 | `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, submenu }`, `{ divider }`), for a menu drawn without `MenuUtil` |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide. It is there so every addon the hub knows has the same API |
@@ -315,6 +372,13 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
     643, 10291, 1032, 10292, 10293; Retribution Aura 7294, 10298, 10299, 10300, 10301;
     Concentration Aura 19746; Shadow Resistance Aura 19876, 19895, 19896; Frost Resistance Aura
     19888, 19897, 19898; Fire Resistance Aura 19891, 19899, 19900; Sanctity Aura 20218.
+  - Shaman: Rockbiter Weapon 8017, 8018, 8019, 10399, 16314, 16315, 16316; Flametongue Weapon
+    8024, 8027, 8030, 16339, 16341, 16342; Frostbrand Weapon 8033, 8038, 10456, 16355, 16356;
+    Windfury Weapon 8232, 8235, 10486, 16362; Lightning Shield 324, 325, 905, 945, 8134, 10431,
+    10432; Reincarnation 20608, Water Breathing 131, Water Walking 546 (reagents only); totems,
+    rank 1, for "an element is known": Earth 8071, 2484, 5730, 8075, 8143; Fire 3599, 1535, 8181,
+    8190, 8227; Water 5394, 8166, 5675, 8184, 8170; Air 8177, 10595, 8512, 6495, 15107, 8835,
+    25908. Checked against WhatsTraining's Vanilla shaman data.
 
   The highest rank known (`C_SpellBook.IsSpellKnown`, `IsPlayerSpell`, `IsSpellKnown`) is resolved
   at login and on `SPELLS_CHANGED`, out of combat.
@@ -334,11 +398,12 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
 ## Files
 
 `BetterBuffsForever.lua` is the shared part (box, rows, aura scan, group and tank, settings, slash
-command, API, events). `Druid.lua` and `Paladin.lua` are the class modules; each registers itself
+command, API, events). `Druid.lua`, `Paladin.lua` and `Shaman.lua` are the class modules; each registers itself
 in the addon's private namespace (`local _, ns = ...`), so the modules add no globals.
-`Dispel.lua` is the druid's dispel panel: it adds its options, commands, status lines and menu
-entries to the druid module and keeps its own (unnamed) frames and events. Both TOCs list all
-four, the shared file first.
+`Dispel.lua` is the dispel panel of a druid and a shaman: it adds its options, commands, status
+lines and menu entries to both modules (one `CLASS_CONFIG` table says which kind each click
+removes) and keeps its own (unnamed) frames and events. Both TOCs list all
+five, the shared file first and `Dispel.lua` last.
 
 ## How it stays out of the way
 
@@ -353,9 +418,11 @@ four, the shared file first.
   (`BetterBuffsForeverDB`): `enabled`, `group`, `sound`, `reagents`, `locked`, `pos`; druid
   `motw`, `thorns`, `thornsTank`, `gotwMin`, `rebirthMin`, `dispel`, `dispelCurse`,
   `dispelPoison`, `dispelPos`, `dispelLocked`; paladin `bless`, `aura`, `fury`,
-  `kingsMin` and `blessings` (only the classes changed from the default). Per character
-  (`BetterBuffsForeverCharDB`): `tank` (`{ guid, name }`), and for a paladin `lastAura` and
-  `tanking`. Every class's keys are kept whatever class logs in.
+  `kingsMin` and `blessings` (only the classes changed from the default); shaman `imbue`,
+  `shield`, `ankhMin`, `totemMin`, `waterMin`, `dispelDisease` (and the shared `dispel`,
+  `dispelPoison`, `dispelPos`, `dispelLocked`). Per character
+  (`BetterBuffsForeverCharDB`): `tank` (`{ guid, name }`), for a paladin `lastAura` and
+  `tanking`, and for a shaman `imbueChoice` (unset = auto). Every class's keys are kept whatever class logs in.
 
 ## Names it relies on
 
@@ -367,7 +434,7 @@ From Blizzard's retail FrameXML and API documentation, which Forever's UI follow
 `C_CurveUtil.CreateColorCurve`, `AuraUtil.IsValidFilterString`, `C_Spell.GetSpellInfo`,
 `C_Spell.IsSpellInRange`, `C_Item.GetItemCount`,
 `C_Item.GetItemNameByID`, `UnitGroupRolesAssigned`, `GetPartyAssignment`, `GetNumShapeshiftForms`,
-`GetShapeshiftFormInfo`, `UnitIsVisible`, `UnitIsConnected`, `UnitIsDeadOrGhost`, `IsInGroup`,
+`GetShapeshiftFormInfo`, `GetWeaponEnchantInfo`, `GetInventoryItemID`, `C_Item.GetItemInfoInstant`, `UnitIsVisible`, `UnitIsConnected`, `UnitIsDeadOrGhost`, `IsInGroup`,
 `IsInRaid` and `InCombatLockdown`. It ships a `_Camelot` TOC and a plain fallback TOC, both at
 16001.
 

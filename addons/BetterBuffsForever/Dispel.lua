@@ -2,9 +2,9 @@
   BetterBuffsForever - the dispel panel of every class that can remove something: a druid
   (curses and poisons), a shaman (poisons and diseases), a priest (magic and diseases), a paladin
   (poisons and diseases, plus magic with Cleanse) and a mage (curses). Loaded after Druid.lua,
-  Paladin.lua and Shaman.lua; it hooks into those modules (options, slash command, help, status,
-  hub menu), registers a small dispel-only module for the priest and the mage (no buff check),
-  and keeps its own frames and events, so the buff box is untouched. What differs per class is
+  Paladin.lua, Shaman.lua and PriestMage.lua; it hooks into those modules (options, slash
+  command, help, status, hub menu) and keeps its own frames and events, so the buff box is
+  untouched. What differs per class is
   one table, CLASS_CONFIG: one or two actions, each with its spells (the first one known is
   cast) and the kinds each spell removes. Two actions: left-click casts the first, right-click
   the second. One action: both mouse buttons cast it.
@@ -1388,26 +1388,6 @@ local function Hook(mod, classFile)
         return out
     end
 end
-
--- A class with a dispel panel but nothing for the buff box (priest, mage): a module with no buff
--- check, so the shared part still gives it its options, commands, status and menu.
-local function DispelOnlyModule(classFile, name)
-    local M = { class = classFile, name = name, dispelOnly = true, options = {}, thresholds = {},
-        blurb = "a " .. name:lower() .. "'s dispel panel: who in your group has something you can remove, and a click button per member in combat. There is no buff check for this class." }
-    function M.ResolveSpells() end
-    function M.WantsGroup() return false end
-    function M.Sections() return {} end
-    function M.Check() end
-    function M.LowReagents() return {}, {} end
-    function M.Fake() return {}, {} end
-    function M.Help() return {} end
-    function M.Slash() return false end
-    function M.StatusSpells() return { "buff check: none for a " .. name:lower() .. " (dispel panel only)" } end
-    function M.StatusLast() return "last check: no buff check for this class" end
-    return M
-end
-ns.modules.PRIEST = ns.modules.PRIEST or DispelOnlyModule("PRIEST", "Priest")
-ns.modules.MAGE = ns.modules.MAGE or DispelOnlyModule("MAGE", "Mage")
 
 for classFile in pairs(CLASS_CONFIG) do
     if ns.modules[classFile] then Hook(ns.modules[classFile], classFile) end

@@ -1,10 +1,11 @@
 --[[
-  BetterBuffsForever - a buff check on WoW Forever for druids, paladins and shamans: who in your
-  group lacks your buff, in a box at the top centre of the screen. Click a name to buff it. Every
-  class that can remove something (druid, shaman, priest, paladin, mage) also gets a dispel panel.
+  BetterBuffsForever - a buff check on WoW Forever for druids, paladins, shamans, priests and
+  mages: who in your group lacks your buff, in a box at the top centre of the screen. Click a
+  name to buff it. Every class that can remove something (druid, shaman, priest, paladin, mage)
+  also gets a dispel panel.
 
   This file is the shared part; the class-specific parts are modules in their own files, loaded
-  after this one (both TOCs list all five):
+  after this one (both TOCs list all six):
 
     Druid.lua    Mark of the Wild / Gift of the Wild, Thorns on you and the tank, and the Gift of
                  the Wild and Rebirth reagents.
@@ -12,6 +13,9 @@
                  there), "No aura", Righteous Fury while you tank, and Symbol of Kings.
     Shaman.lua   A weapon without an imbue (click casts the chosen imbue), Lightning Shield, and
                  the Ankh, totem, Fish Oil and Shiny Fish Scales reagents. Only you are checked.
+    PriestMage.lua  Power Word: Fortitude (Prayer of Fortitude counts) for a priest, Arcane
+                 Intellect (Arcane Brilliance counts; only members with mana) for a mage, and
+                 the Sacred Candle / Arcane Powder reagents once the group version is known.
     Dispel.lua   The dispel panel of a druid (curses and poisons), a shaman (poisons and
                  diseases), a priest (magic and diseases), a paladin (poisons and diseases, magic
                  too with Cleanse) and a mage (curses): its own movable frame, a list of who has
@@ -19,16 +23,15 @@
                  left-click Remove Curse, right-click Abolish/Cure Poison; shaman: left-click Cure
                  Poison, right-click Cure Disease; priest: left-click Dispel Magic, right-click
                  Abolish/Cure Disease; paladin: either click Cleanse, else Purify; mage: either
-                 click Remove Lesser Curse). It hooks into the druid, paladin and shaman modules,
-                 registers a dispel-only module for the priest and the mage, and keeps its own
-                 frames and events; see that file.
+                 click Remove Lesser Curse). It hooks into the druid, paladin, shaman, priest
+                 and mage modules and keeps its own frames and events; see that file.
 
   A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
   else from here:
 
-    * Only for a class with a module (Druid, Paladin, Shaman; Priest and Mage have a dispel-only
-      module from Dispel.lua, with no buff check). Any other class (Warrior, Rogue, Hunter,
-      Warlock) leaves the addon idle: no scans, no box; /bbuff status says so.
+    * Only for a class with a module (Druid, Paladin, Shaman, Priest, Mage). Any other class
+      (Warrior, Rogue, Hunter, Warlock) leaves the addon idle: no scans, no box; /bbuff status
+      says so.
     * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
       every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
       (/bbuff tank, your current target, per character); else there is no tank. You count too.
@@ -42,7 +45,8 @@
     * Click to buff: every row is a SecureActionButtonTemplate button, type "spell", spell = the
       localized name (the highest rank you know), unit = that member's unit token. Left-click
       casts the row's spell; right-click casts the module's group version (Gift of the Wild, a
-      Greater Blessing) when there is one, else what left-click does.
+      Greater Blessing, Prayer of Fortitude, Arcane Brilliance) when there is one, else what
+      left-click does.
     * Combat: the box is hidden in combat. Aura data is secret then, secure attributes cannot
       change, and buffing mid-fight is not the point. A state driver ("[combat] hide; show")
       hides it the moment combat starts, PLAYER_REGEN_DISABLED as a fallback; nothing is scanned
@@ -81,7 +85,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
@@ -109,7 +113,7 @@ local LABELS = {
     reagents = "Low reagent warning",
 }
 
-ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, Dispel.lua
+ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, PriestMage.lua
 local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN", "PRIEST", "MAGE" }
 
 local db                  -- BetterBuffsForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -981,14 +985,14 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids, paladins and shamans: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild or the Greater Blessing). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
+local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
 
 local function PrintHelp()
     Print(INTRO)
     if module then
         Print(module.blurb)
     else
-        Print("a buff check for druids, paladins and shamans: who lacks your buffs. Click a name to buff it."
+        Print("a buff check for druids, paladins, shamans, priests and mages: who lacks your buffs. Click a name to buff it."
             .. (module == false and " Idle on this character (not a druid, mage, paladin, priest or shaman)." or ""))
     end
     Print("/bbuff on | off - switch it on or off")
@@ -1122,9 +1126,8 @@ end
 -- /bbuff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
---   StatusLine()         one short line of state, e.g. "on · 2 missing", "on · dispel panel
---                        only" (priest, mage) or "idle (not a druid, mage, paladin, priest or
---                        shaman)"
+--   StatusLine()         one short line of state, e.g. "on · 2 missing", "on · all buffed" or
+--                        "idle (not a druid, mage, paladin, priest or shaman)"
 --   MenuEntries()        the options as plain data, for a menu drawn without MenuUtil:
 --                        { text, func }, { text, checkbox = true, checked, func },
 --                        { text, radio = true, checked, func }, { text, submenu } and
@@ -1137,7 +1140,6 @@ local function StatusLine()
     if not db then return "not loaded yet" end
     if module == false then return "idle (not a druid, mage, paladin, priest or shaman)" end
     if not On("enabled") then return "off" end
-    if module and module.dispelOnly then return "on" .. DOT .. "dispel panel only" end
     if InCombat() then return "on" .. DOT .. "hidden in combat" end
     return "on" .. DOT .. (missingCount > 0 and (missingCount .. " missing") or "all buffed")
         .. ((lastScan.unknown or 0) > 0 and (DOT .. lastScan.unknown .. " unknown") or "")

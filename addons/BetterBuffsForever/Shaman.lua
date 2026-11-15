@@ -11,11 +11,13 @@
       imbue you chose (/bbuff imbue <name>, per character, also in the hub menu): Rockbiter,
       Flametongue, Frostbrand or Windfury Weapon, the highest rank you know, by name. "auto"
       (the default) is Windfury Weapon when known, else Flametongue, else Rockbiter; a chosen
-      imbue you do not know falls back to auto. Only "missing" is warned about, not "expiring
-      soon" (the druid and paladin checks do not warn on expiry either). The weapon state has no
-      cheap event of its own on every client, so while the check is on the box is also
-      refreshed every 1.5 s (out of combat only, like everything else).
-    * Lightning Shield: a row when you lack it, once you know it. The row casts it.
+      imbue you do not know falls back to auto. Since 1.6.0 a temporary enchant with less than
+      the "expiring" minutes left (GetWeaponEnchantInfo's time left, plain only) gets a row
+      under "Weapon imbue expiring:" with the time, "(1:45)"; a click recasts the imbue. The
+      weapon state has no cheap event of its own on every client, so while the check is on the
+      box is also refreshed every 1.5 s (out of combat only, like everything else).
+    * Lightning Shield: a row when you lack it, once you know it, and under "Expiring Lightning
+      Shield:" when it runs out within the "expiring" minutes. The row casts it.
     * Low reagents, each only once you know the spell that needs it:
         Ankh (17030)               Reincarnation, below 2 by default (/bbuff reagents ankh <n>)
         Earth/Fire/Water/Air Totem (5175/5176/5177/5178)
@@ -177,9 +179,9 @@ local function Yes(v)
     return (v == true or v == 1) and true or false
 end
 
--- hasMain, hasOff: true / false, nil when unknown. GetWeaponEnchantInfo gives 8 values on a
--- newer client (with the enchant IDs) and 6 on an older one; the off hand's flag is the 5th or
--- the 4th.
+-- hasMain, hasOff: true / false, nil when unknown; then the seconds left on each (nil when
+-- not plain). GetWeaponEnchantInfo gives 8 values on a newer client (with the enchant IDs) and
+-- 6 on an older one; the off hand's flag is the 5th or the 4th, its time (ms) the one after it.
 local function Packed(...) return select("#", ...), { ... } end
 
 local function Enchants()
@@ -189,7 +191,8 @@ local function Enchants()
     n = n - 1                                      -- without pcall's own "ok"
     if n == 0 then return false, false end
     local offIndex = n >= 7 and 5 or 4
-    return Yes(r[2]), Yes(r[offIndex + 1])
+    local mainMs, offMs = Num(r[3]), Num(r[offIndex + 2])
+    return Yes(r[2]), Yes(r[offIndex + 1]), mainMs and mainMs / 1000 or nil, offMs and offMs / 1000 or nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -206,6 +209,8 @@ function M.Sections()
     return {
         { key = "imbue", title = "No weapon imbue:" },
         { key = "shield", title = "Missing " .. ((spells.lshield and spells.lshield.label) or "Lightning Shield") .. ":" },
+        { key = "imbue_exp", title = "Weapon imbue expiring:" },
+        { key = "shield_exp", title = "Expiring " .. ((spells.lshield and spells.lshield.label) or "Lightning Shield") .. ":" },
     }
 end
 
@@ -219,11 +224,13 @@ function M.Check(units, tankSet, entries, missing, stats)
     local spell, why = ImbueToCast()
     if On("imbue") and spell then
         stats.imbue = "ok"
-        local okE, hasMain, hasOff = pcall(Enchants)
-        if not okE then hasMain, hasOff = nil, nil end
+        local okE, hasMain, hasOff, leftMain, leftOff = pcall(Enchants)
+        if not okE then hasMain, hasOff, leftMain, leftOff = nil, nil, nil, nil end
         for _, h in ipairs(HANDS) do
             local okW, holds = pcall(HoldsWeapon, h.slot)
-            local has = h.slot == MAIN_HAND and hasMain or hasOff
+            -- Not "a and b or c": a main hand without an enchant (false) must not read the off hand's.
+            local has, left = hasOff, leftOff
+            if h.slot == MAIN_HAND then has, left = hasMain, leftMain end
             if okW and holds then
                 if has == nil then
                     unknownHere = true
@@ -236,9 +243,14 @@ function M.Check(units, tankSet, entries, missing, stats)
                     if h.slot == OFF_HAND then
                         e.note = "The game picks the weapon an imbue lands on; with the main hand imbued it goes to the off hand."
                     end
-                    entries[#entries + 1] = e
-                    missing["imbue:" .. h.key] = true
+                    ns.AddMissing(entries, missing, e, "imbue:" .. h.key)
                     stats.imbue = "missing"
+                elseif has == true and ns.Expiring(left) then
+                    local e = ns.ExpiringEntry("imbue_exp", "player", spell, left)
+                    e.text = "|cffffffff" .. h.label .. "|r|cffaaaaaa (" .. spell.label .. ", " .. ns.Clock(left) .. ")|r"
+                    e.leftText = "Left-click: cast " .. spell.label
+                    e.plainName = h.label .. ": imbue expiring"
+                    entries[#entries + 1] = e
                 end
             elseif not okW or holds == nil then
                 unknownHere = true
@@ -254,14 +266,17 @@ function M.Check(units, tankSet, entries, missing, stats)
         for _, b in ipairs(buffs) do
             if Matches(b, ls) then has = true break end
         end
-        if has then
+        local left = has and ns.LeftOf(buffs, ls) or nil
+        if has and ns.Expiring(left) then
+            stats.shield = "expiring"
+            entries[#entries + 1] = ns.ExpiringEntry("shield_exp", "player", ls, left)
+        elseif has then
             stats.shield = "ok"
         elseif scanUnknown then
             unknownHere = true
             stats.shield = "unknown"
         else
-            entries[#entries + 1] = MakeEntry("shield", "player", ls)
-            missing["shield"] = true
+            ns.AddMissing(entries, missing, MakeEntry("shield", "player", ls), "shield")
             stats.shield = "missing"
         end
     end
@@ -288,6 +303,7 @@ function M.Fake()
     local list = {
         ns.FakeEntry("imbue", "|cffffffffMain hand|r|cffaaaaaa (" .. wf.label .. ", auto)|r", wf),
         ns.FakeEntry("shield", "|cff0070deYou|r", spells.lshield or { label = "Lightning Shield" }),
+        ns.FakeEntry("imbue_exp", "|cffffffffOff hand|r|cffaaaaaa (" .. wf.label .. ", 1:45)|r", wf),
     }
     return list, { { name = ITEM_NAMES[ANKH], count = 1, min = ns.Threshold("ankhMin", MIN_ANKH) } }
 end

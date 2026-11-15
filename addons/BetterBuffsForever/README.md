@@ -5,6 +5,13 @@ paladins, shamans, priests and mages, with a dispel panel for every class that c
 shamans, priests, paladins and mages). A box at the top centre of the screen lists who in your group lacks your buffs and
 whether your reagents are running low. Click a name to buff that member. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
+New in 1.6: in combat **the game itself draws the dispellable debuff's icon** on the dispel strip
+(Blizzard aura container), so a member with something to remove shows up even though the addon
+cannot read auras in combat; a **low-level member gets a lower rank** they can actually receive;
+an **"Expiring ..." warning** out of combat when one of your buffs has less than 2 minutes left
+(`/bbuff expire 0-5`); and the "something went missing" sound no longer fires for members left
+out because they are out of range.
+
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
   and the tank, **Gift of the Wild and Rebirth reagents**, and a **dispel panel** for curses and
   poisons (a list out of combat, one click button per member in combat).
@@ -47,6 +54,14 @@ whether your reagents are running low. Click a name to buff that member. It need
   toggle `Show members out of range`, saved account-wide) they are shown dimmed with
   `(out of range)` and stay clickable, the cast just fails. An unknown (secret) range is always
   shown. If every missing member is out of range the section, and the box, disappears.
+- **Expiring soon** (new in 1.6, out of combat): a buff the module tracks (Mark of the Wild,
+  Thorns, Power Word: Fortitude, Arcane Intellect, your own blessings, Lightning Shield, a weapon
+  imbue) with less than N minutes left gets a row in an `Expiring Mark of the Wild:` (...,
+  `Expiring blessings:`, `Weapon imbue expiring:`) section with the time left after the name,
+  `Healbot (1:45)`. Clicking recasts it. N is `/bbuff expire 0-5` or the menu slider (default 2,
+  `0` = off). Only a plain, finite duration counts (a secret or permanent one is never warned
+  about), and the box refreshes every 1.5 s while the warning is on. Expiring rows do not count
+  as missing and do not play the sound.
 - **Unknown is not missing.** A member whose buffs cannot be read (a secret aura, a refused read)
   counts as unknown and is never warned about. `/bbuff status` gives the count.
 - **Low reagents** (on by default): counted in the bags only (`C_Item.GetItemCount`, else
@@ -154,6 +169,27 @@ out on purpose).
   tooltip. Since 1.2.4 **unknown counts as nothing**: when no way answers (method 4 below), the
   detection fails, or `SetAlphaFromBoolean` refuses a secret answer, the button is invisible too.
   Only a real "has one" shows a button.
+- **The game draws the icons in combat** (new in 1.6). On this client the addon cannot read
+  auras in combat, so on its own the strip stayed empty there (unknown = hidden). Now each
+  strip button has a Blizzard aura container under it (`CreateFrame("AuraContainer", nil, strip,
+  "CustomAuraContainerTemplate")`, the technique BetterFramesForever uses for unit frame auras)
+  for that member's unit, with one aura slot: filter `HARMFUL` plus the candidate filter
+  `includeDispelTypes` = the kinds you can remove now (your known spell's kinds that are switched
+  on, the same rule as the out-of-combat list; the retail engine's
+  `HARMFUL|RAID_PLAYER_DISPELLABLE` is not used for it because it may not match a classic
+  spellbook). The client reads the auras in its own secure code and shows the slot only while
+  the member has such a debuff; everything the cell shows hangs off that slot: a dark
+  background the size of the button, a bar in the dispel type's colour (the game's debuff
+  colours), the debuff's icon, the member's name and the debuff's name (written by the client).
+  So a member's cell appears and disappears with the client's own answer, and no addon code
+  sees it. The secure button stays on top of it (higher frame level), invisible, and takes the
+  click; its own alpha cannot follow the client's answer in combat because Lua never gets a
+  boolean to hand to `SetAlphaFromBoolean`. If the addon can read a plain answer it still
+  paints the button itself, covering the cell. No tooltip on a client-drawn cell. The
+  containers are built with the strip, out of combat, and only shown (and listening) in
+  combat. `/bbuff status` has a `combat icons (Blizzard aura container):` line: active (with
+  how many buttons have one), not on this client, or refused (said once in chat; then the strip
+  works as in 1.5).
 - **What to remove**, like the buff box's rows: the debuff's icon on the left, then `Name:` and the
   debuff's name (party/solo: 150 px wide buttons, the name truncated to fit; raid: 58 px buttons
   with the icon and a short name only). Name and icon are the first dispellable debuff's
@@ -195,7 +231,7 @@ which ways answered in the last fight:
 3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
    one, the kind from a plain `dispelName` or else the colour API, else yellow.
 4. **None**: unknown, so the button is invisible (still clickable where it sits); `/bbuff status`
-   says so.
+   says so. The client-drawn cell under it (above) still shows a dispellable debuff.
 
 `/bbuff status` counts, per way, how each paint in the fight ended: `shown`, `hidden` (nothing to
 remove), `secret` (left to `SetAlphaFromBoolean`) or `unknown` (hidden), and lists why the earlier
@@ -314,8 +350,17 @@ the localized name of the highest rank you know (or its spell ID when the client
 
 - The rows are registered for the one click direction `ActionButtonUseKeyDown` acts on (read at
   every rebuild), so one click casts once with the CVar on or off.
-- Casting by name casts the highest rank you know; a low-level member may need a lower rank, which
-  the addon does not pick.
+- **Lower rank for a low-level member** (new in 1.6). A buff lands only on a target whose level is
+  at least the rank's spell level - 10 (Mark of the Wild rank 7, level 60, needs a level 50
+  target). For a member below that, the row casts the highest rank they can receive, by spell ID
+  (`spell` = e.g. `5234`, which the secure button casts with `CastSpellByID`), and says `rank 4`
+  after the name; the tooltip explains it. The rank levels are the classic trainer levels
+  (WhatsTraining's Vanilla/Camelot data, the same on both): Mark of the Wild, Thorns, Power
+  Word: Fortitude, Arcane Intellect, Blessing of Might, Wisdom, Light and Sanctuary. Only ranks
+  you know count; a member whose level is hidden, or with no lower rank you know that fits,
+  keeps the highest rank. The rows exist only out of combat, so this is set when the row is
+  built. The right-click group version (Gift of the Wild, Prayer of Fortitude, Arcane
+  Brilliance, a Greater Blessing) is not lowered.
 - Hover a row for a tooltip with what each click casts.
 
 ## Combat
@@ -343,7 +388,8 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 | `/bbuff` or `/bbuff help` | Help (the commands for your class) |
 | `/bbuff on`, `/bbuff off` | Switch the addon on or off |
 | `/bbuff group [on\|off]` | List group members (off: only you are checked) |
-| `/bbuff sound [on\|off]` | A short sound when something new goes missing (off by default) |
+| `/bbuff sound [on\|off]` | A short sound when something new goes missing (off by default; never for members left out because they are out of range) |
+| `/bbuff expire <0-5>` | Out of combat, warn when one of your buffs has less than this many minutes left (default 2; `0` or `off` = off) |
 | `/bbuff range [on\|off]` | Show members out of range, dimmed (off by default: they are left out of the box and the dispel list) |
 | `/bbuff reagents [on\|off]` | The low-reagent warning (on by default) |
 | `/bbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
@@ -394,7 +440,8 @@ Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install th
 menu has a **Buffs** submenu with the options for your class:
 
 - every class with a module: **Enabled**, then the class options, **List group members**, **Sound
-  when something goes missing**, **Low reagent warning**, the class's reagent threshold(s), **Set
+  when something goes missing**, **Low reagent warning**, **Show members out of range**, **Warn
+  when a buff expires within (minutes)** (a slider, 0-5), the class's reagent threshold(s), **Set
   tank: current target**, **Clear tank** (while one is set), **Lock box**, **Test box** and **Reset
   position**;
 - a druid: **Mark of the Wild check**, **Thorns on you**, **Thorns on the tank**, **Dispel panel
@@ -496,7 +543,8 @@ casts and which kinds each spell removes. Both TOCs list all six, the shared fil
   `pcall` (the last error is kept for `/bbuff status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Account-wide
-  (`BetterBuffsForeverDB`): `enabled`, `group`, `sound`, `reagents`, `locked`, `pos`; druid
+  (`BetterBuffsForeverDB`): `enabled`, `group`, `sound`, `reagents`, `locked`, `pos`,
+  `showOutOfRange`, `expireMin` (unset = 2); druid
   `motw`, `thorns`, `thornsTank`, `gotwMin`, `rebirthMin`, `dispel`, `dispelCurse`,
   `dispelPoison`, `dispelPos`, `dispelLocked`; paladin `bless`, `aura`, `fury`,
   `kingsMin` and `blessings` (only the classes changed from the default), and the shared dispel

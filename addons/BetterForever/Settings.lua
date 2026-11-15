@@ -703,7 +703,9 @@ end
 local OVERVIEW_TEXT = "Better Forever is a family of small, independent addons for the WoW Forever client. "
     .. "This hub carries their shared code, one minimap button and these pages. Each installed addon "
     .. "has its own page below this one, built from the same options as the minimap menu, with a short "
-    .. "intro at the top. Every addon also keeps its own slash command."
+    .. "intro at the top. Every addon also keeps its own slash command. After an update the hub says "
+    .. "in chat what changed (/bf news); /bf profile gives a character its own settings, /bf export and "
+    .. "/bf import move settings as text, and /bf selftest checks the client APIs the family uses."
 
 local function BuildOverview(page, hub)
     local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -716,14 +718,23 @@ local function BuildOverview(page, hub)
     local hint = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     hint:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -10)
     hint:SetText("Type |cffffffff/bf|r for the hub's commands, |cffffffff/bf status|r for every addon's version and state.")
+    local headY = -46
     local cb = MakeCheck(page)
     if cb then
         cb:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -10)
         cb.label:SetText("Show the Better Forever minimap button")
         cb:SetScript("OnClick", function(self) Click(nil, hub.SetMinimapShown, self:GetChecked() and true or false) end)
     end
+    -- 3.1: the what's-new lines at login.
+    local news = hub.SetNewsShown and MakeCheck(page)
+    if news then
+        news:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -38)
+        news.label:SetText("Say in chat what changed after an update (/bf news)")
+        news:SetScript("OnClick", function(self) Click(nil, hub.SetNewsShown, self:GetChecked() and true or false) end)
+        headY = -74
+    end
     local head = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    head:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -46)
+    head:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, headY)
     head:SetText("Addons")
     local list = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     list:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, -8)
@@ -734,6 +745,7 @@ local function BuildOverview(page, hub)
     page.Refresh = function()
         title:SetText("Better Forever " .. tostring(hub.version))
         if cb then cb:SetChecked(hub.MinimapShown() and true or false) end
+        if news then news:SetChecked(hub.NewsShown() and true or false) end
         local lines = {}
         for _, a in ipairs(hub.ADDONS) do
             local api = hub.API(a)

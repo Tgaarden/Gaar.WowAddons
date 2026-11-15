@@ -44,6 +44,12 @@
       only relabels the names and the rebuild waits for PLAYER_REGEN_ENABLED (the buttons follow
       unit tokens, so they keep working). A state driver shows the strip for the whole fight
       ("[combat] show; hide") and the out-of-combat list the other way round.
+    * The game draws the icons in combat (since 1.6.0): under each strip button a Blizzard aura
+      container for that member shows the icon, the debuff's name, the member's name and a bar
+      in the dispel type's colour whenever the member has a debuff of a kind you can remove,
+      though this addon cannot read it then. The secure button stays on top, invisible, and
+      takes the click. See "Client-drawn icons in combat" below; /bbuff status says whether it
+      is active. Everything after this point is what the addon itself paints on the button.
     * A strip button is only seen when that member has something to remove: no dispellable
       debuff = the whole button at alpha 0 (SetAlpha is allowed on a secure button in combat;
       when the client answers "has one" with a secret boolean it goes straight to
@@ -87,7 +93,8 @@
     3. "filtered read": GetAuraDataByIndex(unit, 1..2, filter): a non-nil answer means "has
        one"; the kind from a plain dispelName, else the colour API on its auraInstanceID, else
        yellow.
-    4. "none": unknown, so the button is invisible (still clickable where it sits).
+    4. "none": unknown, so the button is invisible (still clickable where it sits); the client's
+       own cell under it (above) still shows a dispellable debuff.
   /bbuff status counts, per way, how each paint ended (shown, hidden, secret = left to
   SetAlphaFromBoolean, unknown = hidden) and why the earlier ways gave no answer.
   Throttled: UNIT_AURA marks a member, the strip repaints marked members at most 10 times a
@@ -802,7 +809,9 @@ local function Label(b)
     local raid = stripMode == "raid"
     local short = Short(name, raid and 6 or 8)
     b.plainName = name
-    b.text:SetText((hex and ("|c" .. hex .. short .. "|r") or short) .. (raid and "" or ":"))
+    local text = (hex and ("|c" .. hex .. short .. "|r") or short) .. (raid and "" or ":")
+    b.text:SetText(text)
+    if b.cell then pcall(b.cell.name.SetText, b.cell.name, text) end
 end
 
 -- { { unit, group } }, "solo" / "party" / "raid".
@@ -841,7 +850,222 @@ local function StripButton(i)
     return b
 end
 
-local function BuildStrip()
+-- ---------------------------------------------------------------------------
+-- Client-drawn icons in combat (Blizzard aura container, since 1.6.0)
+--
+-- In combat this addon cannot read debuffs on this client (Detect ends as "none", so its own
+-- paint leaves the button invisible). The game can: Blizzard_AuraContainer's addon-usable
+-- "AuraContainer" frame with CustomAuraContainerTemplate (the same technique
+-- BetterFramesForever uses for unit frame auras) reads auras in its own secure code, secret or
+-- not, and shows them. Under every strip button sits one container for that button's unit with
+-- one aura slot ("dispel"): filter "HARMFUL" and the candidate filter includeDispelTypes = the
+-- dispel types you can remove now ("Curse", "Poison", ...: your known spell's kinds that are
+-- switched on). That is the out-of-combat list's own rule, and it is independent of what the
+-- retail engine thinks a classic class can dispel (HARMFUL|RAID_PLAYER_DISPELLABLE), which
+-- may not match a classic spellbook (Purify vs Cleanse, for one).
+--
+-- The slot frame is shown by the client only while that member has such a debuff, and
+-- everything the member's cell shows is a child of it: a dark background the size of the
+-- button, a bar coloured by the client from the dispel type (AddDispelTypeTexture,
+-- PreserveAsset: the game's debuff colours), the debuff's icon (SetIcon), the member's name
+-- (our font string, set out of combat and on a roster change) and the debuff's name (SetSpellName:
+-- the client writes it). So a member's cell appears and disappears exactly with the client's
+-- own answer; no Lua code ever sees or tests it, and nothing about the secure button changes in
+-- combat. Why not show the secure button itself: its alpha can only follow a boolean the
+-- client hands Lua (SetAlphaFromBoolean), and in combat there is none. So the button stays
+-- invisible (alpha 0, "unknown = hidden" for everything Lua decides) and sits above the cell
+-- (a higher frame level), taking the clicks exactly where the icon is; a plain answer Lua can
+-- read still paints the button itself, on top of the cell. The containers are children of the
+-- strip, so they are only shown (and only listen to UNIT_AURA) in combat.
+--
+-- Built out of combat with the strip; where the client has no such container (or refuses the
+-- setup, said once in chat) the strip works as before. /bbuff status has a line for it.
+-- ---------------------------------------------------------------------------
+
+local CELL_SLOT, CELL_FILTER = "dispel", "HARMFUL"
+local cellInfo = { built = 0 }      -- built; missing / failed / layoutError / lookError: why not
+
+-- The dispel types the client may draw: dispelName -> true for each kind you can remove now.
+local function TypeMap()
+    local map = {}
+    for _, k in ipairs((Removable())) do map[KINDS[k].name] = true end
+    return map
+end
+
+local function TypeKey() return table.concat((Removable()), ",") end
+
+local function DispelStyle()
+    local E = _G.Enum
+    local t = type(E) == "table" and E.CustomAuraButtonDispelTypeTextureStyle
+    return type(t) == "table" and Num(t.PreserveAsset) or 3
+end
+
+-- The look of a cell, made on the slot frame when the container creates it. It runs inside the
+-- client's securecallfunction, which reports an error but does not hand it back, so it is a
+-- pcall. Sizes and places are set later, in PlaceCell.
+local function CellLook(look, f)
+    local ok, err = pcall(function()
+        look.frame = f
+        look.bg = f:CreateTexture(nil, "BACKGROUND")
+        look.bg:SetColorTexture(0.1, 0.1, 0.12, 0.9)
+        look.glow = f:CreateTexture(nil, "BORDER")
+        look.glow:SetTexture(FLAT)
+        look.glow:SetAlpha(GLOW_ALPHA)
+        look.glow:SetVertexColor(ANY_RGB[1], ANY_RGB[2], ANY_RGB[3], 1)
+        if type(f.AddDispelTypeTexture) == "function" then
+            look.colour = pcall(f.AddDispelTypeTexture, f, look.glow, { style = DispelStyle() })
+        end
+        look.icon = f:CreateTexture(nil, "ARTWORK")
+        look.icon:SetAllPoints(f)
+        look.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        f:SetIcon(look.icon)
+        look.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        look.spell = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        for _, fs in ipairs({ look.name, look.spell }) do
+            fs:SetJustifyH("LEFT")
+            if type(fs.SetWordWrap) == "function" then fs:SetWordWrap(false) end
+        end
+        if type(f.SetSpellName) == "function" then look.spellName = pcall(f.SetSpellName, f, look.spell) end
+    end)
+    if not ok then cellInfo.lookError = tostring(err) end
+end
+
+-- A new cell (container + slot frame + look), or false where the client has none or refuses it.
+local function NewCell()
+    if cellInfo.missing or cellInfo.failed then return false end
+    local okMake, c = pcall(CreateFrame, "AuraContainer", nil, strip, "CustomAuraContainerTemplate")
+    if not okMake or type(c) ~= "table" or type(c.AddAuraSlot) ~= "function" then
+        cellInfo.missing = okMake and "the frame has no AddAuraSlot" or tostring(c)
+        if okMake and type(c) == "table" then pcall(c.Hide, c) end
+        return false
+    end
+    local look = {}
+    local ok, err = pcall(function()
+        if type(c.SetEditModePreviewEnabled) == "function" then c:SetEditModePreviewEnabled(false) end
+        c:SetFrameLevel(strip:GetFrameLevel() + 1)
+        c:SetSize(PARTY_W, PARTY_H)
+        c:SetUnit("player")
+        local types = TypeKey()
+        local frame = c:AddAuraSlot(CELL_SLOT, CELL_FILTER, {
+            candidateFilters = { includeDispelTypes = TypeMap() },
+            initializeFrame = function(f) CellLook(look, f) end,
+        })
+        look.frame = look.frame or frame
+        look.types = types
+    end)
+    if not ok or not look.frame or not look.icon then
+        cellInfo.failed = tostring((not ok and err) or cellInfo.lookError or "no slot frame")
+        pcall(c.Hide, c)
+        Print("the game's aura container refused the dispel strip's setup, so in combat the strip shows only what"
+            .. " this addon can read (" .. cellInfo.failed .. ").")
+        return false
+    end
+    look.container = c
+    cellInfo.built = cellInfo.built + 1
+    cellInfo.colour = look.colour and true or false
+    return look
+end
+
+-- Out of combat: the cell under a strip button follows its unit, size and your kinds. late =
+-- at PLAYER_REGEN_DISABLED: no new cells then (auras may already be secret), and a layout the
+-- client refuses waits for the next build.
+local function PlaceCell(b, w, h, compact, late)
+    local look = b.cell
+    if look == nil and not late then
+        look = NewCell()
+        b.cell = look
+    end
+    if not look then return end
+    local c, f = look.container, look.frame
+    local ok, err = pcall(function()
+        c:SetFrameLevel(strip:GetFrameLevel() + 1)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+        c:SetSize(w, h)
+        local types = TypeKey()
+        if look.types ~= types then
+            c:SetAuraSlotCandidateFilters(CELL_SLOT, { includeDispelTypes = TypeMap() })
+            look.types = types
+        end
+        c:SetUnit(b.unit)
+        if type(c.SetEnabled) == "function" then c:SetEnabled(true) end
+        c:Show()
+    end)
+    if not ok then
+        cellInfo.layoutError = tostring(err)
+        return
+    end
+    ok, err = pcall(function()
+        local s = h - 4
+        f:SetSize(s, s)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", c, "TOPLEFT", 2, -2)
+        look.bg:ClearAllPoints()
+        look.bg:SetPoint("TOPLEFT", f, "TOPLEFT", -2, 2)
+        look.bg:SetSize(w, h)
+        look.glow:ClearAllPoints()
+        look.glow:SetPoint("TOPLEFT", f, "TOPLEFT", -1, 1)
+        look.glow:SetSize(w - 2, h - 2)
+        look.name:ClearAllPoints()
+        look.name:SetPoint("LEFT", f, "RIGHT", 3, 0)
+        look.spell:ClearAllPoints()
+        if compact then
+            look.name:SetPoint("RIGHT", f, "LEFT", w - 4, 0)
+            look.spell:SetPoint("LEFT", f, "RIGHT", 3, 0)
+            look.spell:SetAlpha(0)
+        else
+            look.spell:SetPoint("LEFT", look.name, "RIGHT", 3, 0)
+            look.spell:SetPoint("RIGHT", f, "LEFT", w - 4, 0)
+            look.spell:SetAlpha(1)
+        end
+    end)
+    if not ok then cellInfo.layoutError = tostring(err) end
+end
+
+-- A cell whose button has no member: off and hidden (out of combat).
+local function HideCell(b)
+    local look = b.cell
+    if not look then return end
+    local c = look.container
+    pcall(function()
+        if type(c.SetEnabled) == "function" then c:SetEnabled(false) end
+        c:Hide()
+    end)
+end
+
+-- After a roster change in combat: the container rereads its unit's auras (the token may be
+-- someone else now; it gets no event for that).
+local function RefreshCell(b)
+    local look = b.cell
+    if not look then return end
+    local c = look.container
+    if type(c.UpdateAllAuras) == "function" then pcall(c.UpdateAllAuras, c) end
+end
+
+-- How many strip buttons have a cell now.
+local function CellCount()
+    local n = 0
+    for _, b in ipairs(buttons) do
+        if b.unit and b.cell then n = n + 1 end
+    end
+    return n
+end
+
+-- For /bbuff status.
+local function CellStatus()
+    if cellInfo.missing then
+        return "not on this client (" .. cellInfo.missing .. "): in combat only what this addon can read is shown"
+    end
+    if cellInfo.failed then return "refused (" .. cellInfo.failed .. "): in combat only what this addon can read is shown" end
+    if cellInfo.built == 0 then return "not built yet (built with the strip, out of combat)" end
+    local removable = Removable()
+    return "active - the game draws the icon of a member's " .. (#removable > 0 and KindsText(removable, "name", "/") or "(nothing)")
+        .. " debuff under " .. CellCount() .. " buttons (filter " .. CELL_FILTER .. " + those dispel types; colour "
+        .. (cellInfo.colour and "by dispel type" or "yellow: the client refused the dispel colour") .. ")"
+        .. (cellInfo.layoutError and ("; last layout error: " .. cellInfo.layoutError) or "")
+end
+
+local function BuildStrip(late)
     if not strip or InCombat() then return end
     stripPending, rosterInCombat = false, false
     stripByUnit, selfButton = {}, nil
@@ -867,6 +1091,7 @@ local function BuildStrip()
         b.unit = e.unit
         Bind(b, e.unit)
         Layout(b, w, h, mode == "raid")
+        pcall(b.SetFrameLevel, b, strip:GetFrameLevel() + 10)    -- above its cell, for the clicks
         local x, y
         if mode == "raid" then
             local c = colIndex[e.group]
@@ -878,6 +1103,7 @@ local function BuildStrip()
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", strip, "TOPLEFT", x, y)
         maxW, maxH = math.max(maxW, x + w + GAP), math.max(maxH, -y + h + GAP)
+        PlaceCell(b, w, h, mode == "raid", late)
         Label(b)
         Paint(b, { has = false })       -- unseen until the first paint says otherwise
         b:Show()
@@ -888,6 +1114,7 @@ local function BuildStrip()
         local b = buttons[i]
         b.unit = nil
         Bind(b, nil)
+        HideCell(b)
         b:Hide()
     end
     strip:SetSize(math.max(maxW, w + 2 * GAP), math.max(maxH, h + 2 * GAP))
@@ -1310,7 +1537,8 @@ local function StatusExtra()
     else
         detection = (seen == fightStats and "this fight: " or "last fight: ") .. detection
         if not (seen["plain read"] or seen["aura instance IDs"] or seen["filtered read"]) then
-            detection = detection .. " - no answer in combat on this client: unknown = hidden, so the strip shows nothing"
+            detection = detection .. " - no answer in combat on this client: unknown = hidden"
+                .. (CellCount() > 0 and "; the game's aura container draws the icons instead" or ", so the strip shows nothing")
         end
     end
     local reasons = Reasons(seen)
@@ -1328,6 +1556,7 @@ local function StatusExtra()
         "dispel filter: " .. (f or "none") .. " (" .. tostring(filterInfo) .. ")   GetUnitAuraInstanceIDs "
             .. Has("GetUnitAuraInstanceIDs") .. "   GetAuraDispelTypeColor " .. Has("GetAuraDispelTypeColor")
             .. "   colour curve " .. ns.YesNo(Curve() ~= nil),
+        "combat icons (Blizzard aura container): " .. CellStatus(),
         "in-combat detection (tried in order: " .. ORDER .. "; shown / hidden / secret = SetAlphaFromBoolean / unknown = hidden): " .. detection,
         reasons and ("ways that gave no answer: " .. reasons) or nil,
     }
@@ -1376,7 +1605,7 @@ local function Hook(mod, classFile)
         -- Only your class's dispel lines (the druid's on a class without a panel), not once per module.
         if cfg ~= c and not (cfg == nil and classFile == "DRUID") then return out end
         out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has something you can remove ("
-            .. KindsText(kinds, "plural") .. ") out of combat, in combat a button per member, seen only when there is one to remove (unknown = hidden), with the debuff's icon and name; "
+            .. KindsText(kinds, "plural") .. ") out of combat, in combat a button per member, seen only when there is one to remove: the game draws the debuff's icon and name itself (Blizzard aura container), what this addon cannot read stays hidden; "
             .. clicks
         out[#out + 1] = "/bbuff dispel " .. table.concat(kinds, "|") .. " [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
         return out
@@ -1457,7 +1686,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
         elseif event == "PLAYER_REGEN_DISABLED" then
             -- Still allowed here, right before the lockdown: a rebuild that is due, and the
             -- fallback show/hide for a client without state drivers.
-            if stripPending and not InCombat() then pcall(BuildStrip) end
+            if stripPending and not InCombat() then pcall(BuildStrip, true) end
             if not drivers and panel then
                 pcall(list.Hide, list)
                 pcall(strip.Show, strip)
@@ -1480,7 +1709,10 @@ events:SetScript("OnEvent", function(self, event, arg1)
                 -- The buttons follow unit tokens, so they still cast on whoever holds the token
                 -- now; only the names change until the rebuild after combat.
                 rosterInCombat = true
-                for _, b in pairs(stripByUnit) do pcall(Label, b) end
+                for _, b in pairs(stripByUnit) do
+                    pcall(Label, b)
+                    RefreshCell(b)
+                end
                 paintAll = true
             else
                 stripPending = true

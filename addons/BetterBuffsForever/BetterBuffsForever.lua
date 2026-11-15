@@ -47,6 +47,14 @@
       casts the row's spell; right-click casts the module's group version (Gift of the Wild, a
       Greater Blessing, Prayer of Fortitude, Arcane Brilliance) when there is one, else what
       left-click does.
+    * Lower rank for a low-level member (since 1.6.0): the classic rule is that a buff lands only
+      on a target whose level is at least the rank's spell level - 10. So a row for a member below
+      that gets the highest rank they can receive (the rank's spell ID, which the secure button
+      casts with CastSpellByID; RANK_LEVEL below, from WhatsTraining's Vanilla/Camelot trainer
+      data), and says "rank N" after the name. Only ranks you know count; a member whose level is
+      hidden, or with no lower rank you know that fits, keeps the highest rank. Rows exist only
+      out of combat, so the attribute is set when the row is built. The right-click group
+      version is not lowered.
     * Combat: the box is hidden in combat. Aura data is secret then, secure attributes cannot
       change, and buffing mid-fight is not the point. A state driver ("[combat] hide; show")
       hides it the moment combat starts, PLAYER_REGEN_DISABLED as a fallback; nothing is scanned
@@ -58,9 +66,16 @@
       and while the module's Tick() says so (the shaman's weapon imbue check).
     * Low reagents (on by default): a "Low reagents:" line in the same box when the bags hold
       fewer than a threshold of a reagent the module checks. Not clickable.
-    * An optional short sound when something new goes missing (off by default).
-    * /bbuff for help; the shared commands are on, off, group, sound, range, reagents, tank, unlock,
-      lock, reset, test and status, and each module adds its own.
+    * Expiring soon (since 1.6.0, out of combat): a buff the module tracks (Mark of the Wild,
+      Thorns, Fortitude, Arcane Intellect, your blessings, Lightning Shield, a weapon imbue) with
+      less than N minutes left gets a row in an "Expiring ...:" section, the time left after the
+      name: "(1:45)". N is /bbuff expire 0-5 (default 2, 0 = off). Only a plain, finite
+      duration counts; a secret or permanent one is never warned about. The box is refreshed
+      every 1.5 s while this is on, so the time and the threshold follow without an event.
+    * An optional short sound when something new goes missing (off by default). Members left
+      out because they are out of range (/bbuff range off) never trigger it.
+    * /bbuff for help; the shared commands are on, off, group, sound, range, expire, reagents, tank,
+      unlock, lock, reset, test and status, and each module adds its own.
     * BetterBuffsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -85,7 +100,7 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.5.1"
+local VERSION = "1.6.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
@@ -99,12 +114,15 @@ local GROUP_REFRESH = 1.5     -- seconds between refreshes while in a group (ran
 local OUT_OF_RANGE = 0.45     -- alpha of a row whose member is out of range
 local ROW_H, HEADER_H, PAD, MIN_W = 18, 16, 6, 190
 local DEFAULT_Y = -120        -- below the top centre
+local EXPIRE_DEFAULT, EXPIRE_MAX = 2, 5   -- minutes for "expiring soon"; 0 = off
+local RANK_GAP = 10           -- a buff lands on a target down to its rank's spell level - 10
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 
 -- The shared settings; each module adds its own (module.options, module.thresholds,
 -- module.savedKeys) at ADDON_LOADED, whatever the class, so one character never wipes
 -- another class's settings from the account-wide table.
-local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, pos = true, reagents = true, showOutOfRange = true }
+local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, pos = true, reagents = true,
+    showOutOfRange = true, expireMin = true }
 local DEFAULTS = { enabled = true, group = true, sound = false, locked = true, reagents = true, showOutOfRange = false }
 local LABELS = {
     enabled = "BetterBuffsForever",
@@ -116,6 +134,23 @@ local LABELS = {
 
 ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, PriestMage.lua
 local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN", "PRIEST", "MAGE" }
+
+-- The level each rank is trained at (spell ID -> level), for the lower rank a low-level member
+-- gets. From WhatsTraining's Vanilla and Camelot trainer data (the same on both); Blessing of
+-- Might rank 7 and Wisdom rank 6 come from a level 60 book.
+local RANK_LEVEL = {
+    -- Mark of the Wild 1-7, Thorns 1-6
+    [1126] = 1, [5232] = 10, [6756] = 20, [5234] = 30, [8907] = 40, [9884] = 50, [9885] = 60,
+    [467] = 6, [782] = 14, [1075] = 24, [8914] = 34, [9756] = 44, [9910] = 54,
+    -- Power Word: Fortitude 1-6, Arcane Intellect 1-5
+    [1243] = 1, [1244] = 12, [1245] = 24, [2791] = 36, [10937] = 48, [10938] = 60,
+    [1459] = 1, [1460] = 14, [1461] = 28, [10156] = 42, [10157] = 56,
+    -- Blessing of Might 1-7, Wisdom 1-6, Light 1-3, Sanctuary 1-4
+    [19740] = 4, [19834] = 12, [19835] = 22, [19836] = 32, [19837] = 42, [19838] = 52, [25291] = 60,
+    [19742] = 14, [19850] = 24, [19852] = 34, [19853] = 44, [19854] = 54, [25290] = 60,
+    [19977] = 40, [19978] = 50, [19979] = 60,
+    [20911] = 30, [20912] = 40, [20913] = 50, [20914] = 60,
+}
 
 local db                  -- BetterBuffsForeverDB, bound at ADDON_LOADED (never at file scope)
 local charDb              -- BetterBuffsForeverCharDB: the tank set by hand, plus module keys
@@ -261,12 +296,13 @@ local function Known(id)
     return false
 end
 
--- { value = name or ID or nil, knownID, text, label, icon, names = {localized names}, ids = {set} }
--- ids is highest rank first.
+-- { value = name or ID or nil, knownID, text, label, icon, names = {localized names}, ids = {set},
+--   order = ids (highest rank first), known = {set of the ranks this character knows} }
 local function ResolveSpell(ids, fallbackLabel)
-    local s = { names = {}, ids = {} }
+    local s = { names = {}, ids = {}, order = ids, known = {} }
     for _, id in ipairs(ids) do
         s.ids[id] = true
+        if Known(id) then s.known[id] = true end
         local name, _, icon = SpellName(id)
         if name then
             s.names[name] = true
@@ -276,7 +312,7 @@ local function ResolveSpell(ids, fallbackLabel)
     end
     s.label = s.label or fallbackLabel
     for _, id in ipairs(ids) do
-        if Known(id) then
+        if s.known[id] then
             s.knownID = id
             local name = SpellName(id)
             if name then
@@ -334,8 +370,16 @@ local function MineOf(fromPlayer, source)
     return v and true or false
 end
 
--- One buff: { id, name, hidden, mine }, nil at the end of the list, or false when it cannot be
--- read.
+-- Seconds left on a buff from its duration and expiration time: plain, finite ones only (a
+-- permanent or secret one is nil).
+local function LeftFrom(duration, expiration)
+    local d, e = Num(duration), Num(expiration)
+    if not d or not e or d <= 0 or e <= 0 or d == math.huge or e == math.huge then return nil end
+    return e - Now()
+end
+
+-- One buff: { id, name, hidden, mine, left }, nil at the end of the list, or false when it cannot
+-- be read. left = seconds left, only from plain values.
 local function ReadBuff(unit, i)
     if IndexIsSecret(unit, i) then return false end
     local C = _G.C_UnitAuras
@@ -343,26 +387,29 @@ local function ReadBuff(unit, i)
         local ok, a = pcall(C.GetAuraDataByIndex, unit, i, "HELPFUL")
         if not ok or Secret(a) then return false end
         if type(a) ~= "table" then return nil end
-        local ok2, id, name, source, fromPlayer = pcall(function()
-            return a.spellId, a.name, a.sourceUnit, a.isFromPlayerOrPlayerPet
+        local ok2, id, name, source, fromPlayer, dur, exp = pcall(function()
+            return a.spellId, a.name, a.sourceUnit, a.isFromPlayerOrPlayerPet, a.duration, a.expirationTime
         end)
         if not ok2 then return false end
-        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(fromPlayer, source) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(fromPlayer, source),
+            left = LeftFrom(dur, exp) }
     end
     local f = (type(_G.UnitBuff) == "function" and _G.UnitBuff)
     if f then
-        local ok, name, _, _, _, _, _, source, _, _, id = pcall(f, unit, i)
+        local ok, name, _, _, _, dur, exp, source, _, _, id = pcall(f, unit, i)
         if not ok then return false end
         if Secret(name) then return { id = Num(id), hidden = true, mine = MineOf(nil, source) } end
         if not Str(name) then return nil end
-        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source),
+            left = LeftFrom(dur, exp) }
     end
     if type(_G.UnitAura) == "function" then
-        local ok, name, _, _, _, _, _, source, _, _, id = pcall(_G.UnitAura, unit, i, "HELPFUL")
+        local ok, name, _, _, _, dur, exp, source, _, _, id = pcall(_G.UnitAura, unit, i, "HELPFUL")
         if not ok then return false end
         if Secret(name) then return { id = Num(id), hidden = true, mine = MineOf(nil, source) } end
         if not Str(name) then return nil end
-        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source) }
+        return { id = Num(id), name = Str(name), hidden = Secret(id), mine = MineOf(nil, source),
+            left = LeftFrom(dur, exp) }
     end
     return false
 end
@@ -384,6 +431,47 @@ local function Matches(b, s)
     if not s then return false end
     if b.id and s.ids[b.id] then return true end
     return b.name ~= nil and s.names[b.name] == true
+end
+
+-- ---------------------------------------------------------------------------
+-- Expiring soon
+-- ---------------------------------------------------------------------------
+
+-- Minutes for "expiring soon" (0 = off).
+local function ExpireMinutes()
+    local v = db and Num(db.expireMin)
+    return v or EXPIRE_DEFAULT
+end
+
+-- Seconds a buff may have left before it counts as expiring soon; nil while that is off.
+local function ExpireWindow()
+    local m = ExpireMinutes()
+    return m > 0 and m * 60 or nil
+end
+
+-- The time left on the longest-lasting buff that matches s1 (or s2): seconds, or nil when none
+-- matches or a match has no plain, finite time.
+local function LeftOf(buffs, s1, s2)
+    local best
+    for _, b in ipairs(buffs) do
+        if Matches(b, s1) or (s2 ~= nil and Matches(b, s2)) then
+            if not b.left then return nil end
+            if not best or b.left > best then best = b.left end
+        end
+    end
+    return best
+end
+
+-- Whether left (seconds, plain) is inside the "expiring soon" window.
+local function Expiring(left)
+    local w = ExpireWindow()
+    return w ~= nil and type(left) == "number" and left > 0 and left < w
+end
+
+-- "1:45"
+local function Clock(sec)
+    sec = math.max(0, math.floor(sec + 0.5))
+    return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
 end
 
 -- ---------------------------------------------------------------------------
@@ -634,6 +722,8 @@ local function RowTooltip(self)
             tip:AddLine("Right-click: " .. e.spell2Label, 1, 1, 1)
         end
         if e.note then tip:AddLine(e.note, 0.8, 0.8, 0.8, true) end
+        if e.rankNote then tip:AddLine(e.rankNote, 0.8, 0.8, 0.8, true) end
+        if e.left then tip:AddLine("Expires in " .. Clock(e.left) .. ".", 1, 0.82, 0) end
         if e.far then tip:AddLine("Out of range", 1, 0.3, 0.3) end
     end
     tip:Show()
@@ -780,8 +870,30 @@ end
 -- The check
 -- ---------------------------------------------------------------------------
 
+-- The rank a member below the highest known rank's level can receive: spell ID, rank number,
+-- the rank's level and the member's level. nil when the highest rank lands (or the member's
+-- level, or the spell's rank levels, are not known, or no lower rank you know fits).
+local function RankFor(spell, unit)
+    local top = spell and spell.knownID
+    local need = top and RANK_LEVEL[top]
+    if not need or unit == "player" or type(spell.order) ~= "table" or type(spell.known) ~= "table" then return nil end
+    local lvl = Num(Call("UnitLevel", unit))
+    if not lvl or lvl <= 0 or lvl >= need - RANK_GAP then return nil end
+    local n, below = #spell.order, false
+    for i, id in ipairs(spell.order) do
+        if id == top then
+            below = true
+        elseif below and spell.known[id] then
+            local l = RANK_LEVEL[id]
+            if l and lvl >= l - RANK_GAP then return id, n - i + 1, l, lvl end
+        end
+    end
+    return nil
+end
+
 -- A row for one member: the section it goes in, the unit, the resolved spell it casts, and an
--- optional note after the name ("tank", "fallback", ...).
+-- optional note after the name ("tank", "fallback", ...). A member too low for the highest rank
+-- gets the highest rank they can receive (RankFor), cast by spell ID.
 local function MakeEntry(section, unit, spell, extra)
     local text, plain = UnitLabel(unit)
     local e = { section = section, unit = unit, spell = spell.value, spellLabel = spell.label,
@@ -789,6 +901,14 @@ local function MakeEntry(section, unit, spell, extra)
     local suffix = {}
     if unit == "player" then suffix[#suffix + 1] = "you" end
     if extra then suffix[#suffix + 1] = extra end
+    local okR, id, rank, rankLevel, level = pcall(RankFor, spell, unit)
+    if okR and id then
+        e.spell, e.rank = id, rank
+        e.spellLabel = tostring(spell.label) .. " (rank " .. rank .. ")"
+        e.rankNote = string.format("Level %d: rank %d (spell level %d) is the highest rank that lands on this member.",
+            level, rank, rankLevel)
+        suffix[#suffix + 1] = "rank " .. rank
+    end
     local inRange, isSecret, secretRange = InSpellRange(spell.value, unit)
     if inRange == false then
         e.far = true
@@ -798,6 +918,20 @@ local function MakeEntry(section, unit, spell, extra)
     end
     e.text = text .. (#suffix > 0 and ("|cffaaaaaa (" .. table.concat(suffix, ", ") .. ")|r") or "")
     return e
+end
+
+-- An "expiring soon" row: like MakeEntry, with the time left in the suffix ("(1:45)").
+local function ExpiringEntry(section, unit, spell, left, extra)
+    local e = MakeEntry(section, unit, spell, (extra and (extra .. ", ") or "") .. Clock(left))
+    e.left = left
+    return e
+end
+
+-- Adds a "missing" row and its key (for the sound; see Update).
+local function AddMissing(entries, missing, e, key)
+    e.key = key
+    entries[#entries + 1] = e
+    missing[key] = true
 end
 
 -- A test row: section, coloured text, the resolved spell for icon and label, out of range.
@@ -849,8 +983,20 @@ local function Update()
     stats.tanks = #names > 0 and table.concat(names, ", ") or "none"
     stats.tankSource = tankSource
 
+    stats.expiring = 0
     module.Check(units, tankSet, entries, missing, stats)
+    -- Members left out for range are not "missing" for the sound either.
+    local all = entries
     entries = DropFar(entries)
+    if #entries < #all then
+        local kept = {}
+        for _, e in ipairs(entries) do
+            if e.key then kept[e.key] = true end
+        end
+        for _, e in ipairs(all) do
+            if e.key and not kept[e.key] then missing[e.key] = nil end
+        end
+    end
 
     local reagents = {}
     if On("reagents") then
@@ -866,8 +1012,13 @@ local function Update()
         if not prevMissing[k] then new = true break end
     end
     prevMissing = missing
-    missingCount = #entries + #reagents
-    if new and #entries + #reagents > 0 and On("sound") then PlayMissingSound() end
+    local expiring = 0
+    for _, e in ipairs(entries) do
+        if e.left then expiring = expiring + 1 end
+    end
+    stats.expiring = expiring
+    missingCount = #entries - expiring + #reagents
+    if new and next(missing) ~= nil and On("sound") then PlayMissingSound() end
 
     if testMode then
         local fe, fr = module.Fake()
@@ -896,6 +1047,22 @@ local function SetThreshold(key, v, what)
     dirty = true
     SafeUpdate()
     Print(what .. " reagent warning below " .. db[key] .. ".")
+end
+
+-- Minutes for "expiring soon", 0-5 (0 = off).
+local function SetExpire(v, quiet)
+    db.expireMin = math.max(0, math.min(EXPIRE_MAX, math.floor(v + 0.5)))
+    dirty = true
+    SafeUpdate()
+    if not quiet then
+        Print(db.expireMin > 0 and ("expiring warning: less than " .. db.expireMin .. " min left.")
+            or "expiring warning: off.")
+    end
+end
+
+local function ExpireText()
+    local m = ExpireMinutes()
+    return m > 0 and (m .. " min") or "off"
 end
 
 local function Set(key, on, quiet)
@@ -1003,7 +1170,7 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), and warns when reagents run low. Click a name to buff that member; right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
+local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/bbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
 
 local function PrintHelp()
     Print(INTRO)
@@ -1020,6 +1187,8 @@ local function PrintHelp()
     Print("/bbuff group [on|off] - list group members (off: only you)")
     Print("/bbuff sound [on|off] - a short sound when something goes missing")
     Print("/bbuff range [on|off] - show members who are out of range, dimmed (off: left out, the default)")
+    Print("/bbuff expire <0-" .. EXPIRE_MAX .. "> - out of combat, warn when one of your buffs has less than this many minutes left (now "
+        .. ExpireText() .. "; 0 = off, default " .. EXPIRE_DEFAULT .. ")")
     local parts = {}
     for _, t in ipairs(ThresholdList()) do
         parts[#parts + 1] = string.format("/bbuff reagents %s <n> (now %d)", t.word, Threshold(t.key, t.default))
@@ -1041,7 +1210,8 @@ local function PrintStatus()
         line = line .. "   " .. o.short .. ": " .. OnOff(On(o.key))
     end
     Print(line .. "   group: " .. OnOff(On("group")) .. "   sound: " .. OnOff(On("sound"))
-        .. "   reagents: " .. OnOff(On("reagents")) .. "   range: " .. OnOff(ShowFar()))
+        .. "   reagents: " .. OnOff(On("reagents")) .. "   range: " .. OnOff(ShowFar())
+        .. "   expiring: " .. ExpireText())
     if module then
         for _, l in ipairs(module.StatusSpells(spellsPending)) do Print(l) end
         local okR, _, checked = pcall(module.LowReagents)
@@ -1058,7 +1228,11 @@ local function PrintStatus()
     Print("group: " .. (InRaid() and "raid" or InGroup() and "party" or "solo")
         .. "   tank: " .. tostring(lastScan.tanks) .. " (" .. tostring(lastScan.tankSource) .. ")"
         .. "   set by hand: " .. (TankText() or "none"))
-    if module then Print(module.StatusLast(lastScan)) end
+    if module then
+        Print(module.StatusLast(lastScan) .. "; " .. (lastScan.expiring or 0) .. " expiring soon")
+        Print("ranks: a member too low for your highest rank gets the highest rank they can receive"
+            .. " (target level >= rank level - " .. RANK_GAP .. "; cast by spell ID)")
+    end
     local p = db and db.pos
     Print("box: " .. (InCombat() and "hidden (combat)" or (box and box:IsShown()) and "shown" or "hidden")
         .. "   " .. ((db and db.locked == false) and "unlocked" or "locked")
@@ -1094,6 +1268,14 @@ local function OnSlash(msg)
     elseif cmd == "range" then
         local v = Toggle(arg, ShowFar())
         if v == nil then Print("/bbuff range [on|off]") else Set("showOutOfRange", v) end
+    elseif cmd == "expire" or cmd == "expiring" then
+        local n = tonumber(arg)
+        if arg == "off" then n = 0 end
+        if n and n == n then
+            SetExpire(n)
+        else
+            Print("/bbuff expire <0-" .. EXPIRE_MAX .. "> (minutes; 0 = off)   now: " .. ExpireText())
+        end
     elseif cmd == "reagents" then
         local which, n = arg:match("^(%a+)%s*(.*)$")
         local v = tonumber(n or "")
@@ -1164,6 +1346,7 @@ local function StatusLine()
     if not On("enabled") then return "off" end
     if InCombat() then return "on" .. DOT .. "hidden in combat" end
     return "on" .. DOT .. (missingCount > 0 and (missingCount .. " missing") or "all buffed")
+        .. ((lastScan.expiring or 0) > 0 and (DOT .. lastScan.expiring .. " expiring") or "")
         .. ((lastScan.unknown or 0) > 0 and (DOT .. lastScan.unknown .. " unknown") or "")
 end
 
@@ -1199,6 +1382,11 @@ local function MenuEntries()
     list[#list + 1] = { text = LABELS.showOutOfRange, checkbox = true,
         checked = ShowFar,
         func = function() Set("showOutOfRange", not ShowFar()) end }
+    list[#list + 1] = { text = "Warn when a buff expires within (minutes)", slider = true,
+        min = 0, max = EXPIRE_MAX, step = 1,
+        value = ExpireMinutes,
+        set = function(v) SetExpire(v) end,
+        format = function(v) return v == 0 and "off" or (v .. " min") end }
     for _, t in ipairs(m and m.thresholds or {}) do list[#list + 1] = ThresholdMenu(t) end
     if m and m.Menu then
         for _, e in ipairs(m.Menu()) do list[#list + 1] = e end
@@ -1224,7 +1412,7 @@ _G.BetterBuffsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title or "BetterBuffsForever") end,
     SetMinimapHidden = function() end,
 }
 
@@ -1238,6 +1426,7 @@ ns.On, ns.Set, ns.Toggle, ns.OnOff, ns.YesNo, ns.Refresh = On, Set, Toggle, OnOf
 ns.LABELS = LABELS
 ns.SpellName, ns.Known, ns.ResolveSpell = SpellName, Known, ResolveSpell
 ns.ReadBuffs, ns.Matches = ReadBuffs, Matches
+ns.LeftOf, ns.Expiring, ns.Clock, ns.ExpiringEntry, ns.AddMissing = LeftOf, Expiring, Clock, ExpiringEntry, AddMissing
 ns.InGroup, ns.InRaid, ns.Eligible = InGroup, InRaid, Eligible
 ns.UnitGUIDPlain, ns.UnitLabel, ns.UnitClassFile, ns.ClassHex = UnitGUIDPlain, UnitLabel, UnitClassFile, ClassHex
 ns.Threshold, ns.CheckReagent = Threshold, CheckReagent
@@ -1280,6 +1469,8 @@ local function BindSavedVariables()
             db[t.key] = v and math.max(0, math.min(MAX_THRESHOLD, math.floor(v))) or nil
         end
     end
+    local em = Num(tonumber(db.expireMin))
+    db.expireMin = em and math.max(0, math.min(EXPIRE_MAX, math.floor(em))) or nil
     local p = db.pos
     if type(p) == "table" and Num(p.x) and Num(p.y) then
         db.pos = { x = p.x, y = p.y }
@@ -1321,7 +1512,8 @@ ticker:SetScript("OnUpdate", function()
         if InCombat() then return end
         local now = Now()
         if now - lastUpdate < THROTTLE then return end
-        local tick = Active() and (InGroup() or (type(module.Tick) == "function" and module.Tick()))
+        local tick = Active() and (InGroup() or ExpireWindow() ~= nil
+            or (type(module.Tick) == "function" and module.Tick()))
         if dirty or (tick and now - lastUpdate >= GROUP_REFRESH) then
             Update()
         end

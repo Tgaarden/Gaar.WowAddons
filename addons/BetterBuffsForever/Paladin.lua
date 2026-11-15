@@ -18,10 +18,15 @@
           (Kings -> Might/Wisdom -> Light) instead.
         - An assigned blessing you do not know is never warned about; "none" switches the class
           off. A member whose class is hidden is skipped.
-        - Left-click casts the blessing on the member (the highest rank you know, by name).
+        - Left-click casts the blessing on the member (the highest rank you know, by name; a
+          member too low for it gets the highest rank that lands on them, by spell ID, see
+          BetterBuffsForever.lua).
           Right-click casts the Greater Blessing of that type on the member (all of that class
           in the group) when you know it (level 52+, Symbol of Kings); otherwise it does what
           left-click does.
+        - Expiring soon: a member covered by your own blessing (normal or Greater) with less
+          than the "expiring" minutes left on it gets a row under "Expiring blessings:" for that
+          type; left-click recasts it, right-click the Greater Blessing.
     * No aura: when none of your paladin auras is on. The aura is read from the shapeshift bar
       (classic paladin auras are "forms" there): GetNumShapeshiftForms / GetShapeshiftFormInfo,
       a form whose spell ID is a paladin aura and whose isActive is true. Only when the bar
@@ -184,7 +189,19 @@ local function TypeOf(b)
     return nil
 end
 
--- What to cast on a member: type, note ("fallback"), unknown. nil type = nothing to do.
+-- Your own blessing on a member that runs out soon: type and seconds left, or nil.
+local function MineExpiring(buffs)
+    for _, b in ipairs(buffs) do
+        if b.mine == true then
+            local bt = TypeOf(b)
+            if bt and KnowsType(bt) and ns.Expiring(b.left) then return bt, b.left end
+        end
+    end
+    return nil
+end
+
+-- What to cast on a member: type, note ("fallback"), unknown, assigned type, covered (by a
+-- blessing of yours). nil type = nothing to do.
 local function BlessingFor(unit, isTank, buffs, scanUnknown)
     local classFile = ns.UnitClassFile(unit)
     if not classFile then return nil end
@@ -199,7 +216,7 @@ local function BlessingFor(unit, isTank, buffs, scanUnknown)
         end
     end
     if has[t] then
-        if anyMine then return nil end                           -- covered, something of yours is on
+        if anyMine then return nil, nil, nil, nil, true end      -- covered, something of yours is on
         if mineUnknown or scanUnknown then return nil, nil, true end
         local fb = Fallback(t, classFile, has)
         if fb then return fb, "fallback", nil, t end
@@ -295,6 +312,7 @@ function M.Sections()
         list[#list + 1] = { key = "bless_" .. t,
             title = "Missing " .. ((blessing[t] and blessing[t].label) or TYPE_NAMES[t]) .. ":" }
     end
+    list[#list + 1] = { key = "bless_exp", title = "Expiring blessings:" }
     list[#list + 1] = { key = "aura", title = "No aura:" }
     list[#list + 1] = { key = "fury", title = "Missing " .. ((rf and rf.label) or "Righteous Fury") .. ":" }
     return list
@@ -320,8 +338,8 @@ function M.Check(units, tankSet, entries, missing, stats)
                 local guid = ns.UnitGUIDPlain(u) or u
 
                 if wantBless then
-                    local okB, t, note, unk, assigned = pcall(BlessingFor, u, tankSet[u], buffs, scanUnknown)
-                    if not okB then t, unk = nil, true end
+                    local okB, t, note, unk, assigned, covered = pcall(BlessingFor, u, tankSet[u], buffs, scanUnknown)
+                    if not okB then t, unk, covered = nil, true, nil end
                     if unk then unknownHere = true end
                     if t then
                         local extra = {}
@@ -333,9 +351,17 @@ function M.Check(units, tankSet, entries, missing, stats)
                         if note == "fallback" and assigned then
                             e.note = "Fallback: " .. TYPE_NAMES[assigned] .. " is already on from another paladin."
                         end
-                        entries[#entries + 1] = e
-                        missing["bless:" .. guid .. ":" .. t] = true
+                        ns.AddMissing(entries, missing, e, "bless:" .. guid .. ":" .. t)
                         stats.bless = stats.bless + 1
+                    elseif covered then
+                        local bt, left = MineExpiring(buffs)
+                        if bt then
+                            local e = ns.ExpiringEntry("bless_exp", u, blessing[bt], left,
+                                (tankSet[u] and "tank, " or "") .. SHORT[bt])
+                            local g = greater[bt]
+                            if g and g.value then e.spell2, e.spell2Label = g.value, g.label .. " (whole class)" end
+                            entries[#entries + 1] = e
+                        end
                     end
                 end
 
@@ -350,8 +376,7 @@ function M.Check(units, tankSet, entries, missing, stats)
                             e.text = "|cffffffff" .. spell.label .. "|r|cffaaaaaa (" .. why .. ")|r"
                             e.leftText = "Left-click: cast " .. spell.label
                             e.plainName = "No aura"
-                            entries[#entries + 1] = e
-                            missing["aura"] = true
+                            ns.AddMissing(entries, missing, e, "aura")
                             stats.aura = "missing"
                         end
                     else
@@ -369,8 +394,7 @@ function M.Check(units, tankSet, entries, missing, stats)
                         unknownHere = true
                         stats.fury = "unknown"
                     elseif not has then
-                        entries[#entries + 1] = MakeEntry("fury", "player", rf, tankSet.player and "tank" or "tanking")
-                        missing["fury"] = true
+                        ns.AddMissing(entries, missing, MakeEntry("fury", "player", rf, tankSet.player and "tank" or "tanking"), "fury")
                         stats.fury = "missing"
                     end
                 end
@@ -399,6 +423,7 @@ function M.Fake()
         ns.FakeEntry("bless_might", "|cfffff569Stabsy|r|cffaaaaaa (out of range)|r", might, true),
         ns.FakeEntry("bless_wisdom", "|cff69ccf0Frostmage|r", wisdom),
         ns.FakeEntry("bless_kings", "|cffffffffHealbot|r|cffaaaaaa (fallback)|r", s(blessing, "kings", TYPE_NAMES.kings)),
+        ns.FakeEntry("bless_exp", "|cff69ccf0Frostmage|r|cffaaaaaa (Wisdom, 1:45)|r", wisdom),
         ns.FakeEntry("aura", "|cffffffffDevotion Aura|r|cffaaaaaa (last used)|r", s(aura, "devotion", AURA_NAMES.devotion)),
         ns.FakeEntry("fury", "|cfff58cbaYou|r|cffaaaaaa (tanking)|r", rf or { label = "Righteous Fury" }),
     }

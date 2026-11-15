@@ -6,9 +6,13 @@
       lacks it. Gift of the Wild counts as having it.
     * Thorns: warns when you lack it, and when the group's tank lacks it.
     * Only spells the character knows are checked: no Thorns warning before Thorns is learned.
-    * Left-click casts on the member. Right-click on a Mark of the Wild row casts Gift of the
-      Wild when you know it and are in a group (it needs its reagent); otherwise right-click
-      does what left-click does.
+    * Left-click casts on the member (a member too low for your highest rank gets the highest
+      rank that lands on them, see BetterBuffsForever.lua). Right-click on a Mark of the Wild row
+      casts Gift of the Wild when you know it and are in a group (it needs its reagent);
+      otherwise right-click does what left-click does.
+    * Expiring soon: Mark of the Wild (or Gift of the Wild) and Thorns with less than the
+      "expiring" minutes left get a row under "Expiring Mark of the Wild:" / "Expiring Thorns:",
+      for the same members the missing check looks at.
     * Low reagents: the reagent for the highest rank you know of Gift of the Wild (rank 1 Wild
       Berries 17021, rank 2 Wild Thornroot 17026; default 10) and of Rebirth (rank 1 Maple Seed
       17034, 2 Stranglethorn Seed 17035, 3 Ashwood Seed 17036, 4 Hornbeam Seed 17037, 5 Ironwood
@@ -79,10 +83,13 @@ function M.Sections()
     return {
         { key = "motw", title = "Missing " .. ((spells.motw and spells.motw.label) or "Mark of the Wild") .. ":" },
         { key = "thorns", title = "Missing " .. ((spells.thorns and spells.thorns.label) or "Thorns") .. ":" },
+        { key = "motw_exp", title = "Expiring " .. ((spells.motw and spells.motw.label) or "Mark of the Wild") .. ":" },
+        { key = "thorns_exp", title = "Expiring " .. ((spells.thorns and spells.thorns.label) or "Thorns") .. ":" },
     }
 end
 
--- hasMotw (MotW or GotW), hasThorns: true / false, or nil when unknown (secret, refused).
+-- hasMotw (MotW or GotW), hasThorns: true / false, or nil when unknown (secret, refused); then
+-- the seconds left on each (nil when not plain).
 local function ScanUnit(unit)
     local buffs, unknown = ns.ReadBuffs(unit)
     local motw, thorns = false, false
@@ -90,10 +97,12 @@ local function ScanUnit(unit)
         if Matches(b, spells.motw) or Matches(b, spells.gotw) then motw = true end
         if Matches(b, spells.thorns) then thorns = true end
     end
+    local leftM = motw and ns.LeftOf(buffs, spells.motw, spells.gotw) or nil
+    local leftT = thorns and ns.LeftOf(buffs, spells.thorns) or nil
     if unknown then
-        return motw or nil, thorns or nil
+        return motw or nil, thorns or nil, leftM, leftT
     end
-    return motw, thorns
+    return motw, thorns, leftM, leftT
 end
 
 function M.Check(units, tankSet, entries, missing, stats)
@@ -109,22 +118,27 @@ function M.Check(units, tankSet, entries, missing, stats)
             local ok, eligible = pcall(ns.Eligible, u)
             if ok and eligible then
                 stats.units = stats.units + 1
-                local ok2, hasM, hasT = pcall(ScanUnit, u)
-                if not ok2 then hasM, hasT = nil, nil end
+                local ok2, hasM, hasT, leftM, leftT = pcall(ScanUnit, u)
+                if not ok2 then hasM, hasT, leftM, leftT = nil, nil, nil, nil end
                 if hasM == nil or hasT == nil then stats.unknown = stats.unknown + 1 end
                 local guid = ns.UnitGUIDPlain(u) or u
+                local tank = tankSet[u] and "tank" or nil
+                local spell2 = inGroup and spells.gotw and spells.gotw.value or nil
                 if checkMotw and listMotw and hasM == false then
-                    local spell2 = inGroup and spells.gotw and spells.gotw.value or nil
-                    local e = MakeEntry("motw", u, motw, tankSet[u] and "tank" or nil)
+                    local e = MakeEntry("motw", u, motw, tank)
+                    if spell2 then e.spell2, e.spell2Label = spell2, spells.gotw.label end
+                    ns.AddMissing(entries, missing, e, "motw:" .. guid)
+                    stats.motw = stats.motw + 1
+                elseif checkMotw and listMotw and hasM == true and ns.Expiring(leftM) then
+                    local e = ns.ExpiringEntry("motw_exp", u, motw, leftM, tank)
                     if spell2 then e.spell2, e.spell2Label = spell2, spells.gotw.label end
                     entries[#entries + 1] = e
-                    missing["motw:" .. guid] = true
-                    stats.motw = stats.motw + 1
                 end
                 if checkThorns and wantThorns and hasT == false then
-                    entries[#entries + 1] = MakeEntry("thorns", u, thorns, tankSet[u] and "tank" or nil)
-                    missing["thorns:" .. guid] = true
+                    ns.AddMissing(entries, missing, MakeEntry("thorns", u, thorns, tank), "thorns:" .. guid)
                     stats.thorns = stats.thorns + 1
+                elseif checkThorns and wantThorns and hasT == true and ns.Expiring(leftT) then
+                    entries[#entries + 1] = ns.ExpiringEntry("thorns_exp", u, thorns, leftT, tank)
                 end
             end
         end
@@ -148,7 +162,8 @@ function M.Fake()
     local motw, thorns = spells.motw or { label = "Mark of the Wild" }, spells.thorns or { label = "Thorns" }
     local fakes = {
         { "motw", "|cffc79c6eTankyboy|r", motw }, { "motw", "|cfff58cbaHealbot|r|cffaaaaaa (out of range)|r", motw, true },
-        { "motw", "|cff69ccf0Frostmage|r", motw }, { "thorns", "|cffc79c6eTankyboy|r|cffaaaaaa (tank)|r", thorns },
+        { "motw", "|cff69ccf0Frostmage|r|cffaaaaaa (rank 3)|r", motw }, { "thorns", "|cffc79c6eTankyboy|r|cffaaaaaa (tank)|r", thorns },
+        { "motw_exp", "|cfffff569Stabsy|r|cffaaaaaa (1:45)|r", motw },
     }
     for _, f in ipairs(fakes) do list[#list + 1] = ns.FakeEntry(f[1], f[2], f[3], f[4]) end
     return list, { { name = ITEM_NAMES[17026], count = 3, min = ns.Threshold("gotwMin", MIN_GOTW) } }

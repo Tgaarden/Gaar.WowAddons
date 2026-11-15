@@ -11,9 +11,12 @@
       warlock are). A member whose class the client does not tell is listed.
       Arcane Brilliance counts as having it.
     * Only spells the character knows are checked: nothing before the buff is learned.
-    * Left-click casts the highest rank you know on the member. Right-click casts the group
+    * Left-click casts the highest rank you know on the member (a member too low for it gets the
+      highest rank that lands on them, see BetterBuffsForever.lua). Right-click casts the group
       version (Prayer of Fortitude, Arcane Brilliance) when you know it and are in a group (it
       needs its reagent); otherwise right-click does what left-click does.
+    * Expiring soon: the buff (or its group version) with less than the "expiring" minutes left
+      gets a row under "Expiring Power Word: Fortitude:" / "Expiring Arcane Intellect:".
     * Low reagents, only once the group version is known: Sacred Candle (17029) for Prayer of
       Fortitude, Arcane Powder (17020) for Arcane Brilliance (default 10 each).
 
@@ -84,14 +87,18 @@ local function NewModule(classFile, c)
     end
 
     function M.Sections()
-        return { { key = key, title = "Missing " .. ((spells.buff and spells.buff.label) or c.label) .. ":" } }
+        local label = (spells.buff and spells.buff.label) or c.label
+        return { { key = key, title = "Missing " .. label .. ":" }, { key = key .. "_exp", title = "Expiring " .. label .. ":" } }
     end
 
-    -- true / false, or nil when unknown (secret, refused).
+    -- true / false, or nil when unknown (secret, refused); then the seconds left (nil when not
+    -- plain).
     local function ScanUnit(unit)
         local buffs, unknown = ns.ReadBuffs(unit)
         for _, b in ipairs(buffs) do
-            if Matches(b, spells.buff) or Matches(b, spells.group) then return true end
+            if Matches(b, spells.buff) or Matches(b, spells.group) then
+                return true, ns.LeftOf(buffs, spells.buff, spells.group)
+            end
         end
         if unknown then return nil end
         return false
@@ -117,15 +124,19 @@ local function NewModule(classFile, c)
                 local ok, eligible = pcall(ns.Eligible, u)
                 if ok and eligible then
                     stats.units = stats.units + 1
-                    local ok2, has = pcall(ScanUnit, u)
-                    if not ok2 then has = nil end
+                    local ok2, has, left = pcall(ScanUnit, u)
+                    if not ok2 then has, left = nil, nil end
                     if has == nil then stats.unknown = stats.unknown + 1 end
+                    local tank = tankSet[u] and "tank" or nil
                     if has == false then
-                        local e = MakeEntry(key, u, buff, tankSet[u] and "tank" or nil)
+                        local e = MakeEntry(key, u, buff, tank)
+                        if spell2 then e.spell2, e.spell2Label = spell2, spells.group.label end
+                        ns.AddMissing(entries, missing, e, key .. ":" .. (ns.UnitGUIDPlain(u) or u))
+                        stats[key] = stats[key] + 1
+                    elseif has == true and ns.Expiring(left) then
+                        local e = ns.ExpiringEntry(key .. "_exp", u, buff, left, tank)
                         if spell2 then e.spell2, e.spell2Label = spell2, spells.group.label end
                         entries[#entries + 1] = e
-                        missing[key .. ":" .. (ns.UnitGUIDPlain(u) or u)] = true
-                        stats[key] = stats[key] + 1
                     end
                 end
             end
@@ -150,6 +161,7 @@ local function NewModule(classFile, c)
             local far = i == 2
             list[#list + 1] = ns.FakeEntry(key, text .. (far and "|cffaaaaaa (out of range)|r" or ""), buff, far)
         end
+        list[#list + 1] = ns.FakeEntry(key .. "_exp", c.fakes[1] .. "|cffaaaaaa (1:45)|r", buff)
         return list, { { name = c.reagentName, count = 3, min = ns.Threshold(c.threshold.key, c.threshold.default) } }
     end
 

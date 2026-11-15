@@ -45,7 +45,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -86,7 +86,7 @@ local hooked, panelHooked
 -- loaded first as a dependency). Num treats a secret value - the client hands one back where it
 -- hides a number, and it can be neither compared nor used in a sum - as no number at all.
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon("BetterMapsForever", { version = VERSION })
 local function Print(msg) A:Print(msg) end
 local InCombat, Num, OnOff, AddOnLoaded = BF.InCombat, BF.Num, BF.OnOff, BF.AddOnLoaded
 
@@ -798,7 +798,7 @@ _G.BetterMapsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

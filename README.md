@@ -492,3 +492,20 @@ nothing wrong. It has caught several real bugs in this codebase.
 ## What is not here
 
 SavedVariables. Those live in `WTF/` and belong to the character, not the code.
+
+## Releasing an addon (GitHub + CurseForge)
+
+`tools/release.sh <AddonName>` reads `## Version` from `addons/<AddonName>/<AddonName>.toc` and
+pushes the tag `<AddonName>-v<version>` (from an up-to-date `main`). That triggers
+`.github/workflows/release-addon.yml`, which zips the addon folder, creates a GitHub Release and
+uploads to CurseForge (`workflow_dispatch` with an `addon` input does the same without a tag).
+Bump `## Version` in both TOCs and merge first; the tag must match the TOC version.
+
+- CurseForge project IDs: `tools/curseforge-projects.json` (`null` = skip CurseForge, GitHub
+  release is still made). Seeded from the `X-Curse-Project-ID` lines in the TOCs.
+- Game version(s): `tools/curseforge-config.json` (`gameVersionIds`, or `gameVersionNames`
+  resolved via the API). The upload fails and lists candidate IDs if they can't be resolved.
+- Required dependency on BetterForever is sent only once `requiredDependencySlug` is filled in.
+- Secret `CF_API_KEY` (repo Settings > Secrets > Actions): API token from
+  https://wow.curseforge.com/account/api-tokens. Without it the CurseForge step is skipped.
+- The changelog is the tag message (release.sh fills it from the addon's commits).

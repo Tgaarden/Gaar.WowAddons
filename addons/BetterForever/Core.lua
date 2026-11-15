@@ -45,7 +45,7 @@ local Lib = _G.BetterForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "BetterForever"
-local VERSION = "3.1.0"
+local VERSION = "3.1.1"
 local PREFIX = "|cff33ff99BetterForever|r: "
 local EN_DASH = "\226\128\147"
 

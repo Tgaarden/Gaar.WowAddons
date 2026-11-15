@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.15"
+local VERSION = "1.2.16"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -3890,7 +3890,7 @@ _G.BetterFramesForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

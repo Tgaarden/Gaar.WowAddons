@@ -50,7 +50,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterBagsForever"
-local VERSION = "1.9.2"
+local VERSION = "1.9.3"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -2635,7 +2635,7 @@ _G.BetterBagsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), "BetterBagsForever") end,
     SetMinimapHidden = function() end,
 }
 

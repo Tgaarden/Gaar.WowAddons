@@ -46,43 +46,80 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     BetterForever = {
+        ["3.1.1"] = "notes for every addon's current version",
         ["3.1.0"] = "what's new on login, per-character settings, export / import, /bf selftest",
         ["3.0.2"] = "a Loot row for BetterLootForever",
     },
-    BetterBagsForever = { ["1.9.2"] = "shared helpers from the BetterForever library" },
-    BetterQuestsForever = { ["1.10.2"] = "uses the BetterForever shared library" },
+    BetterBagsForever = {
+        ["1.9.3"] = "the addon's own name in its menu errors",
+        ["1.9.2"] = "shared helpers from the BetterForever library",
+    },
+    BetterQuestsForever = {
+        ["1.10.3"] = "the addon's own name in its menu errors",
+        ["1.10.2"] = "uses the BetterForever shared library",
+    },
     BetterMapsForever = {
         ["1.1.3"] = "the addon's own name in its chat lines and menu errors",
         ["1.1.2"] = "uses the BetterForever shared library",
     },
-    BetterCastbarsForever = { ["1.1.5"] = "uses the BetterForever shared library" },
-    BetterPlatesForever = { ["1.2.11"] = "secret-safe value checks" },
-    BetterGpsForever = { ["1.2.2"] = "shared helpers from the BetterForever library" },
+    BetterCastbarsForever = {
+        ["1.1.6"] = "the addon's own name in its menu errors",
+        ["1.1.5"] = "uses the BetterForever shared library",
+    },
+    BetterPlatesForever = {
+        ["1.2.12"] = "the addon's own name in its menu errors",
+        ["1.2.11"] = "secret-safe value checks",
+    },
+    BetterGpsForever = {
+        ["1.2.3"] = "the addon's own name in its menu errors",
+        ["1.2.2"] = "shared helpers from the BetterForever library",
+    },
     BetterFramesForever = {
+        ["1.2.16"] = "the addon's own name in its menu errors",
         ["1.2.15"] = "the addon's own name in its chat lines and menu errors",
         ["1.2.14"] = "secret-safe value checks",
     },
-    BetterWindowsForever = { ["1.0.2"] = "uses the BetterForever shared library" },
+    BetterWindowsForever = {
+        ["1.0.3"] = "the addon's own name in its menu errors",
+        ["1.0.2"] = "uses the BetterForever shared library",
+    },
     BetterFishingForever = {
+        ["1.4.1"] = "the addon's own name in its menu errors",
         ["1.4.0"] = "session stats panel, loud splash mode",
         ["1.3.0"] = "reel in with double right-click, Cast / Reel key",
         ["1.2.2"] = "uses the BetterForever shared library",
     },
     BetterBuffsForever = {
+        ["1.6.0"] = "combat dispel icons, lower rank for low-level members, expiring-soon warning /bbuff expire, out-of-range sound fix",
         ["1.5.1"] = "out-of-range members left out unless /bbuff range on",
         ["1.5.0"] = "Fortitude for priests, Arcane Intellect for mages",
         ["1.4.0"] = "dispel panel for priests, paladins and mages",
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
-    BetterMerchantForever = { ["1.0.2"] = "shared helpers from the BetterForever library" },
-    BetterTooltipsForever = { ["1.0.3"] = "the addon's own name in its chat lines" },
+    BetterMerchantForever = {
+        ["1.0.3"] = "the addon's own name in its menu errors",
+        ["1.0.2"] = "shared helpers from the BetterForever library",
+    },
+    BetterTooltipsForever = {
+        ["1.0.4"] = "the addon's own name in its menu errors",
+        ["1.0.3"] = "the addon's own name in its chat lines",
+    },
     BetterMailForever = {
         ["1.0.3"] = "the addon's own name in its chat lines and menu errors",
         ["1.0.2"] = "uses the BetterForever shared library",
     },
-    BetterXPForever = { ["1.0.3"] = "the addon's own name in its chat lines" },
-    BetterChatForever = { ["1.0.3"] = "the addon's own name in its chat lines" },
-    BetterBarsForever = { ["1.0.3"] = "the addon's own name in its chat lines" },
+    BetterXPForever = {
+        ["1.0.4"] = "the addon's own name in its menu errors",
+        ["1.0.3"] = "the addon's own name in its chat lines",
+    },
+    BetterChatForever = {
+        ["1.0.4"] = "the addon's own name in its menu errors",
+        ["1.0.3"] = "the addon's own name in its chat lines",
+    },
+    BetterBarsForever = {
+        ["1.0.4"] = "the addon's own name in its menu errors",
+        ["1.0.3"] = "the addon's own name in its chat lines",
+    },
     BetterLootForever = {
         ["1.1.0"] = "roll result summary panel",
         ["1.0.0"] = "Need / Greed / Pass counts on group loot rolls",

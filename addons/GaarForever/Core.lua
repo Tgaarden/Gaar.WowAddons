@@ -31,8 +31,16 @@
     minimap = { hide = <bool>, angle = <deg> }
     news, seen, lastNews, selftest   (3.1, Tools.lua: what's new and the last self-test)
   Until 3.2 the folder (and so the saved variable) was BetterForever: the BetterForever folder is
-  now a settings bridge that loads BetterForeverDB first (## OptionalDeps), and the first login
-  copies it into GaarForeverDB (Lib.Migrate; seen versions are re-keyed to the new folder names).
+  now a settings bridge that loads BetterForeverDB, and the first login copies it into
+  GaarForeverDB (Lib.Migrate; seen versions are re-keyed to the new folder names).
+  Since 3.2.2 the hub's bridge is the one that loads the other way round: it lists GaarForever under
+  ## Dependencies (and the hub no longer lists it under ## OptionalDeps), so the hub always loads
+  first. An old full BetterXForever addon that is still installed lists ## Dependencies:
+  BetterForever, so it now loads after the hub too and finds the BetterForever library alias
+  (with the old order it loaded right after the bridge, before the hub, without a library). The
+  hub's own copy therefore waits for the bridge: at the bridge's ADDON_LOADED, or at PLAYER_LOGIN
+  when the bridge is missing or loaded first (an older bridge without the dependency), before
+  anything of the hub's DB is used (minimap place, what's-new versions; MigrateOldHubDB).
   The old BetterGaarForeverDB cannot be read: the client loads saved variables by addon name
   (SavedVariables/BetterGaarForever.lua), so the renamed hub starts with the default button
   position. The addons' own settings live in their own saved variables and are unaffected.
@@ -48,7 +56,7 @@ local Lib = _G.GaarForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "GaarForever"
-local VERSION = "3.2.1"
+local VERSION = "3.2.2"
 local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -86,6 +94,8 @@ end
 
 local db          -- GaarForeverDB, bound at ADDON_LOADED (never at file scope)
 local started     -- PLAYER_LOGIN work done
+local hubDBFresh  -- GaarForeverDB was nil or empty when the hub loaded: BetterForeverDB may still be copied in
+local migrateOpen = true -- until PLAYER_LOGIN: the window for that copy (nothing has used the DB yet)
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -156,10 +166,8 @@ local function MinimapDB()
     return m
 end
 
-local function BindSavedVariables()
-    Lib.Migrate("GaarForeverDB", "BetterForeverDB", TITLE) -- the old folder's settings, once
-    if type(_G.GaarForeverDB) ~= "table" then _G.GaarForeverDB = {} end
-    db = _G.GaarForeverDB
+-- Defaults and clean-up of the bound db; run again after MigrateOldHubDB fills it.
+local function PrepareDB()
     -- Only the minimap button and Tools.lua's keys are kept; 1.0's bags, quests, modules and
     -- migrated go.
     local keep = Tools and Tools.DB_KEYS or {}
@@ -174,6 +182,33 @@ local function BindSavedVariables()
             Tools = nil
         end
     end
+end
+
+local function BindSavedVariables()
+    local cur = _G.GaarForeverDB
+    hubDBFresh = cur == nil or (type(cur) == "table" and next(cur) == nil)
+    -- An older bridge (no ## Dependencies) may have loaded first: its settings are here already.
+    if hubDBFresh and Lib.Migrate("GaarForeverDB", "BetterForeverDB", TITLE) then hubDBFresh = false end
+    if type(_G.GaarForeverDB) ~= "table" then _G.GaarForeverDB = {} end
+    db = _G.GaarForeverDB
+    PrepareDB()
+end
+
+-- The old folder's settings, once (3.2.2). The bridge (BetterForever) loads after the hub, so
+-- BetterForeverDB exists only from its ADDON_LOADED on; called there and at PLAYER_LOGIN (the
+-- fallback; a no-op without the bridge). Only while GaarForeverDB still holds nothing but this
+-- session's defaults (it was empty when the hub loaded, and it is before login, so nothing was
+-- changed or shown yet): those are cleared in place (db stays the same table), the old settings
+-- copied in by Lib.Migrate (which marks the old copy __migratedTo) and the defaults applied again,
+-- which also re-keys the old what's-new versions (Tools.Bind). Idempotent.
+local function MigrateOldHubDB()
+    if not (migrateOpen and hubDBFresh and db) then return end
+    local old = _G.BetterForeverDB
+    if type(old) ~= "table" or old.__migratedTo ~= nil then return end
+    hubDBFresh = false
+    for k in pairs(db) do db[k] = nil end
+    Lib.Migrate("GaarForeverDB", "BetterForeverDB", TITLE)
+    PrepareDB() -- the minimap button is placed only at Start, after this
 end
 
 -- ---------------------------------------------------------------------------
@@ -696,8 +731,9 @@ local function WarnOldFolders()
         end
     end
     if #stale > 0 then
-        Print("old folders still hold the full addon: " .. table.concat(stale, ", ") .. ". Update them (they"
-            .. " become small settings bridges) or delete them; the Gaar...Forever folders replace them.")
+        Print("old folders still hold the full addon: " .. table.concat(stale, ", ") .. ". Update all"
+            .. " Gaar...Forever addons (the CurseForge app's Update all): the old folders then become small"
+            .. " settings bridges. Or delete those folders; the Gaar...Forever addons replace them.")
     end
 end
 
@@ -732,7 +768,13 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 == ADDON_NAME then
             BindSavedVariables()
             -- Loaded after login (LoadAddOn): no PLAYER_LOGIN is coming, so start now.
-            if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then Start() end
+            if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then
+                MigrateOldHubDB()
+                migrateOpen = false
+                Start()
+            end
+        elseif arg1 == "BetterForever" then
+            MigrateOldHubDB() -- the bridge, loaded after us (## Dependencies: GaarForever)
         elseif started then
             -- One of them loaded after us (LoadAddOn): its button goes too, and it gets a page.
             for _, a in ipairs(ADDONS) do
@@ -743,6 +785,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
             end
         end
     elseif event == "PLAYER_LOGIN" then
+        MigrateOldHubDB() -- the bridge missing or loaded before us: a no-op, or the copy now
+        migrateOpen = false
         Start()
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Placed again in case another addon changed the minimap's shape since login.

@@ -714,6 +714,12 @@ end
 
 function guide.IsOn() return On() end
 
+-- skill, cap (nil when Fishing cannot be read); for the session stats (Stats.lua, 1.4).
+function guide.ReadSkill()
+    local sk, cp = ReadSkill()
+    return sk, cp
+end
+
 function guide.Slash(arg)
     if not cdb then
         Print("not loaded yet.")

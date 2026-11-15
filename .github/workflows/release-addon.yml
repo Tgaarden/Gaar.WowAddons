@@ -10,6 +10,9 @@ on:
       addon:
         description: "Addon folder name, e.g. BetterBuffsForever"
         required: true
+      version:
+        description: "Version to (re)publish; uses tag <addon>-v<version> if it exists, else main. Default = TOC version on main"
+        required: false
 
 permissions:
   contents: write
@@ -27,6 +30,7 @@ jobs:
         id: meta
         env:
           INPUT_ADDON: ${{ github.event.inputs.addon }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
@@ -37,7 +41,25 @@ jobs:
             tag=""
           fi
           case "$addon" in *[!A-Za-z0-9_]*|"") echo "::error::bad addon name"; exit 1;; esac
-          toc="addons/$addon/$addon.toc"
+          # Source of addon files: the existing tag if there is one (dispatch re-publish), else the checkout.
+          # tools/ always comes from the current checkout.
+          rm -rf src; mkdir -p src
+          if [ -n "$tag" ]; then
+            ref="HEAD"
+          else
+            ver="${INPUT_VERSION:-}"
+            if [ -n "$ver" ]; then
+              case "$ver" in *[!A-Za-z0-9._-]*) echo "::error::bad version"; exit 1;; esac
+              tag="$addon-v$ver"
+            fi
+            if [ -n "$tag" ] && git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
+              ref="refs/tags/$tag"
+            else
+              ref="HEAD"
+            fi
+          fi
+          git archive "$ref" "addons/$addon" | tar -x -C src
+          toc="src/addons/$addon/$addon.toc"
           [ -f "$toc" ] || { echo "::error::$toc not found"; exit 1; }
           version="$(sed -n 's/^## Version: *//p' "$toc" | head -1 | tr -d '\r ')"
           [ -n "$version" ] || { echo "::error::no ## Version in $toc"; exit 1; }
@@ -45,6 +67,7 @@ jobs:
           if [ "$tag" != "$addon-v$version" ]; then
             echo "::error::tag $tag does not match TOC version $version"; exit 1
           fi
+          echo "Source ref: $ref  tag: $tag"
           echo "addon=$addon" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -54,7 +77,7 @@ jobs:
           set -euo pipefail
           a="${{ steps.meta.outputs.addon }}"
           mkdir -p staging
-          cp -R "addons/$a" "staging/$a"
+          cp -R "src/addons/$a" "staging/$a"
           (cd staging && zip -r "../$a-${{ steps.meta.outputs.version }}.zip" "$a" -x '*/.*')
           unzip -l "$a-${{ steps.meta.outputs.version }}.zip"
 
@@ -88,4 +111,4 @@ jobs:
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
         run: |
-          tools/curseforge-upload.sh "${{ steps.meta.outputs.addon }}" "${{ steps.meta.outputs.addon }}-${{ steps.meta.outputs.version }}.zip" changelog.md
+          bash tools/curseforge-upload.sh "${{ steps.meta.outputs.addon }}" "${{ steps.meta.outputs.addon }}-${{ steps.meta.outputs.version }}.zip" changelog.md

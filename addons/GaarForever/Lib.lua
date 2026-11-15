@@ -52,6 +52,8 @@
     GaarForever.Base64Encode(s), GaarForever.Base64Decode(s)
     GaarForever.EncodeSettings(name, t)  "BF1:<name>:<check>:<base64>"
     GaarForever.DecodeSettings(s)        name, t - or nil, why
+    GaarForever.EncodeBundle(t)          "GFA1:<check>:<base64>", a larger table (/gf export all, 3.2.1)
+    GaarForever.DecodeBundle(s)          t - or nil, why; parsed by hand with larger limits
 ]]
 
 local _G = _G
@@ -64,7 +66,7 @@ end
 -- The name before the folder rename, for anything that still looks the library up by it. The
 -- BetterForever folder is only a settings bridge now and defines nothing.
 _G.BetterForever = Lib
-Lib.version = "3.2.0"
+Lib.version = "3.2.1"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -1042,7 +1044,7 @@ local function KeyOrder(a, b)
     return a < b
 end
 
-local function SerializeValue(v, out, depth)
+local function SerializeValue(v, out, depth, maxDepth)
     local t = type(v)
     if t == "string" then
         out[#out + 1] = "S" .. #v .. ":" .. v
@@ -1051,7 +1053,7 @@ local function SerializeValue(v, out, depth)
     elseif t == "boolean" then
         out[#out + 1] = v and "B1" or "B0"
     elseif t == "table" then
-        if depth >= MAX_DEPTH then error("nested too deep", 0) end
+        if depth >= (maxDepth or MAX_DEPTH) then error("nested too deep", 0) end
         local keys = {}
         for k, x in pairs(v) do
             local kt = type(k)
@@ -1060,18 +1062,18 @@ local function SerializeValue(v, out, depth)
         table.sort(keys, KeyOrder)
         out[#out + 1] = "T"
         for _, k in ipairs(keys) do
-            SerializeValue(k, out, depth + 1)
-            SerializeValue(v[k], out, depth + 1)
+            SerializeValue(k, out, depth + 1, maxDepth)
+            SerializeValue(v[k], out, depth + 1, maxDepth)
         end
         out[#out + 1] = "E"
     end
 end
 
--- The text, or nil, why.
-function Lib.Serialize(t)
+-- The text, or nil, why. limits (optional): { depth = n }.
+function Lib.Serialize(t, limits)
     if type(t) ~= "table" then return nil, "not a table" end
     local out = {}
-    local ok, err = pcall(SerializeValue, t, out, 0)
+    local ok, err = pcall(SerializeValue, t, out, 0, type(limits) == "table" and limits.depth or nil)
     if not ok then return nil, tostring(err) end
     return table.concat(out)
 end
@@ -1080,12 +1082,12 @@ end
 -- anything it does not expect.
 local function ParseValue(s, pos, depth, budget)
     budget.n = budget.n + 1
-    if budget.n > MAX_NODES then error("too many values", 0) end
+    if budget.n > budget.nodes then error("too many values", 0) end
     local tag = s:sub(pos, pos)
     if tag == "S" then
         local len, p = s:match("^(%d+):()", pos + 1)
         len = tonumber(len)
-        if not len or len > MAX_TEXT then error("bad string at " .. pos, 0) end
+        if not len or len > budget.text then error("bad string at " .. pos, 0) end
         local str = s:sub(p, p + len - 1)
         if #str ~= len then error("string cut short at " .. pos, 0) end
         return str, p + len
@@ -1100,7 +1102,7 @@ local function ParseValue(s, pos, depth, budget)
         if b == "0" then return false, pos + 2 end
         error("bad boolean at " .. pos, 0)
     elseif tag == "T" then
-        if depth >= MAX_DEPTH then error("nested too deep", 0) end
+        if depth >= budget.depth then error("nested too deep", 0) end
         local t = {}
         pos = pos + 1
         while true do
@@ -1117,12 +1119,15 @@ local function ParseValue(s, pos, depth, budget)
     error("unexpected '" .. tag .. "' at " .. pos, 0)
 end
 
--- The table, or nil, why. Only a table at the top, and nothing after it.
-function Lib.Deserialize(s)
+-- The table, or nil, why. Only a table at the top, and nothing after it. limits (optional):
+-- { text = max length, nodes = max values, depth = max nesting }; the defaults suit one addon.
+function Lib.Deserialize(s, limits)
     if type(s) ~= "string" or IsSecret(s) then return nil, "not text" end
-    if #s > MAX_TEXT then return nil, "too long" end
+    limits = type(limits) == "table" and limits or {}
+    local budget = { n = 0, text = limits.text or MAX_TEXT, nodes = limits.nodes or MAX_NODES, depth = limits.depth or MAX_DEPTH }
+    if #s > budget.text then return nil, "too long" end
     if s:sub(1, 1) ~= "T" then return nil, "not a settings table" end
-    local ok, v, nextPos = pcall(ParseValue, s, 1, 0, { n = 0 })
+    local ok, v, nextPos = pcall(ParseValue, s, 1, 0, budget)
     if not ok then return nil, tostring(v) end
     if nextPos ~= #s + 1 then return nil, "extra text after the settings" end
     return v
@@ -1206,4 +1211,34 @@ function Lib.DecodeSettings(s)
     local t, err = Lib.Deserialize(body)
     if not t then return nil, err end
     return name, t
+end
+
+-- ---------------------------------------------------------------------------
+-- Settings bundles (3.2.1): every family addon's saved variables in one string, for /gf export
+-- all and /gf import. "GFA1:<check>:<base64 of the serialized table>", the same serializer and
+-- hand-written parser as above, with limits sized for a whole account's settings.
+-- ---------------------------------------------------------------------------
+
+local BUNDLE_LIMITS = { text = 4000000, nodes = 200000, depth = 24 }
+Lib.BUNDLE_LIMITS = BUNDLE_LIMITS
+
+function Lib.EncodeBundle(t)
+    local body, err = Lib.Serialize(t, BUNDLE_LIMITS)
+    if not body then return nil, err end
+    if #body > BUNDLE_LIMITS.text then return nil, "too large to export" end
+    return "GFA1:" .. Check(body) .. ":" .. Lib.Base64Encode(body)
+end
+
+-- The table, or nil, why. Spaces and line breaks in the pasted text are ignored.
+function Lib.DecodeBundle(s)
+    if type(s) ~= "string" or IsSecret(s) then return nil, "not text" end
+    if #s > BUNDLE_LIMITS.text * 2 then return nil, "too long" end
+    s = s:gsub("%s+", "")
+    if s == "" then return nil, "nothing pasted" end
+    local check, b64 = s:match("^GFA1:(%x%x%x%x%x%x%x%x):([%w%+/=]+)$")
+    if not check then return nil, "not a GaarForever export (it starts with GFA1:)" end
+    local body = Lib.Base64Decode(b64)
+    if not body then return nil, "the string is damaged (not base64)" end
+    if Check(body) ~= check:lower() then return nil, "the string is damaged or cut short" end
+    return Lib.Deserialize(body, BUNDLE_LIMITS)
 end

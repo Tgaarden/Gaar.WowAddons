@@ -705,8 +705,9 @@ local OVERVIEW_TEXT = "Gaar Forever (formerly Better Forever) is a family of sma
     .. "This hub carries their shared code, one minimap button and these pages. Each installed addon "
     .. "has its own page below this one, built from the same options as the minimap menu, with a short "
     .. "intro at the top. Every addon also keeps its own slash command (the old /b... ones still work). After an update the hub says "
-    .. "in chat what changed (/gf news); /gf profile gives a character its own settings, /gf export and "
-    .. "/gf import move settings as text, and /gf selftest checks the client APIs the family uses."
+    .. "in chat what changed (/gf news); /gf profile gives a character its own settings, /gf export all and "
+    .. "/gf import move every addon's settings as text (also the buttons below), and /gf selftest checks the "
+    .. "client APIs the family uses."
 
 local function BuildOverview(page, hub)
     local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -733,6 +734,22 @@ local function BuildOverview(page, hub)
         news.label:SetText("Say in chat what changed after an update (/gf news)")
         news:SetScript("OnClick", function(self) Click(nil, hub.SetNewsShown, self:GetChecked() and true or false) end)
         headY = -74
+    end
+    -- 3.2.1: export / import of every addon's settings.
+    local exportBtn = hub.ExportAll and TryFrame("Button", page, "UIPanelButtonTemplate")
+    if exportBtn then
+        exportBtn:SetSize(170, 22)
+        exportBtn:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, headY - 4)
+        exportBtn:SetText("Export all settings")
+        exportBtn:SetScript("OnClick", function() Click(nil, hub.ExportAll) end)
+        local importBtn = hub.Import and TryFrame("Button", page, "UIPanelButtonTemplate")
+        if importBtn then
+            importBtn:SetSize(170, 22)
+            importBtn:SetPoint("LEFT", exportBtn, "RIGHT", 8, 0)
+            importBtn:SetText("Import settings")
+            importBtn:SetScript("OnClick", function() Click(nil, hub.Import) end)
+        end
+        headY = headY - 34
     end
     local head = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     head:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, headY)

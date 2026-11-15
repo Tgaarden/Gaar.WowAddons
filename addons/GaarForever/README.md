@@ -20,9 +20,9 @@ family member depends on. It holds three things:
   page and one page per installed addon, generated from the same data as the minimap menu.
 - **One minimap button** (`Core.lua`) whose menu has a submenu per addon, and `/gf`.
 - **Tools** (`Tools.lua`, 3.1): a chat line per addon after an update saying what changed
-  (`/gf news`), per-character settings and settings export / import for addons built on the
-  library's settings (`/gf profile`, `/gf export`, `/gf import`), and an API self-test
-  (`/gf selftest`) to copy and send.
+  (`/gf news`), per-character settings for addons built on the library's settings (`/gf profile`),
+  export / import of every family addon's settings as one string (`/gf export all`, `/gf import`,
+  3.2.1), and an API self-test (`/gf selftest`) to copy and send.
 
 The family: [GaarBagsForever](../GaarBagsForever/README.md),
 [GaarQuestsForever](../GaarQuestsForever/README.md),
@@ -92,7 +92,8 @@ thing the rename removes; for two settings that are back with one drag, it is no
 **Esc > Options > AddOns > Gaar Forever** (or `/gf options`):
 
 - **Gaar Forever** (the overview): what the family is, a checkbox for the hub's minimap button,
-  and every addon's version, slash command and state line (or `not installed`), refreshed each
+  **Export all settings** / **Import settings** buttons (3.2.1, the same as `/gf export all` and
+  `/gf import`), and every addon's version, slash command and state line (or `not installed`), refreshed each
   time the page opens.
 - **One page per installed addon** (`/gf options bags`, `/gf options quests`, ...): the addon's
   intro at the top (from `Intro()` in its API: what it does, key features, nice to know), its
@@ -192,8 +193,9 @@ table under the old names): `version`, `ADDONS` (the list above), `PlaceMinimapB
 | `/gf profile` | Each covered addon and whether this character uses the shared settings or its own |
 | `/gf profile char <addon\|all>` | This character gets its own copy of the addon's settings, seeded from the shared ones as they are now |
 | `/gf profile shared <addon\|all>` | Back to the shared (account-wide) settings; the character's copy is dropped, the shared settings were never touched |
-| `/gf export <addon>` | The settings in use as one string (`BF1:<Addon>:<check>:<base64>`) in a window, selected for Ctrl+C |
-| `/gf import` | A window to paste such a string into; Import applies it to the addon it names |
+| `/gf export all` | Every installed family addon's settings, and the hub's, as one string (`GFA1:<check>:<base64>`) in a window to copy (3.2.1; also a button on the overview page) |
+| `/gf export <addon>` | The same for one addon (`bags`, `quests`, ..., `hub`; any family addon, not only the library ones) |
+| `/gf import` | A window to paste such a string into: Import shows what it holds (which addons, account-wide and/or per-character part, from which character), Apply asks once more, then overwrites those settings and offers **Reload UI**. Old `BF1:` strings from 3.1 still import into their addon's options |
 | `/gf selftest`, `/gf selftest show` | Probes the client APIs the family relies on and shows the result in a window to copy; runs again at the next pull (or when combat ends) and compares; `show` reopens the last result |
 
 ## What's new
@@ -215,7 +217,30 @@ checkbox on the overview page) stops the lines, the versions are still recorded.
 When you release a family addon, add its note to `CHANGES` in the hub (the addons themselves are
 not touched for this).
 
-## Profiles, export and import
+## Export and import of all settings (3.2.1)
+
+`/gf export all` (or **Export all settings** on the overview page) puts every installed family
+addon's saved variables into one string; `/gf export <addon>` does it for one. On another
+character, account or PC, `/gf import` takes it back:
+
+- **What is in it**: a versioned payload - format and version, the hub's version, the character
+  it came from (`Name - Realm`), and per addon its version, its account-wide saved variable
+  (`GaarXForeverDB`) and, for addons that have one, the per-character one
+  (`GaarBagsForeverCharDB`, `GaarBuffsForeverCharDB`, `GaarFishingForeverCharDB`), from the
+  character that exported. The hub adds its own minimap button and news switch. Local data that
+  is not a setting stays out: Bags' cross-character item counts (`inventory`, rebuilt as each
+  character logs in), Fishing's held CVars, pole-swap memory and session stats.
+- **Reading it**: base64, a checksum, then the hub's hand-written parser (no `loadstring`; nothing
+  in the text is ever run) with limits on size, depth and number of values. Unknown addons and
+  addons not installed here are listed and left out.
+- **Before anything changes**: a summary - which addons, account-wide and/or per-character part,
+  from which character - and a confirm popup.
+- **Applying**: for each included addon only, its saved variables are overwritten in place (wiped,
+  then a deep copy; the local data above is kept). The per-character part goes to the character
+  that imports. Then **Reload UI** - the addons read their settings at load, so until the reload
+  they may still show (and on logout save) what they had.
+
+## Profiles, export and import of one library addon's options
 
 These work for addons that keep their settings through the library (`A:InitDB` with options from
 `A:Toggle` / `A:Choice` / `A:Slider`). Today that is **GaarLootForever**; the other addons keep
@@ -362,6 +387,7 @@ local A = GaarForever.NewAddon("GaarExampleForever", {   -- the folder name: the
 | `GaarForever.Serialize(t)`, `GaarForever.Deserialize(s)` | A table of strings, finite numbers, booleans and tables as text (`S<len>:`, `N<n>;`, `B1`/`B0`, `T ... E`) and back, parsed by hand with size, depth and count limits; functions, userdata and secret values are left out |
 | `GaarForever.Base64Encode(s)`, `GaarForever.Base64Decode(s)` | Plain base64; decode gives `nil` for anything that is not |
 | `GaarForever.EncodeSettings(name, t)`, `GaarForever.DecodeSettings(s)` | `"BF1:<name>:<check>:<base64>"`; decode ignores spaces and line breaks and gives `name, t` or `nil, why` |
+| `GaarForever.EncodeBundle(t)`, `GaarForever.DecodeBundle(s)` (3.2.1) | `"GFA1:<check>:<base64>"` for `/gf export all`: the same serializer and parser with larger limits (`GaarForever.BUNDLE_LIMITS`) |
 
 ### Migrating an addon (phase 2)
 
@@ -388,6 +414,15 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.2.1
+
+- **`/gf export all`** and **`/gf import`** for every family addon's settings, not only the
+  library ones: one string with each addon's saved variables (account-wide and this character's),
+  a summary and a confirm before anything is overwritten, then Reload UI. `/gf export <addon>`
+  works for any family addon (and `hub`). Buttons on the overview page. See
+  [Export and import of all settings](#export-and-import-of-all-settings-321).
+- Library: `Serialize` / `Deserialize` take optional limits; `EncodeBundle` / `DecodeBundle`.
 
 ## 3.2.0
 

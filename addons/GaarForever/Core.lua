@@ -48,16 +48,18 @@ local Lib = _G.GaarForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "GaarForever"
-local VERSION = "3.2.0"
+local VERSION = "3.2.1"
 local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 
 -- The addons the hub has a submenu for, in menu order. name: the folder (and the key everywhere);
 -- title: the name users see (Gaar...Forever, set below); oldName: the folder before the rename,
 -- now its settings bridge (set below); slash: the command, oldSlash: the one before the Gaar
--- rename, still registered by each addon.
+-- rename, still registered by each addon; db / charDb: its saved variables, account-wide and per
+-- character, as in its TOC (db set below; /gf export and /gf import, 3.2.1); keep: keys of them
+-- that are local data rather than settings, left out of exports and alone on import.
 local ADDONS = {
-    { key = "bags", label = "Bags", name = "GaarBagsForever", api = "GaarBagsForeverAPI", slash = "/gbf", oldSlash = "/bbf" },
+    { key = "bags", label = "Bags", name = "GaarBagsForever", api = "GaarBagsForeverAPI", slash = "/gbf", oldSlash = "/bbf", charDb = "GaarBagsForeverCharDB", keep = { account = { inventory = true } } },
     { key = "quests", label = "Quests", name = "GaarQuestsForever", api = "GaarQuestsForeverAPI", slash = "/gqf", oldSlash = "/bqf" },
     { key = "maps", label = "Maps", name = "GaarMapsForever", api = "GaarMapsForeverAPI", slash = "/gmf", oldSlash = "/bmf" },
     { key = "castbars", label = "Castbars", name = "GaarCastbarsForever", api = "GaarCastbarsForeverAPI", slash = "/gcf", oldSlash = "/bcf" },
@@ -65,8 +67,9 @@ local ADDONS = {
     { key = "gps", label = "GPS", name = "GaarGpsForever", api = "GaarGpsForeverAPI", slash = "/ggps", oldSlash = "/bgps" },
     { key = "frames", label = "Frames", name = "GaarFramesForever", api = "GaarFramesForeverAPI", slash = "/gff", oldSlash = "/bff" },
     { key = "windows", label = "Windows", name = "GaarWindowsForever", api = "GaarWindowsForeverAPI", slash = "/gwf", oldSlash = "/bwf" },
-    { key = "fishing", label = "Fishing", name = "GaarFishingForever", api = "GaarFishingForeverAPI", slash = "/gfish", oldSlash = "/bfish" },
-    { key = "buffs", label = "Buffs", name = "GaarBuffsForever", api = "GaarBuffsForeverAPI", slash = "/gbuff", oldSlash = "/bbuff" },
+    { key = "fishing", label = "Fishing", name = "GaarFishingForever", api = "GaarFishingForeverAPI", slash = "/gfish", oldSlash = "/bfish", charDb = "GaarFishingForeverCharDB",
+        keep = { account = { held = true, splashHeld = true }, char = { swap = true, session = true } } },
+    { key = "buffs", label = "Buffs", name = "GaarBuffsForever", api = "GaarBuffsForeverAPI", slash = "/gbuff", oldSlash = "/bbuff", charDb = "GaarBuffsForeverCharDB" },
     { key = "merchant", label = "Merchant", name = "GaarMerchantForever", api = "GaarMerchantForeverAPI", slash = "/gmerch", oldSlash = "/bmerch" },
     { key = "tooltips", label = "Tooltips", name = "GaarTooltipsForever", api = "GaarTooltipsForeverAPI", slash = "/gtip", oldSlash = "/btip" },
     { key = "mail", label = "Mail", name = "GaarMailForever", api = "GaarMailForeverAPI", slash = "/gmail", oldSlash = "/bmail" },
@@ -78,6 +81,7 @@ local ADDONS = {
 for _, a in ipairs(ADDONS) do
     a.title = Lib.DisplayName(a.name)
     a.oldName = Lib.OldName(a.name)
+    a.db = a.name .. "DB"
 end
 
 local db          -- GaarForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -546,6 +550,9 @@ local hub = {
     SetMinimapShown = function(shown) SetMinimapHidden(not shown) end,
     NewsShown = function() return db ~= nil and db.news ~= false end,
     SetNewsShown = function(shown) if db then db.news = shown and true or false end end,
+    -- 3.2.1: the overview page's export / import buttons.
+    ExportAll = function() if Tools and db then Tools.ExportCommand("all") end end,
+    Import = function() if Tools and db then Tools.ImportCommand() end end,
 }
 
 local function InitOptions()
@@ -591,9 +598,10 @@ local function PrintHelp()
     Print("/gf options [name] - open the Options pages (name: bags, quests, maps, ... - one addon's page)")
     Print("/gf minimap - show or hide the minimap button; /gf minimap reset - default place, shown")
     Print("/gf news [on|off] - what changed in the last update (the lines at login: on or off)")
-    Print("/gf profile [char|shared] <addon|all> - per-character or shared settings; /gf export <addon>,"
-        .. " /gf import - settings as a copyable string (addons on the library's settings: "
-        .. (Tools and Tools.CoveredText() or "none") .. ")")
+    Print("/gf export all - every installed addon's settings (and the hub's) as one copyable string;"
+        .. " /gf export <addon> - one addon's; /gf import - paste one in, check what it holds, apply, reload")
+    Print("/gf profile [char|shared] <addon|all> - per-character or shared settings (addons on the library's"
+        .. " settings: " .. (Tools and Tools.CoveredText() or "none") .. ")")
     Print("/gf selftest [show] - probe the client APIs the family uses, in and out of combat, as copyable text")
     local cmds = {}
     for _, a in ipairs(ADDONS) do cmds[#cmds + 1] = a.slash .. " (" .. a.title .. ")" end

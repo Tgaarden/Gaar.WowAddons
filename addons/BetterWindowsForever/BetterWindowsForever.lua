@@ -48,7 +48,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterWindowsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local SCALE_STEP = 0.05     -- per mouse-wheel notch
@@ -915,7 +915,7 @@ _G.BetterWindowsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

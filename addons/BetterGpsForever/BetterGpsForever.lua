@@ -60,7 +60,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterGpsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -1396,7 +1396,7 @@ _G.BetterGpsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
     SetWaypoint = function(mapID, x, y, title)
         return SetWaypoint(mapID, x, y, { title = CleanTitle(title) }) and true or false

@@ -181,7 +181,7 @@ ADDON_NAME = ADDON_NAME or "BetterFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
@@ -1375,7 +1375,7 @@ _G.BetterFishingForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

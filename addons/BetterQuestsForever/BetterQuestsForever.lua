@@ -2405,7 +2405,7 @@ local function ShowMinimapMenu(owner)
     if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
         local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
             if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
-            RenderMenu(root, entries)
+            RenderMenu(root, entries, A.title)
         end)
         if ok then return "MenuUtil" end
     end
@@ -2434,7 +2434,7 @@ local function ShowHeaderMenu(owner)
     if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
         local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
             if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
-            RenderMenu(root, entries)
+            RenderMenu(root, entries, A.title)
         end)
         if ok then return end
     end
@@ -3060,7 +3060,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.10.2"
+local VERSION = "1.10.3"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3074,7 +3074,7 @@ _G.BetterQuestsForeverAPI = {
     StatusLine = StateLine,
     MenuEntries = ApiEntries,
     AddMenuEntries = function(root)
-        if type(root) == "table" then RenderMenu(root, ApiEntries()) end
+        if type(root) == "table" then RenderMenu(root, ApiEntries(), A.title) end
     end,
     SetMinimapHidden = function(hidden)
         hubHidden = hidden and true or false

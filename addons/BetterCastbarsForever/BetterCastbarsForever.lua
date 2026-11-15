@@ -58,7 +58,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterCastbarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -1824,7 +1824,7 @@ _G.BetterCastbarsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

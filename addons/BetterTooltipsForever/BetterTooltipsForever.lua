@@ -37,7 +37,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterTooltipsForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.3"
+local VERSION = "1.0.4"
 
 local BF = _G.BetterForever
 local A = BF.NewAddon("BetterTooltipsForever", { version = VERSION })
@@ -618,7 +618,7 @@ _G.BetterTooltipsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries()) end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
 }
 

@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: GaarXPForever
+## Notes: XP at a glance on WoW Forever: a small movable panel with XP, rested XP, XP per hour, time to level and kills/quests to level; text on the XP bar; time played per level on level-up; quest XP in tooltips. Every part can be switched off. /gxp
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
+## Author: Gaar
+## Version: 1.1.0
+## X-Curse-Project-ID: 1808636
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## Dependencies: GaarForever
+## OptionalDeps: BetterXPForever
+## SavedVariables: GaarXPForeverDB
+
+GaarXPForever.lua

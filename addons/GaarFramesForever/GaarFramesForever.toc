@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: GaarFramesForever
+## Notes: X-Perl-style unit frames of its own for player, target, target of target, focus, pet and party: portrait, health and power with cur/max and percent, class colours, auras (your own buffs under the player frame too), combo points, range fade. Blizzard's are switched off, never restyled. /gff
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
+## Author: Gaar
+## Version: 1.3.0
+## IconTexture: Interface\Icons\Spell_Holy_PrayerOfHealing
+## Dependencies: GaarForever
+## OptionalDeps: BetterFramesForever
+## SavedVariables: GaarFramesForeverDB
+## X-Curse-Project-ID: 1793613
+
+GaarFramesForever.lua

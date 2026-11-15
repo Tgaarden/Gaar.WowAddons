@@ -1,0 +1,10 @@
+-- BetterMerchantForever - the settings bridge for GaarMerchantForever.
+--
+-- GaarMerchantForever lived in this folder until the Better...Forever family was renamed Gaar...Forever.
+-- The client reads saved variables by folder name, so this small folder keeps the old name
+-- only to load the old settings (BetterMerchantForeverDB)
+-- before GaarMerchantForever starts. GaarMerchantForever copies them into its own saved variables on the first login
+-- (each character on its own login for per-character settings) and marks the old copy
+-- (__migratedTo); nothing here runs, and nothing is deleted.
+--
+-- Safe to delete after logging in once on each character. The bridge goes away in a later update.

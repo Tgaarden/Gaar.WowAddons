@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: GaarTooltipsForever
+## Notes: Richer tooltips on WoW Forever: vendor price, item ID, item level and a vs-equipped stat diff on items; target, guild rank, health, class colours and cursor anchoring on units. Every feature can be switched on or off. /gtip
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
+## Author: Gaar
+## Version: 1.1.0
+## X-Curse-Project-ID: 1808629
+## IconTexture: Interface\Icons\INV_Misc_Note_01
+## Dependencies: GaarForever
+## OptionalDeps: BetterTooltipsForever
+## SavedVariables: GaarTooltipsForeverDB
+
+GaarTooltipsForever.lua

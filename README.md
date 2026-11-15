@@ -39,11 +39,16 @@ of the code.
 | `GaarChatForever` | Not part of the suite, Forever only, needs `GaarForever`: chat tweaks, each switchable - short channel names, class-coloured names, timestamps, clickable URLs, a copy-chat window, a whisper sound, sticky channels, arrow keys without Alt | `/gchat` |
 | `GaarBarsForever` | Not part of the suite, Forever only, needs `GaarForever`: clearer action buttons - red out of range, blue without mana, big cooldown numbers, short hotkey labels, macro names on or off; `/gbars off` gives the buttons back exactly as Blizzard draws them | `/gbars` |
 | `GaarLootForever` | Not part of the suite, Forever only, needs `GaarForever`: on a group loot roll, a small number on the Need, Greed and Pass buttons counting how many in the group chose each for that roll; hover a button to see who ("Need: Elex, Bob"); a small movable summary panel of the last rolls (who chose what, the numbers rolled, the winner, auto-hides 60 s after) for after the roll frame has closed. Read from the loot chat lines (the client's own `LOOT_ROLL_*` strings, so any locale) and the loot history where the client fills it; counts, names and summary each switchable; `/glf test` previews it | `/glf` |
-| `GaarForever` | The hub of the Gaar...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all seventeen: the shared library (global `BetterForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Gaar Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. Since 3.1 also a chat line per addon after an update saying what changed (`/gf news`), per-character settings and settings export / import for addons on the library's settings (`/gf profile`, `/gf export`, `/gf import`), and an API self-test to copy and send (`/gf selftest`). No feature code of its own | `/gf`, minimap button, Options |
+| `GaarForever` | The hub of the Gaar...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all seventeen: the shared library (global `GaarForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Gaar Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. Since 3.1 also a chat line per addon after an update saying what changed (`/gf news`), per-character settings and settings export / import for addons on the library's settings (`/gf profile`, `/gf export`, `/gf import`), and an API self-test to copy and send (`/gf selftest`). No feature code of its own | `/gf`, minimap button, Options |
 
-The `Gaar...Forever` addons were formerly **Better...Forever** (renamed in hub 3.2). The folders on
-disk keep the old names (`addons/BetterForever`, `addons/BetterBagsForever`, ...), and so do their
-saved variables and globals, so settings carry over and existing installs keep working. Each
+The `Gaar...Forever` addons were formerly **Better...Forever** (renamed in hub 3.2), folders
+included (`addons/GaarForever`, `addons/GaarBagsForever`, ...). For the transition each old
+folder stays in the repo as a **settings bridge** (`addons/BetterForever`, `addons/BetterBagsForever`,
+...: a TOC listing the old saved variables, no code) and goes into the same release zip; the new
+addon lists it under `## OptionalDeps` and copies the old settings over on the first login
+(`GaarForever.Migrate`, see [the hub's README](addons/GaarForever/README.md#coming-from-betterforever)).
+The bridges are safe to delete after one login per character. The old globals
+(`BetterForever`, `Better...ForeverAPI`) stay as aliases. Each
 addon's command is now a g-command (`/gf`, `/gbf`, `/gqf`, ...; `/glf` for GaarLootForever, as
 `/gloot` is GaarLooter's); the old `/b...` commands (`/bf`, `/bbf`, `/bqf`, `/bloot`, ...) still work.
 On CurseForge: https://www.curseforge.com/wow/addons/gaarforever (the hub) and
@@ -69,7 +74,7 @@ On CurseForge: https://www.curseforge.com/wow/addons/gaarforever (the hub) and
 
 A standalone addon for Forever's own **Combined Backpack** - no Gaar addon or library needed, and
 not listed in `GaarUI`. It makes the frame movable (drag the title bar, or Alt-drag an empty part
-of it), saves the position in `BetterBagsForeverDB` and re-applies it whenever Blizzard re-anchors
+of it), saves the position in `GaarBagsForeverDB` and re-applies it whenever Blizzard re-anchors
 the bags. It also adds a **Clean Up Bags** button left of the search box, because Forever's native
 one ends up hidden under the bag slot icons. A left-click does exactly what Forever's own button
 does: the sort sound and `C_Container.SortBags()`. A right-click toggles **Reverse** (off by
@@ -86,7 +91,7 @@ sale that slips through is bought back once).
 `/gbf reverse [on|off]`, `/gbf autosort [on|off]`, `/gbf counts on|off`, `/gbf gold`,
 `/gbf forget <name>`, `/gbf locked`, `/gbf unlockall yes`, `/gbf stop` and `/gbf status`. It ships only a `_Camelot` TOC and a
 plain fallback TOC, both at 16001. Details in
-[`addons/BetterBagsForever/README.md`](addons/BetterBagsForever/README.md).
+[`addons/GaarBagsForever/README.md`](addons/GaarBagsForever/README.md).
 
 ## GaarQuestsForever: the native quest tracker on Forever
 
@@ -108,13 +113,13 @@ GaarGpsForever 1.1 loaded, the tracker's right-click menu for a quest has **Set 
 after Focus: the waypoint goes to Blizzard's point for the quest (next waypoint, else its POI or
 turn-in point), titled with the quest's name, and is greyed out when there is none. It ships a
 `_Camelot` TOC and a plain fallback TOC, both at 16001. Details, including the taint analysis, in
-[`addons/BetterQuestsForever/README.md`](addons/BetterQuestsForever/README.md).
+[`addons/GaarQuestsForever/README.md`](addons/GaarQuestsForever/README.md).
 
 ## GaarMapsForever: the world map on Forever
 
 A standalone addon for Forever's own world map window, **Map & Quest Log** - no Gaar addon or
 library needed, and not listed in `GaarUI`. Drag the title bar to move it; the position is saved
-account-wide in `BetterMapsForeverDB` and put back every time the map opens or Blizzard's panel
+account-wide in `GaarMapsForeverDB` and put back every time the map opens or Blizzard's panel
 layout re-anchors it. Drag the grip in the bottom-right corner to scale the whole window (map and
 quest log together, 50-150%) with the top-left corner held in place. While you move, the map fades
 to 35% opacity (on by default, adjustable), as in GaarMap. Lock turns moving and resizing off,
@@ -123,7 +128,7 @@ for combat to end), and the maximized map is left to Blizzard. No Blizzard funct
 replaced. `/gmf` for help, `/gmf lock|unlock`, `/gmf reset`, `/gmf scale <50-150>`, `/gmf fade
 on|off`, `/gmf fade <percent>` and `/gmf status`. It ships a `_Camelot` TOC and a plain fallback
 TOC, both at 16001. Use it or GaarMap, not both. Details in
-[`addons/BetterMapsForever/README.md`](addons/BetterMapsForever/README.md).
+[`addons/GaarMapsForever/README.md`](addons/GaarMapsForever/README.md).
 
 ## GaarPlatesForever: nameplates on Forever
 
@@ -143,7 +148,7 @@ runs in `pcall`: the first refusal switches only that part off for the session, 
 `/gpf health off|percent|current|both`, `/gpf size <w> <h>`, `/gpf friendly|threat|threattext|execute|
 debuffs|native|tot|combo|dim|targetscale|marks on|off`, `/gpf debug` and `/gpf reset`. Use it or `GaarPlates`, not both (it warns
 once at login when both are loaded). It ships a `_Camelot` TOC and a plain fallback TOC, both at
-16001. Details in [`addons/BetterPlatesForever/README.md`](addons/BetterPlatesForever/README.md).
+16001. Details in [`addons/GaarPlatesForever/README.md`](addons/GaarPlatesForever/README.md).
 
 ## GaarCastbarsForever: cast bars on Forever
 
@@ -157,16 +162,16 @@ hand while dual-wielding, ranged while Auto Shot / Shoot repeats), driven by the
 `PLAYER_SWING` event since Forever has no combat log reader. Yellow cast, green channel, grey uninterruptible, a red flash on a
 failed or interrupted cast and a 0.3 s fade when it finishes. Each bar has its own position by
 default: drag to move, the bottom-right grip to resize, saved per bar account-wide in
-`BetterCastbarsForeverDB`. **Follow Blizzard (Edit Mode)** anchors each bar to Blizzard's own bar
+`GaarCastbarsForeverDB`. **Follow Blizzard (Edit Mode)** anchors each bar to Blizzard's own bar
 instead; dragging turns that off again. Blizzard's cast bar is hidden only for the units it
 replaces, with `HookScript("OnShow")` and nothing else, and every cast timing and frame geometry is
 checked for secret values first; a bar the client refuses is switched off with one line in chat.
 `/gcf` for help, `/gcf status`, `lock`, `unlock`, `test`, `reset`, `follow on|off`,
 `bar <unit> on|off`, `latency on|off`, `texture blizzard|smooth|flat`, `font 9|11|13` and
-`timer total|remain`, `swing on|off`, `swing offhand on|off`, `swing ranged on|off`. It exports `BetterCastbarsForeverAPI` with the same shape as the others, and
+`timer total|remain`, `swing on|off`, `swing offhand on|off`, `swing ranged on|off`. It exports `GaarCastbarsForeverAPI` with the same shape as the others, and
 the GaarForever hub has a Castbars row for it. It ships a `_Camelot` TOC and a plain fallback TOC,
 both at 16001. Use it or GaarCast, not both (it warns once at login if GaarCast is loaded).
-Details in [`addons/BetterCastbarsForever/README.md`](addons/BetterCastbarsForever/README.md).
+Details in [`addons/GaarCastbarsForever/README.md`](addons/GaarCastbarsForever/README.md).
 
 ## GaarGpsForever: one waypoint on Forever
 
@@ -182,18 +187,18 @@ are closing in over the last 3 seconds (`--` while standing still or moving away
 world map (also converted to the continent map) and one on the minimap (minimap zoom and
 `rotateMinimap` respected, on the edge when out of range). Blizzard's own user waypoint is set
 too where the client allows it and cleared with ours while it is still ours. Within 10 yards it
-clears itself with "Arrived at ...". Saved account-wide in `BetterGpsForeverDB`. With TomTom
+clears itself with "Arrived at ...". Saved account-wide in `GaarGpsForeverDB`. With TomTom
 loaded `/way` stays TomTom's and `/ggps way x y` does the job (one note at login). No Blizzard
 function or table is written; every read is guarded for errors and secret values, and each part
 switches itself off after its first error with one line in chat. Since 1.1, while you are a
 ghost the waypoint is your corpse (`C_DeathInfo.GetCorpseMapPosition`, titled "Corpse", followed
 across maps, never cleared on arrival), and after resurrection the waypoint you had comes back; one
 you set while dead is the one kept (`/ggps corpse on|off`, default on). `/ggps` for help, `status`,
-`arrow on|off`, `lock`, `unlock`, `reset`, `clear`, `corpse` and `way`. It exports `BetterGpsForeverAPI`
+`arrow on|off`, `lock`, `unlock`, `reset`, `clear`, `corpse` and `way`. It exports `GaarGpsForeverAPI`
 (with `SetWaypoint`, `ClearWaypoint` and `GetWaypoint` since 1.1),
 and the GaarForever hub has a GPS row for it. It ships a `_Camelot` TOC and a plain
 fallback TOC, both at 16001. Details in
-[`addons/BetterGpsForever/README.md`](addons/BetterGpsForever/README.md).
+[`addons/GaarGpsForever/README.md`](addons/GaarGpsForever/README.md).
 
 ## GaarFramesForever: unit frames on Forever
 
@@ -223,10 +228,10 @@ bars; the text uses the client's secret-safe helpers where it has them, otherwis
 alone, and every part of an update runs in `pcall` and switches itself off after its first
 refusal with one line in chat. `/gff` for help, `status`, `lock`, `unlock`, `test`, `reset`,
 `scale <frame> <0.6-1.5>`, `frame <frame> on|off`, `editmode on|off`, `portrait 2d|3d`, `text`,
-`lowhp`, `classcolor`, `healpred`, `hotpred` and `marks on|off`. It exports `BetterFramesForeverAPI`, and the GaarForever hub has
+`lowhp`, `classcolor`, `healpred`, `hotpred` and `marks on|off`. It exports `GaarFramesForeverAPI`, and the GaarForever hub has
 a Frames row for it. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Use it
 instead of GaarFrames, X-Perl, ShadowedUnitFrames or PitBull4, not next to them (it warns once at
-login). Details in [`addons/BetterFramesForever/README.md`](addons/BetterFramesForever/README.md).
+login). Details in [`addons/GaarFramesForever/README.md`](addons/GaarFramesForever/README.md).
 
 ## GaarWindowsForever: Blizzard's windows on Forever
 
@@ -234,7 +239,7 @@ A standalone addon for Forever's own windows - no Gaar addon or library needed, 
 the suite. Drag a window by its title bar to move it (an invisible handle over the title strip,
 or the top edge, clear of the close and maximize buttons, so clicks and item drags inside still
 work), and hold Ctrl and turn the mouse wheel over it to scale it from 50% to 150%. Position and
-scale are saved per window, account-wide, in `BetterWindowsForeverDB`, and put back every time the
+scale are saved per window, account-wide, in `GaarWindowsForeverDB`, and put back every time the
 window opens and every time Blizzard's panel manager (`ShowUIPanel`, `UpdateUIPanelPositions`)
 re-anchors it; it is followed with `hooksecurefunc` and `HookScript` only, no Blizzard function
 or table is written. A protected window is never moved or scaled in combat (that waits for
@@ -243,10 +248,10 @@ Achievements, Auction House, Macros, ...) are picked up at `ADDON_LOADED`, and a
 does not have is listed as such. The world map is left to GaarMapsForever, the bags to
 GaarBagsForever and Blizzard's bag layout, and Edit Mode frames to Edit Mode. Every window can
 be switched off on its own, which gives it back to Blizzard. `/gwf` for help, `list`,
-`on <name>`, `off <name>`, `reset <name>|all` and `status`. It exports `BetterWindowsForeverAPI`,
+`on <name>`, `off <name>`, `reset <name>|all` and `status`. It exports `GaarWindowsForeverAPI`,
 and the GaarForever hub has a Windows row for it with a checkbox per window. It ships a `_Camelot`
 TOC and a plain fallback TOC, both at 16001. Details in
-[`addons/BetterWindowsForever/README.md`](addons/BetterWindowsForever/README.md).
+[`addons/GaarWindowsForever/README.md`](addons/GaarWindowsForever/README.md).
 
 ## GaarFishingForever: double right-click fishing on Forever
 
@@ -285,9 +290,9 @@ minutes without fishing. The client has no bite signal, so the bite alert is `/g
 (off by default): while the line is out, sound effects and master volume go to full and music and
 ambience to 0, put back exactly like the reel CVars (never changed in combat).
 `/gfish` for help, `on`, `off`, `window <0.2-0.8>`, `reel on|off`, `splash on|off`, `stats`, `swap`, `route` and `status`. It exports
-`BetterFishingForeverAPI`, and the GaarForever hub has a Fishing row for it. It ships a `_Camelot`
+`GaarFishingForeverAPI`, and the GaarForever hub has a Fishing row for it. It ships a `_Camelot`
 TOC and a plain fallback TOC, both at 16001. Details in
-[`addons/BetterFishingForever/README.md`](addons/BetterFishingForever/README.md).
+[`addons/GaarFishingForever/README.md`](addons/GaarFishingForever/README.md).
 
 ## GaarBuffsForever: a druid's, a paladin's, a shaman's, a priest's and a mage's buff check on Forever
 
@@ -295,7 +300,7 @@ A standalone addon - no Gaar addon or library needed, and not part of the suite 
 something only for a Druid, a Paladin, a Shaman, a Priest or a Mage, picked by class (any other class leaves it idle). A box at the top centre
 of the screen, shown only while something is missing, lists who lacks your buffs. The class parts
 are modules (`Druid.lua`, `Paladin.lua`, `Shaman.lua`, `PriestMage.lua`, and `Dispel.lua`, the dispel panel of druids, shamans, priests, paladins and mages) sharing the box, rows, aura scan and tank detection in
-`BetterBuffsForever.lua`. The tank is every member with the `TANK` role, else in a raid every
+`GaarBuffsForever.lua`. The tank is every member with the `TANK` role, else in a raid every
 main tank, else the one set by hand with `/gbuff tank` (your target); you can be the tank.
 
 - **Druid**: who lacks Mark of the Wild (Gift of the Wild counts): you, and in a party or raid
@@ -351,9 +356,9 @@ member whose auras are secret counts as unknown, never as missing. The box is hi
 Unlock, Alt + drag, reset; position saved. `/gbuff` for help, `on`, `off`, `group`, `sound`,
 `reagents`, `tank`, `unlock`, `lock`, `reset`, `test` and `status`; a druid adds `motw`,
 `thorns`, `tank on|off` and `dispel` (`on|off`, `curse|poison on|off`, `unlock|lock|reset`), a paladin `bless`, `aura`, `fury` and `tanking`, a shaman `imbue`, `shield` and `dispel` (`poison|disease on|off`), a paladin also `dispel` (`poison|disease|magic on|off`), a priest `fort` and `dispel` (`magic|disease on|off`) and a mage `ai` and `dispel` (`curse on|off`). It exports
-`BetterBuffsForeverAPI`, and the GaarForever hub has a Buffs row for it with the options for your
+`GaarBuffsForeverAPI`, and the GaarForever hub has a Buffs row for it with the options for your
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
-[`addons/BetterBuffsForever/README.md`](addons/BetterBuffsForever/README.md).
+[`addons/GaarBuffsForever/README.md`](addons/GaarBuffsForever/README.md).
 
 ## GaarMerchantForever, GaarTooltipsForever, GaarMailForever, GaarXPForever, GaarChatForever, GaarBarsForever, GaarLootForever
 
@@ -363,34 +368,34 @@ TOC, both at 16001:
 
 - **GaarMerchantForever** (`/gmerch`): at a merchant, sells grey items and repairs; respects
   GaarBagsForever's item locks; optional guild repair and ask-first popup; `/gmerch sell`.
-  [`addons/BetterMerchantForever/README.md`](addons/BetterMerchantForever/README.md)
+  [`addons/GaarMerchantForever/README.md`](addons/GaarMerchantForever/README.md)
 - **GaarTooltipsForever** (`/gtip`): vendor price, item level, IDs and a compare in item
   tooltips; target, guild rank and health in unit tooltips.
-  [`addons/BetterTooltipsForever/README.md`](addons/BetterTooltipsForever/README.md)
+  [`addons/GaarTooltipsForever/README.md`](addons/GaarTooltipsForever/README.md)
 - **GaarMailForever** (`/gmail`): Open All, delete empty, recipient list, Alt-click to attach,
-  new-mail notice. [`addons/BetterMailForever/README.md`](addons/BetterMailForever/README.md)
+  new-mail notice. [`addons/GaarMailForever/README.md`](addons/GaarMailForever/README.md)
 - **GaarXPForever** (`/gxp`): XP panel, XP bar text, level log, quest XP.
-  [`addons/BetterXPForever/README.md`](addons/BetterXPForever/README.md)
+  [`addons/GaarXPForever/README.md`](addons/GaarXPForever/README.md)
 - **GaarChatForever** (`/gchat`): short channels, class colours, timestamps, URL copy, copy chat
   (`/gchat copy [n]`), whisper sound, sticky channels, arrow keys.
-  [`addons/BetterChatForever/README.md`](addons/BetterChatForever/README.md)
+  [`addons/GaarChatForever/README.md`](addons/GaarChatForever/README.md)
 - **GaarBarsForever** (`/gbars`): range and mana colours, cooldown numbers, short hotkeys, macro
-  names. [`addons/BetterBarsForever/README.md`](addons/BetterBarsForever/README.md)
+  names. [`addons/GaarBarsForever/README.md`](addons/GaarBarsForever/README.md)
 - **GaarLootForever** (`/glf`): how many chose Need, Greed and Pass, as a number on each button
   of a group loot roll, and who, in the button's tooltip; a movable summary of the last rolls with
   the numbers rolled and the winner; `/glf test` for a preview.
-  [`addons/BetterLootForever/README.md`](addons/BetterLootForever/README.md)
+  [`addons/GaarLootForever/README.md`](addons/GaarLootForever/README.md)
 
 ## GaarForever: the hub of all seventeen
 
 Named `BetterGaarForever` until 2.8. Not part of the Gaar suite and not listed in `GaarUI`, but
-**every Gaar...Forever addon requires it**: each lists `## Dependencies: BetterForever` in both
-TOCs, so the client loads none of them without the `BetterForever` folder. It carries no feature
+**every Gaar...Forever addon requires it**: each lists `## Dependencies: GaarForever` in both
+TOCs, so the client loads none of them without the `GaarForever` folder. It carries no feature
 code of its own; the addons keep their logic, their saved variables and their slash commands
 (`/gbf`, `/gqf`, `/gmf`, `/gcf`, `/gpf`, `/ggps`, `/gff`, `/gwf`, `/gfish`, `/gbuff`, `/gmerch`,
 `/gtip`, `/gmail`, `/gxp`, `/gchat`, `/gbars`, `/glf`). What it adds:
 
-- **The shared library**, global `BetterForever`: secret-safe value helpers (`Plain`, `Num`,
+- **The shared library**, global `GaarForever`: secret-safe value helpers (`Plain`, `Num`,
   `Str`, `Bool`, `IsSecret`), guarded calls (`API`, `Call`, `Method`), formatters (`TimeShort`,
   `Clock`, `Coins`, `ShortNumber`), the shared menu renderer, and `NewAddon(name, opts)`: an object
   with `:Print`, `:InitDB`, an option registry (`:Toggle`, `:Choice`, `:Slider`, `:Button`) that
@@ -406,13 +411,13 @@ code of its own; the addons keep their logic, their saved variables and their sl
   **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat**, **Bars** and **Loot**. While it is loaded,
   `GaarQuestsForever`'s own minimap button is hidden for the session.
 
-Each addon exports a small global API (`BetterBagsForeverAPI` ... `BetterLootForeverAPI`:
+Each addon exports a small global API (`GaarBagsForeverAPI` ... `GaarLootForeverAPI`:
 `version`, `StatusLine()`, `MenuEntries()`, `AddMenuEntries(root)`, `SetMinimapHidden(hidden)`,
 `Intro()`). An addon that is not installed shows as a disabled `– not installed` line. `/gf` for
 help (`/bgf` still works), `/gf status` for each addon's version and state, `/gf minimap [reset]`.
 Coming from BetterGaarForever: delete the old folder; the addons' settings are kept, only the
 hub's minimap button position resets. Details, and the library's API for addon authors, in
-[`addons/BetterForever/README.md`](addons/BetterForever/README.md).
+[`addons/GaarForever/README.md`](addons/GaarForever/README.md).
 
 ## One switch, eleven standalone addons
 
@@ -514,7 +519,8 @@ SavedVariables. Those live in `WTF/` and belong to the character, not the code.
 
 ## Releasing an addon (GitHub + CurseForge)
 
-`tools/release.sh <AddonName>` reads `## Version` from `addons/<AddonName>/<AddonName>.toc` and
+`tools/release.sh <AddonName>` (the new folder name, e.g. `GaarBagsForever`; tags are now
+`GaarXForever-v<version>`) reads `## Version` from `addons/<AddonName>/<AddonName>.toc` and
 pushes the tag `<AddonName>-v<version>` (from an up-to-date `main`). That triggers
 `.github/workflows/release-addon.yml`, which zips the addon folder, creates a GitHub Release and
 uploads to CurseForge (`workflow_dispatch` with an `addon` input does the same without a tag).
@@ -527,4 +533,12 @@ Bump `## Version` in both TOCs and merge first; the tag must match the TOC versi
 - Required dependency on GaarForever is sent only once `requiredDependencySlug` is filled in.
 - Secret `CF_API_KEY` (repo Settings > Secrets > Actions): API token from
   https://wow.curseforge.com/account/api-tokens. Without it the CurseForge step is skipped.
-- The changelog is the tag message (release.sh fills it from the addon's commits).
+- The changelog is the tag message (release.sh fills it from the addon's commits; the first
+  Gaar tag of an addon starts after its last `Better...Forever-v*` tag).
+- **Settings bridges** (temporary): `tools/curseforge-config.json` `"bridges"` maps each new
+  folder to its old one (`"GaarBagsForever": "BetterBagsForever"`). While an addon has an entry,
+  its zip holds both folders at the root (`GaarBagsForever/` and the bridge `BetterBagsForever/`),
+  so a CurseForge update replaces the old full addon with its bridge and the settings move over.
+  **After the transition (about two weeks, at most a month) remove the `bridges` entries and the
+  `addons/Better*Forever` bridge folders** (and the `## OptionalDeps: BetterXForever` line in each
+  addon's TOCs); `GaarForever.Migrate` then simply finds nothing to move.

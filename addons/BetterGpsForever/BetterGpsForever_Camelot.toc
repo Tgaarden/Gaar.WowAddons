@@ -1,13 +1,10 @@
 ## Interface: 16001
-## Title: GaarGpsForever
-## Notes: One waypoint with an arrow, distance and time to get there, plus world map and minimap pins: /way x y, /way <zone> x y, or Alt + left-click (Option on Mac) the world map. Routes you to your corpse while you are a ghost. /ggps
+## Title: GaarGpsForever (settings bridge)
+## Notes: Moves your old BetterGpsForever settings to GaarGpsForever. Safe to delete after logging in once on each character.
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.3.0
-## IconTexture: Interface\Icons\INV_Misc_Spyglass_02
-## Dependencies: BetterForever
+## X-Bridge-For: GaarGpsForever
 ## SavedVariables: BetterGpsForeverDB
-## X-Curse-Project-ID: 1793611
 
-BetterGpsForever.lua
+Bridge.lua

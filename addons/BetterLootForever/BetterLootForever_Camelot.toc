@@ -1,13 +1,10 @@
 ## Interface: 16001
-## Title: GaarLootForever
-## Notes: On a group loot roll: a small number on the Need, Greed and Pass buttons counting who chose what for that roll (hover a button to see the names), and a small movable summary of the last rolls with who chose what, the numbers rolled and who won. Every part has its own switch. /glf
+## Title: GaarLootForever (settings bridge)
+## Notes: Moves your old BetterLootForever settings to GaarLootForever. Safe to delete after logging in once on each character.
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.2.0
-## X-Curse-Project-ID: 1808616
-## IconTexture: Interface\Icons\INV_Misc_Dice_01
-## Dependencies: BetterForever
+## X-Bridge-For: GaarLootForever
 ## SavedVariables: BetterLootForeverDB
 
-BetterLootForever.lua
+Bridge.lua

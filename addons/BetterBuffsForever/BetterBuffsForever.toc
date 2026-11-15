@@ -1,19 +1,11 @@
 ## Interface: 16001
-## Title: GaarBuffsForever
-## Notes: A buff check on WoW Forever for druids, paladins, shamans, priests and mages: a box at the top centre lists who lacks your buff (Mark of the Wild and Thorns; blessings by class, no aura, Righteous Fury when tanking; weapon imbue and Lightning Shield; Power Word: Fortitude; Arcane Intellect on classes with mana) and low reagents. Click a name to buff it. Hidden in combat. Druids, shamans, priests, paladins and mages also get a dispel panel by class (druid curses and poisons; shaman poisons and diseases; priest magic and diseases; paladin Cleanse/Purify; mage curses), with one click button per member in combat. /gbuff
+## Title: GaarBuffsForever (settings bridge)
+## Notes: Moves your old BetterBuffsForever settings to GaarBuffsForever. Safe to delete after logging in once on each character.
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.7.0
-## X-Curse-Project-ID: 1808603
-## IconTexture: Interface\Icons\Spell_Nature_Regeneration
-## Dependencies: BetterForever
+## X-Bridge-For: GaarBuffsForever
 ## SavedVariables: BetterBuffsForeverDB
 ## SavedVariablesPerCharacter: BetterBuffsForeverCharDB
 
-BetterBuffsForever.lua
-Druid.lua
-Paladin.lua
-Shaman.lua
-PriestMage.lua
-Dispel.lua
+Bridge.lua

@@ -1,14 +1,11 @@
 ## Interface: 16001
-## Title: GaarBagsForever
-## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm, and Alt-click item locks that a merchant cannot sell. /gbf
+## Title: GaarBagsForever (settings bridge)
+## Notes: Moves your old BetterBagsForever settings to GaarBagsForever. Safe to delete after logging in once on each character.
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.10.0
-## X-Curse-Project-ID: 1766812
-## IconTexture: Interface\Icons\INV_Misc_Bag_08
-## Dependencies: BetterForever
+## X-Bridge-For: GaarBagsForever
 ## SavedVariables: BetterBagsForeverDB
 ## SavedVariablesPerCharacter: BetterBagsForeverCharDB
 
-BetterBagsForever.lua
+Bridge.lua

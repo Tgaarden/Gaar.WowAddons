@@ -50,7 +50,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.10.0"
+local VERSION = "1.10.1"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -2353,6 +2353,7 @@ local function BuildItemLock()
     end
 
     Lock.Count = LockCount
+    Lock.IsLocked = IsItemLocked
     Lock.PrintLocked = PrintLockedItems
     Lock.UnlockAll = UnlockAll
     Lock.HookFrames = HookLockFrames
@@ -2601,6 +2602,7 @@ end
 --                        { text, func }, { text, checkbox = true, checked, func } and { divider = true }
 --   AddMenuEntries(root) adds the same options to a MenuUtil root or submenu description
 --   SetMinimapHidden(b)  runtime only; this addon has no minimap button, so it does nothing
+--   IsItemLocked(id)     whether item ID id is locked on this character (GaarMerchantForever uses it)
 -- ---------------------------------------------------------------------------
 
 local function StatusLine()
@@ -2637,6 +2639,10 @@ _G.GaarBagsForeverAPI = {
     MenuEntries = MenuEntries,
     AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), "GaarBagsForever") end,
     SetMinimapHidden = function() end,
+    IsItemLocked = function(id)
+        local f = Lock.IsLocked
+        return f ~= nil and f(id) and true or false
+    end,
 }
 _G.BetterBagsForeverAPI = _G.GaarBagsForeverAPI -- the name before the folder rename
 

@@ -29,6 +29,6 @@ if [ -n "$slug" ] && grep -qE "^## Dependencies:.*\b$dep_addon\b" "$REPO/addons/
 fi
 echo "Uploading $zip to CurseForge project $pid with metadata:"; echo "$meta" | jq -c 'del(.changelog)'
 out="$(mktemp)"
-code="$(curl -sS -o "$out" -w '%{http_code}' -X POST -H "X-Api-Token: $CF_API_KEY" -F "metadata=$meta" -F "file=@$zip" "$api/projects/$pid/upload-file")"
+code="$(curl -sS -o "$out" -w '%{http_code}' -X POST -H "X-Api-Token: $CF_API_KEY" --form-string "metadata=$meta" -F "file=@$zip" "$api/projects/$pid/upload-file")"
 cat "$out"; echo
 case "$code" in 2*) ;; *) echo "::error::CurseForge upload failed: HTTP $code"; exit 1;; esac

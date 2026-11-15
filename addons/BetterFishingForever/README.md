@@ -4,7 +4,9 @@ A small standalone addon for the WoW Forever client (`_forever_`, interface 1600
 right-click in the 3D world casts Fishing while a fishing pole is equipped, and Shift + double
 right-click swaps the fishing pole in and out. Since 1.3, while the line is out, the same double
 right-click anywhere on the screen **reels in** (no need to hit the bobber), and one **Cast / Reel**
-key binding does both from the keyboard. Since 1.2 it also carries an optional **Fishing
+key binding does both from the keyboard. Since 1.4 a small **session panel** counts casts, catches,
+catches per hour, skill gained and what you fished up, and an optional **loud splash** mode makes
+the bobber's splash easy to hear. Since 1.2 it also carries an optional **Fishing
 1-300 route**: the current step from your Fishing skill, pins on the world map and minimap, and
 BetterGpsForever's arrow on the nearest spot. It needs BetterForever, the family hub, and no other addon or library (the arrow needs
 BetterGpsForever), and it is not part of the Gaar suite.
@@ -36,13 +38,70 @@ BetterGpsForever), and it is not part of the Gaar suite.
 - **Shift + double right-click swaps the pole** (1.1). See [Pole swap](#pole-swap).
 - **Fishing 1-300 route** (1.2, off until `/bfish route on`). See
   [Fishing route](#fishing-route-1-300).
+- **Session stats** (1.4, `/bfish stats`, on by default). See [Session stats](#session-stats-14).
+- **Loud splash** (1.4, `/bfish splash on|off`, off by default): the bite alert. See
+  [Loud splash](#loud-splash-the-bite-alert-14).
 
 Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on),
 `dblClick` (the window in seconds, default 0.4), `reel` (default on), `held` (the soft interact
 CVars changed for reeling and their previous values, only while the line is out or until the next
-login puts them back) and `reelHint` (the first-time chat hint was shown). The pole swap's memory is saved per character in
+login puts them back) and `reelHint` (the first-time chat hint was shown); since 1.4 also `splash`
+(default off), `splashHeld` (the sound CVars changed for loud splash and their previous values),
+`stats` (the session panel, default on) and `statsPos` (its position). The pole swap's memory is saved per character in
 `BetterFishingForeverCharDB.swap`, the route's state in `BetterFishingForeverCharDB.route` (on/off,
-skipped steps, a step picked by hand, and the waypoint the route set).
+skipped steps, a step picked by hand, and the waypoint the route set), and the fishing session in
+`BetterFishingForeverCharDB.session`.
+
+## Session stats (1.4)
+
+A small panel (drag it to move it; the position is saved) shown while a fishing pole is equipped
+or while the line is out. `/bfish stats` shows or hides it, `/bfish stats reset` starts a new
+session. The code is in `Stats.lua`.
+
+- **Session time** from the first cast of the session, **casts**, **catches** and **catches per
+  hour** (shown after the first minute).
+- **Fishing skill** now (with the cap) and what it gained this session: `Skill 152/225 (+12)`.
+  Read the same way as the route reads it (skill lines, else `GetProfessionInfo`).
+- **What you looted while fishing:** icon and count of the six most looted items; the panel's
+  tooltip lists every item with its count.
+- **What counts.** A cast is a Fishing channel start. A catch is a loot window that is fishing
+  loot: `LOOT_OPENED` with `IsFishingLoot()` true (the client has it; Forever's own loot frame uses
+  it), else a loot window opened while the line is out or up to 3 s after it came in. Items are
+  noted at `LOOT_OPENED` and counted at `LOOT_SLOT_CLEARED`, so only what you actually take
+  counts; coins are not counted.
+- **The session** is kept per character, so it survives `/reload` and a relog. It starts empty
+  (the first cast starts it) and resets by itself after 30 minutes without a cast or a catch.
+
+## Loud splash: the bite alert (1.4)
+
+**There is no bite signal for an addon on this client.** The `forever` branch of Blizzard's UI
+source ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source), checked 2026-11) has no
+bite event; the Fishing channel gets no `UNIT_SPELLCAST_CHANNEL_UPDATE` when a fish bites;
+`PLAYER_SOFT_INTERACT_CHANGED` fires when the soft interact target changes (the bobber appearing
+or going away), not on the bite, and its GUIDs may be secret; the bobber's mouseover and tooltip
+do not change either. An addon sound or screen flash "on the bite" would only be a guess, so the
+addon plays no sound and flashes nothing of its own. It uses the classic fishing-addon trick
+instead: it makes the game's own splash loud.
+
+- `/bfish splash on` (account-wide, **off by default**). While the line is out, out of combat
+  only, each CVar only when the client has it and it is not already there:
+
+  | CVar | Set to | Left alone at |
+  |---|---|---|
+  | `Sound_EnableAllSound` | 1 | 1 |
+  | `Sound_EnableSFX` | 1 | 1 |
+  | `Sound_MasterVolume` | 1 | 1 |
+  | `Sound_SFXVolume` | 1 | 1 |
+  | `Sound_MusicVolume` | 0 | 0 |
+  | `Sound_AmbienceVolume` | 0 | 0 |
+
+- The previous values are kept in `BetterFishingForeverDB.splashHeld` and put back exactly like
+  the reel CVars: at the channel stop, when the pole comes off, at `PLAYER_REGEN_DISABLED`, at
+  `/bfish splash off`, at `PLAYER_LOGOUT`, and at the next login for anything a crash or a logout
+  in combat left behind. Nothing is set or put back in combat; that waits for
+  `PLAYER_REGEN_ENABLED`.
+- A volume you change yourself while the line is out is overwritten by the value from before the
+  cast when it comes in.
 
 ## Reel in (1.3)
 
@@ -255,13 +314,16 @@ with both settings and never takes the first click away from the bobber.
 | `/bfish on`, `/bfish off` | Switch double right-click fishing on or off |
 | `/bfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
 | `/bfish reel on`, `/bfish reel off` | While the line is out, double right-click anywhere (and the Cast / Reel key) reels in; on by default |
+| `/bfish stats` | Show or hide the session panel (on by default); `/bfish stats on` and `/bfish stats off` also work |
+| `/bfish stats reset` | Start a new session (it also resets after 30 minutes without fishing) |
+| `/bfish splash on`, `/bfish splash off` | Loud splash while the line is out: sound effects up, music and ambience down, put back after; off by default |
 | `/bfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
 | `/bfish route on`, `/bfish route off` | Switch the Fishing 1-300 route (pins and GPS arrow) on or off, per character; off by default |
 | `/bfish route` | Your Fishing skill, the current step with its NPC and note, and the next step |
 | `/bfish route next`, `/bfish route prev` | Move one step by hand; next on an optional vendor or quest step skips it for good |
 | `/bfish route list` | Every step for your faction with its range; the current one marked, done ones say so |
 | `/bfish route gear` | Poles and lures worth having on the way |
-| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, reel on/off, supported, line out, the Cast / Reel key, the soft interact CVars and what is held to put back, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
+| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, reel on/off, supported, line out, the Cast / Reel key, the soft interact CVars and what is held to put back, loud splash and its held sound CVars, the session, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
 
 ## With BetterForever (required)
 
@@ -269,7 +331,9 @@ Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install th
 
 [BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/bfish
-on|off`), **Double right-click reels in** (the same as `/bfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`) and **Fishing
+on|off`), **Double right-click reels in** (the same as `/bfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`), **Loud splash while fishing**
+(the same as `/bfish splash on|off`), **Session stats panel** (the same as `/bfish stats`),
+**Reset session stats** (the same as `/bfish stats reset`) and **Fishing
 route** (the same as `/bfish route on|off`). Both go through
 the same functions as the slash command. This addon has no minimap button or menu of its own, so
 nothing here changes with or without the hub.
@@ -296,8 +360,11 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
   `pcall` (the last error is kept for `/bfish status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled` and `dblClick`
-  are kept account-wide (plus `reel`, `held` and `reelHint` since 1.3), and only `swap` and
-  `route` per character.
+  are kept account-wide (plus `reel`, `held` and `reelHint` since 1.3, and `splash`, `splashHeld`,
+  `stats` and `statsPos` since 1.4), and only `swap`, `route` and `session` per character.
+- Sound CVars are changed only for loud splash, only while the line is out, out of combat, and
+  always put back (see [Loud splash](#loud-splash-the-bite-alert-14)). The session panel is an
+  unnamed frame of the addon's own; no global is added.
 - Soft interact CVars are changed only while the line is out, out of combat, and always put back
   (see [Reel in](#reel-in-13)); the right mouse button's and your Cast / Reel key's own bindings
   are never changed, only overridden on the addon's own frames.
@@ -322,7 +389,9 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `GetProfessionInfo`, `UnitFactionGroup`, `C_Map.GetWorldPosFromMapPos`, `C_Map.GetMapPosFromWorldPos`,
 `C_Map.GetBestMapForUnit`, `C_Map.GetPlayerMapPosition`, `WorldMapFrame` (`GetCanvas`, `GetMapID`,
 `OnMapChanged`), `Minimap`, `C_Minimap.GetViewRadius`, `GetPlayerFacing`, `GetMinimapShape` and
-`GameTooltip`. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
+`GameTooltip`; for the session stats `IsFishingLoot`, `GetNumLootItems`, `GetLootSlotLink`,
+`GetLootSlotInfo`, `LOOT_OPENED` / `LOOT_SLOT_CLEARED` / `LOOT_CLOSED` and `time`; for loud splash
+the `Sound_*` CVars above. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
 
 ## Credits
 

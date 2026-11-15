@@ -23,7 +23,14 @@
       bobber instead of casting again. See "Reel in" below.
     * A "Cast / Reel" key binding (1.3, Esc > Options > Keybindings > BetterFishingForever): one
       key casts Fishing, and reels in while the line is out.
-    * /bfish for help, on, off, window <0.2-0.8>, reel, swap, route and status.
+    * Session stats (1.4, /bfish stats, on by default): a small movable panel while a pole is
+      equipped or the line is out - session time, casts, catches, catches/hour, Fishing skill and
+      what it gained, and what was looted while fishing. In Stats.lua (ns.stats); this file passes
+      it the casts and the channel stop.
+    * Loud splash (1.4, /bfish splash on|off, off by default): while the line is out, the sound
+      CVars are set so the bobber's splash is easy to hear, and put back after. See "Loud splash"
+      below; it is the bite alert, because this engine has no bite signal.
+    * /bfish for help, on, off, window <0.2-0.8>, reel, swap, splash, stats, route and status.
     * BetterFishingForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -141,6 +148,26 @@
       on the fallback path (it catches the release, and the binding acts on the press): there the
       double-click casts again as before, and the first cast says so once per session.
 
+  Loud splash (1.4) - the bite alert. The client gives an addon no "bite" signal: the forever
+  branch of Blizzard's UI source (Gethe/wow-ui-source, checked 2026-11) has no bite event; the
+  Fishing channel gets no UNIT_SPELLCAST_CHANNEL_UPDATE when a fish bites; PLAYER_SOFT_INTERACT_
+  CHANGED fires when the soft interact target changes (the bobber appearing or going away), not
+  on the bite, and its GUIDs may be secret; and the bobber's mouseover and tooltip do not change.
+  So the addon cannot time a sound or a flash of its own to the bite - it would only be a guess -
+  and it plays none and flashes nothing. What it does instead is the classic fishing-addon trick:
+  make the game's own splash loud.
+
+    * While the line is out, only out of combat and only when "splash" is on: Sound_EnableAllSound
+      1, Sound_EnableSFX 1, Sound_MasterVolume 1 and Sound_SFXVolume 1 (each left alone when it
+      already is), Sound_MusicVolume 0 and Sound_AmbienceVolume 0 (left alone at 0). Each only
+      when the client has the CVar.
+    * The previous value of each one changed is kept in BetterFishingForeverDB.splashHeld and put
+      back exactly like the reel CVars: at the channel stop, when the pole comes off, at
+      PLAYER_REGEN_DISABLED, at /bfish splash off, at PLAYER_LOGOUT, and at the next login for
+      anything a crash or a logout in combat left behind. In combat nothing is set or put back.
+    * A volume you change yourself while the line is out is overwritten by the value from before
+      the cast when it ends.
+
   Taint: Blizzard code is only followed, never replaced. WorldFrame gets a HookScript; no Blizzard
   function or table is written. Bindings and attributes are only ever changed out of combat, on
   the addon's own frames. Every client API is checked with type(...) == "function" first, every
@@ -154,7 +181,7 @@ ADDON_NAME = ADDON_NAME or "BetterFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.4.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
@@ -181,7 +208,10 @@ local FISHING_IDS = { 18248, 7732, 7731, 7620, 131474 }
 
 -- Every key BetterFishingForeverDB may hold. reel: reel in while the line is out (1.3); held: the
 -- CVars changed for reeling, name = the value before; reelHint: the first-time hint was shown.
-local SAVED_KEYS = { enabled = true, dblClick = true, reel = true, held = true, reelHint = true }
+-- 1.4: splash (loud splash on), splashHeld (the sound CVars it changed, name = the value before),
+-- stats (the session panel on) and statsPos (its position; both used by Stats.lua).
+local SAVED_KEYS = { enabled = true, dblClick = true, reel = true, held = true, reelHint = true,
+    splash = true, splashHeld = true, stats = true, statsPos = true }
 
 -- Reel in (1.3): what soft interact needs to target the bobber by itself. want is set while the
 -- line is out, unless enough() already holds for the current value.
@@ -193,6 +223,18 @@ local REEL_CVARS = {
 }
 local REEL_CVAR_KNOWN = {}
 for _, c in ipairs(REEL_CVARS) do REEL_CVAR_KNOWN[c.name] = true end
+
+-- Loud splash (1.4): the sound CVars set while the line is out, the same way.
+local SPLASH_CVARS = {
+    { name = "Sound_EnableAllSound", want = 1, enough = function(v) return v == 1 end },
+    { name = "Sound_EnableSFX", want = 1, enough = function(v) return v == 1 end },
+    { name = "Sound_MasterVolume", want = 1, enough = function(v) return v >= 1 end },
+    { name = "Sound_SFXVolume", want = 1, enough = function(v) return v >= 1 end },
+    { name = "Sound_MusicVolume", want = 0, enough = function(v) return v <= 0 end },
+    { name = "Sound_AmbienceVolume", want = 0, enough = function(v) return v <= 0 end },
+}
+local SPLASH_CVAR_KNOWN = {}
+for _, c in ipairs(SPLASH_CVARS) do SPLASH_CVAR_KNOWN[c.name] = true end
 
 local db                  -- BetterFishingForeverDB, bound at ADDON_LOADED (never at file scope)
 local charDb              -- BetterFishingForeverCharDB (per character): the pole swap's memory
@@ -225,6 +267,7 @@ local armedReel           -- the armed binding is INTERACTTARGET, not the click
 local reelSupport         -- nil: not checked yet; true / false: the client has what reeling needs
 local reelNoticeShown     -- "not supported" was printed this session
 local releasePending      -- the held CVars wait for combat to end to go back
+local splashPending       -- loud splash (1.4): the sound CVars wait for combat to end to go back
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -778,33 +821,51 @@ local function ReelSupported()
     return reelSupport
 end
 
--- Puts back every CVar changed for reeling; in combat it waits for PLAYER_REGEN_ENABLED.
-local function ReleaseCVars()
-    if not db or type(db.held) ~= "table" then
-        releasePending = false
-        return
-    end
-    if InCombat() then
-        releasePending = true
-        return
-    end
-    releasePending = false
-    for name, value in pairs(db.held) do SetCVarValue(name, value) end
-    db.held = nil
+-- Puts back every CVar kept in db[key]. False when it has to wait for combat to end.
+local function ReleaseHeld(key)
+    if not db or type(db[key]) ~= "table" then return true end
+    if InCombat() then return false end
+    for name, value in pairs(db[key]) do SetCVarValue(name, value) end
+    db[key] = nil
+    return true
 end
 
--- Sets what soft interact needs to target the bobber, keeping the value before. Out of combat.
-local function HoldCVars()
+-- Sets each CVar of list that is not already enough, keeping the value before in db[key].
+-- Out of combat only.
+local function HoldList(list, key)
     if not db or InCombat() then return end
-    local held = type(db.held) == "table" and db.held or {}
-    for _, c in ipairs(REEL_CVARS) do
+    local held = type(db[key]) == "table" and db[key] or {}
+    for _, c in ipairs(list) do
         if held[c.name] == nil then
             local cur = GetCVarValue(c.name)
             local n = cur and Num(tonumber(cur))
             if n and not c.enough(n) and SetCVarValue(c.name, c.want) then held[c.name] = cur end
         end
     end
-    db.held = next(held) ~= nil and held or nil
+    db[key] = next(held) ~= nil and held or nil
+end
+
+-- Puts back every CVar changed for reeling; in combat it waits for PLAYER_REGEN_ENABLED.
+local function ReleaseCVars()
+    releasePending = not ReleaseHeld("held")
+end
+
+-- Sets what soft interact needs to target the bobber, keeping the value before. Out of combat.
+local function HoldCVars()
+    HoldList(REEL_CVARS, "held")
+end
+
+-- Loud splash (1.4): the same for the sound CVars. See the header ("Loud splash").
+local function SplashOn()
+    return db ~= nil and db.splash == true
+end
+
+local function ReleaseSplash()
+    splashPending = not ReleaseHeld("splashHeld")
+end
+
+local function StartSplash()
+    if lineOut and SplashOn() and not InCombat() then HoldList(SPLASH_CVARS, "splashHeld") end
 end
 
 -- The "Cast / Reel" key: while the line is out, the keys bound to it interact instead.
@@ -941,13 +1002,18 @@ local function OnChannelStart(unit, spellID)
     if Str(unit) ~= "player" or not IsFishingSpell(spellID) then return end
     lineOut = true
     StartReel()
+    StartSplash()
+    if ns.stats then ns.stats.OnCast() end
 end
 
 local function OnChannelStop(unit)
     if Str(unit) ~= "player" then return end
+    local wasOut = lineOut
     lineOut = false
     StopReel()
+    ReleaseSplash()
     RearmAsCast()
+    if wasOut and ns.stats then ns.stats.OnChannelStop() end
 end
 
 -- Everything a press must pass before it may lead to a cast.
@@ -1111,6 +1177,15 @@ local function SetReel(on, quiet)
     end
 end
 
+local function SetSplash(on, quiet)
+    db.splash = on and true or false
+    if on then StartSplash() else ReleaseSplash() end
+    if not quiet then
+        Print(on and "loud splash on: while the line is out, sound effects go to full volume and music and ambience to 0, so the splash is easy to hear; put back when the line comes in."
+            or "loud splash off.")
+    end
+end
+
 local function SetWindow(v, quiet)
     db.dblClick = Clamp(math.floor(v * 100 + 0.5) / 100, MIN_WINDOW, MAX_WINDOW)
     if not quiet then Print(string.format("double-click window: %.2f s.", db.dblClick)) end
@@ -1124,7 +1199,7 @@ local function YesNo(v) return v and "yes" or "no" end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, BetterFishingForever) to do both from the keyboard. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
+local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, BetterFishingForever) to do both from the keyboard. A small session panel counts casts, catches, catches per hour, skill gained and what you fished up. Loud splash (off by default) turns sound effects up and music and ambience down while the line is out, so you hear the bite, and puts them back after. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
 
 local function PrintHelp()
     Print(INTRO)
@@ -1136,6 +1211,11 @@ local function PrintHelp()
     Print("Cast / Reel key: Esc > Options > Keybindings > BetterFishingForever. One key casts, and reels in while the line is out (now "
         .. KeyText() .. ").")
     Print("Shift + double right-click in the world, or /bfish swap: swap the fishing pole in or out (out of combat).")
+    Print("/bfish splash on | off - loud splash: while the line is out, sound effects up and music and ambience down, put back after (now "
+        .. (SplashOn() and "on" or "off") .. ")")
+    if ns.stats then
+        for _, line in ipairs(ns.stats.HelpLines()) do Print(line) end
+    end
     if ns.guide then
         for _, line in ipairs(ns.guide.HelpLines()) do Print(line) end
     end
@@ -1167,6 +1247,16 @@ local function PrintStatus()
     Print("soft interact: " .. (#cvars > 0 and table.concat(cvars, ", ") or "none on this client")
         .. "   held (to put back): " .. (#heldText > 0 and table.concat(heldText, ", ") or "none")
         .. (releasePending and " (after combat)" or ""))
+    local splashText = {}
+    if type(db.splashHeld) == "table" then
+        for name, v in pairs(db.splashHeld) do splashText[#splashText + 1] = name .. " " .. tostring(v) end
+    end
+    Print("loud splash: " .. (SplashOn() and "on" or "off") .. "   held (to put back): "
+        .. (#splashText > 0 and table.concat(splashText, ", ") or "none") .. (splashPending and " (after combat)" or "")
+        .. "   bite signal: none on this client (the splash is the alert)")
+    if ns.stats then
+        for _, line in ipairs(ns.stats.StatusLines()) do Print(line) end
+    end
     Print("swap: " .. SwapMemoryText() .. "   equip path: " .. (EquipPath() or "none on this client")
         .. (lastBlocked and ("   blocked: " .. lastBlocked) or ""))
     if ns.guide then
@@ -1200,6 +1290,15 @@ local function OnSlash(msg)
             Print("/bfish reel on | off - reel in with a double right-click while the line is out (now "
                 .. (ReelOn() and "on" or "off") .. ").")
         end
+    elseif cmd == "splash" then
+        local a = (arg or ""):lower()
+        if a == "on" or a == "off" then
+            SetSplash(a == "on")
+        else
+            Print("/bfish splash on | off - loud splash while the line is out (now " .. (SplashOn() and "on" or "off") .. ").")
+        end
+    elseif cmd == "stats" and ns.stats then
+        ns.stats.Slash(arg)
     elseif cmd == "status" then
         PrintStatus()
     elseif cmd == "swap" then
@@ -1230,6 +1329,9 @@ end
 
 local WINDOW_CHOICES = { 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 }
 
+-- For Stats.lua (loaded before this file, so it asks at run time).
+ns.core = { PoleEquipped = PoleEquipped }
+
 local function StatusLine()
     if not db then return "not loaded yet" end
     return (Enabled() and "on" or "off") .. DOT .. string.format("%.2f s", Window())
@@ -1255,6 +1357,13 @@ local function MenuEntries()
           checked = function() return ReelOn() end,
           func = function() SetReel(not ReelOn()) end },
         { text = "Double-click window", submenu = windows },
+        { text = "Loud splash while fishing", checkbox = true,
+          checked = function() return SplashOn() end,
+          func = function() SetSplash(not SplashOn()) end },
+        ns.stats and { text = "Session stats panel", checkbox = true,
+          checked = function() return ns.stats.IsOn() end,
+          func = function() ns.stats.SetOn(not ns.stats.IsOn()) end } or nil,
+        ns.stats and { text = "Reset session stats", func = function() ns.stats.Reset() end } or nil,
         ns.guide and { text = "Fishing route", checkbox = true,
           checked = function() return ns.guide.IsOn() end,
           func = function() ns.guide.SetOn(not ns.guide.IsOn()) end } or nil,
@@ -1297,15 +1406,28 @@ local function BindSavedVariables()
     else
         db.held = nil
     end
+    if type(db.splash) ~= "boolean" then db.splash = false end
+    if type(db.splashHeld) == "table" then
+        local clean = {}
+        for name, v in pairs(db.splashHeld) do
+            if SPLASH_CVAR_KNOWN[name] and (type(v) == "string" or type(v) == "number") then
+                clean[name] = tostring(v)
+            end
+        end
+        db.splashHeld = next(clean) ~= nil and clean or nil
+    else
+        db.splashHeld = nil
+    end
 
     -- Per character: the pole swap's memory, { mainID, mainLink, offID, offLink }, and the
     -- route's state (route = { on, skipped, manual, manualAuto, pointed, wp }, see RouteGuide.lua).
     if type(BetterFishingForeverCharDB) ~= "table" then BetterFishingForeverCharDB = {} end
     charDb = BetterFishingForeverCharDB
     for k in pairs(charDb) do
-        if k ~= "swap" and k ~= "route" then charDb[k] = nil end
+        if k ~= "swap" and k ~= "route" and k ~= "session" then charDb[k] = nil end
     end
     if ns.guide then ns.guide.Bind(charDb) else charDb.route = nil end
+    if ns.stats then ns.stats.Bind(db, charDb) else charDb.session = nil end
     local m = charDb.swap
     if type(m) == "table" then
         charDb.swap = { mainID = Num(m.mainID), mainLink = Str(m.mainLink),
@@ -1343,9 +1465,15 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
         elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
             OnChannelStop(arg1)
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-            if Num(arg1) == POLE_SLOT and not PoleEquipped() then StopReel() end
+            if Num(arg1) == POLE_SLOT and not PoleEquipped() then
+                StopReel()
+                ReleaseSplash()
+            end
         elseif event == "PLAYER_LOGOUT" then
-            if not InCombat() then ReleaseCVars() end   -- else the next login puts them back
+            if not InCombat() then              -- else the next login puts them back
+                ReleaseCVars()
+                ReleaseSplash()
+            end
         elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
             OnActionBlocked(arg1, arg2)
         elseif event == "ADDON_LOADED" then
@@ -1353,6 +1481,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
         elseif event == "PLAYER_LOGIN" then
             CreateSwapFrames()          -- a plain frame: fine in combat
             ReleaseCVars()              -- whatever a crash or a disconnect left held
+            ReleaseSplash()
             if InCombat() then
                 setupPending = true     -- a secure button cannot be set up in combat
             else
@@ -1364,6 +1493,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
             -- and put the soft interact CVars back (reeling waits for combat to end).
             Disarm()
             StopReel()
+            ReleaseSplash()
         elseif event == "PLAYER_REGEN_ENABLED" then
             if setupPending then
                 setupPending = false
@@ -1377,7 +1507,9 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
                 ClearKeyReel()
             end
             if releasePending then ReleaseCVars() end
+            if splashPending then ReleaseSplash() end
             StartReel()                 -- the line is still out: reel again
+            StartSplash()
         else
             ApplySpell()        -- SPELLS_CHANGED, LEARNED_SPELL_IN_TAB
         end

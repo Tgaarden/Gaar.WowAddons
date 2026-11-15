@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.1"] = "Renamed to GaarForever (new folders; settings move over automatically on first login; new /gf commands, old ones still work); /gf export all and /gf import move every addon's settings",
         ["3.2.0"] = "Renamed to GaarForever (new folders; settings move over automatically on first login; new /gf commands, old ones still work)",
         ["3.1.1"] = "notes for every addon's current version",
         ["3.1.0"] = "what's new on login, per-character settings, export / import, /gf selftest",
@@ -495,47 +496,265 @@ function Tools.ProfileCommand(rest)
     end
 end
 
-function Tools.ExportCommand(word)
-    if word == "" then
-        Print("/gf export <addon> - one of: " .. Tools.CoveredText())
-        return
+-- ---------------------------------------------------------------------------
+-- Export / import of whole saved variables (3.2.1): /gf export all | <addon>, /gf import.
+--
+-- Every family addon's saved variables (hub.ADDONS rows: db, and charDb for the per-character
+-- one), plus the hub's own, as one string:
+--   GaarForever.EncodeBundle({ format = "GaarForever settings", v = 1, hub = <version>,
+--       from = "Name - Realm", addons = { [folder] = { version = <v>, account = {...}, char = {...} } } })
+-- Import parses it by hand (never as code), shows which addons and parts it holds and from which
+-- character, asks, then overwrites the included saved variables in place (wiped, then a deep copy)
+-- and offers a reload. The per-character part goes to the character importing it. Keys in
+-- keep[...] are local data, not settings: left out of an export and left alone by an import.
+-- Old single-addon strings (BF1:..., from 3.1's /gf export) are still taken.
+-- ---------------------------------------------------------------------------
+
+local BUNDLE_FORMAT, BUNDLE_V = "GaarForever settings", 1
+local MAX_BUNDLE_ADDONS = 64
+
+-- The hub's own saved variable: only the minimap button and the news switch are settings.
+local HUB_SET = { name = "GaarForever", title = "GaarForever", db = "GaarForeverDB",
+    keep = { account = { seen = true, lastNews = true, selftest = true } } }
+
+-- Every set of saved variables the hub knows, hub first, then the menu order.
+local function SavedSets()
+    local list = { HUB_SET }
+    for _, a in ipairs(hub.ADDONS) do
+        if a.db then list[#list + 1] = a end
     end
-    local obj, why = FindLibAddon(word)
-    if not obj then
-        Print(why)
-        return
-    end
-    local s, err = obj:ExportSettings()
-    if not s then
-        Print("export failed: " .. tostring(err))
-        return
-    end
-    local shown = Tools.ShowText(obj.title .. " settings (" .. ModeText(obj) .. ")", s,
-        "Ctrl+C to copy. Paste it with /gf import.")
-    if not shown then Print(s) end
+    return list
+end
+Tools.SavedSets = SavedSets
+
+local function SetLoaded(set)
+    if set == HUB_SET then return true end
+    return Lib.AddOnLoaded(set.name)
 end
 
+-- A copy of a saved variable without its keep keys; nil when it is not a table.
+local function Part(set, which, globalName)
+    local t = globalName and _G[globalName]
+    if type(t) ~= "table" then return nil end
+    local keep = set.keep and set.keep[which] or {}
+    local c = {}
+    for k, v in pairs(t) do
+        if not keep[k] then c[k] = Lib.DeepCopy(v) end
+    end
+    return c
+end
+
+local function SetVersion(set)
+    if set == HUB_SET then return hub.VERSION end
+    return VersionOf(set)
+end
+
+-- The row for a word: "hub" / "gf" / "gaarforever" for the hub itself, else FindRow.
+local function FindSet(word)
+    word = tostring(word or ""):lower()
+    if word == "hub" or word == "gf" or word == "gaarforever" or word == "betterforever" then return HUB_SET end
+    local a = FindRow(word)
+    if a and a.db then return a end
+end
+
+local function ExportText(sets)
+    local payload = { format = BUNDLE_FORMAT, v = BUNDLE_V, hub = hub.VERSION, from = Lib.CharKey() or "?", addons = {} }
+    local names = {}
+    for _, set in ipairs(sets) do
+        local entry = { version = SetVersion(set), account = Part(set, "account", set.db),
+            char = set.charDb and Part(set, "char", set.charDb) or nil }
+        if entry.account or entry.char then
+            payload.addons[set.name] = entry
+            names[#names + 1] = set.title
+        end
+    end
+    if #names == 0 then return nil, "no settings to export (nothing loaded yet)" end
+    local text, err = Lib.EncodeBundle(payload)
+    if not text then return nil, err end
+    return text, names
+end
+
+function Tools.ExportCommand(word)
+    if word == "" then
+        local names = { "all" }
+        for _, set in ipairs(SavedSets()) do
+            if SetLoaded(set) then names[#names + 1] = set == HUB_SET and "hub" or set.key end
+        end
+        Print("/gf export all - every installed Gaar...Forever addon's settings as one string;"
+            .. " /gf export <addon> - one of them: " .. table.concat(names, ", ") .. ". Paste it with /gf import.")
+        return
+    end
+    local sets
+    if word == "all" then
+        sets = {}
+        for _, set in ipairs(SavedSets()) do
+            if SetLoaded(set) then sets[#sets + 1] = set end
+        end
+    else
+        local set = FindSet(word)
+        if not set then return Print("unknown addon: " .. tostring(word) .. " (/gf export lists them)") end
+        if not SetLoaded(set) then return Print(set.title .. " is not loaded.") end
+        sets = { set }
+    end
+    local text, names = ExportText(sets)
+    if not text then return Print("export failed: " .. tostring(names)) end
+    local title = (word == "all" and "All settings" or (sets[1].title .. " settings")) .. " (" .. #names
+        .. " addon" .. (#names == 1 and "" or "s") .. ", " .. #text .. " characters)"
+    local shown = Tools.ShowText(title, text, "Ctrl+A, Ctrl+C to copy. Paste it with /gf import on any character.")
+    if not shown then Print("no text window on this client.") end
+end
+
+-- The import as plain data: { from, hub, list = { { set, version, account, char } }, skipped = {...} }
+-- or nil, why. Only tables are taken as parts; names are matched against the known sets (an old
+-- Better... name too); anything else is listed as skipped.
+local function ReadBundle(t)
+    if type(t) ~= "table" or t.format ~= BUNDLE_FORMAT then return nil, "not a GaarForever settings export" end
+    if type(t.v) ~= "number" or t.v > BUNDLE_V then return nil, "made by a newer GaarForever (format " .. tostring(t.v) .. "); update first" end
+    if type(t.addons) ~= "table" then return nil, "no addons in it" end
+    local byName = {}
+    for _, set in ipairs(SavedSets()) do
+        byName[set.name] = set
+        if set.oldName then byName[set.oldName] = set end
+    end
+    byName.BetterForever = HUB_SET
+    local out = { from = type(t.from) == "string" and t.from or "?", hub = type(t.hub) == "string" and t.hub or "?",
+        list = {}, skipped = {} }
+    local n = 0
+    for name, entry in pairs(t.addons) do
+        n = n + 1
+        if n > MAX_BUNDLE_ADDONS then return nil, "too many entries" end
+        local set = type(name) == "string" and byName[name]
+        if not set or type(entry) ~= "table" then
+            out.skipped[#out.skipped + 1] = tostring(name) .. " (unknown here)"
+        elseif not SetLoaded(set) then
+            out.skipped[#out.skipped + 1] = set.title .. " (not installed or not enabled here)"
+        else
+            local account = type(entry.account) == "table" and entry.account or nil
+            local char = set.charDb and type(entry.char) == "table" and entry.char or nil
+            if account or char then
+                out.list[#out.list + 1] = { set = set, version = type(entry.version) == "string" and entry.version or "?",
+                    account = account, char = char }
+            end
+        end
+    end
+    table.sort(out.list, function(a, b) return a.set.title < b.set.title end)
+    table.sort(out.skipped)
+    if #out.list == 0 then return nil, "nothing in it for the addons installed here" .. (#out.skipped > 0
+        and (" (skipped: " .. table.concat(out.skipped, ", ") .. ")") or "") end
+    return out
+end
+Tools.ReadBundle = ReadBundle
+
+local function SummaryText(b)
+    local lines = { "From " .. b.from .. " (GaarForever " .. b.hub .. "), to " .. (Lib.CharKey() or "this character") .. ":", "" }
+    for _, it in ipairs(b.list) do
+        local parts = {}
+        if it.account then parts[#parts + 1] = "account-wide settings" end
+        if it.char then parts[#parts + 1] = "this character's settings" end
+        lines[#lines + 1] = "  " .. it.set.title .. " " .. it.version .. ": " .. table.concat(parts, " + ")
+    end
+    if #b.skipped > 0 then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "Left out: " .. table.concat(b.skipped, ", ")
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "Apply overwrites these settings (the others stay as they are), then offers a reload."
+    return table.concat(lines, "\n")
+end
+
+-- Overwrites one saved variable in place: wiped (keep keys stay), then filled with a deep copy.
+local function Overwrite(set, which, globalName, data)
+    local t = _G[globalName]
+    if type(t) ~= "table" then
+        t = {}
+        _G[globalName] = t
+    end
+    local keep = set.keep and set.keep[which] or {}
+    for k in pairs(t) do
+        if not keep[k] then t[k] = nil end
+    end
+    for k, v in pairs(data) do
+        if not keep[k] then t[k] = Lib.DeepCopy(v) end
+    end
+end
+
+local function ApplyBundle(b)
+    local done = {}
+    for _, it in ipairs(b.list) do
+        local ok, err = pcall(function()
+            if it.account then Overwrite(it.set, "account", it.set.db, it.account) end
+            if it.char then Overwrite(it.set, "char", it.set.charDb, it.char) end
+        end)
+        if ok then
+            done[#done + 1] = it.set.title
+        else
+            Print(it.set.title .. ": import failed - " .. tostring(err))
+        end
+    end
+    return done
+end
+Tools.ApplyBundle = ApplyBundle
+
+local function OfferReload(done)
+    local text = "Imported: " .. table.concat(done, ", ") .. ".\n\nThe addons pick the settings up after a reload"
+        .. " (until then they may still show, and save, what they had)."
+    Print("imported the settings of " .. #done .. " addon(s); reload the UI (/reload) to use them.")
+    local reload = Lib.API("C_UI", "Reload") or Lib.API("ReloadUI")
+    Tools.ShowText("Settings imported", text, "Reload now, or later with /reload.", "Reload UI", function()
+        if reload then reload() else Tools.HideText() end
+    end)
+end
+
+local CONFIRM = "GAARFOREVER_IMPORT_ALL"
+
+local function Confirm(b)
+    local function Go()
+        local done = ApplyBundle(b)
+        if #done > 0 then OfferReload(done) else Tools.HideText() end
+    end
+    local dialogs, show = _G.StaticPopupDialogs, _G.StaticPopup_Show
+    if type(dialogs) ~= "table" or type(show) ~= "function" then return Go() end
+    dialogs[CONFIRM] = {
+        text = "GaarForever: overwrite the settings of %s addon(s) with the imported ones? This cannot be undone.",
+        button1 = _G.ACCEPT or "Accept",
+        button2 = _G.CANCEL or "Cancel",
+        OnAccept = function()
+            local ok, err = pcall(Go)
+            if not ok then Print("import failed: " .. tostring(err)) end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    if not pcall(show, CONFIRM, tostring(#b.list)) then Go() end
+end
+
+-- From the paste box: an export of whole saved variables (GFA1:), or an old one-addon string (BF1:).
 local function DoImport(text)
-    local name, t = Lib.DecodeSettings(text)
-    if not name then
-        Print("import failed: " .. tostring(t))
-        return
+    text = type(text) == "string" and text or ""
+    if text:match("^%s*BF1:") then
+        local name, t = Lib.DecodeSettings(text)
+        if not name then return Print("import failed: " .. tostring(t)) end
+        local obj, why = FindLibAddon(Lib.DisplayName(name))
+        if not obj then return Print("import failed: " .. tostring(why)) end
+        local applied, ignored = obj:ImportSettings(t)
+        Print(string.format("imported %d setting(s) into %s (%s)%s.", applied, obj.title, ModeText(obj),
+            ignored > 0 and (", " .. ignored .. " unknown or invalid left out") or ""))
+        return Tools.HideText()
     end
-    local obj, why = FindLibAddon(name)
-    if not obj then
-        Print("import failed: " .. tostring(why))
-        return
-    end
-    local applied, ignored = obj:ImportSettings(t)
-    Print(string.format("imported %d setting(s) into %s (%s)%s.", applied, obj.title, ModeText(obj),
-        ignored > 0 and (", " .. ignored .. " unknown or invalid left out") or ""))
-    Tools.HideText()
+    local t, err = Lib.DecodeBundle(text)
+    if not t then return Print("import failed: " .. tostring(err)) end
+    local b, why = ReadBundle(t)
+    if not b then return Print("import failed: " .. tostring(why)) end
+    Tools.ShowText("Import " .. #b.list .. " addon(s)' settings?", SummaryText(b),
+        "Check the list, then Apply (you are asked once more).", "Apply", function() Confirm(b) end)
 end
 Tools.DoImport = DoImport
 
 function Tools.ImportCommand()
     local shown = Tools.ShowText("Import settings", nil,
-        "Paste a /gf export string (Ctrl+V), then Import. Only known settings are taken.", "Import", DoImport)
+        "Paste a /gf export string (Ctrl+V), then Import. Nothing in it is run as code.", "Import", DoImport)
     if not shown then Print("no text window on this client.") end
 end
 

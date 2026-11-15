@@ -22,9 +22,9 @@
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The small helpers (Print, Num,
       IsSecret, API, Call, InCombat, OnOff, RenderMenu) come from GaarForever's library.
 
-  BBF locks. GaarBagsForever has no API for them, so this addon reads its per-character saved
-  table, read-only: GaarBagsForeverCharDB.lockedItems[itemID] ~= nil means locked. If a BBF
-  ever gains GaarBagsForeverAPI.IsItemLocked(itemID), that is used first. A lock is read each
+  BBF locks. GaarBagsForeverAPI.IsItemLocked(itemID) is used first, then BetterBagsForeverAPI's
+  (an old Bags has none), and always the saved per-character tables of BOTH GaarBagsForeverCharDB
+  and BetterBagsForeverCharDB, read-only: lockedItems[itemID] ~= nil means locked; any yes wins. A lock is read each
   time just before an item is sold, so a lock set while the sale runs still counts. The value is
   never written.
 
@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMerchantForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -120,16 +120,33 @@ local function SellPrice(id)
     return Num((select(11, Call(f, id)))) or 0
 end
 
--- Whether GaarBagsForever has this item locked. Read-only.
-local function BBFLocked(id)
-    local api = _G.GaarBagsForeverAPI
-    if type(api) == "table" and type(api.IsItemLocked) == "function" then
-        local ok, r = pcall(api.IsItemLocked, id)
-        if ok and not IsSecret(r) then return r and true or false end
+-- Lock tables to read. A user can run the new GaarMerchantForever beside an old, not yet updated
+-- BetterBagsForever, whose locks live in BetterBagsForeverCharDB; after the rename the old table
+-- can also linger (it may carry __migratedTo). Reading both and taking the union is the safe side.
+local function LockTables()
+    local out = {}
+    for _, name in ipairs({ "GaarBagsForeverCharDB", "BetterBagsForeverCharDB" }) do
+        local cdb = _G[name]
+        local items = type(cdb) == "table" and cdb.lockedItems
+        if type(items) == "table" then out[#out + 1] = items end
     end
-    local cdb = _G.GaarBagsForeverCharDB
-    local items = type(cdb) == "table" and cdb.lockedItems
-    return type(items) == "table" and items[id] ~= nil
+    return out
+end
+
+-- Whether Bags has this item locked. Read-only. Any "yes" wins: the new or old Bags API (an old
+-- Bags has none), then both saved lock tables.
+local function BBFLocked(id)
+    for _, name in ipairs({ "GaarBagsForeverAPI", "BetterBagsForeverAPI" }) do
+        local api = _G[name]
+        if type(api) == "table" and type(api.IsItemLocked) == "function" then
+            local ok, r = pcall(api.IsItemLocked, id)
+            if ok and not IsSecret(r) and r then return true end
+        end
+    end
+    for _, items in ipairs(LockTables()) do
+        if items[id] ~= nil then return true end
+    end
+    return false
 end
 
 local function ScanJunk()
@@ -371,10 +388,14 @@ local function PrintStatus()
     for _, f in ipairs(FEATURES) do
         Print(f.label .. ": " .. OnOff(Flag(f.key)) .. "   (/gmerch " .. f.names[#f.names] .. " on|off)")
     end
-    local bbf = type(_G.GaarBagsForeverCharDB) == "table" and type(_G.GaarBagsForeverCharDB.lockedItems) == "table"
-    local n = 0
-    if bbf then for _ in pairs(_G.GaarBagsForeverCharDB.lockedItems) do n = n + 1 end end
-    Print("GaarBagsForever locks: " .. (bbf and (n .. " locked item(s), skipped when selling") or "none found"))
+    local seen, n, any = {}, 0, false
+    for _, items in ipairs(LockTables()) do
+        any = true
+        for id in pairs(items) do
+            if not seen[id] then seen[id] = true; n = n + 1 end
+        end
+    end
+    Print("Bags locks: " .. (any and (n .. " locked item(s), skipped when selling") or "none found"))
     Print("merchant open: " .. OnOff(merchantOpen) .. DOT .. "selling: " .. (sale and "yes" or "no"))
     Print("last result: " .. lastResult)
     if lastError then Print("last error: " .. lastError) end

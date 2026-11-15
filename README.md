@@ -38,7 +38,7 @@ of the code.
 | `BetterXPForever` | Not part of the suite, Forever only, needs `BetterForever`: a movable XP panel (rested, XP per hour, time to level, kills or quests to level), text on the XP bar, time played per level on level-up, quest XP in tooltips | `/bxp` |
 | `BetterChatForever` | Not part of the suite, Forever only, needs `BetterForever`: chat tweaks, each switchable - short channel names, class-coloured names, timestamps, clickable URLs, a copy-chat window, a whisper sound, sticky channels, arrow keys without Alt | `/bchat` |
 | `BetterBarsForever` | Not part of the suite, Forever only, needs `BetterForever`: clearer action buttons - red out of range, blue without mana, big cooldown numbers, short hotkey labels, macro names on or off; `/bbars off` gives the buttons back exactly as Blizzard draws them | `/bbars` |
-| `BetterLootForever` | Not part of the suite, Forever only, needs `BetterForever`: on a group loot roll, a small number on the Need, Greed and Pass buttons counting how many in the group chose each for that roll; hover a button to see who ("Need: Elex, Bob"). Read from the loot chat lines (the client's own `LOOT_ROLL_*` strings, so any locale) and the loot history where the client fills it; counts and names each switchable; `/bloot test` previews it | `/bloot` |
+| `BetterLootForever` | Not part of the suite, Forever only, needs `BetterForever`: on a group loot roll, a small number on the Need, Greed and Pass buttons counting how many in the group chose each for that roll; hover a button to see who ("Need: Elex, Bob"); a small movable summary panel of the last rolls (who chose what, the numbers rolled, the winner, auto-hides 60 s after) for after the roll frame has closed. Read from the loot chat lines (the client's own `LOOT_ROLL_*` strings, so any locale) and the loot history where the client fills it; counts, names and summary each switchable; `/bloot test` previews it | `/bloot` |
 | `BetterForever` | The hub of the Better...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all seventeen: the shared library (`BetterForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Better Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. No feature code of its own | `/bf`, minimap button, Options |
 
 ## GaarBags: sorting and junk
@@ -366,7 +366,8 @@ TOC, both at 16001:
 - **BetterBarsForever** (`/bbars`): range and mana colours, cooldown numbers, short hotkeys, macro
   names. [`addons/BetterBarsForever/README.md`](addons/BetterBarsForever/README.md)
 - **BetterLootForever** (`/bloot`): how many chose Need, Greed and Pass, as a number on each button
-  of a group loot roll, and who, in the button's tooltip; `/bloot test` for a preview.
+  of a group loot roll, and who, in the button's tooltip; a movable summary of the last rolls with
+  the numbers rolled and the winner; `/bloot test` for a preview.
   [`addons/BetterLootForever/README.md`](addons/BetterLootForever/README.md)
 
 ## BetterForever: the hub of all seventeen

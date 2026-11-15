@@ -11,9 +11,21 @@
     * names     (default on) hovering a button adds a line to its own tooltip with who chose it,
                 e.g. "Need: Elex, Bob". Blizzard's tooltip (the button name, the reason it is
                 disabled) stays as it is; the line is appended.
+    * summary   (default on, 1.1.0) the client closes the roll frame once you have chosen, so a
+                small movable panel lists the recent rolls instead: the item (icon and coloured
+                name; hover for the item tooltip), one line per choice with its count and who
+                ("Need 2  Elex 87, Mira 42": the number each player rolled, from the "Need Roll -
+                87 for [item] by Elex" lines; Disenchant is counted with Greed and marked (DE)),
+                and the result ("» Elex", "all passed"). Long lines are cut; hover them for the
+                full list. The newest roll is on top, the last N are kept (rolls, 1..10, default
+                5). Shown only in a group; drag it to move it (saved), /bloot reset puts it back.
+                The close button clears it; it comes back with the next roll.
+    * autohide  (default on) the summary clears itself 60 seconds after the last of its rolls has
+                finished (result line, or roll time over).
     * /bloot test  a preview window with three fake buttons and counts, built from the client's
-                own chat strings run through the same parser (the results are printed too). The
-                real roll frame cannot be opened without a real roll, so it is never touched.
+                own chat strings run through the same parser (the results are printed too), and
+                three fake finished rolls in the summary. The real roll frame cannot be opened
+                without a real roll, so it is never touched.
     * BetterLootForeverAPI, the small global table the BetterForever hub reads (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden, Intro).
 
@@ -31,7 +43,8 @@
   A roll is forgotten when its result line arrives (won, everyone passed), at
   CANCEL_ALL_LOOT_ROLLS, or once its roll time is over. CANCEL_LOOT_ROLL (sent when you have
   chosen) only stops the display: the roll stays known, so a late line for it is not given to a
-  second roll of the same item.
+  second roll of the same item. The summary keeps its own list of the same roll tables, so a
+  forgotten roll is still shown there, with its winner, until the summary is cleared.
 
   The roll frame (Blizzard_UIPanels_Game, Mainline GroupLootFrame.xml on this client):
   GroupLootFrame1..4 inside GroupLootContainer, each with .rollID and the buttons
@@ -46,7 +59,7 @@
 ]]
 
 local _G = _G
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 local DOT = " \194\183 "
 
 local BF = _G.BetterForever
@@ -56,13 +69,16 @@ local OnOff = BF.OnOff
 local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a group loot roll: how many in "
     .. "the group chose that option for that roll. Hover a button to see who. Nice to know: the counts "
     .. "come from the loot chat lines (and the loot history where the client has it), so they fill in as "
-    .. "people choose; /bloot test shows a preview."
+    .. "people choose. Once you have chosen, a small summary panel lists the last rolls: who chose "
+    .. "what, the numbers rolled and who won. Drag it to move it; /bloot test shows a preview."
 
 local A = BF.NewAddon("BetterLootForever", { version = VERSION, intro = INTRO })
 
 local FRAMES = 4                  -- GroupLootFrame1..4
 local GRACE = 10                  -- seconds a roll is kept after its roll time
 local DEFAULT_ROLL_TIME = 60      -- seconds, when START_LOOT_ROLL gives none
+local AUTOHIDE = 60               -- seconds after the last roll in the summary finished
+local SUMMARY_W = 250             -- summary panel width
 
 -- The buttons, in display order: bucket, the key on the frame, the label in the tooltip line.
 local BUTTONS = {
@@ -170,9 +186,20 @@ local RULE_DEFS = {
     { "LOOT_ROLL_ROLLED_GREED", "choice", { "roll", "item", "player" }, choice = "greed" },
     { "LOOT_ROLL_ROLLED_DE", "choice", { "roll", "item", "player" }, choice = "disenchant" },
     { "LOOT_ROLL_ROLLED_TRANSMOG", "choice", { "roll", "item", "player" }, choice = "transmog" },
-    { "LOOT_ROLL_WON", "end", { "player", "item" } },
-    { "LOOT_ROLL_YOU_WON", "end", { "item" } },
-    { "LOOT_ROLL_ALL_PASSED", "end", { "item" } },
+    { "LOOT_ROLL_WON", "end", { "player", "item" }, result = "won" },
+    { "LOOT_ROLL_YOU_WON", "end", { "item" }, result = "won", self = true },
+    { "LOOT_ROLL_ALL_PASSED", "end", { "item" }, result = "passed" },
+    -- The short result lines some clients print instead of the "Need Roll - 87 ..." lines
+    -- ("%1$s won: %3$s (Need - %2$d)"); skipped where the client has no such string.
+    { "LOOT_ROLL_WON_NO_SPAM_NEED", "end", { "player", "roll", "item" }, result = "won", choice = "need" },
+    { "LOOT_ROLL_WON_NO_SPAM_GREED", "end", { "player", "roll", "item" }, result = "won", choice = "greed" },
+    { "LOOT_ROLL_WON_NO_SPAM_DE", "end", { "player", "roll", "item" }, result = "won", choice = "disenchant" },
+    { "LOOT_ROLL_WON_NO_SPAM_TRANSMOG", "end", { "player", "roll", "item" }, result = "won", choice = "transmog" },
+    { "LOOT_ROLL_YOU_WON_NO_SPAM_NEED", "end", { "roll", "item" }, result = "won", choice = "need", self = true },
+    { "LOOT_ROLL_YOU_WON_NO_SPAM_GREED", "end", { "roll", "item" }, result = "won", choice = "greed", self = true },
+    { "LOOT_ROLL_YOU_WON_NO_SPAM_DE", "end", { "roll", "item" }, result = "won", choice = "disenchant", self = true },
+    { "LOOT_ROLL_YOU_WON_NO_SPAM_TRANSMOG", "end", { "roll", "item" }, result = "won", choice = "transmog",
+        self = true },
 }
 
 local rules                       -- built on first use: { pattern, args, literal, def }
@@ -191,7 +218,9 @@ local function BuildRules()
     return rules
 end
 
--- A chat line -> { kind = "choice"|"end", choice, player, item } or nil. Secret text is skipped.
+-- A chat line -> { kind = "choice"|"end", choice, player, item, roll, result } or nil. roll: the
+-- number in a "Need Roll - 87 for ..." line; result: "won" or "passed" on a result line. Secret
+-- text is skipped.
 local function Parse(msg)
     msg = Str(msg)
     if not msg or not msg:find("item:", 1, true) then return nil end
@@ -200,7 +229,7 @@ local function Parse(msg)
         if caps[1] ~= nil then
             local byArg = {}
             for i, argIndex in ipairs(r.args) do byArg[argIndex] = caps[i] end
-            local m = { kind = r.def[2], choice = r.def.choice, rule = r.def[1] }
+            local m = { kind = r.def[2], choice = r.def.choice, rule = r.def[1], result = r.def.result }
             for argIndex, field in ipairs(r.def[3]) do m[field] = byArg[argIndex] end
             if r.def.self then m.player = Me() end
             if ItemID(m.item) and (m.kind == "end" or ShortName(m.player)) then return m end
@@ -216,7 +245,10 @@ end
 local function Prune()
     local now = Now()
     for id, r in pairs(rolls) do
-        if r.expires and now > r.expires then rolls[id] = nil end
+        if r.expires and now > r.expires then
+            r.finishedAt = r.finishedAt or r.expires
+            rolls[id] = nil
+        end
     end
     for key, id in pairs(drops) do
         if not rolls[id] then drops[key] = nil end
@@ -246,7 +278,10 @@ local function SetChoice(r, name, choice)
 end
 
 -- A parsed line onto the oldest open roll of its item where the player has not chosen yet (else
--- the oldest one: the latest choice wins). pool: a list of rolls, for the preview.
+-- the oldest one: the latest choice wins). A rolled number ("Need Roll - 87 ... by Elex") goes to
+-- the oldest roll where that player chose the same tier and has no number yet. A result line ends
+-- the oldest open roll of its item and records the winner (or that everyone passed) on it.
+-- pool: a list of rolls, for the preview.
 local function Apply(m, pool)
     if not m then return nil end
     local list = RollsOf(m.item, pool)
@@ -254,26 +289,45 @@ local function Apply(m, pool)
     if m.kind == "end" then
         local r = list[1]
         r.ended = true
+        r.finishedAt = Now()
+        r.result = m.result
+        if m.result == "won" then
+            r.winner = ShortName(m.player)
+            local number = tonumber(m.roll)
+            if r.winner and m.choice then SetChoice(r, r.winner, m.choice) end
+            if r.winner and number then r.rolled[r.winner] = number end
+        end
         if not pool and r.id then rolls[r.id] = nil end
         return r
     end
     local key = ShortName(m.player)
-    local target = list[1]
-    for _, r in ipairs(list) do
-        if key and r.choices[key] == nil then target = r; break end
+    local number = tonumber(m.roll)
+    local target
+    if number and key then
+        for _, r in ipairs(list) do
+            if BUCKET[r.choices[key]] == BUCKET[m.choice] and r.rolled[key] == nil then target = r; break end
+        end
+    end
+    if not target then
+        target = list[1]
+        for _, r in ipairs(list) do
+            if key and r.choices[key] == nil then target = r; break end
+        end
     end
     SetChoice(target, m.player, m.choice)
+    if number and key then target.rolled[key] = number end
     return target
 end
 
 local function NewRoll(id, link, seconds)
     local now = Now()
     return { id = id, link = link, itemID = ItemID(link), started = now,
-        expires = now + (seconds or DEFAULT_ROLL_TIME) + GRACE, choices = {}, order = {} }
+        expires = now + (seconds or DEFAULT_ROLL_TIME) + GRACE, choices = {}, order = {}, rolled = {} }
 end
 
--- Names per bucket for one roll: { need = { "Elex", "Bob" }, ... }.
-local function Buckets(r)
+-- Who chose what for one roll, per bucket in the order they chose:
+-- { need = { { name = "Elex", de = false, roll = 87 }, ... }, greed = ..., transmog = ..., pass = ... }.
+local function Entries(r)
     local out = { need = {}, greed = {}, transmog = {}, pass = {} }
     if not r then return out end
     for _, name in ipairs(r.order) do
@@ -281,8 +335,17 @@ local function Buckets(r)
         local b = BUCKET[choice]
         if b then
             local list = out[b]
-            list[#list + 1] = choice == "disenchant" and (name .. " (DE)") or name
+            list[#list + 1] = { name = name, de = choice == "disenchant", roll = r.rolled and r.rolled[name] }
         end
+    end
+    return out
+end
+
+-- Names per bucket for one roll: { need = { "Elex", "Bob (DE)" }, ... }.
+local function Buckets(r)
+    local out = Entries(r)
+    for _, list in pairs(out) do
+        for i, e in ipairs(list) do list[i] = e.de and (e.name .. " (DE)") or e.name end
     end
     return out
 end
@@ -392,7 +455,7 @@ local function RollFrames()
     return list
 end
 
-local Refresh
+local Refresh, RefreshSummary
 
 local function HookFrame(frame)
     if hookedFrames[frame] or type(frame.HookScript) ~= "function" then return end
@@ -410,6 +473,7 @@ local function RefreshNow()
             HookFrame(frame)
             RefreshFrame(frame)
         end
+        RefreshSummary()
     end)
     if not ok then A.lastError = "refresh: " .. tostring(err) end
 end
@@ -421,6 +485,354 @@ Refresh = function()
     After(0, RefreshNow)
 end
 
+
+-- ---------------------------------------------------------------------------
+-- The summary panel: the last rolls, who chose what, the numbers and the winner
+-- ---------------------------------------------------------------------------
+
+local summary = {}                -- roll tables, newest first (the same tables as in rolls)
+local panel                       -- the summary frame, made on first use
+local rowPool = {}                -- reusable row frames
+local tick = 0
+
+-- Text colour per bucket, and the order the lines are shown in.
+local COLOR = { need = "ff40c040", greed = "ffffd100", transmog = "ffc080ff", pass = "ff9d9d9d" }
+local GREY = "|cff9d9d9d"
+local FLAT = "Interface\\Buttons\\WHITE8x8"
+local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+local function SummarySize()
+    local n = Num(A:Get("summaryRolls")) or 5
+    return math.max(1, math.min(10, math.floor(n)))
+end
+
+local function InGroup()
+    local f = API("IsInGroup")
+    if f then return Bool(Call(f)) == true end
+    local n = Num(Call(API("GetNumGroupMembers")))
+    if n then return n > 0 end
+    return true                   -- no way to tell: rolls only come in a group anyway
+end
+
+local function Finished(r)
+    if r.finishedAt then return true end
+    return r.expires ~= nil and Now() > r.expires
+end
+
+local function FinishedAt(r)
+    return r.finishedAt or r.expires or 0
+end
+
+local function ItemIcon(r)
+    if r.icon then return r.icon end
+    local id = r.itemID
+    if not id then return QUESTION end
+    local v = Call(API("C_Item", "GetItemIconByID"), id)
+    if not (Num(v) or Str(v)) then v = Call(API("GetItemIcon"), id) end
+    return Num(v) or Str(v) or QUESTION
+end
+
+-- A roll onto the summary (newest first), the oldest dropped past the size.
+local function AddToSummary(r)
+    for i = #summary, 1, -1 do
+        if summary[i] == r then table.remove(summary, i) end
+    end
+    table.insert(summary, 1, r)
+    while #summary > SummarySize() do table.remove(summary) end
+end
+
+-- Clears the summary (close button, auto-hide); the next roll shows it again.
+local function Dismiss()
+    summary = {}
+    if panel then panel:Hide() end
+end
+
+-- True once every roll in the summary is finished and the last one finished AUTOHIDE seconds ago.
+local function AutoHideDue()
+    if not Flag("autohide") or #summary == 0 then return false end
+    local last = 0
+    for _, r in ipairs(summary) do
+        if not Finished(r) then return false end
+        last = math.max(last, FinishedAt(r))
+    end
+    return Now() - last >= AUTOHIDE
+end
+
+-- One choice as shown: "Elex 87", "Bob (DE)".
+local function EntryText(e)
+    local t = e.name
+    if e.de then t = t .. " (DE)" end
+    if e.roll then t = t .. " " .. e.roll end
+    return t
+end
+
+-- The entries of a bucket, highest roll first; players without a number keep their order, last.
+local function Sorted(list)
+    local copy = {}
+    for i, e in ipairs(list) do copy[i] = { e = e, i = i } end
+    table.sort(copy, function(a, b)
+        local ra, rb = a.e.roll, b.e.roll
+        if ra and rb and ra ~= rb then return ra > rb end
+        if (ra ~= nil) ~= (rb ~= nil) then return ra ~= nil end
+        return a.i < b.i
+    end)
+    for i, c in ipairs(copy) do copy[i] = c.e end
+    return copy
+end
+
+-- The lines of one roll: { { bucket, text } } for each bucket with someone in it.
+local function RollLines(r)
+    local out, entries = {}, Entries(r)
+    for _, def in ipairs(BUTTONS) do
+        local list = entries[def.bucket]
+        if #list > 0 then
+            local names = {}
+            for i, e in ipairs(Sorted(list)) do names[i] = EntryText(e) end
+            out[#out + 1] = { bucket = def.bucket, label = def.label, count = #list, names = names }
+        end
+    end
+    return out
+end
+
+local function ResultText(r)
+    if r.result == "won" and r.winner then
+        local n = r.rolled and r.rolled[r.winner]
+        return "|cffffffff\194\187 " .. r.winner .. (n and (" " .. n) or "") .. "|r"
+    end
+    if r.result == "passed" then return GREY .. "all passed|r" end
+    if Finished(r) then return GREY .. "no result|r" end
+    return GREY .. "rolling|r"
+end
+
+local function HideTip()
+    local tip = _G.GameTooltip
+    if type(tip) == "table" and type(tip.Hide) == "function" then tip:Hide() end
+end
+
+local function ItemTip(self)
+    local ok, err = pcall(function()
+        local r, tip = self.roll, _G.GameTooltip
+        if not r or not r.link or type(tip) ~= "table" then return end
+        tip:SetOwner(self, "ANCHOR_LEFT")
+        if not pcall(tip.SetHyperlink, tip, r.link) then tip:SetText(r.link) end
+        tip:Show()
+    end)
+    if not ok then A.lastError = "summary tooltip: " .. tostring(err) end
+end
+
+local function NamesTip(self)
+    local ok, err = pcall(function()
+        local r, tip = self.roll, _G.GameTooltip
+        if not r or type(tip) ~= "table" then return end
+        tip:SetOwner(self, "ANCHOR_LEFT")
+        tip:SetText(r.link or "?")
+        for _, l in ipairs(RollLines(r)) do
+            tip:AddLine("|c" .. COLOR[l.bucket] .. l.label .. " (" .. l.count .. ")|r", 1, 1, 1)
+            tip:AddLine(table.concat(l.names, ", "), 1, 1, 1, true)
+        end
+        tip:AddLine(ResultText(r), 1, 1, 1)
+        tip:Show()
+    end)
+    if not ok then A.lastError = "summary tooltip: " .. tostring(err) end
+end
+
+local function SavePosition()
+    if not panel or not A.db then return end
+    local p, _, rp, x, y = panel:GetPoint(1)
+    if Str(p) and Num(x) and Num(y) then A.db.summaryPos = { p = p, rp = Str(rp) or p, x = x, y = y } end
+end
+
+local function PlacePanel()
+    if not panel then return end
+    panel:ClearAllPoints()
+    local pos = A.db and A.db.summaryPos
+    if type(pos) == "table" and Str(pos.p) and Num(pos.x) and Num(pos.y) then
+        panel:SetPoint(pos.p, _G.UIParent, Str(pos.rp) or pos.p, pos.x, pos.y)
+    else
+        panel:SetPoint("RIGHT", _G.UIParent, "RIGHT", -220, 120)
+    end
+end
+
+local function ResetPosition()
+    if A.db then A.db.summaryPos = nil end
+    PlacePanel()
+    A:Print("roll summary back to its default place")
+end
+
+local function StartDrag()
+    if panel then pcall(panel.StartMoving, panel) end
+end
+
+local function StopDrag()
+    if not panel then return end
+    pcall(panel.StopMovingOrSizing, panel)
+    if type(panel.SetUserPlaced) == "function" then pcall(panel.SetUserPlaced, panel, false) end
+    local ok, err = pcall(SavePosition)
+    if not ok then A.lastError = "summary position: " .. tostring(err) end
+end
+
+-- A frame of the panel that takes the mouse (for a tooltip) and still drags the panel.
+local function Draggable(f)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", StartDrag)
+    f:SetScript("OnDragStop", StopDrag)
+end
+
+local function Line(parent, template)
+    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
+    fs:SetJustifyH("LEFT")
+    if type(fs.SetWordWrap) == "function" then fs:SetWordWrap(false) end
+    if type(fs.SetMaxLines) == "function" then pcall(fs.SetMaxLines, fs, 1) end
+    return fs
+end
+
+local INNER = SUMMARY_W - 16      -- row width inside the panel padding
+
+local function NewRow()
+    local row = CreateFrame("Frame", nil, panel)
+    row:SetWidth(INNER)
+    row.sep = row:CreateTexture(nil, "ARTWORK")
+    row.sep:SetColorTexture(1, 1, 1, 0.08)
+    row.sep:SetHeight(1)
+    row.sep:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 2)
+    row.sep:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 2)
+
+    row.result = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.result:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -2)
+    row.result:SetJustifyH("RIGHT")
+
+    row.item = CreateFrame("Frame", nil, row)
+    row.item:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+    row.item:SetHeight(16)
+    Draggable(row.item)
+    row.item:SetScript("OnEnter", ItemTip)
+    row.item:SetScript("OnLeave", HideTip)
+    row.icon = row.item:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(16, 16)
+    row.icon:SetPoint("LEFT", row.item, "LEFT", 0, 0)
+    if type(row.icon.SetTexCoord) == "function" then row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+    row.name = Line(row.item, "GameFontNormalSmall")
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    row.name:SetPoint("RIGHT", row.item, "RIGHT", 0, 0)
+
+    row.detail = CreateFrame("Frame", nil, row)
+    row.detail:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -17)
+    row.detail:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+    Draggable(row.detail)
+    row.detail:SetScript("OnEnter", NamesTip)
+    row.detail:SetScript("OnLeave", HideTip)
+    row.lines = {}
+    for i = 1, #BUTTONS do
+        local fs = Line(row.detail)
+        fs:SetWidth(INNER - 6)
+        fs:SetPoint("TOPLEFT", row.detail, "TOPLEFT", 6, -(i - 1) * 12)
+        row.lines[i] = fs
+    end
+    return row
+end
+
+-- Fills one row for roll r; returns its height.
+local function FillRow(row, r)
+    row.item.roll, row.detail.roll = r, r
+    row.icon:SetTexture(ItemIcon(r))
+    row.name:SetText(r.link or (GREY .. "unknown item|r"))
+    row.result:SetText(ResultText(r))
+    local rw = Num(row.result:GetStringWidth()) or 40
+    row.item:SetWidth(math.max(40, INNER - rw - 6))
+    local lines = RollLines(r)
+    if #lines == 0 then lines = { { text = GREY .. "no choices yet|r" } } end
+    for i, fs in ipairs(row.lines) do
+        local l = lines[i]
+        if l then
+            fs:SetText(l.text or ("|c" .. COLOR[l.bucket] .. l.label .. " " .. l.count .. "|r  "
+                .. table.concat(l.names, ", ")))
+            fs:Show()
+        else
+            fs:Hide()
+        end
+    end
+    return 17 + math.min(#lines, #row.lines) * 12 + 2
+end
+
+local function MakePanel()
+    if panel then return panel end
+    local ok, f = pcall(CreateFrame, "Frame", "BetterLootForeverSummary", _G.UIParent, "BackdropTemplate")
+    if not ok or not f then f = CreateFrame("Frame", "BetterLootForeverSummary", _G.UIParent) end
+    panel = f
+    f:SetWidth(SUMMARY_W)
+    f:SetFrameStrata("MEDIUM")
+    f:SetClampedToScreen(true)
+    f:SetMovable(true)
+    Draggable(f)
+    if type(f.SetBackdrop) == "function" then
+        f:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1,
+            insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+        f:SetBackdropColor(0.07, 0.08, 0.10, 0.90)
+        f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+    else
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(f)
+        bg:SetColorTexture(0.07, 0.08, 0.10, 0.90)
+    end
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -7)
+    f.title:SetText(_G.LOOT_ROLLS or "Loot Rolls")
+    local okClose, close = pcall(CreateFrame, "Button", nil, f, "UIPanelCloseButton")
+    if not okClose or not close then
+        close = CreateFrame("Button", nil, f)
+        local x = close:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        x:SetPoint("CENTER")
+        x:SetText("x")
+    end
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 1, 1)
+    close:SetScript("OnClick", function() pcall(Dismiss) end)
+    -- Once a second while shown: rolls that ran out of time, and the auto-hide.
+    f:SetScript("OnUpdate", function(_, elapsed)
+        tick = tick + (Num(elapsed) or 0)
+        if tick < 1 then return end
+        tick = 0
+        local okTick, err = pcall(RefreshSummary)
+        if not okTick then A.lastError = "summary: " .. tostring(err) end
+    end)
+    f:Hide()
+    PlacePanel()
+    return f
+end
+
+local function HasTest()
+    for _, r in ipairs(summary) do
+        if r.test then return true end
+    end
+    return false
+end
+
+RefreshSummary = function()
+    if AutoHideDue() then return Dismiss() end
+    while #summary > SummarySize() do table.remove(summary) end
+    if not Flag("summary") or #summary == 0 or not (InGroup() or HasTest()) then
+        if panel then panel:Hide() end
+        return
+    end
+    MakePanel()
+    local y = -24
+    for i, r in ipairs(summary) do
+        local row = rowPool[i] or NewRow()
+        rowPool[i] = row
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, y)
+        local h = FillRow(row, r)
+        row:SetHeight(h)
+        if i > 1 then row.sep:Show() else row.sep:Hide() end
+        row:Show()
+        y = y - h - 4
+    end
+    for i = #summary + 1, #rowPool do rowPool[i]:Hide() end
+    panel:SetHeight(-y + 2)
+    panel:Show()
+end
+
 -- ---------------------------------------------------------------------------
 -- Events
 -- ---------------------------------------------------------------------------
@@ -430,7 +842,11 @@ local function OnStartRoll(_, rollID, rollTime)
     if not rollID then return end
     local link = Str((Call(API("GetLootRollItemLink"), rollID)))
     local ms = Num(rollTime)
-    rolls[rollID] = NewRoll(rollID, link, ms and ms > 0 and ms / 1000 or nil)
+    local r = NewRoll(rollID, link, ms and ms > 0 and ms / 1000 or nil)
+    local texture = Call(API("GetLootRollItemInfo"), rollID)
+    r.icon = Num(texture) or Str(texture)
+    rolls[rollID] = r
+    AddToSummary(r)
     Refresh()
 end
 
@@ -442,6 +858,8 @@ local function OnCancelRoll(_, rollID)
 end
 
 local function OnCancelAll()
+    local now = Now()
+    for _, r in pairs(rolls) do r.finishedAt = r.finishedAt or now end
     rolls, drops = {}, {}
     Refresh()
 end
@@ -555,6 +973,66 @@ local function PreviewFrame()
     return f
 end
 
+-- Three fake finished rolls in the summary, fed line by line through the parser where the client
+-- has the string (else the parsed result is built directly, so the summary is filled either way).
+local RULE_BY_NAME = {}
+for _, def in ipairs(RULE_DEFS) do RULE_BY_NAME[def[1]] = def end
+
+local function Feed(pool, rule, ...)
+    local def = RULE_BY_NAME[rule]
+    local f = Str(_G[rule])
+    local m
+    if f then
+        local ok, msg = pcall(string.format, f, ...)
+        m = ok and Parse(msg) or nil
+    end
+    if not m and def then
+        local args = { ... }
+        m = { kind = def[2], choice = def.choice, rule = rule, result = def.result }
+        for i, field in ipairs(def[3]) do m[field] = args[i] end
+        if def.self then m.player = Me() end
+    end
+    return Apply(m, pool)
+end
+
+local function FillTestSummary()
+    local you = Me()
+    local staff = "|cff0070dd|Hitem:2042::::::::1:::::::|h[Staff of Westfall]|h|r"
+    local silk = "|cff1eff00|Hitem:4306::::::::1:::::::|h[Silk Cloth]|h|r"
+    local gem = "|cff1eff00|Hitem:7909::::::::1:::::::|h[Aquamarine]|h|r"
+    local now = Now()
+    local made = {}
+    for i, link in ipairs({ staff, silk, gem }) do
+        local r = NewRoll(nil, link, 3600)
+        r.started, r.test = now - 3 + i, true
+        made[i] = r
+    end
+    local pool = made
+    Feed(pool, "LOOT_ROLL_NEED", "Elex", staff)
+    Feed(pool, "LOOT_ROLL_NEED", "Mira", staff)
+    Feed(pool, "LOOT_ROLL_GREED", "Bob", staff)
+    Feed(pool, "LOOT_ROLL_PASSED_SELF", staff)
+    Feed(pool, "LOOT_ROLL_PASSED", "Tarnwhisperingwood", staff)
+    Feed(pool, "LOOT_ROLL_PASSED_AUTO", "Wen", staff)
+    Feed(pool, "LOOT_ROLL_ROLLED_NEED", 87, staff, "Elex")
+    Feed(pool, "LOOT_ROLL_ROLLED_NEED", 42, staff, "Mira")
+    Feed(pool, "LOOT_ROLL_WON", "Elex", staff)
+    Feed(pool, "LOOT_ROLL_PASSED", "Elex", silk)
+    Feed(pool, "LOOT_ROLL_PASSED", "Bob", silk)
+    Feed(pool, "LOOT_ROLL_PASSED_SELF", silk)
+    Feed(pool, "LOOT_ROLL_ALL_PASSED", silk)
+    Feed(pool, "LOOT_ROLL_GREED", "Bob", gem)
+    Feed(pool, "LOOT_ROLL_GREED_SELF", gem)
+    Feed(pool, "LOOT_ROLL_DISENCHANT", "Wen", gem)
+    Feed(pool, "LOOT_ROLL_PASSED", "Elex", gem)
+    Feed(pool, "LOOT_ROLL_ROLLED_GREED", 55, gem, "Bob")
+    Feed(pool, "LOOT_ROLL_ROLLED_GREED", 71, gem, you)
+    Feed(pool, "LOOT_ROLL_ROLLED_DE", 30, gem, "Wen")
+    Feed(pool, "LOOT_ROLL_YOU_WON", gem)
+    for _, r in ipairs(made) do AddToSummary(r) end
+    Refresh()
+end
+
 local function RunTest()
     local link = "|cff1eff00|Hitem:4306::::::::1:::::::|h[Silk Cloth]|h|r"
     local you = Me()
@@ -588,6 +1066,8 @@ local function RunTest()
     end
     f:Show()
     if not Flag("counts") then A:Print("counts are off (/bloot counts on), so the buttons show none.") end
+    FillTestSummary()
+    if not Flag("summary") then A:Print("the summary is off (/bloot summary on), so it shows none.") end
 end
 
 -- ---------------------------------------------------------------------------
@@ -596,9 +1076,13 @@ end
 
 local function Changed() Refresh() end
 
-A:Toggle("enabled", "Loot roll counts", true, Changed)
+A:Toggle("enabled", "Loot roll counts and summary", true, Changed)
 A:Toggle("counts", "Counts on the Need / Greed / Pass buttons", true, Changed)
 A:Toggle("names", "Who chose what, in the button tooltips", true, Changed)
+A:Toggle("summary", "Summary panel of the last rolls", true, Changed)
+A:Toggle("autohide", "Hide the summary 60 s after the last roll", true, Changed)
+A:Slider("summaryRolls", "Rolls kept in the summary", 1, 10, 1, 5, Changed, nil, { cmd = "rolls" })
+A:Button("Summary back to its default place", function() ResetPosition() end, { cmd = "reset" })
 A:Button("Show a preview", function() RunTest() end, { cmd = "test" })
 
 local function ActiveCount()
@@ -615,7 +1099,8 @@ A.statusFn = function()
     local history = API("C_LootHistory", "GetSortedInfoForDrop") and " + loot history" or ""
     return OnOff(Enabled()) .. DOT .. "counts " .. OnOff(A:Get("counts")) .. DOT .. "names "
         .. OnOff(A:Get("names")) .. DOT .. "chat (" .. #(rules or BuildRules()) .. " patterns)" .. history
-        .. DOT .. ActiveCount() .. " open roll(s)"
+        .. DOT .. ActiveCount() .. " open roll(s)" .. DOT .. "summary " .. OnOff(A:Get("summary"))
+        .. " (" .. #summary .. "/" .. SummarySize() .. ", auto-hide " .. OnOff(A:Get("autohide")) .. ")"
 end
 
 A:Slash({ "/bloot", "/betterlootforever" })
@@ -633,8 +1118,12 @@ A:On("CANCEL_ALL_LOOT_ROLLS", OnCancelAll)
 A:On("CHAT_MSG_LOOT", OnChat)
 A:On("CHAT_MSG_SYSTEM", OnChat)
 A:On("LOOT_HISTORY_UPDATE_DROP", OnHistoryDrop)
+A:On("GROUP_ROSTER_UPDATE", function() Refresh() end)
 
 -- For the scratch tests outside the game; not part of the API.
 A._test = { Compile = Compile, Parse = Parse, Apply = Apply, NewRoll = NewRoll, Buckets = Buckets,
     BuildRules = BuildRules, rolls = function() return rolls end, OnStartRoll = OnStartRoll,
-    OnChat = OnChat, OnCancelRoll = OnCancelRoll, OnHistoryDrop = OnHistoryDrop }
+    OnChat = OnChat, OnCancelRoll = OnCancelRoll, OnHistoryDrop = OnHistoryDrop, Entries = Entries,
+    OnCancelAll = OnCancelAll, RunTest = RunTest, RefreshSummary = function() RefreshSummary() end,
+    summary = function() return summary end, panel = function() return panel end,
+    rows = function() return rowPool end, ResultText = ResultText }

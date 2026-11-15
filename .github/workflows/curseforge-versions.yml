@@ -1,0 +1,32 @@
+name: CurseForge game versions (dry run)
+
+# Read-only: lists CurseForge game version types/versions. No upload, no release, no tag.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List game versions
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: |
+          set -euo pipefail
+          base=https://wow.curseforge.com/api/game
+          curl -fsS -H "X-Api-Token: $CF_API_KEY" "$base/version-types" -o types.json
+          curl -fsS -H "X-Api-Token: $CF_API_KEY" "$base/versions" -o versions.json
+          echo "== version types (id, name, slug) =="
+          jq -r '.[] | [.id, .name, .slug] | @tsv' types.json
+          echo
+          echo "== versions matching forever|classic|1.60 (id, name, slug, gameVersionTypeID) =="
+          jq -r --slurpfile t types.json '
+            ($t[0] | map({key:(.id|tostring), value:(.name+" "+.slug)}) | from_entries) as $tn
+            | .[] | select(((.name+" "+.slug+" "+($tn[(.gameVersionTypeID|tostring)] // "")) | test("forever|classic|1\\.60";"i")))
+            | [.id, .name, .slug, .gameVersionTypeID] | @tsv' versions.json
+          echo
+          echo "== 15 newest by id =="
+          jq -r 'sort_by(.id) | reverse | .[:15][] | [.id, .name, .slug, .gameVersionTypeID] | @tsv' versions.json

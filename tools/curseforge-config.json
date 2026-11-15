@@ -3,6 +3,5 @@
   "gameVersionIds": [],
   "gameVersionNames": [],
   "requiredDependencyAddon": "BetterForever",
-  "requiredDependencySlug": null,
-  "_todo": "Fill requiredDependencySlug with the CurseForge slug of BetterForever (the last part of its project URL). While null, no dependency relation is sent."
+  "requiredDependencySlug": "betterforever"
 }

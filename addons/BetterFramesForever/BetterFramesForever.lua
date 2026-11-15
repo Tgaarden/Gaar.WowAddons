@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.14"
+local VERSION = "1.2.15"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -213,7 +213,7 @@ local UpdateFrame, StartDrag, StopDrag, ApplyBorder
 -- IsSecret is false on a client where nothing is secret; Plain is the value, or nil when it is
 -- secret, so every later test on it is an ordinary one; Num is a plain, finite number or nil.
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon("BetterFramesForever", { version = VERSION })
 local function Print(msg) A:Print(msg) end
 local OnOff, IsSecret, Plain, Num = BF.OnOff, BF.IsSecret, BF.Plain, BF.Num
 

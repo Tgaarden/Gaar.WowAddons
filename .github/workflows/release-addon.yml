@@ -1,0 +1,91 @@
+name: Release addon
+
+# Push a tag <AddonName>-v<version> (tools/release.sh does it), or run manually with an addon name.
+on:
+  push:
+    tags:
+      - "*-v*"
+  workflow_dispatch:
+    inputs:
+      addon:
+        description: "Addon folder name, e.g. BetterBuffsForever"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve addon and version
+        id: meta
+        env:
+          INPUT_ADDON: ${{ github.event.inputs.addon }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+            addon="${tag%-v*}"
+          else
+            addon="$INPUT_ADDON"
+            tag=""
+          fi
+          case "$addon" in *[!A-Za-z0-9_]*|"") echo "::error::bad addon name"; exit 1;; esac
+          toc="addons/$addon/$addon.toc"
+          [ -f "$toc" ] || { echo "::error::$toc not found"; exit 1; }
+          version="$(sed -n 's/^## Version: *//p' "$toc" | head -1 | tr -d '\r ')"
+          [ -n "$version" ] || { echo "::error::no ## Version in $toc"; exit 1; }
+          if [ -z "$tag" ]; then tag="$addon-v$version"; fi
+          if [ "$tag" != "$addon-v$version" ]; then
+            echo "::error::tag $tag does not match TOC version $version"; exit 1
+          fi
+          echo "addon=$addon" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build zip
+        run: |
+          set -euo pipefail
+          a="${{ steps.meta.outputs.addon }}"
+          mkdir -p staging
+          cp -R "addons/$a" "staging/$a"
+          (cd staging && zip -r "../$a-${{ steps.meta.outputs.version }}.zip" "$a" -x '*/.*')
+          unzip -l "$a-${{ steps.meta.outputs.version }}.zip"
+
+      - name: Changelog
+        run: |
+          set -euo pipefail
+          a="${{ steps.meta.outputs.addon }}"; tag="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git tag -l --format='%(contents)' "$tag" > changelog.md
+          fi
+          if [ ! -s changelog.md ]; then
+            prev="$(git tag --list "$a-v*" --sort=-v:refname | grep -vx "$tag" | head -1 || true)"
+            git log --no-merges --format='- %s' ${prev:+$prev..}HEAD -- "addons/$a" | head -30 > changelog.md
+          fi
+          [ -s changelog.md ] || echo "Release $tag" > changelog.md
+          cat changelog.md
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.meta.outputs.tag }}"; zip="${{ steps.meta.outputs.addon }}-${{ steps.meta.outputs.version }}.zip"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$zip" --clobber
+          else
+            gh release create "$tag" "$zip" --title "$tag" --notes-file changelog.md --target "$GITHUB_SHA"
+          fi
+
+      - name: CurseForge upload
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: |
+          tools/curseforge-upload.sh "${{ steps.meta.outputs.addon }}" "${{ steps.meta.outputs.addon }}-${{ steps.meta.outputs.version }}.zip" changelog.md

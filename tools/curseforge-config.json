@@ -1,0 +1,8 @@
+{
+  "_comment": "gameVersionIds: CurseForge game-version IDs to attach to every upload. Leave empty to resolve by name from /api/game/versions (gameVersionNames). If a name matches none or several, the upload step fails and prints the candidates; then put the right ID(s) in gameVersionIds.",
+  "gameVersionIds": [],
+  "gameVersionNames": [],
+  "requiredDependencyAddon": "BetterForever",
+  "requiredDependencySlug": null,
+  "_todo": "Fill requiredDependencySlug with the CurseForge slug of BetterForever (the last part of its project URL). While null, no dependency relation is sent."
+}

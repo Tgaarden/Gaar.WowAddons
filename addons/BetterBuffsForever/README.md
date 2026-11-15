@@ -1,15 +1,19 @@
-# BetterBuffsForever
+# GaarBuffsForever
+
+> Formerly **BetterBuffsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gbuff` (`/gaarbuffsforever`); the old `/bbuff` and `/betterbuffsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarbuffsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001), for druids,
 paladins, shamans, priests and mages, with a dispel panel for every class that can remove something (druids,
 shamans, priests, paladins and mages). A box at the top centre of the screen lists who in your group lacks your buffs and
-whether your reagents are running low. Click a name to buff that member. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+whether your reagents are running low. Click a name to buff that member. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 New in 1.6: in combat **the game itself draws the dispellable debuff's icon** on the dispel strip
 (Blizzard aura container), so a member with something to remove shows up even though the addon
 cannot read auras in combat; a **low-level member gets a lower rank** they can actually receive;
 an **"Expiring ..." warning** out of combat when one of your buffs has less than 2 minutes left
-(`/bbuff expire 0-5`); and the "something went missing" sound no longer fires for members left
+(`/gbuff expire 0-5`); and the "something went missing" sound no longer fires for members left
 out because they are out of range.
 
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
@@ -33,14 +37,14 @@ out because they are out of range.
 
 - **Druids, paladins, shamans, priests and mages** get the buff box and the dispel panel,
   picked by your class: there is nothing to set. On any other class (warrior,
-  rogue, hunter, warlock) the addon stays idle: no scans, no box, no panel. `/bbuff status` says
+  rogue, hunter, warlock) the addon stays idle: no scans, no box, no panel. `/gbuff status` says
   `not a druid, mage, paladin, priest or shaman: the addon is idle on this character.` A
   warlock's Felhunter (Devour Magic) is left out on purpose: it is the pet's spell, not yours.
 - **The tank** is, in this order:
   1. every member `UnitGroupRolesAssigned(unit)` calls `"TANK"`;
   2. else, in a raid, every main tank (`GetPartyAssignment("MAINTANK", unit)`);
-  3. else the tank you set by hand: target a group member and type `/bbuff tank` (saved per
-     character, `/bbuff tank clear` removes it; also in the hub menu);
+  3. else the tank you set by hand: target a group member and type `/gbuff tank` (saved per
+     character, `/gbuff tank clear` removes it; also in the hub menu);
   4. else there is no tank. You can be the tank yourself.
 - **Only spells you know.** A spell the character has not learned is not checked.
 - **The box.** At the top centre, shown only while something is missing: one section per thing
@@ -50,7 +54,7 @@ out because they are out of range.
   (`Low reagents: Wild Thornroot 3/10`). It hides again when everything is covered.
 - **Who is never warned about:** dead or ghost members, offline members, and members the client
   does not see (`UnitIsVisible`, too far away). Members out of the spell's range are left out of the
-  box (and of the out-of-combat dispel list) by default; with `/bbuff range on` (or the menu
+  box (and of the out-of-combat dispel list) by default; with `/gbuff range on` (or the menu
   toggle `Show members out of range`, saved account-wide) they are shown dimmed with
   `(out of range)` and stay clickable, the cast just fails. An unknown (secret) range is always
   shown. If every missing member is out of range the section, and the box, disappears.
@@ -58,12 +62,12 @@ out because they are out of range.
   Thorns, Power Word: Fortitude, Arcane Intellect, your own blessings, Lightning Shield, a weapon
   imbue) with less than N minutes left gets a row in an `Expiring Mark of the Wild:` (...,
   `Expiring blessings:`, `Weapon imbue expiring:`) section with the time left after the name,
-  `Healbot (1:45)`. Clicking recasts it. N is `/bbuff expire 0-5` or the menu slider (default 2,
+  `Healbot (1:45)`. Clicking recasts it. N is `/gbuff expire 0-5` or the menu slider (default 2,
   `0` = off). Only a plain, finite duration counts (a secret or permanent one is never warned
   about), and the box refreshes every 1.5 s while the warning is on. Expiring rows do not count
   as missing and do not play the sound.
 - **Unknown is not missing.** A member whose buffs cannot be read (a secret aura, a refused read)
-  counts as unknown and is never warned about. `/bbuff status` gives the count.
+  counts as unknown and is never warned about. `/gbuff status` gives the count.
 - **Low reagents** (on by default): counted in the bags only (`C_Item.GetItemCount`, else
   `GetItemCount`, bank not included), updated on `BAG_UPDATE_DELAYED`. A spell you do not know is
   skipped entirely. The line is not clickable.
@@ -110,14 +114,14 @@ the Wild.
   | Prayer of Fortitude (21562, 21564) | Sacred Candle (17029) | 10 |
   | Arcane Brilliance (23028) | Arcane Powder (17020) | 10 |
 
-- `/bbuff fort on|off` (priest) and `/bbuff ai on|off` (mage) switch the check, on by default;
-  `/bbuff reagents prayer <n>` and `/bbuff reagents brilliance <n>` set the thresholds. The hub
+- `/gbuff fort on|off` (priest) and `/gbuff ai on|off` (mage) switch the check, on by default;
+  `/gbuff reagents prayer <n>` and `/gbuff reagents brilliance <n>` set the thresholds. The hub
   menu and the Options page have the same switches.
 
 ## The dispel panel (druid, shaman, priest, paladin, mage)
 
 New in 1.2 for druids, since 1.3 for shamans and since 1.4 for priests, paladins and mages, in
-`Dispel.lua`. On by default (`/bbuff dispel off` to switch it off). What differs per class is
+`Dispel.lua`. On by default (`/gbuff dispel off` to switch it off). What differs per class is
 which kinds each mouse button removes (one table, `CLASS_CONFIG`: one or two actions, each with
 its spells and the kinds each spell removes):
 
@@ -134,20 +138,20 @@ out on purpose).
 
 - **Spells**, only those you know. The IDs are the classic ones (the same as in WhatsTraining's
   Vanilla/Camelot class data), resolved by ID, else by the localized name, again on
-  `SPELLS_CHANGED` / `LEARNED_SPELL_IN_TAB`; `/bbuff status` shows what was resolved. **Until you
+  `SPELLS_CHANGED` / `LEARNED_SPELL_IN_TAB`; `/gbuff status` shows what was resolved. **Until you
   know the class's dispel spell the panel stays hidden** (a low-level character), and it appears
   once you learn it.
 - **Only kinds your known spell removes count.** A paladin with only Purify is never shown a
   magic debuff; once Cleanse is learned, magic counts too.
 - **A panel of its own**, not part of the buff box. By default it sits just below the box (and
-  follows it). `/bbuff dispel unlock` to drag it (Alt + drag works when locked),
-  `/bbuff dispel lock`, `/bbuff dispel reset` to put it back below the box. The position is saved
+  follows it). `/gbuff dispel unlock` to drag it (Alt + drag works when locked),
+  `/gbuff dispel lock`, `/gbuff dispel reset` to put it back below the box. The position is saved
   account-wide.
 - **Out of combat**: one row per member, you included, with something you can remove: the
   class-coloured name and a tag per kind, `Magic` (blue), `Curse` (purple), `Poison` (green),
   `Disease` (ochre);
   `(you)`,
-  `(out of range)` (dimmed, only with `/bbuff range on`; left out otherwise). Dead, offline and unseen members are skipped. Read from the plain
+  `(out of range)` (dimmed, only with `/gbuff range on`; left out otherwise). Dead, offline and unseen members are skipped. Read from the plain
   `dispelName` of `C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")` (`UnitDebuff` on an older
   client).
 - **In combat**: the list is replaced by a fixed strip, one secure button per group member, shown
@@ -172,7 +176,7 @@ out on purpose).
 - **The game draws the icons in combat** (new in 1.6). On this client the addon cannot read
   auras in combat, so on its own the strip stayed empty there (unknown = hidden). Now each
   strip button has a Blizzard aura container under it (`CreateFrame("AuraContainer", nil, strip,
-  "CustomAuraContainerTemplate")`, the technique BetterFramesForever uses for unit frame auras)
+  "CustomAuraContainerTemplate")`, the technique GaarFramesForever uses for unit frame auras)
   for that member's unit, with one aura slot: filter `HARMFUL` plus the candidate filter
   `includeDispelTypes` = the kinds you can remove now (your known spell's kinds that are switched
   on, the same rule as the out-of-combat list; the retail engine's
@@ -187,7 +191,7 @@ out on purpose).
   boolean to hand to `SetAlphaFromBoolean`. If the addon can read a plain answer it still
   paints the button itself, covering the cell. No tooltip on a client-drawn cell. The
   containers are built with the strip, out of combat, and only shown (and listening) in
-  combat. `/bbuff status` has a `combat icons (Blizzard aura container):` line: active (with
+  combat. `/gbuff status` has a `combat icons (Blizzard aura container):` line: active (with
   how many buttons have one), not on this client, or refused (said once in chat; then the strip
   works as in 1.5).
 - **What to remove**, like the buff box's rows: the debuff's icon on the left, then `Name:` and the
@@ -208,7 +212,7 @@ out on purpose).
   in the table above on that member (`type1`/`spell1`, `type2`/`spell2`, `unit`); a paladin and a
   mage have one spell on both. A click whose spell you do not know or whose kinds are all switched
   off does nothing. Registered for the click direction `ActionButtonUseKeyDown` acts on.
-- **`/bbuff dispel magic off`** / **`curse off`** / **`poison off`** / **`disease off`**: that
+- **`/gbuff dispel magic off`** / **`curse off`** / **`poison off`** / **`disease off`**: that
   kind is ignored (no rows, no colour, no click). The settings are account-wide, so `poison off`
   applies to a druid, a shaman and a paladin alike. The menu and settings page show only the
   kinds of your class.
@@ -216,7 +220,7 @@ out on purpose).
 ### Finding a dispellable debuff in combat
 
 Aura contents are secret in combat on this client, and index reads from addon code are refused.
-Each member is tried in this order; the first way that answers wins, and `/bbuff status` says
+Each member is tried in this order; the first way that answers wins, and `/gbuff status` says
 which ways answered in the last fight:
 
 1. **Plain read**: the out-of-combat read, when the client allows it. Exact.
@@ -230,10 +234,10 @@ which ways answered in the last fight:
    passed straight to `SetVertexColor` and never read. Without a colour: yellow.
 3. **Filtered read**: `GetAuraDataByIndex(unit, 1..2, filter)`; a non-nil answer means there is
    one, the kind from a plain `dispelName` or else the colour API, else yellow.
-4. **None**: unknown, so the button is invisible (still clickable where it sits); `/bbuff status`
+4. **None**: unknown, so the button is invisible (still clickable where it sits); `/gbuff status`
    says so. The client-drawn cell under it (above) still shows a dispellable debuff.
 
-`/bbuff status` counts, per way, how each paint in the fight ended: `shown`, `hidden` (nothing to
+`/gbuff status` counts, per way, how each paint in the fight ended: `shown`, `hidden` (nothing to
 remove), `secret` (left to `SetAlphaFromBoolean`) or `unknown` (hidden), and lists why the earlier
 ways gave no answer (`ways that gave no answer: plain read: error: ...; aura instance IDs: ...`).
 
@@ -257,7 +261,7 @@ panel still covers the group).
   either). While the check is on, the box also refreshes every 1.5 s out of combat, since an
   imbue can run out without an event; `UNIT_INVENTORY_CHANGED`, `PLAYER_EQUIPMENT_CHANGED` and
   `WEAPON_ENCHANT_CHANGED` (where the client has it) refresh it at once.
-- **Which imbue a click casts** (per character): `/bbuff imbue auto|rockbiter|flametongue|frostbrand|windfury`,
+- **Which imbue a click casts** (per character): `/gbuff imbue auto|rockbiter|flametongue|frostbrand|windfury`,
   or the hub's **Weapon imbue** submenu. `auto`, the default, is Windfury Weapon when you know it,
   else Flametongue Weapon, else Rockbiter Weapon. A chosen imbue you do not know yet falls back to
   auto (the row says so). Always the highest rank you know, by name. Classic shamans cannot dual
@@ -267,9 +271,9 @@ panel still covers the group).
 
   | Reagent | For | Default threshold |
   |---|---|---|
-  | Ankh (17030) | Reincarnation (20608) | 2 (`/bbuff reagents ankh <n>`) |
-  | Earth Totem (5175), Fire Totem (5176), Water Totem (5177), Air Totem (5178) | any totem of that element | 1, so only when it is not in your bags; it is not used up (`/bbuff reagents totems 0` to switch off) |
-  | Shiny Fish Scales (17057) | Water Breathing (131) | 5 (`/bbuff reagents water <n>`) |
+  | Ankh (17030) | Reincarnation (20608) | 2 (`/gbuff reagents ankh <n>`) |
+  | Earth Totem (5175), Fire Totem (5176), Water Totem (5177), Air Totem (5178) | any totem of that element | 1, so only when it is not in your bags; it is not used up (`/gbuff reagents totems 0` to switch off) |
+  | Shiny Fish Scales (17057) | Water Breathing (131) | 5 (`/gbuff reagents water <n>`) |
   | Fish Oil (17058) | Water Walking (546) | 5 (the same threshold) |
 
   Counted by item ID, and by the item's name when the ID finds none.
@@ -285,9 +289,9 @@ Every member, you included, should have the blessing assigned to their class, fr
 | Warrior, Rogue, Hunter | Blessing of Might |
 | Mage, Priest, Warlock, Druid, Paladin, Shaman | Blessing of Wisdom |
 
-Change a class with `/bbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>` or
+Change a class with `/gbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>` or
 in the hub's **Blessings by class** submenu (one radio list per class). The assignments are
-account-wide; `/bbuff bless reset` puts back the defaults. `none` switches a class off. Kings is
+account-wide; `/gbuff bless reset` puts back the defaults. `none` switches a class off. Kings is
 never a default (it is a talent); it is the first fallback when you know it.
 
 The rules, per member:
@@ -332,13 +336,13 @@ Devotion Aura before you have used one. No row before you know an aura.
 
 A `Missing Righteous Fury:` row when you lack Righteous Fury (25780) and either you are the tank
 (the same tank rule as above: role `TANK`, raid main tank, or the tank set by hand is you) or you
-said you are tanking (`/bbuff tanking on`, per character, also a hub checkbox). Clicking casts it
+said you are tanking (`/gbuff tanking on`, per character, also a hub checkbox). Clicking casts it
 on yourself.
 
 ### Symbol of Kings
 
 `Low reagents: Symbol of Kings 12/20` when the bags hold fewer than the threshold (default 20,
-`/bbuff reagents kings <n>`) of Symbol of Kings (21177), the reagent of the Greater Blessings, and
+`/gbuff reagents kings <n>`) of Symbol of Kings (21177), the reagent of the Greater Blessings, and
 only while you know a Greater Blessing.
 
 ## Click to buff
@@ -374,10 +378,10 @@ are rebuilt. The rows' attributes, size and place are only ever changed out of c
 
 ## Moving the box
 
-- `/bbuff unlock`: the box stays shown (with a hint line) and can be dragged anywhere.
-  `/bbuff lock` when done.
+- `/gbuff unlock`: the box stays shown (with a hint line) and can be dragged anywhere.
+  `/gbuff lock` when done.
 - **Alt + drag** moves it at any time, locked or not (out of combat).
-- `/bbuff reset`: back to the top centre.
+- `/gbuff reset`: back to the top centre.
 
 The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from the top centre.
 
@@ -385,58 +389,58 @@ The position is saved account-wide in `BetterBuffsForeverDB`, as an offset from 
 
 | Command | Does |
 |---|---|
-| `/bbuff` or `/bbuff help` | Help (the commands for your class) |
-| `/bbuff on`, `/bbuff off` | Switch the addon on or off |
-| `/bbuff group [on\|off]` | List group members (off: only you are checked) |
-| `/bbuff sound [on\|off]` | A short sound when something new goes missing (off by default; never for members left out because they are out of range) |
-| `/bbuff expire <0-5>` | Out of combat, warn when one of your buffs has less than this many minutes left (default 2; `0` or `off` = off) |
-| `/bbuff range [on\|off]` | Show members out of range, dimmed (off by default: they are left out of the box and the dispel list) |
-| `/bbuff reagents [on\|off]` | The low-reagent warning (on by default) |
-| `/bbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
-| `/bbuff tank clear` | Clear the tank set by hand |
-| `/bbuff unlock`, `/bbuff lock`, `/bbuff reset` | Move the box, stop moving it, put it back at the top centre |
-| `/bbuff test` | Show the box with test rows for your class (they cast nothing), and for a class with a dispel panel the panel with sample rows and a sample strip in your class's colours; again to hide them |
-| `/bbuff status` | Version, the class module (Druid, Paladin, Shaman, Priest, Mage, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A shaman also gets the imbues known, the imbue choice and what a click casts, both hands' weapon and imbue state, Lightning Shield, Reincarnation, the totem elements known and Water Breathing / Walking. Every class with a dispel panel also gets it (state, spells per mouse button, the kinds it removes now, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
+| `/gbuff` or `/gbuff help` | Help (the commands for your class) |
+| `/gbuff on`, `/gbuff off` | Switch the addon on or off |
+| `/gbuff group [on\|off]` | List group members (off: only you are checked) |
+| `/gbuff sound [on\|off]` | A short sound when something new goes missing (off by default; never for members left out because they are out of range) |
+| `/gbuff expire <0-5>` | Out of combat, warn when one of your buffs has less than this many minutes left (default 2; `0` or `off` = off) |
+| `/gbuff range [on\|off]` | Show members out of range, dimmed (off by default: they are left out of the box and the dispel list) |
+| `/gbuff reagents [on\|off]` | The low-reagent warning (on by default) |
+| `/gbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
+| `/gbuff tank clear` | Clear the tank set by hand |
+| `/gbuff unlock`, `/gbuff lock`, `/gbuff reset` | Move the box, stop moving it, put it back at the top centre |
+| `/gbuff test` | Show the box with test rows for your class (they cast nothing), and for a class with a dispel panel the panel with sample rows and a sample strip in your class's colours; again to hide them |
+| `/gbuff status` | Version, the class module (Druid, Paladin, Shaman, Priest, Mage, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A shaman also gets the imbues known, the imbue choice and what a click casts, both hands' weapon and imbue state, Lightning Shield, Reincarnation, the totem elements known and Water Breathing / Walking. Every class with a dispel panel also gets it (state, spells per mouse button, the kinds it removes now, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
 | **Druid** | |
-| `/bbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
-| `/bbuff thorns [on\|off]` | Warn when you lack Thorns |
-| `/bbuff tank on\|off` | Warn when the tank lacks Thorns |
-| `/bbuff reagents gotw <n>`, `/bbuff reagents rebirth <n>` | Warn below n Gift of the Wild reagents (default 10) or Rebirth seeds (default 2), 0-200 |
-| `/bbuff dispel [on\|off]` | The dispel panel (no argument toggles) |
-| `/bbuff dispel curse [on\|off]`, `/bbuff dispel poison [on\|off]` | Each kind (also `magic` and `disease`, for the other classes) |
-| `/bbuff dispel unlock`, `lock`, `reset` | Move the dispel panel, stop moving it, put it back below the box |
+| `/gbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
+| `/gbuff thorns [on\|off]` | Warn when you lack Thorns |
+| `/gbuff tank on\|off` | Warn when the tank lacks Thorns |
+| `/gbuff reagents gotw <n>`, `/gbuff reagents rebirth <n>` | Warn below n Gift of the Wild reagents (default 10) or Rebirth seeds (default 2), 0-200 |
+| `/gbuff dispel [on\|off]` | The dispel panel (no argument toggles) |
+| `/gbuff dispel curse [on\|off]`, `/gbuff dispel poison [on\|off]` | Each kind (also `magic` and `disease`, for the other classes) |
+| `/gbuff dispel unlock`, `lock`, `reset` | Move the dispel panel, stop moving it, put it back below the box |
 | **Paladin** | |
-| `/bbuff bless [on\|off]` | The blessing check |
-| `/bbuff bless <class> <type>` | Assign a blessing to a class: `warrior`, `rogue`, `hunter`, `mage`, `priest`, `warlock`, `druid`, `paladin`, `shaman`; `might`, `wisdom`, `kings`, `salvation`, `light`, `sanctuary` or `none` |
-| `/bbuff bless reset` | Every class back to its default |
-| `/bbuff aura [on\|off]` | Warn when no aura is on |
-| `/bbuff fury [on\|off]` | Warn when you tank without Righteous Fury |
-| `/bbuff tanking [on\|off]` | Say you are tanking (this character), for the Righteous Fury check |
-| `/bbuff reagents kings <n>` | Warn below n Symbols of Kings (default 20), 0-200 |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel poison\|disease\|magic [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel (Cleanse, else Purify; `magic` only matters with Cleanse) |
+| `/gbuff bless [on\|off]` | The blessing check |
+| `/gbuff bless <class> <type>` | Assign a blessing to a class: `warrior`, `rogue`, `hunter`, `mage`, `priest`, `warlock`, `druid`, `paladin`, `shaman`; `might`, `wisdom`, `kings`, `salvation`, `light`, `sanctuary` or `none` |
+| `/gbuff bless reset` | Every class back to its default |
+| `/gbuff aura [on\|off]` | Warn when no aura is on |
+| `/gbuff fury [on\|off]` | Warn when you tank without Righteous Fury |
+| `/gbuff tanking [on\|off]` | Say you are tanking (this character), for the Righteous Fury check |
+| `/gbuff reagents kings <n>` | Warn below n Symbols of Kings (default 20), 0-200 |
+| `/gbuff dispel [on\|off]`, `/gbuff dispel poison\|disease\|magic [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel (Cleanse, else Purify; `magic` only matters with Cleanse) |
 | **Shaman** | |
-| `/bbuff imbue [on\|off]` | Warn when a weapon has no imbue |
-| `/bbuff imbue auto\|rockbiter\|flametongue\|frostbrand\|windfury` | What a click on the imbue row casts (this character; default auto) |
-| `/bbuff shield [on\|off]` | Warn when you lack Lightning Shield |
-| `/bbuff reagents ankh <n>`, `totems <n>`, `water <n>` | Warn below n Ankhs (default 2), totem items (default 1), Fish Oil / Shiny Fish Scales (default 5) |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel poison\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel, as for a druid |
+| `/gbuff imbue [on\|off]` | Warn when a weapon has no imbue |
+| `/gbuff imbue auto\|rockbiter\|flametongue\|frostbrand\|windfury` | What a click on the imbue row casts (this character; default auto) |
+| `/gbuff shield [on\|off]` | Warn when you lack Lightning Shield |
+| `/gbuff reagents ankh <n>`, `totems <n>`, `water <n>` | Warn below n Ankhs (default 2), totem items (default 1), Fish Oil / Shiny Fish Scales (default 5) |
+| `/gbuff dispel [on\|off]`, `/gbuff dispel poison\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel, as for a druid |
 | **Priest** | |
-| `/bbuff fort [on\|off]` | The Power Word: Fortitude check (Prayer of Fortitude counts; no argument toggles) |
-| `/bbuff reagents prayer <n>` | Warn below n Sacred Candles (default 10), 0-200, once Prayer of Fortitude is known |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel magic\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
+| `/gbuff fort [on\|off]` | The Power Word: Fortitude check (Prayer of Fortitude counts; no argument toggles) |
+| `/gbuff reagents prayer <n>` | Warn below n Sacred Candles (default 10), 0-200, once Prayer of Fortitude is known |
+| `/gbuff dispel [on\|off]`, `/gbuff dispel magic\|disease [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
 | **Mage** | |
-| `/bbuff ai [on\|off]` | The Arcane Intellect check, classes with mana only (Arcane Brilliance counts; no argument toggles) |
-| `/bbuff reagents brilliance <n>` | Warn below n Arcane Powder (default 10), 0-200, once Arcane Brilliance is known |
-| `/bbuff dispel [on\|off]`, `/bbuff dispel curse [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
+| `/gbuff ai [on\|off]` | The Arcane Intellect check, classes with mana only (Arcane Brilliance counts; no argument toggles) |
+| `/gbuff reagents brilliance <n>` | Warn below n Arcane Powder (default 10), 0-200, once Arcane Brilliance is known |
+| `/gbuff dispel [on\|off]`, `/gbuff dispel curse [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
 
 The class settings are account-wide (except the shaman's imbue choice, per character), so the
 druid commands also work on a paladin and the other way round; they only matter on that class.
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help). Since 1.2.2 it also takes its small helpers (the chat line, the secret-value, text and true/false checks, the combat check, on/off text, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.2.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help). Since 1.2.2 it also takes its small helpers (the chat line, the secret-value, text and true/false checks, the combat check, on/off text, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Buffs** submenu with the options for your class:
 
 - every class with a module: **Enabled**, then the class options, **List group members**, **Sound
@@ -510,7 +514,7 @@ The hub talks to this addon only through `BetterBuffsForeverAPI`:
   at login and on `SPELLS_CHANGED`, out of combat.
 - Buffs are read by index, `C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")` (`UnitBuff` or
   `UnitAura` on an older client), one `pcall` per read, asking
-  `C_Secrets.ShouldUnitAuraIndexBeSecret` first, as BetterFramesForever does. A buff is matched by
+  `C_Secrets.ShouldUnitAuraIndexBeSecret` first, as GaarFramesForever does. A buff is matched by
   spell ID, else by the localized name of any rank. A read that is refused or secret, or a buff
   with neither a readable ID nor name, makes the member unknown for that check.
 - Updates come from `UNIT_AURA` (player, party and raid units only), `GROUP_ROSTER_UPDATE`,
@@ -540,7 +544,7 @@ casts and which kinds each spell removes. Both TOCs list all six, the shared fil
 - Attributes and click registration are set only on the addon's own secure buttons, only out of
   combat; a spellbook change in combat waits for `PLAYER_REGEN_ENABLED`.
 - Every client API is checked with `type(...) == "function"` before use, every handler runs in
-  `pcall` (the last error is kept for `/bbuff status`), and a secret value is treated as no value,
+  `pcall` (the last error is kept for `/gbuff status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Account-wide
   (`BetterBuffsForeverDB`): `enabled`, `group`, `sound`, `reagents`, `locked`, `pos`,

@@ -1,9 +1,9 @@
 --[[
-  BetterForever - the family's pages under Esc > Options > AddOns > Better Forever.
+  BetterForever - the family's pages under Esc > Options > AddOns > Gaar Forever.
 
-  One top category, "Better Forever" (an overview: what the family is, each installed addon's
-  state line, the hub's own minimap switch and a pointer to /bf), and one subcategory per
-  installed Better...Forever addon. Each subpage is generated from that addon's MenuEntries(),
+  One top category, "Gaar Forever" (an overview: what the family is, each installed addon's
+  state line, the hub's own minimap switch and a pointer to /gf), and one subcategory per
+  installed Gaar...Forever addon. Each subpage is generated from that addon's MenuEntries(),
   the same data the minimap menu draws, so the two can never drift apart:
 
     checkbox                 -> a checkbox (getter: checked(), setter: func() when it differs)
@@ -700,12 +700,13 @@ end
 -- Overview page (hand-built: it is mostly text)
 -- ---------------------------------------------------------------------------
 
-local OVERVIEW_TEXT = "Better Forever is a family of small, independent addons for the WoW Forever client. "
+local OVERVIEW_TEXT = "Gaar Forever (formerly Gaar Forever) is a family of small, independent addons for the "
+    .. "WoW Forever client. "
     .. "This hub carries their shared code, one minimap button and these pages. Each installed addon "
     .. "has its own page below this one, built from the same options as the minimap menu, with a short "
-    .. "intro at the top. Every addon also keeps its own slash command. After an update the hub says "
-    .. "in chat what changed (/bf news); /bf profile gives a character its own settings, /bf export and "
-    .. "/bf import move settings as text, and /bf selftest checks the client APIs the family uses."
+    .. "intro at the top. Every addon also keeps its own slash command (the old /b... ones still work). After an update the hub says "
+    .. "in chat what changed (/gf news); /gf profile gives a character its own settings, /gf export and "
+    .. "/gf import move settings as text, and /gf selftest checks the client APIs the family uses."
 
 local function BuildOverview(page, hub)
     local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -717,19 +718,19 @@ local function BuildOverview(page, hub)
     intro:SetText(OVERVIEW_TEXT)
     local hint = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     hint:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -10)
-    hint:SetText("Type |cffffffff/bf|r for the hub's commands, |cffffffff/bf status|r for every addon's version and state.")
+    hint:SetText("Type |cffffffff/gf|r for the hub's commands, |cffffffff/gf status|r for every addon's version and state.")
     local headY = -46
     local cb = MakeCheck(page)
     if cb then
         cb:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -10)
-        cb.label:SetText("Show the Better Forever minimap button")
+        cb.label:SetText("Show the Gaar Forever minimap button")
         cb:SetScript("OnClick", function(self) Click(nil, hub.SetMinimapShown, self:GetChecked() and true or false) end)
     end
     -- 3.1: the what's-new lines at login.
     local news = hub.SetNewsShown and MakeCheck(page)
     if news then
         news:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -38)
-        news.label:SetText("Say in chat what changed after an update (/bf news)")
+        news.label:SetText("Say in chat what changed after an update (/gf news)")
         news:SetScript("OnClick", function(self) Click(nil, hub.SetNewsShown, self:GetChecked() and true or false) end)
         headY = -74
     end
@@ -743,17 +744,17 @@ local function BuildOverview(page, hub)
     list:SetSpacing(4)
 
     page.Refresh = function()
-        title:SetText("Better Forever " .. tostring(hub.version))
+        title:SetText("Gaar Forever " .. tostring(hub.version))
         if cb then cb:SetChecked(hub.MinimapShown() and true or false) end
         if news then news:SetChecked(hub.NewsShown() and true or false) end
         local lines = {}
         for _, a in ipairs(hub.ADDONS) do
             local api = hub.API(a)
             if api then
-                lines[#lines + 1] = "|cffffd100" .. a.label .. "|r  " .. a.name .. " " .. tostring(api.version or "?")
+                lines[#lines + 1] = "|cffffd100" .. a.label .. "|r  " .. a.title .. " " .. tostring(api.version or "?")
                     .. "  |cff9d9d9d" .. a.slash .. "|r  " .. tostring(hub.StatusOf(a) or "?")
             else
-                lines[#lines + 1] = "|cff808080" .. a.label .. "  " .. a.name .. " - not installed|r"
+                lines[#lines + 1] = "|cff808080" .. a.label .. "  " .. a.title .. " - not installed|r"
             end
         end
         list:SetText(table.concat(lines, "\n"))
@@ -773,7 +774,7 @@ local function AddonRows(a)
     local api = hubRef.API(a)
     local rows = {}
     if not api then
-        rows[1] = { kind = "text", text = a.name .. " is not loaded.", grey = true }
+        rows[1] = { kind = "text", text = a.title .. " is not loaded.", grey = true }
         return rows
     end
     local intro = Lib.IntroOf(api)
@@ -783,9 +784,9 @@ local function AddonRows(a)
     local ok, entries = pcall(api.MenuEntries)
     if ok and type(entries) == "table" then
         rows[#rows + 1] = { kind = "header", text = "Options" }
-        AddEntries(rows, entries, a.name)
+        AddEntries(rows, entries, a.title)
     else
-        rows[#rows + 1] = { kind = "text", grey = true, text = "This version of " .. a.name .. " has no options to show here." }
+        rows[#rows + 1] = { kind = "text", grey = true, text = "This version of " .. a.title .. " has no options to show here." }
     end
     return rows
 end
@@ -801,7 +802,7 @@ local function Register(frame, name, parent)
     end
     if type(_G.InterfaceOptions_AddCategory) == "function" then
         frame.name = name
-        if parent then frame.parent = parent.name or "Better Forever" end
+        if parent then frame.parent = parent.name or "Gaar Forever" end
         _G.InterfaceOptions_AddCategory(frame)
         return frame
     end
@@ -812,7 +813,7 @@ end
 function Pages.AddAddon(a)
     if not Pages.category or pagesByKey[a.key] or not hubRef.API(a) then return end
     local api = hubRef.API(a)
-    local page = NewPage(a.key, a.name .. " " .. tostring(api.version or ""), function() return AddonRows(a) end, a.name)
+    local page = NewPage(a.key, a.title .. " " .. tostring(api.version or ""), function() return AddonRows(a) end, a.title)
     local ok, cat = pcall(Register, page, a.label, Pages.category)
     if ok and cat then
         page.category = cat
@@ -830,7 +831,7 @@ function Pages.Init(hub)
     local overview = CreateFrame("Frame")
     overview:Hide()
     BuildOverview(overview, hub)
-    local ok, cat = pcall(Register, overview, "Better Forever")
+    local ok, cat = pcall(Register, overview, "Gaar Forever")
     if not ok or not cat then
         Pages.failed = true
         Pages.why = ok and "this client has no Settings API" or tostring(cat)

@@ -2,9 +2,9 @@
   BetterMerchantForever - sell junk and repair at a merchant, on WoW Forever.
 
   What it does, each part with its own switch (saved in BetterMerchantForeverDB, changed with
-  /bmerch <feature> on|off or from the BetterForever hub menu):
+  /gmerch <feature> on|off or from the BetterForever hub menu):
 
-    * enabled      master switch for everything below except /bmerch sell.
+    * enabled      master switch for everything below except /gmerch sell.
     * sellJunk     (default on) at MERCHANT_SHOW, sells every grey (quality 0) item in the bags, out
                    of combat, 3 items every 0.2 s so the server never throttles it. It stops when
                    the merchant closes or combat starts. Items you locked in BetterBagsForever are
@@ -16,8 +16,8 @@
                    withdraw allowance covers the cost), then falls back to your own money.
     * summary      (default on) one chat line for what was sold and repaired. With it off, each
                    part prints its own line.
-    * /bmerch sell sells the junk by hand while a merchant is open (no popup, no switch needed).
-    * /bmerch status shows the settings and the last result; /bmerch help lists the commands.
+    * /gmerch sell sells the junk by hand while a merchant is open (no popup, no switch needed).
+    * /gmerch status shows the settings and the last result; /gmerch help lists the commands.
     * BetterMerchantForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The small helpers (Print, Num,
       IsSecret, API, Call, InCombat, OnOff, RenderMenu) come from BetterForever's library.
@@ -30,7 +30,7 @@
 
   Taint and safety: no Blizzard function or frame is replaced or hooked. Selling is
   C_Container.UseContainerItem, which at a merchant sells; the repair is RepairAllItems. Every
-  handler runs in pcall (the last error is kept for /bmerch status), every client API is checked
+  handler runs in pcall (the last error is kept for /gmerch status), every client API is checked
   with type(...) == "function" first, and a secret value is never compared or tested: it is
   treated as no value.
 ]]
@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMerchantForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -48,7 +48,7 @@ local POPUP = "BETTERMERCHANTFOREVER_CONFIRM"
 local DEFAULTS = { enabled = true, sellJunk = true, sellJunkConfirm = false,
     autoRepair = true, guildRepair = false, summary = true }
 
--- The switches /bmerch can flip, in menu order: saved key, what to type, label.
+-- The switches /gmerch can flip, in menu order: saved key, what to type, label.
 local FEATURES = {
     { key = "sellJunk", names = { "selljunk", "junk" }, label = "Sell junk at merchants" },
     { key = "sellJunkConfirm", names = { "selljunkconfirm", "confirm" }, label = "Ask before selling junk" },
@@ -72,7 +72,7 @@ local lastError
 local BF = _G.BetterForever
 local IsSecret, Num, API, Call = BF.IsSecret, BF.Num, BF.API, BF.Call
 local InCombat, OnOff = BF.InCombat, BF.OnOff
-local A = BF.NewAddon("BetterMerchantForever", { version = VERSION })
+local A = BF.NewAddon("BetterMerchantForever", { title = "GaarMerchantForever", version = VERSION })
 
 local function Print(msg) A:Print(msg) end
 
@@ -242,7 +242,7 @@ local function AskSale(list)
         end,
         timeout = 0, whileDead = false, hideOnEscape = true, preferredIndex = 3,
     }
-    _G.StaticPopup_Show(POPUP, string.format("BetterMerchantForever: sell %d junk item%s for about %s?",
+    _G.StaticPopup_Show(POPUP, string.format("GaarMerchantForever: sell %d junk item%s for about %s?",
         #list, #list == 1 and "" or "s", Money(Estimate(list))))
     return true
 end
@@ -356,25 +356,25 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "At a merchant it sells your grey items and repairs your gear, optionally with guild funds, and sums it up in one chat line. Nice to know: items you locked in BetterBagsForever (Alt-click) are never sold; selling stops in combat or when the merchant closes; /bmerch sell sells the junk on demand."
+local INTRO = "At a merchant it sells your grey items and repairs your gear, optionally with guild funds, and sums it up in one chat line. Nice to know: items you locked in GaarBagsForever (Alt-click) are never sold; selling stops in combat or when the merchant closes; /gmerch sell sells the junk on demand."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bmerch on | off - master switch (now " .. OnOff(Enabled()) .. ")")
-    Print("/bmerch sell - sell the junk now (merchant must be open)")
-    Print("/bmerch junk | confirm | repair | guild | summary on|off - one feature each")
-    Print("/bmerch status - settings and last result")
+    Print("/gmerch on | off - master switch (now " .. OnOff(Enabled()) .. ")")
+    Print("/gmerch sell - sell the junk now (merchant must be open)")
+    Print("/gmerch junk | confirm | repair | guild | summary on|off - one feature each")
+    Print("/gmerch status - settings and last result")
 end
 
 local function PrintStatus()
     Print("version " .. VERSION .. DOT .. "addon " .. OnOff(Enabled()))
     for _, f in ipairs(FEATURES) do
-        Print(f.label .. ": " .. OnOff(Flag(f.key)) .. "   (/bmerch " .. f.names[#f.names] .. " on|off)")
+        Print(f.label .. ": " .. OnOff(Flag(f.key)) .. "   (/gmerch " .. f.names[#f.names] .. " on|off)")
     end
     local bbf = type(_G.BetterBagsForeverCharDB) == "table" and type(_G.BetterBagsForeverCharDB.lockedItems) == "table"
     local n = 0
     if bbf then for _ in pairs(_G.BetterBagsForeverCharDB.lockedItems) do n = n + 1 end end
-    Print("BetterBagsForever locks: " .. (bbf and (n .. " locked item(s), skipped when selling") or "none found"))
+    Print("GaarBagsForever locks: " .. (bbf and (n .. " locked item(s), skipped when selling") or "none found"))
     Print("merchant open: " .. OnOff(merchantOpen) .. DOT .. "selling: " .. (sale and "yes" or "no"))
     Print("last result: " .. lastResult)
     if lastError then Print("last error: " .. lastError) end
@@ -398,7 +398,7 @@ local function OnSlash(msg)
                 SetFlag(f.key, arg == "on")
                 Print(f.label .. ": " .. OnOff(Flag(f.key)) .. ".")
             else
-                Print(f.label .. " is " .. OnOff(Flag(f.key)) .. ". /bmerch " .. cmd .. " on|off")
+                Print(f.label .. " is " .. OnOff(Flag(f.key)) .. ". /gmerch " .. cmd .. " on|off")
             end
         else
             PrintHelp()
@@ -412,7 +412,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterMerchantForeverDB and change only through the
--- same functions /bmerch uses, so the addon behaves the same with or without the hub.
+-- same functions /gmerch uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · junk on · repair on · guild off"
@@ -494,6 +494,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERMERCHANTFOREVER1 = "/bmerch"
-SLASH_BETTERMERCHANTFOREVER2 = "/bettermerchantforever"
+SLASH_BETTERMERCHANTFOREVER1 = "/gmerch"
+SLASH_BETTERMERCHANTFOREVER2 = "/gaarmerchantforever"
+SLASH_BETTERMERCHANTFOREVER3 = "/bmerch" -- the command before the Gaar rename
+SLASH_BETTERMERCHANTFOREVER4 = "/bettermerchantforever"
 SlashCmdList.BETTERMERCHANTFOREVER = OnSlash

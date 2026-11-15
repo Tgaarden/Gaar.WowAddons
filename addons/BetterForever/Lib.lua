@@ -1,8 +1,8 @@
 --[[
-  BetterForever - the shared core of the Better...Forever family, for WoW Forever.
+  BetterForever - the shared core of the Gaar...Forever family, for WoW Forever.
 
   This file is loaded first (BetterForever.toc lists it before anything else) and every
-  Better...Forever addon lists BetterForever under ## Dependencies, so the global table below is
+  Gaar...Forever addon lists BetterForever under ## Dependencies, so the global table below is
   there before any of them runs a line. It only defines helpers: nothing here creates a frame,
   registers an event or touches a Blizzard function until an addon asks for it.
 
@@ -36,6 +36,7 @@
     BetterForever.IntroOf(api)     an addon API table's intro text (Intro() or intro), or nil
 
   Addons:
+    BetterForever.DisplayName(name) "BetterBagsForever" -> "GaarBagsForever", the name users see (3.2)
     BetterForever.NewAddon(name, opts) -> addon object; see the README ("For addon authors") for
     :Print, :InitDB, :Toggle, :Choice, :Slider, :Button, :Divider, :Get, :Set, :MenuEntries,
     :Slash, :Run, :On and :API; since 3.1 also :ProfileMode, :SetProfileMode, :ExportSettings
@@ -57,7 +58,7 @@ if type(Lib) ~= "table" then
     Lib = {}
     _G.BetterForever = Lib
 end
-Lib.version = "3.1.0"
+Lib.version = "3.2.0"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -207,7 +208,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Menus
 --
--- MenuEntries() data, the shape every Better...Forever addon hands the hub:
+-- MenuEntries() data, the shape every Gaar...Forever addon hands the hub:
 --   { text, func }                           a button
 --   { text, checkbox = true, checked, func } a checkbox; func toggles
 --   { text, radio = true, checked, func }    one choice of a group; func picks it
@@ -260,12 +261,12 @@ local function Click(e, title)
 end
 
 -- Errors from a menu click or an Options page: one chat line each, under the title of the addon
--- they came from (title; "BetterForever" when not given), and once each to the game's error
+-- they came from (title; "GaarForever" when not given), and once each to the game's error
 -- handler, so a tool such as BugSack has a copy. Each distinct error is reported once a session.
 local reported = {}
 function Lib.Report(err, title)
     err = tostring(err)
-    title = (type(title) == "string" and title ~= "") and title or "BetterForever"
+    title = (type(title) == "string" and title ~= "") and title or "GaarForever"
     local id = title .. "\0" .. err
     if reported[id] then return end
     reported[id] = true
@@ -376,14 +377,22 @@ local function MergeDefaults(t, defaults)
 end
 Lib.MergeDefaults = MergeDefaults
 
--- opts: version (string), title (chat prefix; the name by default), intro (string),
+-- The name an addon is shown under: the folder name with "Better" swapped for "Gaar" (the family
+-- was renamed Gaar...Forever in 3.2; folders, saved variables and globals keep the old names so
+-- settings carry over). "BetterBagsForever" -> "GaarBagsForever".
+function Lib.DisplayName(name)
+    if type(name) ~= "string" then return name end
+    return (name:gsub("^Better", "Gaar"))
+end
+
+-- opts: version (string), title (chat prefix; Lib.DisplayName(name) by default), intro (string),
 -- status (function returning the status line), help (list of extra /x help lines).
 function Lib.NewAddon(name, opts)
     opts = opts or {}
     local a = setmetatable({
         name = name,
         version = opts.version or "?",
-        title = opts.title or name,
+        title = opts.title or Lib.DisplayName(name),
         intro = opts.intro,
         statusFn = opts.status,
         helpLines = opts.help or {},
@@ -744,7 +753,7 @@ end
 
 function Addon:PrintHelp()
     if self.intro then self:Print(self.intro) end
-    local slash = self.slash or ("/" .. self.name:lower())
+    local slash = self.slash or ("/" .. self.title:lower())
     if self.byKey.enabled then
         self:Print(slash .. " on | off - " .. self.byKey.enabled.label .. " (now " .. Lib.OnOff(self:Get("enabled")) .. ")")
     end
@@ -1096,7 +1105,7 @@ function Lib.DecodeSettings(s)
     s = s:gsub("%s+", "")
     if s == "" then return nil, "nothing pasted" end
     local name, check, b64 = s:match("^BF1:([%w_]+):(%x%x%x%x%x%x%x%x):([%w%+/=]+)$")
-    if not name then return nil, "not a BetterForever settings string" end
+    if not name then return nil, "not a GaarForever settings string" end
     local body = Lib.Base64Decode(b64)
     if not body then return nil, "the string is damaged (not base64)" end
     if Check(body) ~= check:lower() then return nil, "the string is damaged or cut short" end

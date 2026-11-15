@@ -5,8 +5,8 @@
 
     * Blessings, by class. Every member (you too) gets the blessing assigned to their class:
       Warrior, Rogue, Hunter -> Might; Mage, Priest, Warlock, Druid, Paladin, Shaman -> Wisdom.
-      Change a class with /bbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>
-      or the hub's "Blessings by class" submenu (account-wide; /bbuff bless reset for the
+      Change a class with /gbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>
+      or the hub's "Blessings by class" submenu (account-wide; /gbuff bless reset for the
       defaults). Kings is never a default; it is the first fallback when you know it.
         - Covered: the member has the assigned type from anyone (any rank, normal or Greater).
         - Fallback: the assigned type is there from another paladin and the member has nothing
@@ -35,7 +35,7 @@
       (remembered per character whenever the active form changes; Devotion Aura before that).
     * Righteous Fury: when you are the tank (role TANK, raid main tank, or the tank set by hand
       is you: the same tank rule as the druid's Thorns) or you said you are tanking
-      (/bbuff tanking on, per character), and you lack Righteous Fury. The row casts it.
+      (/gbuff tanking on, per character), and you lack Righteous Fury. The row casts it.
     * Low reagents: Symbol of Kings (21177), for the Greater Blessings, below 20 by default,
       only when you know a Greater Blessing.
 
@@ -457,22 +457,22 @@ end
 
 function M.Help()
     return {
-        "/bbuff bless [on|off] - the blessing check by class; /bbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>; /bbuff bless reset",
-        "/bbuff aura [on|off] - warn when none of your auras is on (click: the aura you used last)",
-        "/bbuff fury [on|off] - warn when you tank without Righteous Fury; /bbuff tanking [on|off] - say you are tanking (this character)",
-        "/bbuff tank - your target is the tank (Righteous Fury when it is you, no Salvation for the tank); /bbuff tank clear",
+        "/gbuff bless [on|off] - the blessing check by class; /gbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>; /gbuff bless reset",
+        "/gbuff aura [on|off] - warn when none of your auras is on (click: the aura you used last)",
+        "/gbuff fury [on|off] - warn when you tank without Righteous Fury; /gbuff tanking [on|off] - say you are tanking (this character)",
+        "/gbuff tank - your target is the tank (Righteous Fury when it is you, no Salvation for the tank); /gbuff tank clear",
     }
 end
 
 function M.Slash(cmd, arg)
     if cmd == "aura" or cmd == "fury" then
         local v = ns.Toggle(arg, On(cmd))
-        if v == nil then ns.Print("/bbuff " .. cmd .. " [on|off]") else ns.Set(cmd, v) end
+        if v == nil then ns.Print("/gbuff " .. cmd .. " [on|off]") else ns.Set(cmd, v) end
         return true
     elseif cmd == "tanking" then
         local v = ns.Toggle(arg, Tanking())
         if v == nil then
-            ns.Print("/bbuff tanking [on|off]")
+            ns.Print("/gbuff tanking [on|off]")
         else
             ns.CharDB().tanking = v or nil
             ns.Refresh()
@@ -496,7 +496,7 @@ function M.Slash(cmd, arg)
         if classFile and DEFAULT_ASSIGN[classFile] and VALID[t] then
             SetAssignment(classFile, t)
         else
-            ns.Print("/bbuff bless [on|off], /bbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>, /bbuff bless reset")
+            ns.Print("/gbuff bless [on|off], /gbuff bless <class> <might|wisdom|kings|salvation|light|sanctuary|none>, /gbuff bless reset")
             ns.Print("now: " .. AssignmentText())
         end
         return true

@@ -1,9 +1,13 @@
-# BetterCastbarsForever
+# GaarCastbarsForever
+
+> Formerly **BetterCastbarsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gcf` (`/gaarcastbarsforever`); the old `/bcf` and `/bettercastbarsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarcastbarsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It draws its
 own cast bars for the player, target, focus and pet, which you can place yourself or let follow
-Blizzard's own bars (Edit Mode). It needs BetterForever, the family hub, and no other addon or library. It is a port of
-[GaarCast](../GaarCast/GaarCast.lua) to the Better...Forever conventions, and keeps everything
+Blizzard's own bars (Edit Mode). It needs GaarForever, the family hub, and no other addon or library. It is a port of
+[GaarCast](../GaarCast/GaarCast.lua) to the Gaar...Forever conventions, and keeps everything
 GaarCast learnt about secret values.
 
 ## What it does
@@ -51,7 +55,7 @@ GaarCast learnt about secret values.
 
 1.1.1: PLAYER_SWING payload is (duration, swingType), so OffHand and Ranged swings now drive the right bars with the real duration.
 1.1.2: the swing rows start at the spell icon's left edge instead of the bar's.
-1.1.3: enemy casts show again: their secret timings drive the bar through `SetTimerDuration` (or `SetMinMaxValues`) instead of being dropped; `/bcf debug` explains each target/focus cast.
+1.1.3: enemy casts show again: their secret timings drive the bar through `SetTimerDuration` (or `SetMinMaxValues`) instead of being dropped; `/gcf debug` explains each target/focus cast.
 
 Not in 1.1: channel ticks, a GCD bar, nameplate cast bars, an options panel and a minimap button.
 
@@ -65,11 +69,11 @@ Forever gives addons no combat log reader (`C_CombatLog` has only `IsCombatLogRe
   `Enum.PlayerSwingType`; it is what the client's own swing bar runs on. Each one restarts the
   bar of the hand it names, so hits, misses, dodges, parries, blocks and landed on-next-swing
   abilities all count. The payload is `(duration, swingType)`: the second value (an `Enum.PlayerSwingType`: main hand 0, off hand 1, ranged 2) picks the bar and the first is the swing length in seconds when sane, else it comes from
-  `UnitAttackSpeed` / `UnitRangedDamage`. A ranged swing drives the Ranged bar (Auto Shot/Shoot only as a fallback). `/bcf swing debug` prints every payload and the enum, to check this in game.
+  `UnitAttackSpeed` / `UnitRangedDamage`. A ranged swing drives the Ranged bar (Auto Shot/Shoot only as a fallback). `/gcf swing debug` prints every payload and the enum, to check this in game.
 - **An estimate** until `PLAYER_SWING` has been seen this session, or where it cannot be
   registered: turning auto-attack on (`PLAYER_ENTER_COMBAT`) starts a swing at once and the bar
   loops while auto-attack lasts; Heroic Strike, Cleave, Maul and Raptor Strike restart the main
-  hand when `UNIT_SPELLCAST_SUCCEEDED` reports them. `/bcf status` says which source is in use.
+  hand when `UNIT_SPELLCAST_SUCCEEDED` reports them. `/gcf status` says which source is in use.
 - **Always:** Slam restarts the main hand when it succeeds; Auto Shot and Shoot (wand) restart
   the ranged bar on `UNIT_SPELLCAST_SUCCEEDED` (length from `UnitRangedDamage`); a haste change
   (`UNIT_ATTACK_SPEED`, `UNIT_RANGEDDAMAGE`) rescales a running swing, keeping the share already
@@ -88,38 +92,38 @@ it parries you does not apply (only your own timer is tracked).
 
 | Command | Does |
 |---|---|
-| `/bcf`, `/bcf help` | Help, with the current value of every setting |
-| `/bcf status` | Which APIs and Blizzard bars this client has, every setting, each bar's state, place and size, any bar the client refused, the swing timer settings and where its swings come from, and a GaarCast warning if it is loaded |
-| `/bcf lock`, `/bcf unlock` | Stop or allow moving and resizing |
-| `/bcf test`, `/bcf test on`, `/bcf test off` | Toggle or set the looping test casts |
-| `/bcf reset` | Positions and sizes back to the defaults |
-| `/bcf follow on`, `/bcf follow off` | Anchor the bars to Blizzard's cast bars (Edit Mode) or use their own position |
-| `/bcf bar <player\|target\|focus\|pet> on\|off` | Which bars to draw (without `on`/`off`: toggle) |
-| `/bcf latency on\|off` | Latency safe-zone on the player bar (on by default) |
-| `/bcf texture blizzard\|smooth\|flat` | Bar texture (Blizzard by default) |
-| `/bcf font 9\|11\|13` | Font size (11 by default) |
-| `/bcf timer total\|remain` | `remain / total` (default) or just `remain` |
-| `/bcf swing on\|off` | Swing timer under the player bar (on by default; without `on`/`off`: toggle) |
-| `/bcf swing offhand on\|off` | Off-hand swing bar while dual-wielding (on by default) |
-| `/bcf swing ranged on\|off` | Ranged swing bar for Auto Shot / Shoot (on by default) |
-| `/bcf debug`, `/bcf debug on\|off` | Print, for every cast event on target, focus and pet, what was read and why a cast was or was not shown (not saved); `/bcf status` shows the last one |
-| `/bcf swing debug` | Print every `PLAYER_SWING` payload and `Enum.PlayerSwingType` (not saved) |
+| `/gcf`, `/gcf help` | Help, with the current value of every setting |
+| `/gcf status` | Which APIs and Blizzard bars this client has, every setting, each bar's state, place and size, any bar the client refused, the swing timer settings and where its swings come from, and a GaarCast warning if it is loaded |
+| `/gcf lock`, `/gcf unlock` | Stop or allow moving and resizing |
+| `/gcf test`, `/gcf test on`, `/gcf test off` | Toggle or set the looping test casts |
+| `/gcf reset` | Positions and sizes back to the defaults |
+| `/gcf follow on`, `/gcf follow off` | Anchor the bars to Blizzard's cast bars (Edit Mode) or use their own position |
+| `/gcf bar <player\|target\|focus\|pet> on\|off` | Which bars to draw (without `on`/`off`: toggle) |
+| `/gcf latency on\|off` | Latency safe-zone on the player bar (on by default) |
+| `/gcf texture blizzard\|smooth\|flat` | Bar texture (Blizzard by default) |
+| `/gcf font 9\|11\|13` | Font size (11 by default) |
+| `/gcf timer total\|remain` | `remain / total` (default) or just `remain` |
+| `/gcf swing on\|off` | Swing timer under the player bar (on by default; without `on`/`off`: toggle) |
+| `/gcf swing offhand on\|off` | Off-hand swing bar while dual-wielding (on by default) |
+| `/gcf swing ranged on\|off` | Ranged swing bar for Auto Shot / Shoot (on by default) |
+| `/gcf debug`, `/gcf debug on\|off` | Print, for every cast event on target, focus and pet, what was read and why a cast was or was not shown (not saved); `/gcf status` shows the last one |
+| `/gcf swing debug` | Print every `PLAYER_SWING` payload and `Enum.PlayerSwingType` (not saved) |
 
-`/bettercastbarsforever` works the same as `/bcf`.
+`/gaarcastbarsforever` works the same as `/gcf`.
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.1.4 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.1.4 (it is also the first line of the slash command's help). Since 1.1.5 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.1.4 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.1.4 (it is also the first line of the slash command's help). Since 1.1.5 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
-menu has a submenu per Better...Forever addon. Its **Castbars** row is in
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
+menu has a submenu per Gaar...Forever addon. Its **Castbars** row is in
 the hub (then named BetterGaarForever) 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
 size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Swing timer** (Show swing
 timer, Off hand, Ranged), **Follow Blizzard (Edit Mode)**,
 **Latency safe-zone**, **Texture**, **Font size**, the two **Timer** styles and **Reset positions
-& sizes**, the same settings as `/bcf` (both go through the same functions). This addon has no
+& sizes**, the same settings as `/gcf` (both go through the same functions). This addon has no
 minimap button or menu of its own, so nothing here changes with or without the hub: the settings
-stay in `BetterCastbarsForeverDB` and `/bcf` stays as it is.
+stay in `BetterCastbarsForeverDB` and `/gcf` stays as it is.
 
 The hub talks to this addon only through `BetterCastbarsForeverAPI`:
 
@@ -156,11 +160,11 @@ The hub talks to this addon only through `BetterCastbarsForeverAPI`:
   in chat and keeps the last good value. Saved entries with a field missing are purged on load.
 - **The client's refusal is the answer.** `issecretvalue` does not flag everything, so each
   bar's per-frame update and its event handling run under `pcall`. The first error switches that
-  one bar off until `/reload`, with one line in chat and a note in `/bcf status`, instead of an
+  one bar off until `/reload`, with one line in chat and a note in `/gcf status`, instead of an
   error every frame.
 - **GaarCast.** Both addons hide and replace the same Blizzard cast bars. If GaarCast is loaded
   (`C_AddOns.IsAddOnLoaded`, or `IsAddOnLoaded`), a one-time warning is printed at login and
-  `/bcf status` repeats it. Nothing is disabled: use one of the two.
+  `/gcf status` repeats it. Nothing is disabled: use one of the two.
 - Every name is checked before use; a missing frame or function means that feature or bar falls
   back or stays off instead of raising an error.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `follow`,

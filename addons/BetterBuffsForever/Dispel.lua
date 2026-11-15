@@ -25,12 +25,12 @@
       (528); the paladin's Cleanse (4987) and Purify (1152); the mage's Remove Lesser Curse (475).
       The IDs are the classic ones (WhatsTraining's Vanilla/Camelot class data have the same);
       they are resolved at login and on SPELLS_CHANGED / LEARNED_SPELL_IN_TAB like the buffs (by
-      ID, else by the localized name), and /bbuff status shows what was found. Until the class's
+      ID, else by the localized name), and /gbuff status shows what was found. Until the class's
       dispel spell is known (a low-level character) the panel stays hidden.
     * The kinds a member counts for are the ones the known spell removes: a paladin with only
       Purify is never shown a magic debuff; with Cleanse it is.
     * A panel of its own, not part of the buff box: by default just below the box (it follows the
-      box), movable (/bbuff dispel unlock, or Alt + drag; /bbuff dispel reset), position saved
+      box), movable (/gbuff dispel unlock, or Alt + drag; /gbuff dispel reset), position saved
       account-wide as an offset from the top centre.
     * Out of combat: one row per member (you too) with something you can remove: the
       class-coloured name and a coloured tag per kind ("Magic" blue, "Curse" purple, "Poison"
@@ -48,7 +48,7 @@
       container for that member shows the icon, the debuff's name, the member's name and a bar
       in the dispel type's colour whenever the member has a debuff of a kind you can remove,
       though this addon cannot read it then. The secure button stays on top, invisible, and
-      takes the click. See "Client-drawn icons in combat" below; /bbuff status says whether it
+      takes the click. See "Client-drawn icons in combat" below; /gbuff status says whether it
       is active. Everything after this point is what the addon itself paints on the button.
     * A strip button is only seen when that member has something to remove: no dispellable
       debuff = the whole button at alpha 0 (SetAlpha is allowed on a secure button in combat;
@@ -79,7 +79,7 @@
   Detecting a dispellable debuff in combat. On this client (Forever 1.60.1, retail 12.x rules)
   auras are secret in combat and an index read from addon code is refused with an error (see
   BetterFramesForever). So each member is tried in this order, the first that answers wins, and
-  /bbuff status says which one answered in the last fight:
+  /gbuff status says which one answered in the last fight:
     1. "plain read": GetAuraDataByIndex(unit, i, "HARMFUL") with a plain dispelName (UnitDebuff
        on an older client). Exact; this is what runs out of combat.
     2. "aura instance IDs": C_UnitAuras.GetUnitAuraInstanceIDs(unit, filter, 2) with the
@@ -95,7 +95,7 @@
        yellow.
     4. "none": unknown, so the button is invisible (still clickable where it sits); the client's
        own cell under it (above) still shows a dispellable debuff.
-  /bbuff status counts, per way, how each paint ended (shown, hidden, secret = left to
+  /gbuff status counts, per way, how each paint ended (shown, hidden, secret = left to
   SetAlphaFromBoolean, unknown = hidden) and why the earlier ways gave no answer.
   Throttled: UNIT_AURA marks a member, the strip repaints marked members at most 10 times a
   second in combat (and everyone once a second); the list updates at most 4 times a second, and
@@ -319,7 +319,7 @@ local function Present(v)
     return Secret(v) or v ~= nil
 end
 
--- A short, plain reason from an error (for /bbuff status).
+-- A short, plain reason from an error (for /gbuff status).
 local function Why(err)
     local s = tostring(err):gsub("^.-:%d+: ", "")
     return "error: " .. s:sub(1, 70)
@@ -879,7 +879,7 @@ end
 -- strip, so they are only shown (and only listen to UNIT_AURA) in combat.
 --
 -- Built out of combat with the strip; where the client has no such container (or refuses the
--- setup, said once in chat) the strip works as before. /bbuff status has a line for it.
+-- setup, said once in chat) the strip works as before. /gbuff status has a line for it.
 -- ---------------------------------------------------------------------------
 
 local CELL_SLOT, CELL_FILTER = "dispel", "HARMFUL"
@@ -1051,7 +1051,7 @@ local function CellCount()
     return n
 end
 
--- For /bbuff status.
+-- For /gbuff status.
 local function CellStatus()
     if cellInfo.missing then
         return "not on this client (" .. cellInfo.missing .. "): in combat only what this addon can read is shown"
@@ -1370,8 +1370,8 @@ local function UpdateList()
     if unlocked or testing then
         local parts = {}
         if #entries == 0 then parts[#parts + 1] = "Dispel: nothing to remove." end
-        if testing then parts[#parts + 1] = "Test rows (/bbuff test hides them)." end
-        if unlocked then parts[#parts + 1] = "Unlocked: drag to move, /bbuff dispel lock." end
+        if testing then parts[#parts + 1] = "Test rows (/gbuff test hides them)." end
+        if unlocked then parts[#parts + 1] = "Unlocked: drag to move, /gbuff dispel lock." end
         hint:ClearAllPoints()
         hint:SetPoint("TOPLEFT", listBox, "TOPLEFT", PAD + 2, y - 2)
         hint:SetText(table.concat(parts, "\n"))
@@ -1423,7 +1423,7 @@ local function SetLocked(locked)
     db.dispelLocked = (not locked) and false or nil
     listDirty = true
     Print(locked and "dispel panel locked (Alt + drag still moves it)."
-        or "dispel panel unlocked: drag it to move, /bbuff dispel lock when done.")
+        or "dispel panel unlocked: drag it to move, /gbuff dispel lock when done.")
 end
 
 local function ResetPosition()
@@ -1449,7 +1449,7 @@ local function Slash(arg)
         -- kinds matter on this character.
         local key = KINDS[what].key
         local v = ns.Toggle(rest, On(key))
-        if v == nil then Print("/bbuff dispel " .. what .. " [on|off]") else ns.Set(key, v) end
+        if v == nil then Print("/gbuff dispel " .. what .. " [on|off]") else ns.Set(key, v) end
     elseif what == "unlock" then
         SetLocked(false)
     elseif what == "lock" then
@@ -1457,8 +1457,8 @@ local function Slash(arg)
     elseif what == "reset" then
         ResetPosition()
     else
-        Print("/bbuff dispel [on|off], /bbuff dispel " .. table.concat(cfg and ClassKinds(cfg) or KIND_ORDER, "|")
-            .. " [on|off], /bbuff dispel unlock|lock|reset")
+        Print("/gbuff dispel [on|off], /gbuff dispel " .. table.concat(cfg and ClassKinds(cfg) or KIND_ORDER, "|")
+            .. " [on|off], /gbuff dispel unlock|lock|reset")
     end
     listDirty = true
 end
@@ -1604,10 +1604,10 @@ local function Hook(mod, classFile)
         local out = baseHelp()
         -- Only your class's dispel lines (the druid's on a class without a panel), not once per module.
         if cfg ~= c and not (cfg == nil and classFile == "DRUID") then return out end
-        out[#out + 1] = "/bbuff dispel [on|off] - the dispel panel: who has something you can remove ("
+        out[#out + 1] = "/gbuff dispel [on|off] - the dispel panel: who has something you can remove ("
             .. KindsText(kinds, "plural") .. ") out of combat, in combat a button per member, seen only when there is one to remove: the game draws the debuff's icon and name itself (Blizzard aura container), what this addon cannot read stays hidden; "
             .. clicks
-        out[#out + 1] = "/bbuff dispel " .. table.concat(kinds, "|") .. " [on|off] - each kind; /bbuff dispel unlock | lock | reset - move the panel"
+        out[#out + 1] = "/gbuff dispel " .. table.concat(kinds, "|") .. " [on|off] - each kind; /gbuff dispel unlock | lock | reset - move the panel"
         return out
     end
     mod.StatusExtra = StatusExtra

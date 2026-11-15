@@ -1,14 +1,18 @@
-# BetterMerchantForever
+# GaarMerchantForever
+
+> Formerly **BetterMerchantForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gmerch` (`/gaarmerchantforever`); the old `/bmerch` and `/bettermerchantforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarmerchantforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). When you open a
-merchant it sells your grey items and repairs your gear. Every feature has its own switch. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+merchant it sells your grey items and repairs your gear. Every feature has its own switch. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
 - **Sell junk** (on by default). At a merchant, sells every grey (quality 0) item in your bags,
   out of combat, 3 items every 0.2 s so the server never throttles it. It stops when the merchant
   closes or combat starts. Items with no sell price are left alone.
-- **BetterBagsForever locks are respected.** An item you locked in BetterBagsForever (Alt + click)
+- **GaarBagsForever locks are respected.** An item you locked in GaarBagsForever (Alt + click)
   is never sold. BBF has no API for this, so the addon reads its per-character saved table
   `BetterBagsForeverCharDB.lockedItems[itemID]`, read-only, and checks it again right before each
   sale. If BBF later gets `BetterBagsForeverAPI.IsItemLocked(itemID)`, that is used first.
@@ -21,36 +25,36 @@ merchant it sells your grey items and repairs your gear. Every feature has its o
   your own money is used.
 - **Summary** (on by default). One chat line, e.g. `sold 12 junk items for 3s 40c; repaired for 1g 2s`.
   With it off, each part prints its own line.
-- **Master switch.** `/bmerch off` turns all of the above off (`/bmerch sell` still works).
+- **Master switch.** `/gmerch off` turns all of the above off (`/gmerch sell` still works).
 
 Settings are saved account-wide in `BetterMerchantForeverDB`: `enabled`, `sellJunk`,
 `sellJunkConfirm`, `autoRepair`, `guildRepair`, `summary`.
 
 ## Commands
 
-`/bmerch` or `/bettermerchantforever`:
+`/gmerch` or `/gaarmerchantforever`:
 
 | Command | Does |
 |---|---|
-| `/bmerch` or `/bmerch help` | list the commands |
-| `/bmerch on` / `off` | master switch |
-| `/bmerch junk on\|off` | sell junk (`sellJunk`) |
-| `/bmerch confirm on\|off` | ask before selling (`sellJunkConfirm`) |
-| `/bmerch repair on\|off` | auto repair (`autoRepair`) |
-| `/bmerch guild on\|off` | guild funds first (`guildRepair`) |
-| `/bmerch summary on\|off` | one-line summary |
-| `/bmerch sell` | sell the junk now, while a merchant is open |
-| `/bmerch status` | settings, BBF lock count and the last result |
+| `/gmerch` or `/gmerch help` | list the commands |
+| `/gmerch on` / `off` | master switch |
+| `/gmerch junk on\|off` | sell junk (`sellJunk`) |
+| `/gmerch confirm on\|off` | ask before selling (`sellJunkConfirm`) |
+| `/gmerch repair on\|off` | auto repair (`autoRepair`) |
+| `/gmerch guild on\|off` | guild funds first (`guildRepair`) |
+| `/gmerch summary on\|off` | one-line summary |
+| `/gmerch sell` | sell the junk now, while a merchant is open |
+| `/gmerch status` | settings, BBF lock count and the last result |
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
+Since 1.0.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help).
 
 `BetterMerchantForeverAPI` (`version`, `StatusLine`, `MenuEntries`, `AddMenuEntries`,
-`SetMinimapHidden`) lets the BetterForever hub list these switches in its menu.
+`SetMinimapHidden`) lets the GaarForever hub list these switches in its menu.
 
 Since 1.0.2 the small helpers (the chat prefix, secret-value and number checks, client API
-lookups, the combat check and the menu drawing) come from BetterForever's shared library
+lookups, the combat check and the menu drawing) come from GaarForever's shared library
 (`BetterForever`, `Lib.lua`) instead of a copy in this addon. Nothing you see changed.
 
 ## How it is built

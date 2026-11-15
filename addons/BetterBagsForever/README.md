@@ -1,9 +1,13 @@
-# BetterBagsForever
+# GaarBagsForever
+
+> Formerly **BetterBagsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gbf` (`/gaarbagsforever`); the old `/bbf` and `/betterbagsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarbagsforever
 
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
 improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
 shows how many of an item and how much gold your other characters on the same realm have.
-Since 1.9 you can lock items so a merchant can never get them. It needs BetterForever, the family hub, and no other addon or library.
+Since 1.9 you can lock items so a merchant can never get them. It needs GaarForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -24,8 +28,8 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
   button runs by itself (including Reverse, if on). It only triggers on the bag window's `OnShow`,
   never on bag events, so it cannot loop, and it is skipped for the bank, in combat, while a
   clean-up is running, and when an item is locked or on the cursor. Turn it off with
-  `/bbf autosort off`; saved in `BetterBagsForeverDB.autoSort`.
-- **Reverse (optional, off by default).** Right-click the button (or `/bbf reverse`) to turn it
+  `/gbf autosort off`; saved in `BetterBagsForeverDB.autoSort`.
+- **Reverse (optional, off by default).** Right-click the button (or `/gbf reverse`) to turn it
   on or off; it is saved in `BetterBagsForeverDB.reverse` and the tooltip shows the current
   value. With Reverse on and the Combined Backpack in use, a left-click waits for Blizzard's sort
   to settle and then mirrors the whole visible order: the last slot on screen trades places with
@@ -59,7 +63,7 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
     `Reversed (N swaps).` at the end, or how many pairs could not be swapped. Version 1.4 made
     one move per 0.05 s and waited for the server after each one, plus about 1 s before the
     first, so the same bags now take a fraction of the time.
-  - *Stops* on combat (checked before every pair), `/bbf stop`, something on the cursor that the addon did not pick up, the
+  - *Stops* on combat (checked before every pair), `/gbf stop`, something on the cursor that the addon did not pick up, the
     client refusing a move repeatedly, the bags changing underneath, or a safety limit. The
     cursor is cleared only when it holds the addon's own item.
 - **Item counts in tooltips (since 1.7, on by default).** Every item tooltip - bags, bank, chat
@@ -72,11 +76,11 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
       Total: 15
 
   Sources with nothing in them are left out. `Total` appears when more than one character has the
-  item, or when the one character has it in more than one place. Turn it off with `/bbf counts off`
-  or the **Item counts in tooltip** checkbox in the BetterForever hub.
+  item, or when the one character has it in more than one place. Turn it off with `/gbf counts off`
+  or the **Item counts in tooltip** checkbox in the GaarForever hub.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm
-  and the total. `/bbf gold` prints the same to chat. Clicking the coins still does what it always
+  and the total. `/gbf gold` prints the same to chat. Clicking the coins still does what it always
   did.
 - **What is counted, and when it is read.** Only the character you are logged in as is ever read,
   so a character shows up once it has logged in with 1.7. Each character's record is kept
@@ -114,7 +118,7 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
   (`BAG_UPDATE`, `BAG_UPDATE_DELAYED`, `ITEM_LOCK_CHANGED`, the frames' `OnShow` and
   `UpdateItems`). The art is the first of these the client has: the atlas `Padlock`, the atlas
   `AdventureMapIcon-Lock`, `Interface\PetBattles\PetBattle-LockIcon`,
-  `Interface\Buttons\LockButton-Locked-Up` (`/bbf status` says which one is used).
+  `Interface\Buttons\LockButton-Locked-Up` (`/gbf status` says which one is used).
 
   While a merchant is open, a locked item cannot be sold:
 
@@ -127,8 +131,8 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
 
   On a client that cannot let left clicks pass through a frame (`SetPassThroughButtons`), the
   slot guard takes the left button too while a merchant is open: Alt-click still unlocks, a plain
-  left-click only prints the message. `/bbf locked` lists the locked items as links and
-  `/bbf unlockall yes` unlocks all of them. The addon has no junk selling of its own.
+  left-click only prints the message. `/gbf locked` lists the locked items as links and
+  `/gbf unlockall yes` unlocks all of them. The addon has no junk selling of its own.
 - **The sort direction is left alone.** The addon never calls `C_Container.SetSortBagsRightToLeft`
   and does not read it either. Version 1.2 could switch it; if you changed it there and want
   Forever's default back, run `/run C_Container.SetSortBagsRightToLeft(true)` once.
@@ -137,36 +141,36 @@ Since 1.9 you can lock items so a merchant can never get them. It needs BetterFo
 
 | Command | Does |
 |---|---|
-| `/bbf` | Help |
-| `/bbf reset` | Back to Blizzard's default position |
-| `/bbf lock`, `/bbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
-| `/bbf native hide`, `/bbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
-| `/bbf reverse`, `/bbf reverse on`, `/bbf reverse off` | Toggle or set Reverse (same as right-clicking the button) |
-| `/bbf autosort`, `/bbf autosort on`, `/bbf autosort off` | Toggle or set the automatic clean-up when the bags open (on by default) |
-| `/bbf stop` | Stop a running reversal |
-| `/bbf counts`, `/bbf counts on`, `/bbf counts off` | Toggle or set the item counts in tooltips (on by default) |
-| `/bbf gold` | Print every character's gold on this realm, and the total |
+| `/gbf` | Help |
+| `/gbf reset` | Back to Blizzard's default position |
+| `/gbf lock`, `/gbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
+| `/gbf native hide`, `/gbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
+| `/gbf reverse`, `/gbf reverse on`, `/gbf reverse off` | Toggle or set Reverse (same as right-clicking the button) |
+| `/gbf autosort`, `/gbf autosort on`, `/gbf autosort off` | Toggle or set the automatic clean-up when the bags open (on by default) |
+| `/gbf stop` | Stop a running reversal |
+| `/gbf counts`, `/gbf counts on`, `/gbf counts off` | Toggle or set the item counts in tooltips (on by default) |
+| `/gbf gold` | Print every character's gold on this realm, and the total |
 | Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold to a merchant |
-| `/bbf locked` | List the locked items as links |
-| `/bbf unlockall`, `/bbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
-| `/bbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
-| `/bbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there |
+| `/gbf locked` | List the locked items as links |
+| `/gbf unlockall`, `/gbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
+| `/gbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
+| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there |
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.9.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.9.1 (it is also the first line of the slash command's help).
+Since 1.9.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.9.1 (it is also the first line of the slash command's help).
 
 Since 1.9.2 the small helpers (the chat prefix, the combat check, secret-value checks, client API
-lookups and the menu drawing) come from BetterForever's shared library (`BetterForever`,
+lookups and the menu drawing) come from GaarForever's shared library (`BetterForever`,
 `Lib.lua`) instead of a copy in this addon. Nothing you see changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Auto clean-up when bags open**, **Hide
 Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as
-`/bbf lock|unlock`, `/bbf reset`, `/bbf reverse`, `/bbf native hide|show` and `/bbf counts on|off`
+`/gbf lock|unlock`, `/gbf reset`, `/gbf reverse`, `/gbf native hide|show` and `/gbf counts on|off`
 (both go through the same functions). This addon has
 no minimap button or menu of its own, so nothing here changes with or without the hub: the
-settings stay in `BetterBagsForeverDB` and `/bbf` stays as it is.
+settings stay in `BetterBagsForeverDB` and `/gbf` stays as it is.
 
 The hub talks to this addon only through `BetterBagsForeverAPI` (since 1.6):
 

@@ -1,10 +1,14 @@
-# BetterLootForever
+# GaarLootForever
+
+> Formerly **BetterLootForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/glf` (`/gaarlootforever`); the old `/bloot` and `/betterlootforever` still work. `/gloot` belongs to GaarLooter, so this one is `/glf`.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarlootforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). When a group
 loot roll comes up, each of its Need, Greed and Pass buttons gets a small number: how many in
 your group chose that option for that roll. Hover a button to see who. Since the client closes
 the roll frame once you have chosen, a small movable summary panel lists the last rolls: who chose
-what, the numbers they rolled and who won. Every part has its own switch. It needs BetterForever, the family hub, and no other addon or library, and it is not part
+what, the numbers they rolled and who won. Every part has its own switch. It needs GaarForever, the family hub, and no other addon or library, and it is not part
 of the Gaar suite.
 
 ## What it does
@@ -25,16 +29,16 @@ of the Gaar suite.
   "Need Roll - 87 for [item] by Elex" lines and are sorted highest first; Disenchant is counted with
   Greed and marked `(DE)`. A long line is cut; hover the lines for the full list. The last N rolls
   are kept (`rolls`, 1 to 10, default 5). It is shown only while you are in a group. Drag it to move
-  it (the place is saved); `/bloot reset` puts it back. The close button clears it; the next roll
+  it (the place is saved); `/glf reset` puts it back. The close button clears it; the next roll
   brings it back.
 - **Auto-hide** (`autohide`, on). The summary clears itself 60 seconds after the last of its rolls
   has finished (its result line arrived, or its roll time ran out). Off: it stays until you close it.
-- **Preview** (`/bloot test`). A small window with three fake buttons and their counts, built by
+- **Preview** (`/glf test`). A small window with three fake buttons and their counts, built by
   running the client's own loot chat strings through the same parser; the parse results are
   printed in chat too. It also puts three fake finished rolls in the summary (a winner with the
   numbers rolled, an "all passed" and one you won), shown even outside a group. The real roll frame
   cannot be opened without a real roll, so it is not used for this.
-- **Master switch.** `/bloot off` turns all of the above off.
+- **Master switch.** `/glf off` turns all of the above off.
 
 Settings are saved account-wide in `BetterLootForeverDB`: `enabled`, `counts`, `names`, `summary`,
 `autohide`, `summaryRolls` and the summary's place, `summaryPos`.
@@ -63,34 +67,34 @@ on the buttons are mainly there to see what the others picked before you choose;
 the same roll (with its winner) for after. Only rolls the client opened for you
 (`START_LOOT_ROLL`) are in the summary.
 
-`/bloot status` shows how many chat patterns were built from the client's strings, whether the
+`/glf status` shows how many chat patterns were built from the client's strings, whether the
 loot history is there, how many rolls are open and how many are in the summary.
 
 ## Commands
 
-`/bloot` or `/betterlootforever`:
+`/glf` or `/gaarlootforever`:
 
 | Command | Does |
 |---|---|
-| `/bloot` or `/bloot help` | list the commands |
-| `/bloot on` / `off` | master switch |
-| `/bloot counts on\|off` | the numbers on the buttons (`counts`) |
-| `/bloot names on\|off` | the names in the button tooltips (`names`) |
-| `/bloot summary on\|off` | the summary panel of the last rolls (`summary`) |
-| `/bloot autohide on\|off` | clear the summary 60 s after the last roll finished (`autohide`) |
-| `/bloot rolls <1-10>` | how many rolls the summary keeps (`summaryRolls`, default 5) |
-| `/bloot reset` | the summary back to its default place |
-| `/bloot test` | the preview window, the parse results and fake rolls in the summary |
-| `/bloot status` | version, settings, patterns, open rolls, the last error |
+| `/glf` or `/glf help` | list the commands |
+| `/glf on` / `off` | master switch |
+| `/glf counts on\|off` | the numbers on the buttons (`counts`) |
+| `/glf names on\|off` | the names in the button tooltips (`names`) |
+| `/glf summary on\|off` | the summary panel of the last rolls (`summary`) |
+| `/glf autohide on\|off` | clear the summary 60 s after the last roll finished (`autohide`) |
+| `/glf rolls <1-10>` | how many rolls the summary keeps (`summaryRolls`, default 5) |
+| `/glf reset` | the summary back to its default place |
+| `/glf test` | the preview window, the parse results and fake rolls in the summary |
+| `/glf status` | version, settings, patterns, open rolls, the last error |
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-The addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to
+The addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to
 it. It is built on the hub's library (`BetterForever.NewAddon`): the switches above are registered
 once and give the slash commands, the **Loot** submenu in the hub's minimap menu and the page under
-**Esc > Options > AddOns > Better Forever**, with a short intro at the top.
+**Esc > Options > AddOns > Gaar Forever**, with a short intro at the top.
 `BetterLootForeverAPI` (`version`, `StatusLine`, `MenuEntries`, `AddMenuEntries`,
-`SetMinimapHidden`, `Intro`) is what the hub reads. The hub lists it from BetterForever 3.0.2.
+`SetMinimapHidden`, `Intro`) is what the hub reads. The hub lists it from GaarForever 3.0.2.
 
 ## How it is built
 

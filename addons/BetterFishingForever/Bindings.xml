@@ -2,5 +2,5 @@
 	<!-- Cast / Reel (1.3): one key casts Fishing, and reels in while the line is out (its keys are
 	     overridden to INTERACTTARGET then). The name is set in BetterFishingForever.lua as
 	     BINDING_NAME_CLICK BetterFishingForeverKeyButton:LeftButton. -->
-	<Binding name="CLICK BetterFishingForeverKeyButton:LeftButton" category="BetterFishingForever"/>
+	<Binding name="CLICK BetterFishingForeverKeyButton:LeftButton" category="GaarFishingForever"/>
 </Bindings>

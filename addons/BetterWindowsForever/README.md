@@ -1,10 +1,14 @@
-# BetterWindowsForever
+# GaarWindowsForever
+
+> Formerly **BetterWindowsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gwf` (`/gaarwindowsforever`); the old `/bwf` and `/betterwindowsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarwindowsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It lets you
 move and scale Blizzard's own windows (Character, Spellbook & Talents, Professions, Collections,
 Group Finder, Social, Guild & Communities, Achievements, Encounter Journal, Merchant, Gossip,
 Quest, Mail, Bank, Auction House, Class Trainer, Loot, Dressing Room, Macros, Settings, AddOn
-List, Inspect, Trade, Game Menu and more), and does nothing else. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+List, Inspect, Trade, Game Menu and more), and does nothing else. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -34,7 +38,7 @@ A window you have never moved or scaled is not touched at all.
 
 ## Windows
 
-The addon knows these, and uses whichever this client has. `/bwf list` shows which ones that is;
+The addon knows these, and uses whichever this client has. `/gwf list` shows which ones that is;
 a window the client does not have says `not on this client` and is left out of the hub menu.
 
 | Key | Window | Frame(s) |
@@ -89,9 +93,9 @@ a window the client does not have says `not on this client` and is left out of t
 
 | Window | Why |
 |---|---|
-| World map (`WorldMapFrame`) | [BetterMapsForever](../BetterMapsForever/README.md) moves and scales it, with the maximized map handled |
-| Bags (`ContainerFrameCombinedBags`, `ContainerFrame1-13`) | [BetterBagsForever](../BetterBagsForever/README.md) moves the Combined Backpack; the separate bags are stacked by Blizzard's own bag layout, which would put them back |
-| Edit Mode frames (unit frames, action bars, cast bar, objective tracker, minimap, buffs, ...) | Edit Mode saves their place itself. A candidate that turns out to be an Edit Mode system is skipped at runtime (`skipped (Edit Mode owns it)` in `/bwf list`) |
+| World map (`WorldMapFrame`) | [GaarMapsForever](../BetterMapsForever/README.md) moves and scales it, with the maximized map handled |
+| Bags (`ContainerFrameCombinedBags`, `ContainerFrame1-13`) | [GaarBagsForever](../BetterBagsForever/README.md) moves the Combined Backpack; the separate bags are stacked by Blizzard's own bag layout, which would put them back |
+| Edit Mode frames (unit frames, action bars, cast bar, objective tracker, minimap, buffs, ...) | Edit Mode saves their place itself. A candidate that turns out to be an Edit Mode system is skipped at runtime (`skipped (Edit Mode owns it)` in `/gwf list`) |
 | Trading Post (`PerksProgramFrame`) | Full screen, nothing to move |
 | Popups, tooltips, group loot rolls, the cinematic and movie frames | Short-lived or full screen, and positioned by Blizzard every time they appear |
 
@@ -99,21 +103,21 @@ a window the client does not have says `not on this client` and is left out of t
 
 | Command | Does |
 |---|---|
-| `/bwf` | Help |
-| `/bwf list` | Every window with its key and state: `on`/`off`, `moved`, the scale, `not loaded yet`, `not on this client` |
-| `/bwf on <name>`, `/bwf off <name>` | Let the addon move and scale the window, or leave it to Blizzard (off puts Blizzard's anchor and scale back) |
-| `/bwf reset <name>`, `/bwf reset all` | Blizzard's position and 100% scale |
-| `/bwf status` | Version, which panel-manager functions this client has, how many windows are on and moved, and which are not on this client |
+| `/gwf` | Help |
+| `/gwf list` | Every window with its key and state: `on`/`off`, `moved`, the scale, `not loaded yet`, `not on this client` |
+| `/gwf on <name>`, `/gwf off <name>` | Let the addon move and scale the window, or leave it to Blizzard (off puts Blizzard's anchor and scale back) |
+| `/gwf reset <name>`, `/gwf reset all` | Blizzard's position and 100% scale |
+| `/gwf status` | Version, which panel-manager functions this client has, how many windows are on and moved, and which are not on this client |
 
 `<name>` is the key, the label or the frame name, ignoring case and spaces (`auction`,
 `Auction House`, `AuctionHouseFrame`), or a unique start of one (`achiev`).
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help). Since 1.0.2 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.0.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help). Since 1.0.2 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
-menu has a **Windows** submenu with a checkbox per window this client has (the same as `/bwf
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
+menu has a **Windows** submenu with a checkbox per window this client has (the same as `/gwf
 on|off <name>`), **Reset one window** (only the windows you have moved or scaled) and **Reset all
 positions & scales**. Both go through the same functions as the slash command. This addon has no
 minimap button or menu of its own, so nothing here changes with or without the hub.
@@ -155,7 +159,7 @@ The hub talks to this addon only through `BetterWindowsForeverAPI`:
 ## BlizzMove, MoveAnything, MoveAny
 
 They also move Blizzard's windows. With one of them loaded both would fight over the same frames,
-so BetterWindowsForever says so at login and in `/bwf status`. Use one of the two.
+so GaarWindowsForever says so at login and in `/gwf status`. Use one of the two.
 
 ## Names it relies on
 

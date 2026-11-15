@@ -39,7 +39,7 @@ local NO_MANA = { WARRIOR = true, ROGUE = true }
 local CONFIGS = {
     PRIEST = {
         name = "Priest",
-        key = "fort",                        -- option key, /bbuff word and section key
+        key = "fort",                        -- option key, /gbuff word and section key
         label = "Power Word: Fortitude",
         groupLabel = "Prayer of Fortitude",
         ids = { 10938, 10937, 2791, 1245, 1244, 1243 },     -- highest rank first
@@ -167,7 +167,7 @@ local function NewModule(classFile, c)
 
     function M.Help()
         return {
-            "/bbuff " .. key .. " [on|off] - the " .. c.label .. " check (" .. c.groupLabel .. " counts"
+            "/gbuff " .. key .. " [on|off] - the " .. c.label .. " check (" .. c.groupLabel .. " counts"
                 .. (c.manaOnly and "; warriors and rogues are skipped" or "") .. ")",
         }
     end
@@ -175,7 +175,7 @@ local function NewModule(classFile, c)
     function M.Slash(cmd, arg)
         if cmd ~= key then return false end
         local v = ns.Toggle(arg, On(key))
-        if v == nil then ns.Print("/bbuff " .. key .. " [on|off]") else ns.Set(key, v) end
+        if v == nil then ns.Print("/gbuff " .. key .. " [on|off]") else ns.Set(key, v) end
         return true
     end
 

@@ -1,8 +1,12 @@
-# BetterFramesForever
+# GaarFramesForever
+
+> Formerly **BetterFramesForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gff` (`/gaarframesforever`); the old `/bff` and `/betterframesforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarframesforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It draws
 X-Perl-style unit frames of its own for the player, target, target of target, focus, pet and
-party, and switches Blizzard's off. It needs BetterForever, the family hub, and no other addon or library.
+party, and switches Blizzard's off. It needs GaarForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -30,7 +34,7 @@ party, and switches Blizzard's off. It needs BetterForever, the family hub, and 
   when someone else tagged the mob, offline or dead. The power bar uses Blizzard's `PowerBarColor`
   (mana, rage, energy, focus, runic power). Where the client has no such table the classic Blizzard
   default values are used. 1.2.8-1.2.10 had a custom palette; the low-health tint (orange under
-  35%, red under 20%) and its `/bff lowhp` option are gone, since Blizzard's frames do not tint by health.
+  35%, red under 20%) and its `/gff lowhp` option are gone, since Blizzard's frames do not tint by health.
 - **The look** (1.2.8, colours from 1.2.11). Every bar - health, power, the druid mana bar and the
   heal prediction overlays - has a soft vertical gradient in its own colour: lighter at the top,
   darker at the bottom, so the bars have some depth instead of a flat hard fill (they are a plain
@@ -64,36 +68,36 @@ party, and switches Blizzard's off. It needs BetterForever, the family hub, and 
   then `9m`, `59m`, `1h`, `2d` (rounded up, no space before the unit; 1.2.3). The icon
   rows are spaced to leave room for the text. The swipe runs as on Blizzard's own aura buttons
   (since 1.2.1): bright when the aura is fresh, darker as it runs out.
-- **Heal prediction** (1.2.2, on by default: `/bff healpred off` to hide). On every health bar
+- **Heal prediction** (1.2.2, on by default: `/gff healpred off` to hide). On every health bar
   (player, pet, target, target of target, focus, party), as on Blizzard's frames: incoming heals
   from the health edge into the missing health, your own in a strong green over everyone's in a
   lighter green, then absorb shields in white (with Blizzard's shield stripes where the client has
   the texture), and heal absorbs (necrotic and the like) in dark red drawn back over the health.
   Nothing is drawn past the end of the bar.
-- **Raid target marks** (1.2.9, on by default: `/bff marks off` to hide). On every frame the raid
+- **Raid target marks** (1.2.9, on by default: `/gff marks off` to hide). On every frame the raid
   mark (skull, cross, star ...) is an 18 px icon on a frame of its own above the bars, centred on the
   top edge so half of it sticks out above the frame; nothing covers it and it does not touch the
   name, health or auras. Hidden without a mark; updates on `RAID_TARGET_UPDATE` and unit changes.
-  A secret index goes only to `SetRaidTargetIconTexture` inside a `pcall`. `/bff test` shows a sample skull.
-- **HoT prediction** (1.2.7, on by default: `/bff hotpred off` to hide). After the green incoming
+  A secret index goes only to `SetRaidTargetIconTexture` inside a `pcall`. `/gff test` shows a sample skull.
+- **HoT prediction** (1.2.7, on by default: `/gff hotpred off` to hide). After the green incoming
   heals, a soft yellow segment shows what every active HoT on the unit (Renew, Rejuvenation,
   Regrowth's HoT, Lifebloom where the client has it, First Aid bandages; from any healer) will
   still heal before it runs out, so you can see whether the HoTs already cover the missing health.
   It is cut like the green: health + incoming heals + HoTs never go past the end of the bar. The
   client's heal prediction has no HoT part, so the sum comes from the buffs themselves (per-tick
   amount times the ticks left). On Forever auras are secret in combat, and then the yellow
-  segment is simply not drawn; `/bff status` says so. Out of combat - topping someone up,
+  segment is simply not drawn; `/gff status` says so. Out of combat - topping someone up,
   resting - it is, and it comes back as combat ends. 1.2.10 fixes it never showing: HoTs are now
   also matched by their (localized) name, the per-tick amount comes from the aura's tooltip
   (`Heals 32 damage every 3 seconds.`, or `Heals 66 damage over 6 sec.` spread over the ticks)
   when the aura's `points` hold none, and the yellow bar no longer hangs on the hidden green bar
-  when no heal is incoming. `/bff status` lists each HoT on your target (or you) with its spell,
-  amount, source and ticks left, or why nothing is drawn; `/bff hotdebug` prints the raw buff data.
+  when no heal is incoming. `/gff status` lists each HoT on your target (or you) with its spell,
+  amount, source and ticks left, or why nothing is drawn; `/gff hotdebug` prints the raw buff data.
 - **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
   mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
   Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays
   as it is - and since 1.2.2 it also stays at 0 rage or energy (1.2.1 hid the player's empty bar).
-- **Player buffs** (1.2, on by default: `/bff playerbuffs off` to hide). Your own buffs in rows
+- **Player buffs** (1.2, on by default: `/gff playerbuffs off` to hide). Your own buffs in rows
   under the player frame, X-Perl style: up to 20 icons of 20 px, 10 to a row, with the same look
   as the target's buffs (icon, stack count, remaining-time swipe, tooltip on hover). Buffs only,
   no debuffs; right-click to cancel a buff is not there (that needs Blizzard's secure buff
@@ -102,65 +106,65 @@ party, and switches Blizzard's off. It needs BetterForever, the family hub, and 
   (a position you dragged yourself is kept). 1.2.2 moves those defaults down again to make room
   for the time text under the icons (pet at -176, party at -234; party frames 52 px apart); a
   position you saved yourself is not moved, so after updating check that pet and party do not
-  overlap the buff rows (`/bff test`).
+  overlap the buff rows (`/gff test`).
 - **Party.** Small debuffs and buffs under each frame (up to 8 each), and the frame fades to 50%
   when the member is out of range.
 - **Icons.** Raid target icon on every frame, group leader on the player and party frames, combat
   and resting on the player portrait, and a coloured border round any frame with threat
   (yellow, orange, red).
 - **Click.** Left-click targets the unit, right-click opens Blizzard's own unit menu.
-- **Move.** `/bff unlock` and drag a frame (out of combat; the border turns blue while unlocked).
+- **Move.** `/gff unlock` and drag a frame (out of combat; the border turns blue while unlocked).
   The party frames move as one block. Each frame has its own scale, 0.6 to 1.5. Positions and
-  scales are saved account-wide in `BetterFramesForeverDB`. `/bff reset` puts them back.
-- **Follow Blizzard Edit Mode** (1.1, off by default: `/bff editmode on`). Player, target, focus
+  scales are saved account-wide in `BetterFramesForeverDB`. `/gff reset` puts them back.
+- **Follow Blizzard Edit Mode** (1.1, off by default: `/gff editmode on`). Player, target, focus
   and party sit where Blizzard's own `PlayerFrame`, `TargetFrame`, `FocusFrame` and `PartyFrame`
   are placed in Edit Mode, each with its own scale and size; the other party members keep their
   spacing below the first. Pet and target of target have no Edit Mode place of their own: they
   keep the offset they have from player and target in your own layout, and move with them. Open
   Edit Mode and Blizzard's frames are there to drag (ours go see-through); close it and ours move
   to the new place. A layout switch, a loading screen or a UI scale change moves them too. Frames
-  placed this way cannot be dragged with `/bff unlock`; your own positions are kept untouched, so
-  `/bff editmode off` puts everything back where it was.
+  placed this way cannot be dragged with `/gff unlock`; your own positions are kept untouched, so
+  `/gff editmode off` puts everything back where it was.
 - **Test mode.** Shows every enabled frame with made-up data, the party included without a group,
   so they can be placed. The player frame stays the real one, but its buffs are replaced by
   twelve made-up ones (two rows, some with a swipe) so the buff rows can be placed too. Out of
   combat only; entering combat ends it. Not saved.
 
 Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast bars on the frames
-(use BetterCastbarsForever), click-casting.
+(use GaarCastbarsForever), click-casting.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `/bff`, `/bff help` | Help, with the current settings |
-| `/bff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), HoT prediction (on/off; for your target, or you without one: whether it is drawn or why not - off, heal prediction off, in combat, auras secret, no known HoT, full health - each HoT found with spell ID, name, how it matched, per-tick amount and its source (`points` / tooltip / none), ticks left and remaining healing; what it drew last; any HoT method the client's heal prediction calculator has), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
-| `/bff lock`, `/bff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
-| `/bff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/bff follow` works too |
-| `/bff test`, `/bff test on\|off` | Test mode with made-up data |
-| `/bff reset` | Positions and scales back to the defaults |
-| `/bff scale <player\|target\|tot\|focus\|pet\|party> <0.6-1.5>` | One frame's scale (`120` works for 1.2 too) |
-| `/bff frame <player\|target\|tot\|focus\|pet\|party> on\|off` | Which frames are drawn (without `on`/`off`: toggle) |
-| `/bff portrait 2d\|3d` | 2D portrait (default) or 3D model |
-| `/bff text on\|off` | `cur/max  NN%` text on the bars (on by default) |
-| `/bff classcolor on\|off` | Class colour for players (on by default; off: green) |
-| `/bff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
-| `/bff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
-| `/bff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
-| `/bff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
-| `/bff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
+| `/gff`, `/gff help` | Help, with the current settings |
+| `/gff status` | Settings, each frame and its scale, Edit Mode following (which frames sit at Blizzard's place, which at their own and why), how auras are drawn (target and player buffs), which aura API and templates this client has and how the aura time text is formatted, heal prediction (on/off and which API), HoT prediction (on/off; for your target, or you without one: whether it is drawn or why not - off, heal prediction off, in combat, auras secret, no known HoT, full health - each HoT found with spell ID, name, how it matched, per-tick amount and its source (`points` / tooltip / none), ticks left and remaining healing; what it drew last; any HoT method the client's heal prediction calculator has), the player's mana bar and power bar (shown or not and why), the target's power values (power type, `UnitHasPowerType`, whether `UnitPower` / `UnitPowerMax` are hidden, the two `C_Secrets` power predicates, and whether the power bar shows and why), the target's health readings (`UnitHealth` with and without prediction, `UnitHealthMax`, `ShouldUnitHealthMaxBeSecret`: each shown or "hidden") and the number formatter in use, tried on 19 and 12345, what this client allows (secure frames, focus, hidden values, text for hidden values, range), which Blizzard frames are switched off, anything the client refused, changes waiting for the end of combat, and conflicting unit-frame addons |
+| `/gff lock`, `/gff unlock` | Stop or allow dragging the frames (locked by default; frames that follow Edit Mode are not dragged) |
+| `/gff editmode on\|off` | Follow Blizzard's frames placed in Edit Mode (off by default; without `on`/`off`: toggle). `/gff follow` works too |
+| `/gff test`, `/gff test on\|off` | Test mode with made-up data |
+| `/gff reset` | Positions and scales back to the defaults |
+| `/gff scale <player\|target\|tot\|focus\|pet\|party> <0.6-1.5>` | One frame's scale (`120` works for 1.2 too) |
+| `/gff frame <player\|target\|tot\|focus\|pet\|party> on\|off` | Which frames are drawn (without `on`/`off`: toggle) |
+| `/gff portrait 2d\|3d` | 2D portrait (default) or 3D model |
+| `/gff text on\|off` | `cur/max  NN%` text on the bars (on by default) |
+| `/gff classcolor on\|off` | Class colour for players (on by default; off: green) |
+| `/gff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
+| `/gff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
+| `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
+| `/gff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
+| `/gff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
 
-`/betterframesforever` works the same as `/bff`. `targettarget` works for `tot`.
+`/gaarframesforever` works the same as `/gff`. `targettarget` works for `tot`.
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.2.12 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.12 (it is also the first line of the slash command's help). Since 1.2.13 it also takes its small helpers (the chat line, the number and secret-value checks, the short number and aura-time text, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.2.12 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.12 (it is also the first line of the slash command's help). Since 1.2.13 it also takes its small helpers (the chat line, the number and secret-value checks, the short number and aura-time text, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
-menu has a submenu per Better...Forever addon. Its **Frames** row is in the hub (then named BetterGaarForever) 2.4
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
+menu has a submenu per Gaar...Forever addon. Its **Frames** row is in the hub (then named BetterGaarForever) 2.4
 and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
 **Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**,
-**Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/bff` (both go through
+**Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/gff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here
 changes with or without the hub.
 
@@ -186,12 +190,12 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   button with `unit`, `type1 = "target"` and `type2 = "togglemenu"` set once, at creation, out of
   combat. `RegisterUnitWatch` shows and hides every frame but the player's. Creating, showing,
   hiding, moving and scaling a secure frame happen only out of combat; asked for in combat
-  (`/bff scale`, `/bff frame`, `/bff reset`, a login or `/reload` in combat), the change is
+  (`/gff scale`, `/gff frame`, `/gff reset`, a login or `/reload` in combat), the change is
   queued and made at `PLAYER_REGEN_ENABLED`, with one line in chat. In combat the addon only
   paints: bars, text, icons and alpha. A drag in progress when combat starts is ended and saved
   first.
 - **How Blizzard's frames are switched off.** oUF's `DisableBlizzard` approach, out of combat
-  only, when a frame of ours is switched on (at login, or `/bff frame <x> on`): the Blizzard frame
+  only, when a frame of ours is switched on (at login, or `/gff frame <x> on`): the Blizzard frame
   gets `UnregisterAllEvents()`, `Hide()` and is re-parented to a hidden frame of the addon's own
   (`BetterFramesForeverHiddenParent`); its health, mana, cast, buff and similar sub-frames lose
   their events too. Player: `PlayerFrame`. Target: `TargetFrame` and `ComboFrame`. Target of
@@ -201,8 +205,8 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   Every name is checked first; a missing one is skipped. **`CompactPartyFrame`** (the raid-style
   party frames) is not switched off by the addon. But in retail's FrameXML it is created as a
   child of `PartyFrame` (`CompactPartyFrame_Generate`), so parking `PartyFrame` most likely hides
-  it as well - not yet checked in game; `/bff frame party off` and a `/reload` bring both back.
-- **The trade-off.** Events cannot be handed back, so turning a frame off (`/bff frame <x> off`)
+  it as well - not yet checked in game; `/gff frame party off` and a `/reload` bring both back.
+- **The trade-off.** Events cannot be handed back, so turning a frame off (`/gff frame <x> off`)
   hides ours at once but brings Blizzard's back only after `/reload`. With `PlayerFrame` gone,
   anything Blizzard hangs off it goes too (a class bar under the player frame, for example); the
   combo points on our target frame are there for that reason. Vehicle art on the player frame is
@@ -250,7 +254,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   read, asking `C_Secrets.ShouldUnitAuraIndexBeSecret` first; a refused read is counted and tried
   again at the next update, so the auras are there out of combat and gone while they are secret.
   Looking auras up by spell ID is not used: in game it answers nil for your own DoTs in combat.
-  `/bff status` says which way auras are drawn, what the target shows, how many reads were
+  `/gff status` says which way auras are drawn, what the target shows, how many reads were
   refused, and which aura API and templates the client has.
 - **No power, no power bar.** When a unit has no power the power bar is hidden and the health
   bar takes its room. A plain maximum of 0 says so. But on Forever `UnitPowerMax` is secret for
@@ -260,7 +264,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   in the API documentation, so the answer is plain. Where the client has no `UnitHasPowerType`,
   a plain current power of 0 next to a hidden maximum counts as no power (`UnitPower` is plain
   only for a power the unit does not have, or a type flagged never secret). Otherwise the bar
-  stays, with the secret-safe text. `/bff status` shows the values for the current target.
+  stays, with the secret-safe text. `/gff status` shows the values for the current target.
 - **Hidden 0/0 power** (1.2.1). In game a low beast in the Barrens still answered power type
   RAGE, `UnitHasPowerType` true, `UnitPower` and `UnitPowerMax` both secret - and the maximum
   is 0, so 1.2 wrote `0/0 0%`. Addon code cannot test a hidden 0, and cannot evaluate a curve on
@@ -273,7 +277,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   power is 0. Its room stays (a hidden value cannot move a layout), and an NPC with real power at
   0 (rage out of combat) shows no bar until it has some. Where these helpers are missing, an
   NPC's hidden rage gets no text. Each step runs in `pcall`; a refusal switches it off for the
-  session with one line. `/bff status` names the method in use and which helpers the client has.
+  session with one line. `/gff status` names the method in use and which helpers the client has.
   Since 1.2.2 this hiding is only for a hidden maximum: a unit whose maximum is plain and above 0,
   the player, and anything player-controlled keep the bar at 0 (a bear at 0 rage showed no rage
   bar in 1.2.1), and the "plain 0 next to a hidden maximum means no power" fallback no longer
@@ -285,7 +289,7 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
   with `m`, `h` or `d`), and a step colour curve on the remaining duration
   (`C_CurveUtil.CreateColorCurve`, white below 60 s, gold above). The client evaluates both. The
   formatter is checked on a few plain numbers when it is built; where it is missing or gives other
-  text, the container's own formatter is used (`45s`, `9m`), and `/bff status` says which.
+  text, the container's own formatter is used (`45s`, `9m`), and `/gff status` says which.
 - **Heal prediction without sums** (1.2.2). Each overlay is a `StatusBar` as wide as the health
   bar, anchored to the health fill texture's right edge (the heal absorb one reversed, back from
   it), with its min/max and value set straight from the client. The client's calculator
@@ -314,13 +318,13 @@ The hub talks to this addon only through `BetterFramesForeverAPI`:
 - **One refusal, one message.** `issecretvalue` does not flag everything, so each part of a
   frame's update (health, power, name and level, portrait, icons, threat, auras, range, combo
   points, text for hidden values) runs inside `pcall`. The first refusal switches that part off
-  for the session on every frame, with one line in chat and a note in `/bff status`, instead of
+  for the session on every frame, with one line in chat and a note in `/gff status`, instead of
   an error on every event.
 - **Test mode does not touch the secure frames.** The previews are plain, non-secure frames of
   their own, filled with made-up data; the real frames only go see-through (`SetAlpha(0)`) under
   them, with every attribute and the unit watch as they were.
 - **Other unit-frame addons.** If `GaarFrames`, `XPerl`, `XPerl_Player`, `ShadowedUnitFrames` or
-  `PitBull4` is loaded, a one-time warning is printed at login and `/bff status` repeats it.
+  `PitBull4` is loaded, a one-time warning is printed at login and `/gff status` repeats it.
   Nothing is disabled: use one of them.
 - Events are registered with `pcall`, so an event this client does not have is skipped. Target
   of target has no events of its own, so it and party range are refreshed by a light 0.2 s
@@ -379,7 +383,7 @@ Unit API (every one of these is a string in Forever's client binary, build 70790
 
 ```
 BetterFramesForever.toc, BetterFramesForever_Camelot.toc   both at 16001, same file list
-BetterFramesForever.lua    frames, Blizzard hiding, combat queue, /bff, BetterFramesForeverAPI
+BetterFramesForever.lua    frames, Blizzard hiding, combat queue, /gff, BetterFramesForeverAPI
 ```
 
 ## License

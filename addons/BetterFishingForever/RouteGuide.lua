@@ -1,7 +1,7 @@
 --[[
   BetterFishingForever - the Fishing 1-300 route (1.2): current step, pins and GPS arrow.
 
-  Off by default; /bfish route on switches it on (per character). The data is in Route.lua
+  Off by default; /gfish route on switches it on (per character). The data is in Route.lua
   (ns.route); this file reads it and exports ns.guide for BetterFishingForever.lua, which owns the
   slash command, the saved variables and the hub menu. No global is created here.
 
@@ -10,16 +10,16 @@
   Where that finds nothing, the retail profession API: GetProfessions() (4th value = fishing)
   and GetProfessionInfo(index). Both are guarded; no Fishing at all reads as skill 0, cap 0. A
   collapsed "Secondary Skills" header in the skill window hides the line from GetSkillLineInfo;
-  /bfish status says so.
+  /gfish status says so.
 
   Steps. Only the player's faction (UnitFactionGroup) and "Both", in route order. A step is done:
     * with grants (trainers, the Expert book, the Artisan quest and its fish): once the cap is at
       least grants. Such a step can only be current while the skill sits at the cap (75/75 ->
       Journeyman trainer, 150/150 -> Expert book, 225/225 -> Nat Pagle), or with no Fishing yet.
     * a fish step: once the skill reaches its "to".
-    * an optional vendor or quest step: once /bfish route next has skipped it (saved).
+    * an optional vendor or quest step: once /gfish route next has skipped it (saved).
   The current step is the first step that is not done and whose range holds the skill (from <=
-  skill < to), unless /bfish route next|prev picked another one: that choice holds until the
+  skill < to), unless /gfish route next|prev picked another one: that choice holds until the
   automatic step changes (a skill-up past it, a new rank), then it is dropped.
 
   Pins: the current step's spots (or its NPC) on the world map, when that map or a map that holds
@@ -30,7 +30,7 @@
 
   GPS: with BetterGpsForever loaded, BetterGpsForeverAPI.SetWaypoint(mapID, x, y, title) points
   its arrow at the nearest spot of the current step (same continent; else the first one). Only
-  when the step changes (and at /bfish route on): a waypoint the user sets is kept until then.
+  when the step changes (and at /gfish route on): a waypoint the user sets is kept until then.
   Switching the route off clears the waypoint only while it is still ours.
 
   Taint: no Blizzard function or table is written. hooksecurefunc on WorldMapFrame.OnMapChanged
@@ -81,7 +81,7 @@ local spotCache           -- world positions of the current step's pins
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies). This file
 -- loads before BetterFishingForever.lua, so it makes the addon object both share (ns.addon).
 local BF = _G.BetterForever
-local A = ns.addon or BF.NewAddon("BetterFishingForever")
+local A = ns.addon or BF.NewAddon("BetterFishingForever", { title = "GaarFishingForever" })
 ns.addon = A
 local Secret, Num, Str, Bool = BF.IsSecret, BF.Num, BF.Str, BF.Bool
 local Call, Method, API = BF.Call, BF.Method, BF.API
@@ -606,7 +606,7 @@ local function Update(force, announce)
         if On() then
             if changed and (shownId ~= nil or announce) then
                 Print("Fishing route: " .. (step and step.title
-                    or (skill and "done, Fishing is at 300. /bfish route off to switch it off."
+                    or (skill and "done, Fishing is at 300. /gfish route off to switch it off."
                         or "no step: the Fishing skill could not be read.")))
             end
             if force or cdb.pointed ~= id then
@@ -620,7 +620,7 @@ local function Update(force, announce)
 end
 
 -- ---------------------------------------------------------------------------
--- Commands (called by /bfish route ...)
+-- Commands (called by /gfish route ...)
 -- ---------------------------------------------------------------------------
 
 local function StepLine(i, s, mark)
@@ -629,7 +629,7 @@ end
 
 local function PrintRoute()
     local step = Current()
-    Print("Fishing skill " .. SkillText() .. (On() and "" or "   (the route is off: /bfish route on)"))
+    Print("Fishing skill " .. SkillText() .. (On() and "" or "   (the route is off: /gfish route on)"))
     if not step then
         Print(skill and "route done: nothing left below 300." or "no step: the Fishing skill could not be read.")
         return
@@ -702,7 +702,7 @@ function guide.SetOn(on, quiet)
         if not quiet then Print("fishing route on.") end
         Update(true, true)
         if not Gps() and not quiet then
-            Print("BetterGpsForever is not loaded: pins on the map and minimap only, no arrow.")
+            Print("GaarGpsForever is not loaded: pins on the map and minimap only, no arrow.")
         end
     else
         ClearOurWaypoint()
@@ -741,15 +741,15 @@ function guide.Slash(arg)
         Compute()
         PrintRoute()
     else
-        Print("/bfish route [on | off | next | prev | list | gear]")
+        Print("/gfish route [on | off | next | prev | list | gear]")
     end
 end
 
 function guide.HelpLines()
     return {
-        "/bfish route on | off - the Fishing 1-300 route: pins on the map and minimap, the GPS arrow (BetterGpsForever)",
-        "/bfish route - the current step and the next one; /bfish route next | prev - move by hand (next skips an optional vendor or quest step)",
-        "/bfish route list - all steps for your faction; /bfish route gear - poles and lures worth having",
+        "/gfish route on | off - the Fishing 1-300 route: pins on the map and minimap, the GPS arrow (GaarGpsForever)",
+        "/gfish route - the current step and the next one; /gfish route next | prev - move by hand (next skips an optional vendor or quest step)",
+        "/gfish route list - all steps for your faction; /gfish route gear - poles and lures worth having",
     }
 end
 
@@ -763,7 +763,7 @@ function guide.StatusLines()
             .. "   faction: " .. (faction or "unknown, all steps"),
         "route step: " .. (step and string.format("%d/%d %s", currentIndex, #steps, step.title) or (skill and "done" or "none"))
             .. (cdb.manual and " (picked by hand)" or "")
-            .. "   GPS: " .. (Gps() and "BetterGpsForever" or "BetterGpsForever not loaded (pins only)"),
+            .. "   GPS: " .. (Gps() and "GaarGpsForever" or "GaarGpsForever not loaded (pins only)"),
     }
     if not skill then
         lines[#lines + 1] = "route: Fishing not found in the skill list; is the Secondary Skills header collapsed in the skill window?"

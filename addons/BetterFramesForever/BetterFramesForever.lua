@@ -24,7 +24,7 @@
     * Every aura icon: a small time-left number at its top and a swipe that starts bright and
       darkens as the aura runs out (1.2.1).
     * Icons: raid target (own frame above the bars, centred on the top edge; secret-safe; option
-      /bff marks, 1.2.9), group leader, combat and resting (player); a threat border.
+      /gff marks, 1.2.9), group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
       reset, and a test mode that shows every enabled frame with made-up data (party without a
       group) so they can be placed.
@@ -32,7 +32,7 @@
       where Blizzard's own frames are placed in Edit Mode; pet and target of target keep their
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
-    * /bff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
+    * /gff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
       editmode, portrait, text, classcolor and playerbuffs.
     * BetterFramesForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.16"
+local VERSION = "1.3.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -183,7 +183,7 @@ local previews = {}         -- [unit] = non-secure preview frame for test mode
 local enabledNow = {}       -- [key] = true while that key's frames are switched on
 local blocked = {}          -- [feature] = error text, once this client refused it
 local hiddenBlizz = {}      -- [Blizzard frame] = true when it is not re-parented (party members)
-local hiddenNames = {}      -- names of Blizzard frames switched off, for /bff status
+local hiddenNames = {}      -- names of Blizzard frames switched off, for /gff status
 local pending, pendingOrder = {}, {}   -- changes waiting for the end of combat
 local testing = false
 local started = false
@@ -197,7 +197,7 @@ local followMiss = {}       -- [key] = why Blizzard's frame gave no position at 
 local restored = {}         -- [key] = Blizzard frame given back to Blizzard while Edit Mode is open
 local editOpen = false      -- Edit Mode is open (from its Enter / Exit callbacks)
 local editFaded = false     -- our followed frames are see-through for Edit Mode
-local editHooked            -- how the Edit Mode callbacks were hooked, for /bff status
+local editHooked            -- how the Edit Mode callbacks were hooked, for /gff status
 local editOwner = {}        -- owner handle for EventRegistry
 
 -- Forward declarations: used by the frame scripts before they are defined.
@@ -213,7 +213,7 @@ local UpdateFrame, StartDrag, StopDrag, ApplyBorder
 -- IsSecret is false on a client where nothing is secret; Plain is the value, or nil when it is
 -- secret, so every later test on it is an ordinary one; Num is a plain, finite number or nil.
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterFramesForever", { version = VERSION })
+local A = BF.NewAddon("BetterFramesForever", { title = "GaarFramesForever", version = VERSION })
 local function Print(msg) A:Print(msg) end
 local OnOff, IsSecret, Plain, Num = BF.OnOff, BF.IsSecret, BF.Plain, BF.Num
 
@@ -934,7 +934,7 @@ end
 --   1. The client's own heal prediction. Retail's calculator (12.x) and UnitGetIncomingHeals
 --      only predict cast heals - the green - and have no HoT split: no HoT clamp mode, no HoT
 --      getter, no HoT flag on UnitGetIncomingHeals (classic HealComm's DIRECT / HOT flags are a
---      library of its own, not in the client). /bff status lists any calculator method whose
+--      library of its own, not in the client). /gff status lists any calculator method whose
 --      name says HoT or periodic, so a client that grows one shows it.
 --   2. So it is summed from the unit's buffs: C_UnitAuras.GetAuraDataByIndex(unit, i,
 --      "HELPFUL"). A buff is a known HoT by spell ID (HOTS below: the tick interval and which
@@ -948,7 +948,7 @@ end
 --      timeMod where that is plain and not 1). Only plain values are used.
 --   3. On this client auras are secret while you are in combat (see Auras below), and reading
 --      them by index is then refused. The yellow segment is simply hidden then - nothing else
---      changes - and /bff status says why. Out of combat (a healer topping up, resting) it is
+--      changes - and /gff status says why. Out of combat (a healer topping up, resting) it is
 --      drawn, and it is redrawn as combat ends.
 -- Clamped as the green: when health, maximum and incoming heals are plain the sum is cut to the
 -- missing health left after the incoming heals; otherwise the health bar clips its children,
@@ -976,7 +976,7 @@ AddHots(1, 1, { 746, 1159, 3267, 3268, 7926, 7927, 10838, 10839, 18608, 18610 })
 local HOT_ENGLISH = { Renew = 139, Rejuvenation = 774, Regrowth = 8936, Lifebloom = 33763, ["First Aid"] = 746 }
 
 local MAX_AURAS = 40
-local hotWhy = {}       -- [unit] = what its yellow segment did at the last update, for /bff status
+local hotWhy = {}       -- [unit] = what its yellow segment did at the last update, for /gff status
 local hotNames          -- [localized name] = HOTS entry, built on first use
 local tipCache = {}     -- ["spell:caster:instance"] = { per, interval, source } or { fail = time }
 local tipCount = 0
@@ -1237,7 +1237,7 @@ local function CalculatorHotMethods()
     return #names > 0 and table.concat(names, ", ") or "none"
 end
 
--- A value for /bff hotdebug: "secret" for a hidden one, tables flattened one level.
+-- A value for /gff hotdebug: "secret" for a hidden one, tables flattened one level.
 local function Raw(v)
     if IsSecret(v) then return "secret" end
     if type(v) == "table" then
@@ -1252,22 +1252,22 @@ local function Raw(v)
     return tostring(v)
 end
 
--- The unit /bff status and /bff hotdebug look at: the target, else the player.
+-- The unit /gff status and /gff hotdebug look at: the target, else the player.
 local function HotUnit()
     if Plain(UnitExists("target")) == true then return "target" end
     return "player"
 end
 
--- For /bff status: lines on the yellow segment for the target (or the player) right now, each
+-- For /gff status: lines on the yellow segment for the target (or the player) right now, each
 -- HoT found with where its amount came from, and why nothing is drawn when it is not.
 function HealPred.HotLines()
     local u = HotUnit()
     local lines = {}
     local state
     if not db.hotPred then
-        state = "off (/bff hotpred on)"
+        state = "off (/gff hotpred on)"
     elseif not db.healPrediction then
-        state = "not drawn: heal prediction is off (/bff healpred on)"
+        state = "not drawn: heal prediction is off (/gff healpred on)"
     elseif blocked.healpred then
         state = "not drawn: heal prediction refused (" .. blocked.healpred .. ")"
     elseif InCombat() then
@@ -1297,7 +1297,7 @@ function HealPred.HotLines()
                 .. (e.rest and string.format(", %.1fs left, %d ticks = %d", e.left, e.ticks, e.rest)
                     or (", not counted: " .. tostring(e.why)))
         else
-            lines[#lines + 1] = head .. ": no amount (" .. tostring(e.why) .. ") - send /bff hotdebug"
+            lines[#lines + 1] = head .. ": no amount (" .. tostring(e.why) .. ") - send /gff hotdebug"
         end
     end
     lines[#lines + 1] = "  source: aura points, else the aura tooltip (plain only, so out of combat on this client)"
@@ -1305,7 +1305,7 @@ function HealPred.HotLines()
     return lines
 end
 
--- /bff hotdebug: every helpful aura on the target (or the player) as the client gives it, the
+-- /gff hotdebug: every helpful aura on the target (or the player) as the client gives it, the
 -- tooltip text, and what the HoT code makes of it - to be pasted back when the yellow is missing.
 function HealPred.HotDebug()
     local u = HotUnit()
@@ -1445,7 +1445,7 @@ local function Chain(f)
 end
 
 -- The HoT sum for unit, cut to the missing health after the incoming heals where all of those
--- are plain (otherwise the clipping health bar does it). Also notes the outcome for /bff status.
+-- are plain (otherwise the clipping health bar does it). Also notes the outcome for /gff status.
 local function HotValue(u, mx, all)
     if not db.hotPred then hotWhy[u] = "off"; return nil end
     local total, why = HotScan(u)
@@ -1874,7 +1874,7 @@ end
 end
 
 -- Whether a unit has no power to show: true (none), false (it has power) or nil (cannot tell),
--- and why, for /bff status. A plain maximum decides where there is one. On this client
+-- and why, for /gff status. A plain maximum decides where there is one. On this client
 -- UnitPowerMax is secret for every unit that is not player-controlled (the API documentation's
 -- SecretWhenUnitPowerMaxRestricted), so a beast's maximum of 0 cannot be tested - 1.1 fell
 -- through to the hidden-value text and wrote "0/0 0%". UnitPowerType and UnitHasPowerType carry
@@ -1945,7 +1945,7 @@ local function HasStringGate()
 end
 
 -- How a hidden power line is kept from showing 0/0: "curve+truncate", "curve", "truncate" or
--- "fallback", for UpdatePower and /bff status.
+-- "fallback", for UpdatePower and /gff status.
 function PowerHide.Method()
     if blocked.powerhide then return "fallback" end
     local curve = PowerAlphaCurve() and true or false
@@ -2191,13 +2191,13 @@ end
 --      time the frame's auras are drawn). Target: your debuffs (large), other debuffs (small,
 --      grey) and buffs; party: debuffs and buffs.
 --   2. Otherwise our own icons from index reads, one pcall per read, C_Secrets.
---      ShouldUnitAuraIndexBeSecret asked first. A refused read is counted for /bff status and
+--      ShouldUnitAuraIndexBeSecret asked first. A refused read is counted for /gff status and
 --      tried again at the next update - never a latch - so out of combat the auras are back.
 -- Only an error outside the reads switches auras off for the session, with one line in chat.
 -- ---------------------------------------------------------------------------
 
-local auraStats              -- aura reads refused this session, for /bff status
-local containerInfo = {}     -- how the Blizzard aura container fared, for /bff status
+local auraStats              -- aura reads refused this session, for /gff status
+local containerInfo = {}     -- how the Blizzard aura container fared, for /gff status
 local UpdateAuras
 
 do
@@ -2347,7 +2347,7 @@ do
     end
 
     -- The container for one frame, or false where the client has none (or refuses it). Missing
-    -- on this client is quiet (it shows in /bff status); a client that has the template but
+    -- on this client is quiet (it shows in /gff status); a client that has the template but
     -- refuses our setup says so once in chat.
     -- The frame's groups as this client can draw them (see GROUPS).
     local function EffectiveGroups(key)
@@ -2576,7 +2576,7 @@ do
         local wanted = Wanted(f)
         if f.auraContainer then SetContainerShown(f, wanted) end
         if not wanted then
-            f.auraPath = testing and "test mode" or "off (/bff playerbuffs on)"
+            f.auraPath = testing and "test mode" or "off (/gff playerbuffs on)"
             if not testing then for _, icon in ipairs(f.auraIcons) do icon:Hide() end end
             return
         end
@@ -3193,8 +3193,8 @@ local function SetTesting(on, quiet)
         end
         if not quiet then
             Print("test mode on: every enabled frame shows made-up data"
-                .. (db.locked and " - /bff unlock to drag them." or " - drag them into place.")
-                .. " /bff test again to stop.")
+                .. (db.locked and " - /gff unlock to drag them." or " - drag them into place.")
+                .. " /gff test again to stop.")
         end
     else
         HidePreviews()
@@ -3398,7 +3398,7 @@ do
             local _, own = FollowReport()
             Print("following Blizzard Edit Mode: player, target, focus and party sit where Blizzard's frames are"
                 .. " placed (pet and target of target move with them). Place them with Edit Mode; your own"
-                .. " positions are kept for /bff editmode off."
+                .. " positions are kept for /gff editmode off."
                 .. (#own > 0 and (" Own position for now: " .. table.concat(own, ", ") .. ".") or ""))
         else
             Print("own positions again - Edit Mode no longer moves the frames.")
@@ -3424,7 +3424,7 @@ local function SetLocked(on)
     if db.locked then EndDrags() end
     for _, f in ipairs(AllFrames()) do ApplyBorder(f) end
     Print(db.locked and "frames locked."
-        or "frames unlocked: drag a frame to move it (out of combat). /bff test shows every frame.")
+        or "frames unlocked: drag a frame to move it (out of combat). /gff test shows every frame.")
 end
 
 local function SetFrameEnabled(key, on)
@@ -3507,30 +3507,30 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "X-Perl-style unit frames for player, target, target of target, focus, pet and party, in place of Blizzard's: portraits, health and power text, heal prediction, auras, raid marks and a threat border. Nice to know: /bff unlock, then drag a frame to move it, or let the frames follow Edit Mode; /bff test shows every frame with made-up data; frames are switched on or off out of combat only."
+local INTRO = "X-Perl-style unit frames for player, target, target of target, focus, pet and party, in place of Blizzard's: portraits, health and power text, heal prediction, auras, raid marks and a threat border. Nice to know: /gff unlock, then drag a frame to move it, or let the frames follow Edit Mode; /gff test shows every frame with made-up data; frames are switched on or off out of combat only."
 
 local function PrintHelp()
     Print(INTRO)
     Print("version " .. VERSION .. ". Commands:")
-    Print("/bff status - settings, frames and what this client allows")
-    Print("/bff lock | unlock - stop or allow dragging the frames (now: " .. (db and db.locked and "locked" or "unlocked") .. ")")
-    Print("/bff editmode on | off - player, target, focus and party follow Blizzard's frames placed in Edit Mode;"
+    Print("/gff status - settings, frames and what this client allows")
+    Print("/gff lock | unlock - stop or allow dragging the frames (now: " .. (db and db.locked and "locked" or "unlocked") .. ")")
+    Print("/gff editmode on | off - player, target, focus and party follow Blizzard's frames placed in Edit Mode;"
         .. " pet and target of target move with them, and those frames are not dragged (now: "
         .. OnOff(db and db.followEditMode) .. ")")
-    Print("/bff test - show every enabled frame with made-up data, to place them (out of combat)")
-    Print("/bff reset - positions and scales back to the defaults")
-    Print(string.format("/bff scale <%s> <%.1f-%.1f> - one frame's scale", KeyList(), MIN_SCALE, MAX_SCALE))
-    Print("/bff frame <" .. KeyList() .. "> on | off - which frames are drawn (off: Blizzard's comes back after /reload)")
-    Print("/bff portrait 2d | 3d (now: " .. (db and db.portrait or "?") .. ")")
-    Print("/bff text | classcolor on | off - bar text, class colour")
-    Print("/bff playerbuffs on | off - your buffs in rows under the player frame (now: "
+    Print("/gff test - show every enabled frame with made-up data, to place them (out of combat)")
+    Print("/gff reset - positions and scales back to the defaults")
+    Print(string.format("/gff scale <%s> <%.1f-%.1f> - one frame's scale", KeyList(), MIN_SCALE, MAX_SCALE))
+    Print("/gff frame <" .. KeyList() .. "> on | off - which frames are drawn (off: Blizzard's comes back after /reload)")
+    Print("/gff portrait 2d | 3d (now: " .. (db and db.portrait or "?") .. ")")
+    Print("/gff text | classcolor on | off - bar text, class colour")
+    Print("/gff playerbuffs on | off - your buffs in rows under the player frame (now: "
         .. OnOff(db and db.playerBuffs) .. ")")
-    Print("/bff healpred on | off - incoming heals and absorbs on the health bars (now: "
+    Print("/gff healpred on | off - incoming heals and absorbs on the health bars (now: "
         .. OnOff(db and db.healPrediction) .. ")")
-    Print("/bff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
+    Print("/gff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
         .. OnOff(db and db.hotPred) .. ")")
-    Print("/bff hotdebug - the raw buff data of your target (or you) behind the HoT prediction, to paste back")
-    Print("/bff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
+    Print("/gff hotdebug - the raw buff data of your target (or you) behind the HoT prediction, to paste back")
+    Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
 end
 
@@ -3620,7 +3620,7 @@ local function PrintAuraStatus()
         .. (auraStats.lastError and (" - last: " .. auraStats.lastError) or ""))
 end
 
--- The target's health readings and the number formatters, for /bff status. Hidden values are
+-- The target's health readings and the number formatters, for /gff status. Hidden values are
 -- named, never shown; the formatters are tried on plain numbers only.
 function ValueText.Status()
     local u = "target"
@@ -3789,7 +3789,7 @@ local function OnSlash(msg)
         if key and HasKey(key) and s and s >= MIN_SCALE and s <= MAX_SCALE then
             SetScale(key, s)
         else
-            Print(string.format("/bff scale <%s> <%.1f-%.1f>", KeyList(), MIN_SCALE, MAX_SCALE))
+            Print(string.format("/gff scale <%s> <%.1f-%.1f>", KeyList(), MIN_SCALE, MAX_SCALE))
         end
     elseif cmd == "frame" then
         local word, state = rest:match("^(%S+)%s*(%S*)$")
@@ -3799,23 +3799,23 @@ local function OnSlash(msg)
         elseif key and state == "" then
             SetFrameEnabled(key, not db.frames[key])
         else
-            Print("/bff frame <" .. KeyList() .. "> on | off")
+            Print("/gff frame <" .. KeyList() .. "> on | off")
         end
     elseif cmd == "editmode" or cmd == "follow" then
         if rest == "on" or rest == "off" then SetFollow(rest == "on")
         elseif rest == "" then SetFollow(not db.followEditMode)
-        else Print("/bff editmode on | off (now: " .. OnOff(db.followEditMode) .. ")") end
+        else Print("/gff editmode on | off (now: " .. OnOff(db.followEditMode) .. ")") end
     elseif cmd == "hotdebug" then
         HealPred.HotDebug()
     elseif cmd == "portrait" then
         if rest == "2d" or rest == "3d" then SetPortraitMode(rest)
-        else Print("/bff portrait 2d | 3d (now: " .. db.portrait .. ")") end
+        else Print("/gff portrait 2d | 3d (now: " .. db.portrait .. ")") end
     else
         for _, t in ipairs(SETTING_TOGGLES) do
             if cmd == t.cmd then
                 if rest == "on" or rest == "off" then SetToggle(t, rest == "on")
                 elseif rest == "" then SetToggle(t, not db[t.key])
-                else Print("/bff " .. t.cmd .. " on | off (now: " .. OnOff(db[t.key]) .. ")") end
+                else Print("/gff " .. t.cmd .. " on | off (now: " .. OnOff(db[t.key]) .. ")") end
                 return
             end
         end
@@ -3828,7 +3828,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterFramesForeverDB and change only through the
--- same functions /bff uses, so the addon behaves the same with or without the hub.
+-- same functions /gff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "unlocked · 6 frames · 2D"
@@ -4088,6 +4088,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     end
 end)
 
-SLASH_BETTERFRAMESFOREVER1 = "/bff"
-SLASH_BETTERFRAMESFOREVER2 = "/betterframesforever"
+SLASH_BETTERFRAMESFOREVER1 = "/gff"
+SLASH_BETTERFRAMESFOREVER2 = "/gaarframesforever"
+SLASH_BETTERFRAMESFOREVER3 = "/bff" -- the command before the Gaar rename
+SLASH_BETTERFRAMESFOREVER4 = "/betterframesforever"
 SlashCmdList.BETTERFRAMESFOREVER = OnSlash

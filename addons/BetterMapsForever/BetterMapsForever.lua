@@ -15,7 +15,7 @@
     * Reset: Blizzard's default position and 100% scale.
     * The maximized map is left to Blizzard: no handle, no grip, 100% scale. Going back to the
       windowed map puts the saved position and scale back.
-    * /bmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off and fade <percent>.
+    * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off and fade <percent>.
     * BetterMapsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -45,7 +45,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.3"
+local VERSION = "1.2.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -68,11 +68,11 @@ local db                -- BetterMapsForeverDB, bound at ADDON_LOADED (never at 
 local map               -- WorldMapFrame once found
 local dragHandle        -- invisible handle over the title bar
 local grip              -- resize grip in the bottom-right corner
-local blizzardPoints    -- the anchor Blizzard last gave the map, for /bmf reset
+local blizzardPoints    -- the anchor Blizzard last gave the map, for /gmf reset
 local appliedPoints     -- the anchor we last set, so it is not mistaken for Blizzard's
 local scaled            -- we have set a scale other than Blizzard's 100% on the map
 local pendingApply      -- a move or scale that has to wait for combat to end
-local pendingRestore    -- /bmf reset is waiting to put Blizzard's anchor and scale back
+local pendingRestore    -- /gmf reset is waiting to put Blizzard's anchor and scale back
 local moving            -- a title-bar drag is in progress
 local sizing            -- a grip drag is in progress
 local faded             -- the map is at the fade opacity right now
@@ -86,7 +86,7 @@ local hooked, panelHooked
 -- loaded first as a dependency). Num treats a secret value - the client hands one back where it
 -- hides a number, and it can be neither compared nor used in a sum - as no number at all.
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterMapsForever", { version = VERSION })
+local A = BF.NewAddon("BetterMapsForever", { title = "GaarMapsForever", version = VERSION })
 local function Print(msg) A:Print(msg) end
 local InCombat, Num, OnOff, AddOnLoaded = BF.InCombat, BF.Num, BF.OnOff, BF.AddOnLoaded
 
@@ -194,7 +194,7 @@ end
 local UpdateWidgets -- defined with the widgets below
 
 -- Puts the saved scale and position on the windowed map, gives the maximized map back to
--- Blizzard, or restores Blizzard's own layout after /bmf reset. Never in combat.
+-- Blizzard, or restores Blizzard's own layout after /gmf reset. Never in combat.
 local function ApplyLayout()
     if not map or not db or moving or sizing then return end
     if UpdateWidgets then UpdateWidgets() end
@@ -218,7 +218,7 @@ local function ApplyLayout()
         return
     end
 
-    -- Remember where Blizzard put it, for /bmf reset; our own anchor does not count.
+    -- Remember where Blizzard put it, for /gmf reset; our own anchor does not count.
     local points = CapturePoints(map)
     if points and #points > 0 and not SamePoints(points, appliedPoints) then
         blizzardPoints = points
@@ -341,7 +341,7 @@ local function CreateDragHandle()
         if not tip then return end
         tip:SetOwner(self, "ANCHOR_TOP")
         tip:SetText("Drag to move the map")
-        tip:AddLine("Resize from the grip in the bottom-right corner. /bmf lock to lock, /bmf reset to reset.", 1, 1, 1, true)
+        tip:AddLine("Resize from the grip in the bottom-right corner. /gmf lock to lock, /gmf reset to reset.", 1, 1, 1, true)
         tip:Show()
     end)
     handle:SetScript("OnLeave", function()
@@ -670,7 +670,7 @@ local function SetFadePercent(p, quiet)
     if faded then SetFaded(true) end
     if quiet then return end
     Print(string.format("fade opacity set to %d%%", Percent(db.fadeAlpha))
-        .. (db.fade and "." or " (fade is off: /bmf fade on)."))
+        .. (db.fade and "." or " (fade is off: /gmf fade on)."))
 end
 
 -- ---------------------------------------------------------------------------
@@ -691,12 +691,12 @@ local INTRO = "Move, scale and fade Blizzard's world map window (Map & Quest Log
 local function PrintHelp()
     Print(INTRO)
     Print("drag the world map's title bar to move it, and the grip in its bottom-right corner to resize it (windowed map only).")
-    Print("/bmf lock | /bmf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
-    Print("/bmf reset - Blizzard's default position and 100% scale")
-    Print(string.format("/bmf scale <%d-%d> - set the scale in percent (now: %d%%)", MIN_SCALE * 100, MAX_SCALE * 100, Percent(db and db.scale or 1)))
-    Print("/bmf fade on | /bmf fade off - fade the map while you move (now: " .. OnOff(db and db.fade) .. ")")
-    Print(string.format("/bmf fade <%d-%d> - opacity while moving, in percent (now: %d%%)", MIN_FADE * 100, MAX_FADE * 100, Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
-    Print("/bmf status - what this client offers and the current settings")
+    Print("/gmf lock | /gmf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
+    Print("/gmf reset - Blizzard's default position and 100% scale")
+    Print(string.format("/gmf scale <%d-%d> - set the scale in percent (now: %d%%)", MIN_SCALE * 100, MAX_SCALE * 100, Percent(db and db.scale or 1)))
+    Print("/gmf fade on | /gmf fade off - fade the map while you move (now: " .. OnOff(db and db.fade) .. ")")
+    Print(string.format("/gmf fade <%d-%d> - opacity while moving, in percent (now: %d%%)", MIN_FADE * 100, MAX_FADE * 100, Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
+    Print("/gmf status - what this client offers and the current settings")
 end
 
 local function PrintStatus()
@@ -750,7 +750,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterMapsForeverDB and change only through the
--- same functions /bmf uses, so the addon behaves the same with or without the hub.
+-- same functions /gmf uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "unlocked · 100% · default position · fade 35%"
@@ -856,6 +856,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERMAPSFOREVER1 = "/bmf"
-SLASH_BETTERMAPSFOREVER2 = "/bettermapsforever"
+SLASH_BETTERMAPSFOREVER1 = "/gmf"
+SLASH_BETTERMAPSFOREVER2 = "/gaarmapsforever"
+SLASH_BETTERMAPSFOREVER3 = "/bmf" -- the command before the Gaar rename
+SLASH_BETTERMAPSFOREVER4 = "/bettermapsforever"
 SlashCmdList.BETTERMAPSFOREVER = OnSlash

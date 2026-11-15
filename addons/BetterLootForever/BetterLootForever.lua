@@ -2,7 +2,7 @@
   BetterLootForever - who chose Need, Greed or Pass on a group loot roll, on WoW Forever.
 
   What it does, each part with its own switch (saved in BetterLootForeverDB, changed with
-  /bloot <feature> on|off, from the BetterForever hub menu or its Options page):
+  /glf <feature> on|off, from the BetterForever hub menu or its Options page):
 
     * enabled   master switch for everything below.
     * counts    (default on) a small white, outlined number in the bottom-right corner of the
@@ -18,11 +18,11 @@
                 87 for [item] by Elex" lines; Disenchant is counted with Greed and marked (DE)),
                 and the result ("» Elex", "all passed"). Long lines are cut; hover them for the
                 full list. The newest roll is on top, the last N are kept (rolls, 1..10, default
-                5). Shown only in a group; drag it to move it (saved), /bloot reset puts it back.
+                5). Shown only in a group; drag it to move it (saved), /glf reset puts it back.
                 The close button clears it; it comes back with the next roll.
     * autohide  (default on) the summary clears itself 60 seconds after the last of its rolls has
                 finished (result line, or roll time over).
-    * /bloot test  a preview window with three fake buttons and counts, built from the client's
+    * /glf test  a preview window with three fake buttons and counts, built from the client's
                 own chat strings run through the same parser (the results are printed too), and
                 three fake finished rolls in the summary. The real roll frame cannot be opened
                 without a real roll, so it is never touched.
@@ -59,7 +59,7 @@
 ]]
 
 local _G = _G
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local DOT = " \194\183 "
 
 local BF = _G.BetterForever
@@ -70,9 +70,9 @@ local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a grou
     .. "the group chose that option for that roll. Hover a button to see who. Nice to know: the counts "
     .. "come from the loot chat lines (and the loot history where the client has it), so they fill in as "
     .. "people choose. Once you have chosen, a small summary panel lists the last rolls: who chose "
-    .. "what, the numbers rolled and who won. Drag it to move it; /bloot test shows a preview."
+    .. "what, the numbers rolled and who won. Drag it to move it; /glf test shows a preview."
 
-local A = BF.NewAddon("BetterLootForever", { version = VERSION, intro = INTRO })
+local A = BF.NewAddon("BetterLootForever", { title = "GaarLootForever", version = VERSION, intro = INTRO })
 
 local FRAMES = 4                  -- GroupLootFrame1..4
 local GRACE = 10                  -- seconds a roll is kept after its roll time
@@ -921,7 +921,7 @@ local function OnHistoryDrop(_, encounterID, lootListKey)
 end
 
 -- ---------------------------------------------------------------------------
--- /bloot test: a preview window and the parser run on the client's own strings
+-- /glf test: a preview window and the parser run on the client's own strings
 -- ---------------------------------------------------------------------------
 
 local preview, previewRoll
@@ -943,7 +943,7 @@ local function PreviewFrame()
     bg:SetColorTexture(0, 0, 0, 0.8)
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -8)
-    title:SetText("BetterLootForever preview")
+    title:SetText("GaarLootForever preview")
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
     local x = 20
@@ -1065,9 +1065,9 @@ local function RunTest()
         if button:GetParent() == f then ShowCount(info, #b[info.bucket]) end
     end
     f:Show()
-    if not Flag("counts") then A:Print("counts are off (/bloot counts on), so the buttons show none.") end
+    if not Flag("counts") then A:Print("counts are off (/glf counts on), so the buttons show none.") end
     FillTestSummary()
-    if not Flag("summary") then A:Print("the summary is off (/bloot summary on), so it shows none.") end
+    if not Flag("summary") then A:Print("the summary is off (/glf summary on), so it shows none.") end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1103,7 +1103,7 @@ A.statusFn = function()
         .. " (" .. #summary .. "/" .. SummarySize() .. ", auto-hide " .. OnOff(A:Get("autohide")) .. ")"
 end
 
-A:Slash({ "/bloot", "/betterlootforever" })
+A:Slash({ "/glf", "/gaarlootforever", "/bloot", "/betterlootforever" }) -- /gloot is GaarLooter's; /bloot: the command before the Gaar rename
 A:API()
 
 A:On("ADDON_LOADED", function(_, name)

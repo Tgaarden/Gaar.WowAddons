@@ -1,8 +1,12 @@
-# BetterGpsForever
+# GaarGpsForever
+
+> Formerly **BetterGpsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/ggps` (`/gaargpsforever`); the old `/bgps` and `/bettergpsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaargpsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001): one
 TomTom-style waypoint with an arrow, the distance and the time to get there, a world map pin and a
-minimap pin. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+minimap pin. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -40,7 +44,7 @@ minimap pin. It needs BetterForever, the family hub, and no other addon or libra
   (`C_SuperTrack.SetSuperTrackedUserWaypoint(true)`). Clearing ours clears it only while it is
   still the one we set; one you placed yourself afterwards is left alone.
 - **Arrival.** Within 10 yards the waypoint clears itself, with `Arrived at <zone> x, y.` in chat.
-- **Corpse route** (1.1, default on, `/bgps corpse on|off`). Once you have released and are a
+- **Corpse route** (1.1, default on, `/ggps corpse on|off`). Once you have released and are a
   ghost, the waypoint is your corpse, titled **Corpse**: `C_DeathInfo.GetCorpseMapPosition` on
   your map, or on the first parent map that holds it (then narrowed to the zone it lies in with
   `C_Map.GetMapInfoAtPosition`). It is read again on every map change (graveyard, zone change,
@@ -54,12 +58,12 @@ minimap pin. It needs BetterForever, the family hub, and no other addon or libra
     until the next death.
   - Clearing the corpse waypoint (right-click the arrow, `/way clear`) ends the route; the
     waypoint from before comes back at once.
-  - `/bgps corpse off` while the route runs ends it the same way.
+  - `/ggps corpse off` while the route runs ends it the same way.
   - The state is saved, so a `/reload` or a relog while dead keeps the waypoint to bring back.
 - **Waypoints from other addons.** `BetterGpsForeverAPI.SetWaypoint(uiMapID, x, y, title)` sets
-  the one waypoint with a title of its own (BetterQuestsForever 1.6 uses it for "Set GPS target"
+  the one waypoint with a title of its own (GaarQuestsForever 1.6 uses it for "Set GPS target"
   in the quest tracker's menu, titled with the quest's name); the title is shown on the arrow,
-  in `/way`, `/bgps status` and the arrival line instead of the zone name. `/way` itself is
+  in `/way`, `/ggps status` and the arrival line instead of the zone name. `/way` itself is
   unchanged.
 - **Saved** account-wide in `BetterGpsForeverDB`, so it survives `/reload` and logging out.
 
@@ -69,38 +73,38 @@ Not in 1.1: more than one waypoint, a queue, routes, importing, and the arrow in
 
 | Command | Does |
 |---|---|
-| `/bgps` | Help |
+| `/ggps` | Help |
 | `/way x y`, `/way x,y`, `/way <zone> x y` | Set the waypoint (0-100, x first) |
 | `/way`, `/way clear` | Show the waypoint and the usage; clear it |
-| `/bgps way ...` | The same as `/way ...`, always there (the one to use with TomTom) |
-| `/bgps arrow on`, `/bgps arrow off` | Show the arrow or not (the pins stay) |
-| `/bgps lock`, `/bgps unlock` | Stop or allow dragging the arrow |
-| `/bgps reset` | Arrow back to its default place |
-| `/bgps clear` | Clear the waypoint (or right-click the arrow) |
-| `/bgps corpse on`, `/bgps corpse off` | Waypoint to your corpse while you are a ghost, the old one back after resurrection (default on) |
-| `/bgps status` | The waypoint, the arrow settings, the corpse route, who owns `/way`, which map functions this client has, and anything switched off |
+| `/ggps way ...` | The same as `/way ...`, always there (the one to use with TomTom) |
+| `/ggps arrow on`, `/ggps arrow off` | Show the arrow or not (the pins stay) |
+| `/ggps lock`, `/ggps unlock` | Stop or allow dragging the arrow |
+| `/ggps reset` | Arrow back to its default place |
+| `/ggps clear` | Clear the waypoint (or right-click the arrow) |
+| `/ggps corpse on`, `/ggps corpse off` | Waypoint to your corpse while you are a ghost, the old one back after resurrection (default on) |
+| `/ggps status` | The waypoint, the arrow settings, the corpse route, who owns `/way`, which map functions this client has, and anything switched off |
 
-`/bettergpsforever` is the long form of `/bgps`.
+`/gaargpsforever` is the long form of `/ggps`.
 
 ## TomTom
 
-When TomTom is loaded (or any other addon already answers `/way`), BetterGpsForever does not
-register `/way`, so TomTom's keeps working. It says so once at login, `/bgps way x y` does the same
-job, and `/bgps status` shows who owns `/way`. The check runs at `PLAYER_LOGIN`, when every addon
+When TomTom is loaded (or any other addon already answers `/way`), GaarGpsForever does not
+register `/way`, so TomTom's keeps working. It says so once at login, `/ggps way x y` does the same
+job, and `/ggps status` shows who owns `/way`. The check runs at `PLAYER_LOGIN`, when every addon
 has loaded.
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help).
+Since 1.2.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help).
 
 Since 1.2.2 the small helpers (the chat prefix, secret-value and number checks, safe client
-calls, the time text and the menu drawing) come from BetterForever's shared library
+calls, the time text and the menu drawing) come from GaarForever's shared library
 (`BetterForever`, `Lib.lua`) instead of a copy in this addon. Nothing you see changed.
 
-[BetterForever](../BetterForever/README.md) 2.3 and later has a **GPS** submenu with
+[GaarForever](../BetterForever/README.md) 2.3 and later has a **GPS** submenu with
 **Show arrow**, **Lock arrow**, **Reset arrow position**, **Route to corpse when dead** (1.1) and
 **Clear waypoint** (a grey line that cannot be clicked while there is no waypoint), the same as
-`/bgps arrow on|off`, `/bgps lock|unlock`, `/bgps reset`, `/bgps corpse on|off` and `/bgps
+`/ggps arrow on|off`, `/ggps lock|unlock`, `/ggps reset`, `/ggps corpse on|off` and `/ggps
 clear`. This addon has no minimap button of its own.
 
 The hub talks to this addon only through `BetterGpsForeverAPI`:
@@ -133,7 +137,7 @@ The hub talks to this addon only through `BetterGpsForeverAPI`:
   the map is open.
 - **Alt-click.** `GetCursorPosition()` divided by the canvas's own effective scale, minus the
   canvas's left and top, over its width and height. Blizzard's helper divides by UIParent's scale
-  instead, which is off once the map frame is scaled (BetterMapsForever's known limit); this is
+  instead, which is off once the map frame is scaled (GaarMapsForever's known limit); this is
   right at any scale and zoom.
 - **Minimap pin.** The yards east and north, turned by the facing when the minimap rotates,
   divided by the view radius and multiplied by half the minimap's width.

@@ -65,9 +65,22 @@ settings (Bags' locks, Buffs, Fishing) move on each character's own first login.
 per addon says `settings moved from Better...Forever`. The hub's "what's new" versions are moved
 to the new names too, so the update is announced once.
 
-- Update every family addon at once (the CurseForge app's **Update all**): an old
-  `BetterXForever` folder that is still the full addon needs the old library and will not load
-  beside the new hub; GaarForever names any such folder in chat.
+- The hub's own bridge works the other way round (3.2.2): `BetterForever` lists
+  `## Dependencies: GaarForever`, so the hub always loads first and copies `BetterForeverDB` when
+  the bridge has loaded (or at login), before its minimap button and what's-new use it.
+- Update every family addon at once (the CurseForge app's **Update all**). An old
+  `BetterXForever` folder that is still the full addon loads after the hub (it depends on
+  `BetterForever`, which now depends on the hub) and runs on the `BetterForever` library alias,
+  but beside its Gaar...Forever version if that is installed too, and without a submenu or
+  Options page in the hub (which looks for the new names). GaarForever names any such folder in
+  chat and says to update all Gaar...Forever addons. Mixed old and new versions do not break
+  each other's loading; what they share by name does not cross over: a new addon does not see an
+  old one's API or settings (e.g. GaarQuestsForever and GaarFishingForever do not find an old
+  BetterGpsForever's arrow, and GaarMerchantForever does not see an old BetterBagsForever's item
+  locks, so it may sell a locked grey item), while an old addon finds a new one's API through
+  its `Better...ForeverAPI` alias but reads only the bridge's frozen copy of its settings (an old
+  BetterMerchantForever sees the item locks as they were when the new GaarBagsForever moved
+  them).
 - After logging in once on each character, the `Better...Forever` folders can be deleted; a later
   update removes them. Without the bridge the addon simply starts with defaults.
 - Key bindings carry over: the fishing **Cast / Reel** binding keeps its command
@@ -414,6 +427,19 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.2.2
+
+- **Partial updates**: the hub's settings bridge (`BetterForever`) now lists
+  `## Dependencies: GaarForever`, and the hub no longer lists it under `## OptionalDeps`, so the
+  hub always loads first. An old `BetterXForever` that is still the full addon (it depends on
+  `BetterForever`) then loads after the hub and finds the library (`BetterForever` alias); before,
+  it loaded right after the bridge, before the hub, and broke (e.g. Bags).
+- The hub's own settings (`BetterForeverDB`: minimap place, what's-new versions) are copied when
+  the bridge has loaded, or at login without it, before anything uses them; only while
+  `GaarForeverDB` is still empty, once, never deleting anything.
+- The chat warning about an old folder that still holds the full addon says to update all
+  Gaar...Forever addons.
 
 ## 3.2.1
 

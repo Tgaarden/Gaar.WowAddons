@@ -47,6 +47,9 @@ folder stays in the repo as a **settings bridge** (`addons/BetterForever`, `addo
 ...: a TOC listing the old saved variables, no code) and goes into the same release zip; the new
 addon lists it under `## OptionalDeps` and copies the old settings over on the first login
 (`GaarForever.Migrate`, see [the hub's README](addons/GaarForever/README.md#coming-from-betterforever)).
+The hub's bridge is the exception (hub 3.2.2): `BetterForever` lists `## Dependencies: GaarForever`,
+so the hub loads first and an old full addon that still depends on `BetterForever` finds the
+library.
 The bridges are safe to delete after one login per character. The old globals
 (`BetterForever`, `Better...ForeverAPI`) stay as aliases. Each
 addon's command is now a g-command (`/gf`, `/gbf`, `/gqf`, ...; `/glf` for GaarLootForever, as
@@ -541,4 +544,5 @@ Bump `## Version` in both TOCs and merge first; the tag must match the TOC versi
   so a CurseForge update replaces the old full addon with its bridge and the settings move over.
   **After the transition (about two weeks, at most a month) remove the `bridges` entries and the
   `addons/Better*Forever` bridge folders** (and the `## OptionalDeps: BetterXForever` line in each
-  addon's TOCs); `GaarForever.Migrate` then simply finds nothing to move.
+  addon's TOCs, and the hub's `MigrateOldHubDB`); `GaarForever.Migrate` then simply finds nothing
+  to move.

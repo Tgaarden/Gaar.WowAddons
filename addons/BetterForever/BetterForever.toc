@@ -5,6 +5,7 @@
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
 ## X-Bridge-For: GaarForever
+## Dependencies: GaarForever
 ## SavedVariables: BetterForeverDB
 
 Bridge.lua

@@ -29,6 +29,7 @@
 
   Saved variables: BetterForeverDB, bound at ADDON_LOADED (never at file scope), holds only
     minimap = { hide = <bool>, angle = <deg> }
+    news, seen, lastNews, selftest   (3.1, Tools.lua: what's new and the last self-test)
   The old BetterGaarForeverDB cannot be read: the client loads saved variables by addon name
   (SavedVariables/BetterGaarForever.lua), so the renamed hub starts with the default button
   position. The addons' own settings live in their own saved variables and are unaffected.
@@ -39,10 +40,12 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterForever"
+local _, ns = ...
 local Lib = _G.BetterForever
+local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "BetterForever"
-local VERSION = "3.0.2"
+local VERSION = "3.1.0"
 local PREFIX = "|cff33ff99BetterForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -142,11 +145,20 @@ end
 local function BindSavedVariables()
     if type(_G.BetterForeverDB) ~= "table" then _G.BetterForeverDB = {} end
     db = _G.BetterForeverDB
-    -- Only the minimap button is kept; 1.0's bags, quests, modules and migrated go.
+    -- Only the minimap button and Tools.lua's keys are kept; 1.0's bags, quests, modules and
+    -- migrated go.
+    local keep = Tools and Tools.DB_KEYS or {}
     for k in pairs(db) do
-        if k ~= "minimap" then db[k] = nil end
+        if k ~= "minimap" and not keep[k] then db[k] = nil end
     end
     MinimapDB()
+    if Tools then
+        local ok, err = pcall(Tools.Bind, { db = db, ADDONS = ADDONS, VERSION = VERSION, Print = Print, API = API })
+        if not ok then
+            Print("the hub's tools could not start: " .. tostring(err))
+            Tools = nil
+        end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -520,6 +532,8 @@ local hub = {
     StatusOf = StatusOf,
     MinimapShown = function() return db ~= nil and not MinimapDB().hide end,
     SetMinimapShown = function(shown) SetMinimapHidden(not shown) end,
+    NewsShown = function() return db ~= nil and db.news ~= false end,
+    SetNewsShown = function(shown) if db then db.news = shown and true or false end end,
 }
 
 local function InitOptions()
@@ -562,6 +576,11 @@ local function PrintHelp()
     Print("/bf status - this version and each addon's state")
     Print("/bf options [name] - open the Options pages (name: bags, quests, maps, ... - one addon's page)")
     Print("/bf minimap - show or hide the minimap button; /bf minimap reset - default place, shown")
+    Print("/bf news [on|off] - what changed in the last update (the lines at login: on or off)")
+    Print("/bf profile [char|shared] <addon|all> - per-character or shared settings; /bf export <addon>,"
+        .. " /bf import - settings as a copyable string (addons on the library's settings: "
+        .. (Tools and Tools.CoveredText() or "none") .. ")")
+    Print("/bf selftest [show] - probe the client APIs the family uses, in and out of combat, as copyable text")
     local cmds = {}
     for _, a in ipairs(ADDONS) do cmds[#cmds + 1] = a.slash .. " (" .. a.name .. ")" end
     Print("Each addon keeps its own commands: " .. table.concat(cmds, ", ") .. ".")
@@ -599,6 +618,21 @@ local function OnSlash(msg)
         SetMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
         ResetMinimapButton()
+    elseif msg == "news" or msg:match("^news ") then
+        if not Tools then return Print("the hub's tools are not loaded.") end
+        Tools.NewsCommand(msg:match("^news%s*(.-)$"))
+    elseif msg == "profile" or msg:match("^profile ") then
+        if not Tools then return Print("the hub's tools are not loaded.") end
+        Tools.ProfileCommand(msg:match("^profile%s*(.-)$"))
+    elseif msg == "export" or msg:match("^export ") then
+        if not Tools then return Print("the hub's tools are not loaded.") end
+        Tools.ExportCommand(msg:match("^export%s*(.-)$"))
+    elseif msg == "import" then
+        if not Tools then return Print("the hub's tools are not loaded.") end
+        Tools.ImportCommand()
+    elseif msg == "selftest" or msg:match("^selftest ") then
+        if not Tools then return Print("the hub's tools are not loaded.") end
+        Tools.SelfTestCommand(msg:match("^selftest%s*(.-)$"))
     elseif msg == "options" or msg == "config" then
         OpenOptions()
     elseif msg:match("^options ") or msg:match("^config ") then
@@ -629,6 +663,15 @@ local function Start()
     HideStandaloneButtons()
     pcall(ApplyMinimap)
     InitOptions()
+    if Tools then
+        -- A few seconds in, so the lines land after the login spam, not inside it.
+        local after = _G.C_Timer and _G.C_Timer.After
+        local function News()
+            local ok, err = pcall(Tools.LoginNews)
+            if not ok then Print("what's new failed: " .. tostring(err)) end
+        end
+        if type(after) == "function" then after(4, News) else News() end
+    end
     if AddOnLoaded("BetterGaarForever") then
         Print("BetterGaarForever is the old name of this hub: disable it or delete its folder, BetterForever replaces it.")
     end

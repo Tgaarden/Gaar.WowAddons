@@ -38,7 +38,16 @@
   Addons:
     BetterForever.NewAddon(name, opts) -> addon object; see the README ("For addon authors") for
     :Print, :InitDB, :Toggle, :Choice, :Slider, :Button, :Divider, :Get, :Set, :MenuEntries,
-    :Slash, :Run, :On and :API.
+    :Slash, :Run, :On and :API; since 3.1 also :ProfileMode, :SetProfileMode, :ExportSettings
+    and :ImportSettings (per-character settings, export / import strings).
+
+  Settings strings (3.1):
+    BetterForever.CharKey()        "Name - Realm" of the logged-in character, or nil
+    BetterForever.Serialize(t)     a table of strings, numbers, booleans and tables as text
+    BetterForever.Deserialize(s)   the table back, parsed by hand (never loadstring), or nil, why
+    BetterForever.Base64Encode(s), BetterForever.Base64Decode(s)
+    BetterForever.EncodeSettings(name, t)  "BF1:<name>:<check>:<base64>"
+    BetterForever.DecodeSettings(s)        name, t - or nil, why
 ]]
 
 local _G = _G
@@ -48,7 +57,7 @@ if type(Lib) ~= "table" then
     Lib = {}
     _G.BetterForever = Lib
 end
-Lib.version = "3.0.1"
+Lib.version = "3.1.0"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -397,8 +406,114 @@ function Addon:Print(...)
     if chat and type(chat.AddMessage) == "function" then chat:AddMessage(self.prefix .. table.concat(parts, " ")) end
 end
 
+-- ---------------------------------------------------------------------------
+-- Per-character settings (3.1)
+--
+-- The saved variable stays what it was: the account-wide settings, read and written exactly as
+-- before. A character that opts in gets its own copy, kept inside the same saved variable under
+-- PER_CHAR_KEY, keyed "Name - Realm":
+--   BetterLootForeverDB = { enabled = true, counts = true, ...,
+--                           _perCharacter = { ["Elex - Forever"] = { enabled = true, counts = false } } }
+-- A:InitDB binds A.db to that copy for such a character, to the shared table for every other one,
+-- so A:Get / A:Set (and any code reading A.db) need not know. Old saved data is untouched: with no
+-- _perCharacter entry every character keeps using the shared table.
+-- ---------------------------------------------------------------------------
+
+local PER_CHAR_KEY = "_perCharacter"
+Lib.PER_CHAR_KEY = PER_CHAR_KEY
+
+-- "Name - Realm" of the logged-in character, or nil before the client knows it.
+function Lib.CharKey()
+    local name = Str(Lib.Call(_G.UnitName, "player"))
+    local realm = Str(Lib.Call(_G.GetRealmName))
+    if not name or name == "Unknown" or name == (_G.UNKNOWNOBJECT or "Unknown") then return nil end
+    return name .. " - " .. (realm or "?")
+end
+
+-- A copy of a settings table without the per-character copies.
+local function SettingsCopy(t)
+    local c = {}
+    if type(t) ~= "table" then return c end
+    for k, v in pairs(t) do
+        if k ~= PER_CHAR_KEY then c[k] = DeepCopy(v) end
+    end
+    return c
+end
+Lib.SettingsCopy = SettingsCopy
+
+local function FillOptionDefaults(self, t)
+    for _, o in ipairs(self.options) do
+        if o.key and t[o.key] == nil then t[o.key] = DeepCopy(o.default) end
+    end
+end
+
+-- Every option's current value, to tell afterwards which ones a switch changed.
+local function Snapshot(self)
+    local s = {}
+    for _, o in ipairs(self.options) do
+        if o.key then s[o.key] = self:Get(o.key) end
+    end
+    return s
+end
+
+-- onChange(value, key, old) for every option whose value differs from before, then the addon's
+-- own onProfileChanged(mode), if it has one (for settings that are not options).
+local function NotifySwitch(self, before)
+    for _, o in ipairs(self.options) do
+        if o.key and type(o.onChange) == "function" then
+            local v = self:Get(o.key)
+            if v ~= before[o.key] then
+                local ok, err = pcall(o.onChange, v, o.key, before[o.key])
+                if not ok then self:Print("error: " .. tostring(err)) end
+            end
+        end
+    end
+    if type(self.onProfileChanged) == "function" then
+        local ok, err = pcall(self.onProfileChanged, self.profile)
+        if not ok then self:Print("error: " .. tostring(err)) end
+    end
+end
+
+-- Points self.db at this character's copy when it has one, else at the shared table.
+local function BindProfile(self)
+    local shared = self.dbShared
+    local key = Lib.CharKey()
+    self.charKey = key
+    local chars = shared[PER_CHAR_KEY]
+    local own = key and type(chars) == "table" and chars[key]
+    if type(own) == "table" then
+        MergeDefaults(own, self.dbDefaults)
+        FillOptionDefaults(self, own)
+        self.db, self.profile = own, "character"
+    else
+        self.db, self.profile = shared, "shared"
+    end
+    return key ~= nil
+end
+
+-- Addons whose InitDB ran before the character's name was known: bound again at PLAYER_LOGIN.
+local pendingBind, bindFrame
+local function BindLater(self)
+    pendingBind = pendingBind or {}
+    pendingBind[#pendingBind + 1] = self
+    if bindFrame or type(_G.CreateFrame) ~= "function" then return end
+    bindFrame = _G.CreateFrame("Frame")
+    bindFrame:RegisterEvent("PLAYER_LOGIN")
+    bindFrame:SetScript("OnEvent", function(f)
+        f:UnregisterAllEvents()
+        local list = pendingBind or {}
+        pendingBind = nil
+        for _, a in ipairs(list) do
+            local before = Snapshot(a)
+            local okBind = pcall(BindProfile, a)
+            if okBind and a.profile == "character" then NotifySwitch(a, before) end
+        end
+    end)
+end
+
 -- Binds the saved variable (call it at ADDON_LOADED, never at file scope): creates the table,
--- fills missing keys from defaults and from every registered option's default.
+-- fills missing keys from defaults and from every registered option's default. A.db is this
+-- character's own copy when it has one (see A:SetProfileMode), else the shared table.
 function Addon:InitDB(globalName, defaults)
     local t = _G[globalName]
     if type(t) ~= "table" then
@@ -406,11 +521,78 @@ function Addon:InitDB(globalName, defaults)
         _G[globalName] = t
     end
     MergeDefaults(t, defaults)
-    for _, o in ipairs(self.options) do
-        if o.key and t[o.key] == nil then t[o.key] = DeepCopy(o.default) end
+    FillOptionDefaults(self, t)
+    self.dbName, self.dbShared, self.dbDefaults = globalName, t, defaults
+    if not BindProfile(self) then BindLater(self) end
+    return self.db
+end
+
+-- "character", "shared", or nil before InitDB.
+function Addon:ProfileMode()
+    if not self.dbShared then return nil end
+    return self.profile or "shared"
+end
+
+-- mode "character": this character gets its own copy, seeded from the shared settings as they are
+-- now (a character that already has one keeps it). mode "shared": the copy is dropped and the character uses the
+-- shared settings again; the shared settings are never changed by either. Options whose value
+-- changes get their onChange. Returns ok, message.
+function Addon:SetProfileMode(mode)
+    local shared = self.dbShared
+    if not shared then return false, "its settings are not loaded yet" end
+    local key = self.charKey or Lib.CharKey()
+    if not key then return false, "the character's name is not known yet" end
+    self.charKey = key
+    if mode == self.profile then return true, mode end
+    local before = Snapshot(self)
+    if mode == "character" then
+        local chars = shared[PER_CHAR_KEY]
+        if type(chars) ~= "table" then
+            chars = {}
+            shared[PER_CHAR_KEY] = chars
+        end
+        local own = SettingsCopy(shared)
+        chars[key] = own
+        self.db, self.profile = own, "character"
+    elseif mode == "shared" then
+        local chars = shared[PER_CHAR_KEY]
+        if type(chars) == "table" then
+            chars[key] = nil
+            if next(chars) == nil then shared[PER_CHAR_KEY] = nil end
+        end
+        self.db, self.profile = shared, "shared"
+    else
+        return false, "unknown mode " .. tostring(mode)
     end
-    self.db = t
-    return t
+    NotifySwitch(self, before)
+    return true, mode
+end
+
+-- The settings in use (this character's copy or the shared ones) as an export string.
+function Addon:ExportSettings()
+    if not self.db then return nil, "its settings are not loaded yet" end
+    return Lib.EncodeSettings(self.name, SettingsCopy(self.db))
+end
+
+-- Applies a table from DecodeSettings to the settings in use: only keys that are options, each
+-- through A:Set (so checked against its kind, and onChange runs); a checkbox takes only a
+-- boolean, a slider only a number. Returns applied, ignored (counts).
+function Addon:ImportSettings(t)
+    if not self.db or type(t) ~= "table" then return 0, 0 end
+    local applied, ignored = 0, 0
+    for k, v in pairs(t) do
+        local o = type(k) == "string" and self.byKey[k] or nil
+        local fits = o and (
+            (o.kind == "checkbox" and type(v) == "boolean")
+            or (o.kind == "slider" and type(v) == "number")
+            or (o.kind == "choice" and (type(v) == "string" or type(v) == "number" or type(v) == "boolean")))
+        if fits and self:Set(k, v) then
+            applied = applied + 1
+        else
+            ignored = ignored + 1
+        end
+    end
+    return applied, ignored
 end
 
 local function AddOption(self, o)
@@ -727,4 +909,198 @@ function Addon:API(extra)
     _G[self.name .. "API"] = api
     self.api = api
     return api
+end
+
+-- ---------------------------------------------------------------------------
+-- Settings strings (3.1)
+--
+-- A settings table as text a player can copy out of the game and paste back in:
+--   "BF1:<AddonName>:<check>:<base64 of the serialized table>"
+-- Serialized: S<len>:<bytes> a string, N<number>; a number, B1 / B0 a boolean, T ... E a table of
+-- key, value pairs (keys are strings or numbers). Functions, userdata and secret values are left
+-- out. Reading it back is a hand-written parser with limits on size, depth and the number of
+-- values: nothing in the text is ever run as code (no loadstring).
+-- ---------------------------------------------------------------------------
+
+local MAX_DEPTH = 12
+local MAX_NODES = 5000
+local MAX_TEXT = 200000
+
+local function Storable(v)
+    if IsSecret(v) then return false end
+    local t = type(v)
+    if t == "number" then return v == v and v ~= math.huge and v ~= -math.huge end
+    return t == "string" or t == "boolean" or t == "table"
+end
+
+local function KeyOrder(a, b)
+    local ta, tb = type(a), type(b)
+    if ta ~= tb then return ta == "number" end
+    return a < b
+end
+
+local function SerializeValue(v, out, depth)
+    local t = type(v)
+    if t == "string" then
+        out[#out + 1] = "S" .. #v .. ":" .. v
+    elseif t == "number" then
+        out[#out + 1] = "N" .. string.format("%.17g", v) .. ";"
+    elseif t == "boolean" then
+        out[#out + 1] = v and "B1" or "B0"
+    elseif t == "table" then
+        if depth >= MAX_DEPTH then error("nested too deep", 0) end
+        local keys = {}
+        for k, x in pairs(v) do
+            local kt = type(k)
+            if (kt == "string" or kt == "number") and Storable(k) and Storable(x) then keys[#keys + 1] = k end
+        end
+        table.sort(keys, KeyOrder)
+        out[#out + 1] = "T"
+        for _, k in ipairs(keys) do
+            SerializeValue(k, out, depth + 1)
+            SerializeValue(v[k], out, depth + 1)
+        end
+        out[#out + 1] = "E"
+    end
+end
+
+-- The text, or nil, why.
+function Lib.Serialize(t)
+    if type(t) ~= "table" then return nil, "not a table" end
+    local out = {}
+    local ok, err = pcall(SerializeValue, t, out, 0)
+    if not ok then return nil, tostring(err) end
+    return table.concat(out)
+end
+
+-- The parser: a value from s at pos; returns value, next pos. Errors (caught by Deserialize) on
+-- anything it does not expect.
+local function ParseValue(s, pos, depth, budget)
+    budget.n = budget.n + 1
+    if budget.n > MAX_NODES then error("too many values", 0) end
+    local tag = s:sub(pos, pos)
+    if tag == "S" then
+        local len, p = s:match("^(%d+):()", pos + 1)
+        len = tonumber(len)
+        if not len or len > MAX_TEXT then error("bad string at " .. pos, 0) end
+        local str = s:sub(p, p + len - 1)
+        if #str ~= len then error("string cut short at " .. pos, 0) end
+        return str, p + len
+    elseif tag == "N" then
+        local num, p = s:match("^([%-%+%d%.eE]+);()", pos + 1)
+        local v = tonumber(num)
+        if not v or v ~= v or v == math.huge or v == -math.huge then error("bad number at " .. pos, 0) end
+        return v, p
+    elseif tag == "B" then
+        local b = s:sub(pos + 1, pos + 1)
+        if b == "1" then return true, pos + 2 end
+        if b == "0" then return false, pos + 2 end
+        error("bad boolean at " .. pos, 0)
+    elseif tag == "T" then
+        if depth >= MAX_DEPTH then error("nested too deep", 0) end
+        local t = {}
+        pos = pos + 1
+        while true do
+            local c = s:sub(pos, pos)
+            if c == "E" then return t, pos + 1 end
+            if c == "" then error("table not closed", 0) end
+            local k, v
+            k, pos = ParseValue(s, pos, depth + 1, budget)
+            if type(k) ~= "string" and type(k) ~= "number" then error("bad key at " .. pos, 0) end
+            v, pos = ParseValue(s, pos, depth + 1, budget)
+            t[k] = v
+        end
+    end
+    error("unexpected '" .. tag .. "' at " .. pos, 0)
+end
+
+-- The table, or nil, why. Only a table at the top, and nothing after it.
+function Lib.Deserialize(s)
+    if type(s) ~= "string" or IsSecret(s) then return nil, "not text" end
+    if #s > MAX_TEXT then return nil, "too long" end
+    if s:sub(1, 1) ~= "T" then return nil, "not a settings table" end
+    local ok, v, nextPos = pcall(ParseValue, s, 1, 0, { n = 0 })
+    if not ok then return nil, tostring(v) end
+    if nextPos ~= #s + 1 then return nil, "extra text after the settings" end
+    return v
+end
+
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64Index = {}
+for i = 1, 64 do B64Index[B64:byte(i)] = i - 1 end
+
+local function B64Char(n) return B64:sub(n + 1, n + 1) end
+
+function Lib.Base64Encode(s)
+    local out = {}
+    for i = 1, #s, 3 do
+        local a, b, c = s:byte(i, i + 2)
+        local n = a * 65536 + (b or 0) * 256 + (c or 0)
+        out[#out + 1] = B64Char(math.floor(n / 262144) % 64) .. B64Char(math.floor(n / 4096) % 64)
+            .. (b and B64Char(math.floor(n / 64) % 64) or "=") .. (c and B64Char(n % 64) or "=")
+    end
+    return table.concat(out)
+end
+
+-- The bytes, or nil for text that is not base64.
+function Lib.Base64Decode(s)
+    if type(s) ~= "string" or #s % 4 ~= 0 then return nil end
+    local out = {}
+    for i = 1, #s, 4 do
+        local q = { s:byte(i, i + 3) }
+        local pad = 0
+        local n = 0
+        for j = 1, 4 do
+            local v = B64Index[q[j]]
+            if q[j] == 61 and i + 3 == #s and j >= 3 then -- "=" padding, only at the very end
+                pad = pad + 1
+                v = 0
+            elseif v == nil or pad > 0 then
+                return nil
+            end
+            n = n * 64 + v
+        end
+        local a, b, c = math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256
+        if pad == 0 then
+            out[#out + 1] = string.char(a, b, c)
+        elseif pad == 1 then
+            out[#out + 1] = string.char(a, b)
+        else
+            out[#out + 1] = string.char(a)
+        end
+    end
+    return table.concat(out)
+end
+
+-- Fletcher-style check of the serialized text, 8 hex digits: a cut-off paste is caught.
+local function Check(s)
+    local a, b = 1, 0
+    for i = 1, #s do
+        a = (a + s:byte(i)) % 65521
+        b = (b + a) % 65521
+    end
+    return string.format("%04x%04x", b, a)
+end
+
+function Lib.EncodeSettings(name, t)
+    if type(name) ~= "string" or not name:match("^[%w_]+$") then return nil, "bad addon name" end
+    local body, err = Lib.Serialize(t)
+    if not body then return nil, err end
+    return "BF1:" .. name .. ":" .. Check(body) .. ":" .. Lib.Base64Encode(body)
+end
+
+-- name, table - or nil, why. Spaces and line breaks in the pasted text are ignored.
+function Lib.DecodeSettings(s)
+    if type(s) ~= "string" or IsSecret(s) then return nil, "not text" end
+    if #s > MAX_TEXT * 2 then return nil, "too long" end
+    s = s:gsub("%s+", "")
+    if s == "" then return nil, "nothing pasted" end
+    local name, check, b64 = s:match("^BF1:([%w_]+):(%x%x%x%x%x%x%x%x):([%w%+/=]+)$")
+    if not name then return nil, "not a BetterForever settings string" end
+    local body = Lib.Base64Decode(b64)
+    if not body then return nil, "the string is damaged (not base64)" end
+    if Check(body) ~= check:lower() then return nil, "the string is damaged or cut short" end
+    local t, err = Lib.Deserialize(body)
+    if not t then return nil, err end
+    return name, t
 end

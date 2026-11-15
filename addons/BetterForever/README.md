@@ -12,6 +12,10 @@ family member depends on. It holds three things:
 - **Options pages** (`Settings.lua`): **Esc > Options > AddOns > Better Forever**, with an overview
   page and one page per installed addon, generated from the same data as the minimap menu.
 - **One minimap button** (`Core.lua`) whose menu has a submenu per addon, and `/bf`.
+- **Tools** (`Tools.lua`, 3.1): a chat line per addon after an update saying what changed
+  (`/bf news`), per-character settings and settings export / import for addons built on the
+  library's settings (`/bf profile`, `/bf export`, `/bf import`), and an API self-test
+  (`/bf selftest`) to copy and send.
 
 The family: [BetterBagsForever](../BetterBagsForever/README.md),
 [BetterQuestsForever](../BetterQuestsForever/README.md),
@@ -152,6 +156,73 @@ name): `version`, `ADDONS` (the list above), `PlaceMinimapButton()`, `OpenOption
 | `/bf status` | The hub's and the library's version, each addon's version and state line (or `not installed`), the minimap button and the Options pages |
 | `/bf options [name]` | Opens the Options pages, or one addon's page (`bags`, `quests`, `maps`, ..., the addon's name or its slash command; an unknown name is answered with the list of names) |
 | `/bf minimap`, `/bf minimap reset` | Show or hide the minimap button; back to its default place (285 degrees) and shown |
+| `/bf news`, `/bf news on\|off` | Prints the last "what's new" block again; switches the lines at login (also a checkbox on the overview page) |
+| `/bf profile` | Each covered addon and whether this character uses the shared settings or its own |
+| `/bf profile char <addon\|all>` | This character gets its own copy of the addon's settings, seeded from the shared ones as they are now |
+| `/bf profile shared <addon\|all>` | Back to the shared (account-wide) settings; the character's copy is dropped, the shared settings were never touched |
+| `/bf export <addon>` | The settings in use as one string (`BF1:<Addon>:<check>:<base64>`) in a window, selected for Ctrl+C |
+| `/bf import` | A window to paste such a string into; Import applies it to the addon it names |
+| `/bf selftest`, `/bf selftest show` | Probes the client APIs the family relies on and shows the result in a window to copy; runs again at the next pull (or when combat ends) and compares; `show` reopens the last result |
+
+## What's new
+
+At login (a few seconds in) the hub compares every installed family addon's version - its API
+table's `version`, else the TOC's `## Version` - with the one it saw last
+(`BetterForeverDB.seen`), and prints one line per addon that is newer:
+
+```
+BetterForever: updated — BetterBuffsForever 1.5.1 → 1.6.0: <one-line note>
+```
+
+The note comes from the `CHANGES` table in `Tools.lua`, keyed by addon name and version, written
+from the git history; a version that has no note there is announced without one. An addon
+installed since the last login is announced as `new — <Name> <version>`. The very first login with
+3.1 only records the versions. `/bf news` prints the last block again; `/bf news off` (or the
+checkbox on the overview page) stops the lines, the versions are still recorded.
+
+When you release a family addon, add its note to `CHANGES` in the hub (the addons themselves are
+not touched for this).
+
+## Profiles, export and import
+
+These work for addons that keep their settings through the library (`A:InitDB` with options from
+`A:Toggle` / `A:Choice` / `A:Slider`). Today that is **BetterLootForever**; the other addons keep
+their own settings tables (`BetterBagsForeverDB`, ...) and are answered with "keeps its own
+settings table". `/bf profile` lists what is covered on this client.
+
+- **Saved data is unchanged.** The addon's saved variable stays its account-wide settings. A
+  character that opts in (`/bf profile char loot`) gets a copy in the same saved variable, under
+  `_perCharacter["Name - Realm"]`; on load the library binds `A.db` to that copy for that
+  character and to the shared table for everyone else, so `A:Get` / `A:Set` work unchanged.
+  Settings saved before 3.1 have no `_perCharacter` and are used exactly as before.
+- A switch calls `onChange(value, key, old)` for every option whose value changes, so the addon
+  applies it at once.
+- **Export** writes the settings in use (not the other characters' copies). **Import** decodes
+  the string by hand - base64, a checksum, then a small parser with limits on size (200 000
+  characters), depth (12) and number of values (5000); the text is never run as code. Only keys
+  that are options of that addon are taken, each through `A:Set` (a checkbox takes only a
+  boolean, a slider only a number, a choice only one of its values); anything else is counted as
+  left out.
+
+## Self-test
+
+`/bf selftest` calls, each in `pcall`, on `player`, `target` and `party1` where a unit applies:
+`issecretvalue`, `C_UnitAuras.GetAuraDataByIndex`, `C_UnitAuras.GetUnitAuraInstanceIDs`,
+`C_UnitAuras.GetAuraDispelTypeColor` (with the unit's first aura and a colour curve), `UnitAura`,
+`UnitHealth` (plain and predicted), `UnitHealthMax`, `UnitGetIncomingHeals`, `UnitThreatSituation`,
+`UnitDetailedThreatSituation`, `GetRaidTargetIndex`, `C_Spell.IsSpellInRange` and `IsSpellInRange`
+(with a spell of the player's class), `UnitInRange`, `UnitIsConnected`, `GetWeaponEnchantInfo`,
+which `C_LootHistory` functions exist, the `INTERACTTARGET` binding, the `SoftTargetInteract`
+CVar, the `CustomAuraContainerTemplate` template and `CustomAuraContainerGroupDefaultOptions`.
+Each answer is recorded as `ok (<value>)`, `nil`, `secret` (or `secret fields (n/m)` for a table,
+`n more secret` for further return values), `missing`, `skip (<why>)` or `error: <message>` -
+a secret value is only ever passed to `issecretvalue`, never compared or printed.
+
+It runs once at once and once more on the other side of the next combat change (at the next pull
+after an out-of-combat run), then prints a summary and the calls that answer differently in
+combat. The text - client build, class and level, then one line per call, `out ... | in ...`,
+`<<` where they differ - is in a window to copy (`/bf selftest show`; the in-combat run never
+opens the window or takes the keyboard by itself) and is kept in `BetterForeverDB.selftest`.
 
 `/bbf`, `/bqf`, `/bmf`, `/bcf`, `/bpf`, `/bgps` (and `/way`), `/bff`, `/bwf`, `/bfish`, `/bbuff`,
 `/bmerch`, `/btip`, `/bmail`, `/bxp`, `/bchat`, `/bbars` and `/bloot` belong to the addons themselves.
@@ -161,7 +232,11 @@ name): `version`, `ADDONS` (the list above), `PlaceMinimapButton()`, `OpenOption
 `BetterForeverDB`, read at `ADDON_LOADED`, never at file scope:
 
 ```
-minimap = { hide = false, angle = 285 }
+minimap  = { hide = false, angle = 285 }
+news     = true                               -- what's new lines at login
+seen     = { BetterBuffsForever = "1.5.1" }   -- the version of each addon seen last
+lastNews = { "updated — ..." }                -- the last block, for /bf news
+selftest = "BetterForever 3.1.0 self-test ..." -- the last self-test text
 ```
 
 Anything else is dropped on load.
@@ -240,6 +315,19 @@ local A = BetterForever.NewAddon("BetterExampleForever", {
 | `A:Run(feature, fn, ...)` | `fn(...)` in `pcall`; the first error switches that feature off for the session with one chat line (BetterPlatesForever's `Run`), later calls return at once. `A:IsBlocked(feature)`, `A:Latch(feature, err)` |
 | `A:On(event, handler)` | Registers an event on the addon's own frame; `handler(event, ...)` runs in `pcall`. An event can have several handlers, run in the order added. The last error is kept in `A.lastError` and shown by `/x status` |
 | `A:API(extra)` | Builds and exports `_G[<name> .. "API"]`: `version`, `StatusLine`, `MenuEntries`, `AddMenuEntries`, `SetMinimapHidden` (does nothing), `Intro`, plus `extra` |
+| `A:ProfileMode()` | (3.1) `"character"`, `"shared"`, or `nil` before `InitDB` |
+| `A:SetProfileMode(mode)` | (3.1) `"character"`: this character gets its own copy, seeded from the shared settings; `"shared"`: the copy is dropped. Returns `ok, message`; `onChange` runs for each option that changes, then `A.onProfileChanged(mode)` if the addon set one (for settings that are not options) |
+| `A:ExportSettings()` | (3.1) The settings in use as an export string |
+| `A:ImportSettings(t)` | (3.1) Applies a decoded table through `A:Set`, options only; returns `applied, ignored` |
+
+### Settings strings (3.1)
+
+| Helper | Does |
+|---|---|
+| `BetterForever.CharKey()` | `"Name - Realm"`, or `nil` before the client knows the name (`InitDB` then binds again at `PLAYER_LOGIN`) |
+| `BetterForever.Serialize(t)`, `BetterForever.Deserialize(s)` | A table of strings, finite numbers, booleans and tables as text (`S<len>:`, `N<n>;`, `B1`/`B0`, `T ... E`) and back, parsed by hand with size, depth and count limits; functions, userdata and secret values are left out |
+| `BetterForever.Base64Encode(s)`, `BetterForever.Base64Decode(s)` | Plain base64; decode gives `nil` for anything that is not |
+| `BetterForever.EncodeSettings(name, t)`, `BetterForever.DecodeSettings(s)` | `"BF1:<name>:<check>:<base64>"`; decode ignores spaces and line breaks and gives `name, t` or `nil, why` |
 
 ### Migrating an addon (phase 2)
 
@@ -266,6 +354,22 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.1.0
+
+- **What's new**: one chat line per family addon whose version went up since the last login,
+  with a note from the hub's `CHANGES` table; `/bf news [on|off]`, a checkbox on the overview page.
+- **Profiles**: `/bf profile [char|shared] <addon|all>` - per-character settings for addons on
+  the library's `A:InitDB` (BetterLootForever today), stored inside the addon's own saved
+  variable, old data untouched. `/bf export <addon>` and `/bf import` move settings as a string,
+  parsed by hand (never `loadstring`).
+- **Self-test**: `/bf selftest [show]` - the client APIs the family uses, in `pcall`, on player,
+  target and party1, out of and in combat, in a window to copy.
+- Library 3.1.0: `A:ProfileMode`, `A:SetProfileMode`, `A:ExportSettings`, `A:ImportSettings`,
+  `CharKey`, `Serialize` / `Deserialize`, `Base64Encode` / `Base64Decode`,
+  `EncodeSettings` / `DecodeSettings`. `A:InitDB` returns (and sets as `A.db`) the character's copy
+  where it has one.
+- `BetterForeverDB` keeps `news`, `seen`, `lastNews` and `selftest` next to `minimap`.
 
 ## 3.0.2
 
@@ -374,6 +478,7 @@ BetterForever.toc, BetterForever_Camelot.toc   both at 16001, same file list
 Lib.lua             the shared library, global BetterForever
 Settings.lua        the Options pages (Esc > Options > AddOns > Better Forever)
 BetterForever.xml   the text-row template the Options pages use
+Tools.lua           what's new, profiles / export / import, the self-test (3.1)
 Core.lua            saved variables, minimap button and menu, /bf
 ```
 

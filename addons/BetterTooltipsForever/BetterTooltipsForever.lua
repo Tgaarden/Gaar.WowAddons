@@ -13,8 +13,8 @@
     classColor  (on)   class coloured player names and tooltip border.
     anchor      (off)  tooltip follows the cursor instead of the default corner.
 
-  Every feature has its own saved setting, /btip <feature> on|off and an entry in
-  BetterTooltipsForeverAPI.MenuEntries(); /btip on|off is the master switch.
+  Every feature has its own saved setting, /gtip <feature> on|off and an entry in
+  BetterTooltipsForeverAPI.MenuEntries(); /gtip on|off is the master switch.
 
   Hooking: TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item / Unit / Spell) where
   the client has it, else GameTooltip:HookScript("OnTooltipSetItem" / "OnTooltipSetUnit") (also on
@@ -27,7 +27,7 @@
   Secret values (12.x engine): every value read from the client goes through Plain(), which
   returns nil for a secret value; a secret is never compared, tested, formatted or concatenated.
   A line whose value is secret is simply skipped. Every handler runs in pcall (the last error is
-  kept for /btip status) and every client API is checked with type(...) == "function".
+  kept for /gtip status) and every client API is checked with type(...) == "function".
 
   BetterTooltipsForeverAPI: version, StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden,
   in the shape BetterForever's hub expects.
@@ -37,10 +37,10 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterTooltipsForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.4"
+local VERSION = "1.1.0"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterTooltipsForever", { version = VERSION })
+local A = BF.NewAddon("BetterTooltipsForever", { title = "GaarTooltipsForever", version = VERSION })
 
 -- key, default, menu label, help text. Order = menu and status order.
 local FEATURES = {
@@ -544,14 +544,14 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Adds useful lines to item and unit tooltips: vendor price, item level, a comparison with what you wear, the unit's target, guild rank and health. Every line has its own switch. Nice to know: /btip <feature> on|off (/btip status lists them); item and spell IDs are off by default."
+local INTRO = "Adds useful lines to item and unit tooltips: vendor price, item level, a comparison with what you wear, the unit's target, guild rank and health. Every line has its own switch. Nice to know: /gtip <feature> on|off (/gtip status lists them); item and spell IDs are off by default."
 
 local function PrintHelp()
     Print(INTRO)
     Print("v" .. VERSION)
-    Print("  /btip on | off              master switch")
-    Print("  /btip <feature> on | off    switch one feature (no argument toggles it)")
-    Print("  /btip status                settings, hook method, last error")
+    Print("  /gtip on | off              master switch")
+    Print("  /gtip <feature> on | off    switch one feature (no argument toggles it)")
+    Print("  /gtip status                settings, hook method, last error")
     Print("  features: " .. (function()
         local t = {}
         for _, f in ipairs(FEATURES) do t[#t + 1] = f.key end
@@ -599,7 +599,7 @@ end
 local function MenuEntries()
     if not db then return {} end
     local entries = {
-        { text = "Better tooltips", checkbox = true,
+        { text = "GaarTooltipsForever", checkbox = true,
           checked = function() return db.enabled end,
           func = function() SetMaster(not db.enabled) end },
         { divider = true },
@@ -652,6 +652,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERTOOLTIPSFOREVER1 = "/btip"
-SLASH_BETTERTOOLTIPSFOREVER2 = "/bettertooltipsforever"
+SLASH_BETTERTOOLTIPSFOREVER1 = "/gtip"
+SLASH_BETTERTOOLTIPSFOREVER2 = "/gaartooltipsforever"
+SLASH_BETTERTOOLTIPSFOREVER3 = "/btip" -- the command before the Gaar rename
+SLASH_BETTERTOOLTIPSFOREVER4 = "/bettertooltipsforever"
 SlashCmdList.BETTERTOOLTIPSFOREVER = OnSlash

@@ -14,23 +14,23 @@
       in the main hand, the main and off hand are remembered and the best pole in the bags is
       equipped; with a pole on, the remembered weapons go back. It never casts Fishing. See
       "Pole swap" below.
-    * Fishing 1-300 route (1.2, /bfish route on, off by default): the current step from your
+    * Fishing 1-300 route (1.2, /gfish route on, off by default): the current step from your
       Fishing skill and cap, pins on the world map and minimap, and BetterGpsForever's arrow on
       the nearest spot. The data is in Route.lua, the logic in RouteGuide.lua (ns.guide); this
-      file only wires it into /bfish, the saved variables and the hub menu.
-    * Reel in (1.3, /bfish reel on|off, on by default): while the Fishing channel runs (the line
+      file only wires it into /gfish, the saved variables and the hub menu.
+    * Reel in (1.3, /gfish reel on|off, on by default): while the Fishing channel runs (the line
       is out), the same double right-click anywhere in the world reels in - it interacts with the
       bobber instead of casting again. See "Reel in" below.
     * A "Cast / Reel" key binding (1.3, Esc > Options > Keybindings > BetterFishingForever): one
       key casts Fishing, and reels in while the line is out.
-    * Session stats (1.4, /bfish stats, on by default): a small movable panel while a pole is
+    * Session stats (1.4, /gfish stats, on by default): a small movable panel while a pole is
       equipped or the line is out - session time, casts, catches, catches/hour, Fishing skill and
       what it gained, and what was looted while fishing. In Stats.lua (ns.stats); this file passes
       it the casts and the channel stop.
-    * Loud splash (1.4, /bfish splash on|off, off by default): while the line is out, the sound
+    * Loud splash (1.4, /gfish splash on|off, off by default): while the line is out, the sound
       CVars are set so the bobber's splash is easy to hear, and put back after. See "Loud splash"
       below; it is the bite alert, because this engine has no bite signal.
-    * /bfish for help, on, off, window <0.2-0.8>, reel, swap, splash, stats, route and status.
+    * /gfish for help, on, off, window <0.2-0.8>, reel, swap, splash, stats, route and status.
     * BetterFishingForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -75,7 +75,7 @@
 
   Fallback: a client without IsMouseButtonDown gets the older way (arm on the second press within
   the window, catch its release, button registered for "AnyUp"); that only casts with
-  ActionButtonUseKeyDown = 0, and /bfish status says so.
+  ActionButtonUseKeyDown = 0, and /gfish status says so.
 
   The Fishing spell is resolved out of combat at login and on SPELLS_CHANGED (and
   LEARNED_SPELL_IN_TAB where the client still has it): the highest rank the character knows of
@@ -104,7 +104,7 @@
   directly. It still runs inside the second press's own handler (OnMouseDown or PreClick), a
   hardware event, in case a client ever wants one. No secure macro button is needed; should the
   client block the call anyway, ADDON_ACTION_BLOCKED / _FORBIDDEN for this addon is caught,
-  printed and shown in /bfish status. Order: C_Item.EquipItemByName, EquipItemByName, then
+  printed and shown in /gfish status. Order: C_Item.EquipItemByName, EquipItemByName, then
   pickup + EquipCursorItem. Never in combat ("can't swap weapons in combat"), never while
   casting or channelling ("stop fishing first"), never with an item on the cursor.
 
@@ -130,9 +130,9 @@
       (left alone at 2 or more) and SoftTargetInteractRangeIsHard 0, each only when the client
       has it. The previous value of each one changed is kept in BetterFishingForeverDB.held and
       put back at the channel stop, when the pole comes off, at PLAYER_REGEN_DISABLED, at
-      /bfish reel off, at PLAYER_LOGOUT, and at the next login for anything a crash or a logout
+      /gfish reel off, at PLAYER_LOGOUT, and at the next login for anything a crash or a logout
       in combat left behind. In combat nothing is set or put back; it waits for
-      PLAYER_REGEN_ENABLED. /bfish reel follows only its own setting, not /bfish on|off.
+      PLAYER_REGEN_ENABLED. /gfish reel follows only its own setting, not /gfish on|off.
     * The channel ends while armed for reeling but before the second press (the bobber was
       looted by the first click): the binding is re-armed as the cast, so the double-click on
       the bobber still loots and casts again, as before 1.3.
@@ -163,7 +163,7 @@
       when the client has the CVar.
     * The previous value of each one changed is kept in BetterFishingForeverDB.splashHeld and put
       back exactly like the reel CVars: at the channel stop, when the pole comes off, at
-      PLAYER_REGEN_DISABLED, at /bfish splash off, at PLAYER_LOGOUT, and at the next login for
+      PLAYER_REGEN_DISABLED, at /gfish splash off, at PLAYER_LOGOUT, and at the next login for
       anything a crash or a logout in combat left behind. In combat nothing is set or put back.
     * A volume you change yourself while the line is out is overwritten by the value from before
       the cast when it ends.
@@ -171,7 +171,7 @@
   Taint: Blizzard code is only followed, never replaced. WorldFrame gets a HookScript; no Blizzard
   function or table is written. Bindings and attributes are only ever changed out of combat, on
   the addon's own frames. Every client API is checked with type(...) == "function" first, every
-  handler runs in pcall (the last error is kept for /bfish status), and a secret value is never
+  handler runs in pcall (the last error is kept for /gfish status), and a secret value is never
   compared or tested: it is treated as no value.
 ]]
 
@@ -181,12 +181,12 @@ ADDON_NAME = ADDON_NAME or "BetterFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.4.1"
+local VERSION = "1.5.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
 local BF = _G.BetterForever
-local A = ns.addon or BF.NewAddon("BetterFishingForever")
+local A = ns.addon or BF.NewAddon("BetterFishingForever", { title = "GaarFishingForever" })
 ns.addon = A
 A.version = VERSION
 local InCombat, Secret, Str = BF.InCombat, BF.IsSecret, BF.Str
@@ -245,10 +245,10 @@ local keyOwner            -- owns the key's INTERACTTARGET override while the li
 local watcher             -- runs OnUpdate only while a press or an armed binding is pending
 
 local spellValue          -- what the button's "spell" attribute holds (name or ID), or nil
-local spellText           -- how it was resolved, for /bfish status
+local spellText           -- how it was resolved, for /gfish status
 local spellPending        -- the spell changed in combat; set it at PLAYER_REGEN_ENABLED
 
-local lastError           -- the last error caught, for /bfish status
+local lastError           -- the last error caught, for /gfish status
 local setupPending        -- logged in during combat; the secure button waits for it to end
 local bindingStuck        -- the binding could not be cleared in combat; clear it after
 
@@ -408,7 +408,7 @@ local function Known(id)
     return false
 end
 
--- Returns the attribute value (name, or ID when there is no name) and a line for /bfish status.
+-- Returns the attribute value (name, or ID when there is no name) and a line for /gfish status.
 local function FindFishing()
     for _, id in ipairs(FISHING_IDS) do
         if Known(id) then
@@ -449,7 +449,7 @@ end
 
 
 -- ---------------------------------------------------------------------------
--- Pole swap (1.1): Shift + double right-click or /bfish swap.
+-- Pole swap (1.1): Shift + double right-click or /gfish swap.
 --
 -- Self-contained: the Fishing sequence only calls TrySwapGesture() and checks ShiftDown(); the
 -- rest lives here. See the header ("Pole swap") for how it avoids casting.
@@ -496,7 +496,7 @@ local function EquipByNameFunc()
     return nil
 end
 
--- The path the swap will use, for /bfish status; nil when the client offers none.
+-- The path the swap will use, for /gfish status; nil when the client offers none.
 local function EquipPath()
     local _, name = EquipByNameFunc()
     if name then return name end
@@ -708,7 +708,7 @@ local function RestoreWeapons()
     if #missing > 0 then Print("not in your bags: " .. table.concat(missing, ", ")) end
 end
 
--- The swap itself, for the gesture and /bfish swap alike.
+-- The swap itself, for the gesture and /gfish swap alike.
 local function DoSwap()
     if not db or not charDb then
         Print("not loaded yet.")
@@ -749,7 +749,7 @@ local function TrySwapGesture()
     DoSwap()
 end
 
--- /bfish status: "remembered <links>" or "none".
+-- /gfish status: "remembered <links>" or "none".
 local function SwapMemoryText()
     local mem = charDb and charDb.swap
     if type(mem) ~= "table" or (not mem.mainID and not mem.offID) then return "none" end
@@ -762,7 +762,7 @@ end
 local function OnActionBlocked(addon, func)
     if addon ~= ADDON_NAME then return end
     lastBlocked = tostring(func)
-    Print("the client blocked " .. lastBlocked .. "; the swap could not equip. /bfish status has the details.")
+    Print("the client blocked " .. lastBlocked .. "; the swap could not equip. /gfish status has the details.")
 end
 
 local function CreateSwapFrames()
@@ -924,7 +924,7 @@ local function StartReel()
     BindKeyReel()
     if db and not db.reelHint then
         db.reelHint = true
-        Print("line out: double right-click anywhere reels in (no need to hit the bobber). /bfish reel off switches it off.")
+        Print("line out: double right-click anywhere reels in (no need to hit the bobber). /gfish reel off switches it off.")
     end
 end
 
@@ -1199,19 +1199,19 @@ local function YesNo(v) return v and "yes" or "no" end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, BetterFishingForever) to do both from the keyboard. A small session panel counts casts, catches, catches per hour, skill gained and what you fished up. Loud splash (off by default) turns sound effects up and music and ambience down while the line is out, so you hear the bite, and puts them back after. An optional Fishing 1-300 route pins the next spot on the map, with BetterGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
+local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, GaarFishingForever) to do both from the keyboard. A small session panel counts casts, catches, catches per hour, skill gained and what you fished up. Loud splash (off by default) turns sound effects up and music and ambience down while the line is out, so you hear the bite, and puts them back after. An optional Fishing 1-300 route pins the next spot on the map, with GaarGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bfish on | /bfish off - switch it on or off")
-    Print(string.format("/bfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",
+    Print("/gfish on | /gfish off - switch it on or off")
+    Print(string.format("/gfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",
         MIN_WINDOW, MAX_WINDOW, Window()))
-    Print("/bfish reel on | off - while the line is out, double right-click anywhere reels in (now "
+    Print("/gfish reel on | off - while the line is out, double right-click anywhere reels in (now "
         .. (ReelOn() and "on" or "off") .. ")")
-    Print("Cast / Reel key: Esc > Options > Keybindings > BetterFishingForever. One key casts, and reels in while the line is out (now "
+    Print("Cast / Reel key: Esc > Options > Keybindings > GaarFishingForever. One key casts, and reels in while the line is out (now "
         .. KeyText() .. ").")
-    Print("Shift + double right-click in the world, or /bfish swap: swap the fishing pole in or out (out of combat).")
-    Print("/bfish splash on | off - loud splash: while the line is out, sound effects up and music and ambience down, put back after (now "
+    Print("Shift + double right-click in the world, or /gfish swap: swap the fishing pole in or out (out of combat).")
+    Print("/gfish splash on | off - loud splash: while the line is out, sound effects up and music and ambience down, put back after (now "
         .. (SplashOn() and "on" or "off") .. ")")
     if ns.stats then
         for _, line in ipairs(ns.stats.HelpLines()) do Print(line) end
@@ -1219,7 +1219,7 @@ local function PrintHelp()
     if ns.guide then
         for _, line in ipairs(ns.guide.HelpLines()) do Print(line) end
     end
-    Print("/bfish status - the current state and what this client offers")
+    Print("/gfish status - the current state and what this client offers")
 end
 
 local function PrintStatus()
@@ -1278,7 +1278,7 @@ local function OnSlash(msg)
     elseif cmd == "window" then
         local v = tonumber(arg)
         if not v or v ~= v then
-            Print(string.format("/bfish window <%.1f-%.1f>, e.g. /bfish window 0.4 (now %.2f).", MIN_WINDOW, MAX_WINDOW, Window()))
+            Print(string.format("/gfish window <%.1f-%.1f>, e.g. /gfish window 0.4 (now %.2f).", MIN_WINDOW, MAX_WINDOW, Window()))
         else
             SetWindow(v)
         end
@@ -1287,7 +1287,7 @@ local function OnSlash(msg)
         if a == "on" or a == "off" then
             SetReel(a == "on")
         else
-            Print("/bfish reel on | off - reel in with a double right-click while the line is out (now "
+            Print("/gfish reel on | off - reel in with a double right-click while the line is out (now "
                 .. (ReelOn() and "on" or "off") .. ").")
         end
     elseif cmd == "splash" then
@@ -1295,7 +1295,7 @@ local function OnSlash(msg)
         if a == "on" or a == "off" then
             SetSplash(a == "on")
         else
-            Print("/bfish splash on | off - loud splash while the line is out (now " .. (SplashOn() and "on" or "off") .. ").")
+            Print("/gfish splash on | off - loud splash while the line is out (now " .. (SplashOn() and "on" or "off") .. ").")
         end
     elseif cmd == "stats" and ns.stats then
         ns.stats.Slash(arg)
@@ -1315,7 +1315,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterFishingForeverDB and change only through the
--- same functions /bfish uses, so the addon behaves the same with or without the hub.
+-- same functions /gfish uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · 0.40 s · pole equipped"
@@ -1517,6 +1517,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERFISHINGFOREVER1 = "/bfish"
-SLASH_BETTERFISHINGFOREVER2 = "/betterfishingforever"
+SLASH_BETTERFISHINGFOREVER1 = "/gfish"
+SLASH_BETTERFISHINGFOREVER2 = "/gaarfishingforever"
+SLASH_BETTERFISHINGFOREVER3 = "/bfish" -- the command before the Gaar rename
+SLASH_BETTERFISHINGFOREVER4 = "/betterfishingforever"
 SlashCmdList.BETTERFISHINGFOREVER = OnSlash

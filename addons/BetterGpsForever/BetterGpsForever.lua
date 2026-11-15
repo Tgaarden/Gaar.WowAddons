@@ -18,7 +18,7 @@
       over an hour), from how fast the distance shrank over the last 3 seconds; "--" while you
       stand still, move away or have no position.
     * Within 10 yards the waypoint clears itself: "Arrived at <zone> x, y".
-    * Corpse route (1.1, /bgps corpse on|off, default on): once you have released and are a ghost,
+    * Corpse route (1.1, /ggps corpse on|off, default on): once you have released and are a ghost,
       the waypoint is your corpse, titled "Corpse", from C_DeathInfo.GetCorpseMapPosition on your
       map or one of its parents. It follows you across maps (graveyard, zone change) and does not
       clear itself on arrival. After resurrection it is cleared and the waypoint you had before
@@ -27,8 +27,8 @@
       the previous waypoint back at once.
     * Saved account-wide in BetterGpsForeverDB: the waypoint, the arrow's place, lock, on/off, the
       corpse setting and, while a corpse route runs, the waypoint to bring back.
-    * /bgps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear,
-      corpse on|off and way <x y>. When TomTom is loaded /way stays TomTom's and /bgps way does
+    * /ggps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear,
+      corpse on|off and way <x y>. When TomTom is loaded /way stays TomTom's and /ggps way does
       the same job.
     * BetterGpsForeverAPI, a small global table for BetterForever's hub menu and for other
       addons that set the waypoint (BetterQuestsForever's "Set GPS target"): SetWaypoint,
@@ -60,7 +60,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterGpsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.3"
+local VERSION = "1.3.0"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -128,7 +128,7 @@ local BF = _G.BetterForever
 local IsSecret, Num, Bool = BF.IsSecret, BF.Num, BF.Bool
 local Call, Method, API = BF.Call, BF.Method, BF.API
 local OnOff, Clock = BF.OnOff, BF.Clock
-local A = BF.NewAddon("BetterGpsForever", { version = VERSION })
+local A = BF.NewAddon("BetterGpsForever", { title = "GaarGpsForever", version = VERSION })
 
 local function Print(msg) A:Print(msg) end
 
@@ -603,7 +603,7 @@ local function ShowArrowTooltip(self)
     local tip = _G.GameTooltip
     if not tip then return end
     tip:SetOwner(self, "ANCHOR_BOTTOM")
-    tip:AddLine("BetterGpsForever")
+    tip:AddLine("GaarGpsForever")
     tip:AddLine(WaypointText(), 1, 1, 1)
     local nav = lastNav
     if nav and nav.state == "ok" then
@@ -1210,7 +1210,7 @@ local function Yes(v) return v and "yes" or "MISSING" end
 
 local function WayCommandText()
     if wayRegistered then return "/way" end
-    return "/bgps way"
+    return "/ggps way"
 end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
@@ -1222,13 +1222,13 @@ local function PrintHelp()
     Print("version " .. VERSION .. ". Commands:")
     Print(WayCommandText() .. " x y | " .. WayCommandText() .. " <zone> x y | " .. WayCommandText()
         .. " clear - set or clear the waypoint (0-100, x first); Alt + left-click (Option on Mac) on the world map sets it too")
-    Print("/bgps arrow on | /bgps arrow off - show the arrow (now: " .. OnOff(db and db.arrow) .. ")")
-    Print("/bgps lock | /bgps unlock - stop or allow dragging the arrow (now: "
-        .. ((db and db.locked) and "locked" or "unlocked") .. "); /bgps reset - arrow back to its default place")
-    Print("/bgps corpse on | /bgps corpse off - waypoint to your corpse while you are a ghost, the old one back after"
+    Print("/ggps arrow on | /ggps arrow off - show the arrow (now: " .. OnOff(db and db.arrow) .. ")")
+    Print("/ggps lock | /ggps unlock - stop or allow dragging the arrow (now: "
+        .. ((db and db.locked) and "locked" or "unlocked") .. "); /ggps reset - arrow back to its default place")
+    Print("/ggps corpse on | /ggps corpse off - waypoint to your corpse while you are a ghost, the old one back after"
         .. " resurrection (now: " .. OnOff(db and db.corpse) .. ")")
-    Print("/bgps clear - clear the waypoint (or right-click the arrow); /bgps status - what this client offers")
-    if wayOwner then Print("/way belongs to " .. wayOwner .. ", so use /bgps way x y here.") end
+    Print("/ggps clear - clear the waypoint (or right-click the arrow); /ggps status - what this client offers")
+    if wayOwner then Print("/way belongs to " .. wayOwner .. ", so use /ggps way x y here.") end
 end
 
 local function PrintStatus()
@@ -1250,7 +1250,7 @@ local function PrintStatus()
     Print("corpse route: " .. corpse .. "   C_DeathInfo.GetCorpseMapPosition: "
         .. Yes(API("C_DeathInfo", "GetCorpseMapPosition")) .. "   UnitIsGhost: "
         .. Yes(type(_G.UnitIsGhost) == "function"))
-    Print("/way: " .. (wayRegistered and "ours" or ("not ours (" .. (wayOwner or "not registered yet") .. "); use /bgps way")))
+    Print("/way: " .. (wayRegistered and "ours" or ("not ours (" .. (wayOwner or "not registered yet") .. "); use /ggps way")))
     Print("GetWorldPosFromMapPos: " .. Yes(MapAPI("GetWorldPosFromMapPos"))
         .. "   GetMapPosFromWorldPos: " .. Yes(MapAPI("GetMapPosFromWorldPos"))
         .. "   GetPlayerFacing: " .. Yes(type(_G.GetPlayerFacing) == "function"))
@@ -1319,7 +1319,7 @@ local function RegisterWay()
     wayOwner = FindWayOwner()
     if wayOwner then
         wayRegistered = false
-        Print(wayOwner .. " is loaded and owns /way, so BetterGpsForever leaves it alone. Use |cffffd100/bgps way x y|r instead.")
+        Print(wayOwner .. " is loaded and owns /way, so GaarGpsForever leaves it alone. Use |cffffd100/ggps way x y|r instead.")
         return
     end
     _G.SLASH_BETTERGPSFOREVERWAY1 = "/way"
@@ -1332,7 +1332,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterGpsForeverDB and change only through the same
--- functions /bgps uses, so the addon behaves the same with or without the hub.
+-- functions /ggps uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "The Barrens 45.2, 63.1 · 312 yd · 1:24" or "no waypoint"
@@ -1350,7 +1350,7 @@ end
 local function StatusLine()
     if not db then return "not loaded yet" end
     if not db.waypoint then
-        return "no waypoint" .. (wayOwner and (DOT .. "/bgps way") or "")
+        return "no waypoint" .. (wayOwner and (DOT .. "/ggps way") or "")
     end
     local line = WaypointText()
     local nav = lastNav
@@ -1492,6 +1492,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERGPSFOREVER1 = "/bgps"
-SLASH_BETTERGPSFOREVER2 = "/bettergpsforever"
+SLASH_BETTERGPSFOREVER1 = "/ggps"
+SLASH_BETTERGPSFOREVER2 = "/gaargpsforever"
+SLASH_BETTERGPSFOREVER3 = "/bgps" -- the command before the Gaar rename
+SLASH_BETTERGPSFOREVER4 = "/bettergpsforever"
 SlashCmdList.BETTERGPSFOREVER = OnSlash

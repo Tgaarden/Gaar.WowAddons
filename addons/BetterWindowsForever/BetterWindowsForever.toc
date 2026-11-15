@@ -1,10 +1,10 @@
 ## Interface: 16001
-## Title: BetterWindowsForever
-## Notes: Move and scale Blizzard's windows on WoW Forever: drag a title bar to move, Ctrl + mouse wheel to scale, remembered per window. /bwf
-## Category: Better Forever
-## Category-enUS: Better Forever
+## Title: GaarWindowsForever
+## Notes: Move and scale Blizzard's windows on WoW Forever: drag a title bar to move, Ctrl + mouse wheel to scale, remembered per window. /gwf
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.0.3
+## Version: 1.1.0
 ## X-Curse-Project-ID: 1808633
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## Dependencies: BetterForever

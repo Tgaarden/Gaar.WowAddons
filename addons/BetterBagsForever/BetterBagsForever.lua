@@ -10,23 +10,23 @@
       one (BagItemAutoSortButton) ends up hidden under the bag slot icons on the right. A
       left-click does exactly what the native button does: the sort sound and
       C_Container.SortBags(). The sort-direction setting is never read or changed.
-    * Reverse (right-click the button, or /bbf reverse; off by default): in the Combined Backpack,
+    * Reverse (right-click the button, or /gbf reverse; off by default): in the Combined Backpack,
       once Blizzard's sort has settled, the whole visible order is mirrored, so the slot shown
       last trades places with the slot shown first, and so on. Separate bags are never touched.
     * Item counts and gold across this realm's characters (since 1.7): every character that logs
       in keeps a compact record of its bags, bank, equipped items, mail and gold in
       BetterBagsForeverDB.inventory. Item tooltips list each character that has the item, and
-      hovering the gold in the bag window lists every character's gold. /bbf counts on|off,
-      /bbf gold, /bbf forget <name>.
+      hovering the gold in the bag window lists every character's gold. /gbf counts on|off,
+      /gbf gold, /gbf forget <name>.
     * Auto clean-up (since 1.8, on by default): opening the bag window runs the same clean-up as
       the button. Player bags only; skipped in combat, while a clean-up runs, or with a locked
-      item or an item on the cursor. /bbf autosort on|off.
+      item or an item on the cursor. /gbf autosort on|off.
     * Do-not-sell item lock (since 1.9): Alt + left-click an item in the bags locks or unlocks it
       (per item ID, per character, in BetterBagsForeverCharDB.lockedItems). A locked item shows a
       padlock in the bottom-left corner of its slot, and a merchant cannot get it: right-click,
       drag-and-drop and Blizzard's Sell Junk are blocked, and a sale that slips through anyway is
-      bought back once. /bbf locked, /bbf unlockall yes.
-    * /bbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
+      bought back once. /gbf locked, /gbf unlockall yes.
+    * /gbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
       unlockall, stop and status.
     * BetterBagsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The API only exposes the settings
@@ -50,7 +50,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "BetterBagsForever"
-local VERSION = "1.9.3"
+local VERSION = "1.10.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -80,10 +80,10 @@ local db                -- BetterBagsForeverDB, bound at ADDON_LOADED (never at 
 local bagFrame          -- ContainerFrameCombinedBags once found
 local cleanupButton     -- our button left of the search box
 local dragHandle        -- invisible handle over the title bar
-local blizzardPoints    -- the anchor Blizzard last gave the frame, for /bbf reset
+local blizzardPoints    -- the anchor Blizzard last gave the frame, for /gbf reset
 local appliedPoint      -- the anchor we last set, so it is not mistaken for Blizzard's
 local searchLayout      -- the search box anchor we last set, so it is shifted only once
-local needsRestore      -- /bbf reset is waiting to put Blizzard's anchor back
+local needsRestore      -- /gbf reset is waiting to put Blizzard's anchor back
 local pendingApply      -- a move that has to wait for combat to end
 local moving            -- a drag is in progress
 local nativeHidden      -- we hid BagItemAutoSortButton and should show it again on request
@@ -101,7 +101,7 @@ local InCombat, OnOff, Plain, PlainString = BF.InCombat, BF.OnOff, BF.Plain, BF.
 
 local Print
 do
-    local A = BF.NewAddon("BetterBagsForever", { version = VERSION })
+    local A = BF.NewAddon("BetterBagsForever", { title = "GaarBagsForever", version = VERSION })
     function Print(msg) A:Print(msg) end
 end
 
@@ -216,7 +216,7 @@ local function SavePosition()
     db.position = { x = left * ratio, y = top * ratio }
 end
 
--- Puts the frame where the player left it, or back on Blizzard's anchor after /bbf reset.
+-- Puts the frame where the player left it, or back on Blizzard's anchor after /gbf reset.
 local function ApplyPosition()
     if not bagFrame or not db or moving then return end
     if not db.position and not needsRestore then return end
@@ -310,7 +310,7 @@ local function CreateDragHandle()
         if not tip then return end
         tip:SetOwner(self, "ANCHOR_TOP")
         tip:SetText("Drag to move the bags")
-        tip:AddLine("Alt-drag works anywhere on the frame. /bbf lock to lock, /bbf reset to reset.", 1, 1, 1, true)
+        tip:AddLine("Alt-drag works anywhere on the frame. /gbf lock to lock, /gbf reset to reset.", 1, 1, 1, true)
         tip:Show()
     end)
     handle:SetScript("OnLeave", function()
@@ -848,7 +848,7 @@ end
 -- is in use. Anything else gets Blizzard's sort and nothing more.
 local function CleanUpBags()
     if cleanupRun then
-        Print("a clean-up is still running; /bbf stop stops it.")
+        Print("a clean-up is still running; /gbf stop stops it.")
         return false
     end
     if InCombat() then
@@ -1624,7 +1624,7 @@ local function ForgetCharacter(who)
     local realm = RealmData(false)
     who = who and who:gsub("^%s+", ""):gsub("%s+$", "") or ""
     if who == "" then
-        Print("/bbf forget <name> - remove a character from this realm's item counts and gold.")
+        Print("/gbf forget <name> - remove a character from this realm's item counts and gold.")
         return
     end
     local key
@@ -1712,7 +1712,7 @@ local function BuildItemLock()
     local legacyBankButtons = setmetatable({}, { __mode = "k" })
     local lockRefreshPending = false
     local lockVisuals = false       -- a padlock or guard exists, so refreshes are needed even with no locks
-    local padlockSource             -- which texture the padlock ended up with, for /bbf status
+    local padlockSource             -- which texture the padlock ended up with, for /gbf status
     local guardPassThrough          -- nil until a guard exists; then whether left clicks pass through
     local clickCursorBefore         -- what the cursor held right before an item button click
     local merchantGuard, junkGuard, cursorWatcher
@@ -2099,7 +2099,7 @@ local function BuildItemLock()
         if IsOnScreen(button) then bag, slot = LockButtonSlot(button) end
         local id, link = SlotDetails(bag, slot)
         local locked = IsItemLocked(id)
-        -- Keep the saved link current, so /bbf locked can show it while the item is not cached.
+        -- Keep the saved link current, so /gbf locked can show it while the item is not cached.
         if locked and link and LockedItems()[id] == true then LockedItems()[id] = link end
         local tex = lockOverlay[button]
         if locked and not tex then tex = CreatePadlock(button) end
@@ -2191,7 +2191,7 @@ local function BuildItemLock()
                 local tip = _G.GameTooltip
                 if not tip then return end
                 tip:SetOwner(self, "ANCHOR_RIGHT")
-                tip:SetText("Sell Junk blocked by BetterBagsForever")
+                tip:SetText("Sell Junk blocked by GaarBagsForever")
                 tip:AddLine((self.label or "A locked item") .. " is locked and would be sold.", 1, 1, 1, true)
                 tip:Show()
             end)
@@ -2334,7 +2334,7 @@ local function BuildItemLock()
             return
         end
         if not confirmed then
-            Print("this unlocks all " .. n .. " locked item" .. (n == 1 and "" or "s") .. ". Type /bbf unlockall yes to confirm.")
+            Print("this unlocks all " .. n .. " locked item" .. (n == 1 and "" or "s") .. ". Type /gbf unlockall yes to confirm.")
             return
         end
         charDB.lockedItems = {}
@@ -2369,7 +2369,7 @@ BuildItemLock()
 -- ---------------------------------------------------------------------------
 
 -- Runs after UpdateContainerFrameAnchors. Blizzard has just put every open bag at its default
--- spot; remember where the combined frame went (for /bbf reset), then put it back where the
+-- spot; remember where the combined frame went (for /gbf reset), then put it back where the
 -- player wants it. Separate bags are never touched.
 local function OnBlizzardAnchored()
     if not bagFrame or not bagFrame:IsShown() or not UsingCombinedBags() then return end
@@ -2501,20 +2501,20 @@ local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up bu
 local function PrintHelp()
     Print(INTRO)
     Print("the Combined Backpack is movable: drag its title bar, or Alt-drag an empty part of it.")
-    Print("/bbf reset - put the bags back at Blizzard's default position")
-    Print("/bbf lock | /bbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
-    Print("/bbf native hide | /bbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
+    Print("/gbf reset - put the bags back at Blizzard's default position")
+    Print("/gbf lock | /gbf unlock - stop or allow moving (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
+    Print("/gbf native hide | /gbf native show - hide or show Blizzard's own clean-up button (now: " .. ((db and db.hideNativeButton) and "hidden" or "shown") .. ")")
     Print("Clean Up button (left of the search box): left-click = Blizzard's own clean-up, the same as Forever's own button; right-click = toggle Reverse.")
-    Print("/bbf reverse - toggle Reverse; /bbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
-    Print("/bbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
-    Print("/bbf stop - stop a running reversal")
-    Print("/bbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
-    Print("/bbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
-    Print("/bbf forget <name> - remove a character from this realm's counts and gold")
+    Print("/gbf reverse - toggle Reverse; /gbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
+    Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
+    Print("/gbf stop - stop a running reversal")
+    Print("/gbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
+    Print("/gbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
+    Print("/gbf forget <name> - remove a character from this realm's counts and gold")
     Print("Alt-click an item in your bags: lock or unlock it (all copies). A locked item shows a padlock and cannot be sold to a merchant.")
-    Print("/bbf locked - list the locked items (now: " .. Lock.Count() .. ")")
-    Print("/bbf unlockall yes - unlock every locked item")
-    Print("/bbf status - what this client offers and what the next clean-up will do")
+    Print("/gbf locked - list the locked items (now: " .. Lock.Count() .. ")")
+    Print("/gbf unlockall yes - unlock every locked item")
+    Print("/gbf status - what this client offers and what the next clean-up will do")
 end
 
 local function PrintStatus()
@@ -2593,7 +2593,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBagsForeverDB and change only through the
--- same functions /bbf uses, so the addon behaves the same with or without the hub.
+-- same functions /gbf uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "Reverse off · unlocked · moved"
@@ -2635,7 +2635,7 @@ _G.BetterBagsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), "BetterBagsForever") end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), "GaarBagsForever") end,
     SetMinimapHidden = function() end,
 }
 
@@ -2795,6 +2795,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERBAGSFOREVER1 = "/bbf"
-SLASH_BETTERBAGSFOREVER2 = "/betterbagsforever"
+SLASH_BETTERBAGSFOREVER1 = "/gbf"
+SLASH_BETTERBAGSFOREVER2 = "/gaarbagsforever"
+SLASH_BETTERBAGSFOREVER3 = "/bbf" -- the command before the Gaar rename
+SLASH_BETTERBAGSFOREVER4 = "/betterbagsforever"
 SlashCmdList.BETTERBAGSFOREVER = OnSlash

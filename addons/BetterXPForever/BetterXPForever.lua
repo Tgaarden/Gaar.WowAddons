@@ -1,7 +1,7 @@
 --[[
   BetterXPForever - XP at a glance, on WoW Forever (classic-era content, level cap 60).
 
-  Every part is its own switch (saved setting + /bxp <feature> on|off + a hub menu entry):
+  Every part is its own switch (saved setting + /gxp <feature> on|off + a hub menu entry):
 
     * panel (on)        a small movable text panel: XP cur/max (pct%), rested XP (amount and % of
                         the level), XP per hour this session, time to level at that rate, and
@@ -14,7 +14,7 @@
                         TIME_PLAYED_MSG). Blizzard's own time-played print is held back for that
                         one request, so chat gets one line, not two.
     * questXP (off)     a quest's XP reward in its tooltip, where the client gives it.
-    * /bxp reset        resets the session's numbers.
+    * /gxp reset        resets the session's numbers.
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
   the old level plus the new XP). The change is classified a short moment later: a
@@ -24,7 +24,7 @@
   Taint: Blizzard code is only followed, never replaced. The only hooks are hooksecurefunc on tooltip
   helpers and a HookScript on GameTooltip; the XP bar is only polled (IsMouseOver). Every client API is checked
   with type(...) == "function", every handler runs in pcall (the last error is kept for
-  /bxp status), and a secret value is never compared or tested: it is treated as no value.
+  /gxp status), and a secret value is never compared or tested: it is treated as no value.
 
   Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
   through ## Dependencies): the chat prefix, Secret / Num and the menu drawing.
@@ -34,10 +34,10 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.4"
+local VERSION = "1.1.0"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterXPForever", { version = VERSION })
+local A = BF.NewAddon("BetterXPForever", { title = "GaarXPForever", version = VERSION })
 
 local DEFAULT_MAX_LEVEL = 60
 local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session
@@ -46,7 +46,7 @@ local DEFAULTS = {
     enabled = true, panel = true, xpbarText = true, xpbarAlways = false,
     levelLog = true, questXP = false, locked = true,
 }
-local FEATURES = {            -- /bxp <name> on|off  (lower-case aliases map to the saved key)
+local FEATURES = {            -- /gxp <name> on|off  (lower-case aliases map to the saved key)
     panel = "panel", xpbartext = "xpbarText", xpbar = "xpbarText", always = "xpbarAlways",
     xpbaralways = "xpbarAlways", levellog = "levelLog", level = "levelLog", questxp = "questXP",
     quest = "questXP",
@@ -454,15 +454,15 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, and quest XP in tooltips. Nice to know: Alt-drag moves the panel (or /bxp unlock); /bxp reset starts a new session."
+local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, and quest XP in tooltips. Nice to know: Alt-drag moves the panel (or /gxp unlock); /gxp reset starts a new session."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bxp  " .. VERSION)
-    Print("/bxp on|off - everything on or off")
-    Print("/bxp panel|xpbar|always|levellog|questxp on|off - one part (no value shows its state)")
-    Print("/bxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
-    Print("/bxp resetpos - panel back to its default place; /bxp status")
+    Print("/gxp  " .. VERSION)
+    Print("/gxp on|off - everything on or off")
+    Print("/gxp panel|xpbar|always|levellog|questxp on|off - one part (no value shows its state)")
+    Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
+    Print("/gxp resetpos - panel back to its default place; /gxp status")
 end
 
 local function PrintStatus()
@@ -497,7 +497,7 @@ local function OnSlash(msg)
             Print("panel position reset")
         elseif FEATURES[a] then
             local key = FEATURES[a]
-            if v == nil then Print(LABELS[key] .. ": " .. (db[key] and "on" or "off") .. " (/bxp " .. a .. " on|off)")
+            if v == nil then Print(LABELS[key] .. ": " .. (db[key] and "on" or "off") .. " (/gxp " .. a .. " on|off)")
             else SetFlag(key, v); Print(LABELS[key] .. " " .. b) end
         else PrintHelp() end
     end)
@@ -602,6 +602,8 @@ events:SetScript("OnUpdate", function(_, dt)
     if db then Refresh() end
 end)
 
-SLASH_BETTERXPFOREVER1 = "/bxp"
-SLASH_BETTERXPFOREVER2 = "/betterxpforever"
+SLASH_BETTERXPFOREVER1 = "/gxp"
+SLASH_BETTERXPFOREVER2 = "/gaarxpforever"
+SLASH_BETTERXPFOREVER3 = "/bxp" -- the command before the Gaar rename
+SLASH_BETTERXPFOREVER4 = "/betterxpforever"
 SlashCmdList.BETTERXPFOREVER = OnSlash

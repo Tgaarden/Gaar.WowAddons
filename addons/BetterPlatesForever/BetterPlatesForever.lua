@@ -1,7 +1,7 @@
 --[[
   BetterPlatesForever - cleaner enemy nameplates on WoW Forever.
 
-  A port of GaarPlates to the Better...Forever conventions: standalone, no options panel, no
+  A port of GaarPlates to the Gaar...Forever conventions: standalone, no options panel, no
   minimap button, a slash command and a small API for BetterForever's hub. It draws its own
   overlay on top of each enemy nameplate and hides Blizzard's art underneath:
 
@@ -15,7 +15,7 @@
       UnitThreatSituation, then "the mob is in combat and targeting you". Where all of them are
       secret, the client colours the bar itself from its secret boolean
       (Texture:SetVertexColorFromBoolean), where it has that.
-    * Raid target mark (skull, cross ...) 20 px left of the bar (1.2.6, option /bpf marks); a secret
+    * Raid target mark (skull, cross ...) 20 px left of the bar (1.2.6, option /gpf marks); a secret
       index is only handed to SetRaidTargetIconTexture inside a pcall, else the mark is hidden.
     * Name above the bar, level right of it, health text (off, percent, current or both) in it,
       the unit's target under it (option).
@@ -34,7 +34,7 @@
     * Your target: scaled up to 115% with a faint ring; other plates dimmed to 55% while you have
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
-    * /bpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
+    * /gpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
       threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
     * BetterPlatesForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The API only exposes the settings
@@ -61,7 +61,7 @@
   And because secrecy travels further than issecretvalue reports, every part of a plate's update
   runs inside pcall: the first refusal switches that one part off for the session with one
   message, instead of an error twelve times a second per plate. An aura read the client refuses
-  is not such a refusal: it is expected in combat, is counted (/bpf debug) and tried again on the
+  is not such a refusal: it is expected in combat, is counted (/gpf debug) and tried again on the
   next pass.
 ]]
 
@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterPlatesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.12"
+local VERSION = "1.3.0"
 
 -- The shared helpers (BetterForever's library, Lib.lua; the addon depends on BetterForever).
 local BF = _G.BetterForever
@@ -95,7 +95,7 @@ local TARGET_SCALE = 1.15         -- your target's plate
 local TICK = 0.08                 -- seconds between plate updates (12.5 Hz)
 local AURA_TICK = 0.25            -- seconds between debuff scans of one plate
 local MAX_SPELLS = 24             -- spell IDs remembered for the by-spell-ID debuff lookup
-local MIN_W, MAX_W = 60, 250      -- health bar width bounds for /bpf size
+local MIN_W, MAX_W = 60, 250      -- health bar width bounds for /gpf size
 local MIN_H, MAX_H = 6, 30        -- health bar height bounds
 -- The palette (1.2.7): deeper, slightly less saturated tones made for the bar gradient. Class
 -- colours are used as the client gives them. Aggro purple stays well apart from hostile red.
@@ -159,7 +159,7 @@ end
 local EXPECT = { { 55.3, "56" }, { 61, "2m" }, { 3540, "59m" }, { 3600, "1h" } }
 local formatter, why
 
--- The formatter, or false; and a line for /bpf status.
+-- The formatter, or false; and a line for /gpf status.
 function TimeText.Formatter()
     if formatter ~= nil then return formatter, why end
     formatter, why = false, "C_StringUtil.CreateNumericRuleFormatter missing"
@@ -238,7 +238,7 @@ local overlays = {}      -- [nameplate frame] = our overlay
 local active = {}        -- [unit token] = overlay currently styling that unit
 local hookedUF = setmetatable({}, { __mode = "k" })   -- Blizzard UnitFrames we hooked
 local blocked = {}       -- [feature] = true once this client refused it
-local blockedWhy = {}    -- [feature] = the error that switched it off, for /bpf status
+local blockedWhy = {}    -- [feature] = the error that switched it off, for /gpf status
 local warnedGaarPlates
 
 -- ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ local warnedGaarPlates
 -- client where nothing is secret, Plain gives the value or nil when it is secret (every later test
 -- on it is then an ordinary one), Num a plain finite number or nil.
 local IsSecret, Plain, Num, OnOff = BF.IsSecret, BF.Plain, BF.Num, BF.OnOff
-local A = BF.NewAddon("BetterPlatesForever", { version = VERSION })
+local A = BF.NewAddon("BetterPlatesForever", { title = "GaarPlatesForever", version = VERSION })
 
 local function Print(msg) A:Print(msg) end
 
@@ -536,7 +536,7 @@ end
 -- So 2 and 3 are aggro (purple) and 1 is high threat (amber). Up to 1.2.4 "high" was status 2 or
 -- more, which is the same as aggro, so amber never showed on its own.
 
--- "secret", "nil" or the plain value as text, for /bpf status. Never compares a secret.
+-- "secret", "nil" or the plain value as text, for /gpf status. Never compares a secret.
 local function Kind(v)
     if IsSecret(v) then return "secret" end
     if v == nil then return "nil" end
@@ -590,7 +590,7 @@ local function ReadThreat(unit)
     return false, false, pct, "none (no source answered)"
 end
 
--- What each source returns for unit right now - "secret", "nil" or the value - for /bpf status.
+-- What each source returns for unit right now - "secret", "nil" or the value - for /gpf status.
 local function ThreatDiag(unit)
     local function Show(ok, ...)
         if not ok then return "error: " .. tostring((...)) end
@@ -666,7 +666,7 @@ local AGGRO_R, AGGRO_G, AGGRO_B = AGGRO[1], AGGRO[2], AGGRO[3]
 
 -- The bar coloured by the client from a secret "you hold aggro" boolean: purple when true, the
 -- plate's own colour when false. Texture:SetVertexColorFromBoolean (12.x) takes the secret as it
--- is, so nothing here tests it. Counted for /bpf status; a refusal is retried next pass.
+-- is, so nothing here tests it. Counted for /gpf status; a refusal is retried next pass.
 local tintStats = { used = 0, failed = 0, lastError = nil }
 local aggroColor
 
@@ -726,7 +726,7 @@ local function UpdateHealth(o, unit, tanking, high, flag, hasFlag)
     if pct and cur <= 0 then o.ttext:SetText("") end
 end
 
--- How the health text was last written, for /bpf status: "plain", "secret" or "none".
+-- How the health text was last written, for /gpf status: "plain", "secret" or "none".
 local healthTextPath = "none"
 
 local function Abbrev(n)
@@ -870,7 +870,7 @@ end
 --   3. Fields that come back secret go straight to widgets: the icon to SetTexture, the timing
 --      to a Cooldown frame through C_UnitAuras.GetAuraDuration, the stacks through
 --      C_UnitAuras.GetAuraApplicationDisplayCount. Nothing is compared or added.
--- A refused read is counted for /bpf debug and tried again next pass; it never latches.
+-- A refused read is counted for /gpf debug and tried again next pass; it never latches.
 -- ---------------------------------------------------------------------------
 
 local auraStats = { indexRefused = 0, spellRefused = 0, paintFailed = 0, lastError = nil }
@@ -1592,21 +1592,21 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Cleaner enemy nameplates drawn over Blizzard's: a shaded health bar with threat colours, a cast bar with the time left, your own debuffs and a clear mark on your target. It changes no CVars. Nice to know: friendly plates stay Blizzard's unless you turn them on (/bpf friendly on); /bpf off hands every plate back to Blizzard."
+local INTRO = "Cleaner enemy nameplates drawn over Blizzard's: a shaded health bar with threat colours, a cast bar with the time left, your own debuffs and a clear mark on your target. It changes no CVars. Nice to know: friendly plates stay Blizzard's unless you turn them on (/gpf friendly on); /gpf off hands every plate back to Blizzard."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bpf on | off - the whole addon; off gives every plate back to Blizzard (now: " .. OnOff(db and db.enabled) .. ")")
-    Print("/bpf color reaction | class | health | solid - bar colour (now: " .. (db and db.colorMode or "?") .. ")")
-    Print("/bpf health off | percent | current | both - health text (now: " .. (db and db.healthText or "?") .. ")")
-    Print(string.format("/bpf size <width> <height> - health bar, %d-%d by %d-%d (now: %sx%s)",
+    Print("/gpf on | off - the whole addon; off gives every plate back to Blizzard (now: " .. OnOff(db and db.enabled) .. ")")
+    Print("/gpf color reaction | class | health | solid - bar colour (now: " .. (db and db.colorMode or "?") .. ")")
+    Print("/gpf health off | percent | current | both - health text (now: " .. (db and db.healthText or "?") .. ")")
+    Print(string.format("/gpf size <width> <height> - health bar, %d-%d by %d-%d (now: %sx%s)",
         MIN_W, MAX_W, MIN_H, MAX_H, tostring(db and db.width), tostring(db and db.height)))
     local names = {}
     for _, t in ipairs(TOGGLES) do names[#names + 1] = t.cmd end
-    Print("/bpf " .. table.concat(names, " | ") .. " on | off - switch a feature")
-    Print("/bpf reset - every setting back to its default")
-    Print("/bpf status - the current settings and what this client allows")
-    Print("/bpf debug - debuff and health text state, and your target's plate")
+    Print("/gpf " .. table.concat(names, " | ") .. " on | off - switch a feature")
+    Print("/gpf reset - every setting back to its default")
+    Print("/gpf status - the current settings and what this client allows")
+    Print("/gpf debug - debuff and health text state, and your target's plate")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -1783,15 +1783,15 @@ local function OnSlash(msg)
         SetEnabled(cmd == "on")
     elseif cmd == "color" or cmd == "colour" then
         if IsIn(COLOR_MODES, rest) then SetColorMode(rest)
-        else Print("/bpf color reaction | class | health | solid (now: " .. db.colorMode .. ")") end
+        else Print("/gpf color reaction | class | health | solid (now: " .. db.colorMode .. ")") end
     elseif cmd == "health" then
         if IsIn(HEALTH_MODES, rest) then SetHealthText(rest)
-        else Print("/bpf health off | percent | current | both (now: " .. db.healthText .. ")") end
+        else Print("/gpf health off | percent | current | both (now: " .. db.healthText .. ")") end
     elseif cmd == "size" then
         local w, h = rest:match("^(%d+)%s*[x ]%s*(%d+)$")
         w, h = tonumber(w), tonumber(h)
         if w and h then SetSize(w, h)
-        else Print(string.format("/bpf size <width> <height>, %d-%d by %d-%d (now: %dx%d)",
+        else Print(string.format("/gpf size <width> <height>, %d-%d by %d-%d (now: %dx%d)",
             MIN_W, MAX_W, MIN_H, MAX_H, db.width, db.height)) end
     elseif cmd == "reset" then
         ResetSettings()
@@ -1800,7 +1800,7 @@ local function OnSlash(msg)
             if cmd == t.cmd then
                 if rest == "on" or rest == "off" then SetToggle(t, rest == "on")
                 elseif rest == "" then SetToggle(t, not db[t.key])
-                else Print("/bpf " .. t.cmd .. " on | off (now: " .. OnOff(db[t.key]) .. ")") end
+                else Print("/gpf " .. t.cmd .. " on | off (now: " .. OnOff(db[t.key]) .. ")") end
                 return
             end
         end
@@ -1813,7 +1813,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterPlatesForeverDB and change only through the
--- same functions /bpf uses, so the addon behaves the same with or without the hub.
+-- same functions /gpf uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · reaction · 120x12 · threat on"
@@ -1964,6 +1964,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     UpdateAll()
 end)
 
-SLASH_BETTERPLATESFOREVER1 = "/bpf"
-SLASH_BETTERPLATESFOREVER2 = "/betterplatesforever"
+SLASH_BETTERPLATESFOREVER1 = "/gpf"
+SLASH_BETTERPLATESFOREVER2 = "/gaarplatesforever"
+SLASH_BETTERPLATESFOREVER3 = "/bpf" -- the command before the Gaar rename
+SLASH_BETTERPLATESFOREVER4 = "/betterplatesforever"
 SlashCmdList.BETTERPLATESFOREVER = OnSlash

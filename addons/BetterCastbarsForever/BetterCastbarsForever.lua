@@ -1,7 +1,7 @@
 --[[
   BetterCastbarsForever - movable cast bars for player, target, focus and pet on WoW Forever.
 
-  A standalone port of GaarCast to the Better...Forever conventions. It draws its own cast bars
+  A standalone port of GaarCast to the Gaar...Forever conventions. It draws its own cast bars
   and does these things and nothing else:
 
     * Bars for player, target and focus (on by default; focus only where the client has a focus
@@ -24,7 +24,7 @@
       over each swing and show the seconds left. Shown in combat or while a swing runs, faded out
       otherwise, and looped in test mode. See the swing timer section below for how swings are
       detected on a client whose combat log addons cannot read.
-    * /bcf for help, status, lock, unlock, test, reset, follow, bar, latency, texture, font,
+    * /gcf for help, status, lock, unlock, test, reset, follow, bar, latency, texture, font,
       timer and swing.
     * BetterCastbarsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -38,7 +38,7 @@
     * Except an enemy's cast timings (1.1.3): those are secret for every hostile unit, and
       treating them as no value hid every enemy cast (with Blizzard's bar hidden too). They now go
       untouched to widgets that accept secrets - a duration object into StatusBar:SetTimerDuration,
-      or the raw start and end into SetMinMaxValues - see StartSecretBar. /bcf debug says which.
+      or the raw start and end into SetMinMaxValues - see StartSecretBar. /gcf debug says which.
     * Blizzard's geometry is never copied without that check. Copying a secret size or anchoring
       to a frame whose geometry is secret makes our own frame's geometry secret, and Blizzard's
       Backdrop code then fails inside their file. Where Blizzard's geometry is missing or secret
@@ -58,7 +58,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterCastbarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.6"
+local VERSION = "1.2.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -140,7 +140,7 @@ local bars = {}          -- [unit] = our bar frame
 local blocked = {}       -- [unit] = error text, once the client has refused that bar
 local hooked = {}        -- [Blizzard frame] = true, once its OnShow is hooked
 local testing = false
-local castDebug = false  -- /bcf debug, not saved
+local castDebug = false  -- /gcf debug, not saved
 local conflictWarned = false
 local driver             -- the one OnUpdate frame that runs every bar
 
@@ -153,7 +153,7 @@ local driver             -- the one OnUpdate frame that runs every bar
 -- be neither compared, used in a sum nor tested for truth; IsSecret is true only for those, and
 -- Num is a plain, finite number or nil.
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon(ADDON_NAME, { title = "GaarCastbarsForever", version = VERSION })
 local function Print(msg) A:Print(msg) end
 local OnOff, IsSecret, Num, AddOnLoaded = BF.OnOff, BF.IsSecret, BF.Num, BF.AddOnLoaded
 
@@ -543,7 +543,7 @@ local function AfterHandPlacement(f, what)
     db.follow = false
     SaveGeometry(f)
     if wasFollowing then
-        Print("stopped following Blizzard's cast bars - you " .. what .. " one by hand. /bcf follow on turns it back on.")
+        Print("stopped following Blizzard's cast bars - you " .. what .. " one by hand. /gcf follow on turns it back on.")
         ApplyAll()
     end
 end
@@ -927,7 +927,7 @@ end
 --     Enum.PlayerSwingType, which drive the client's built-in "Main Hand" swing bar. Each event
 --     restarts the bar of the hand it names. Its payload is not documented: the hand is read from
 --     (duration, Enum.PlayerSwingType value): arg2 decides the hand, arg1 is the swing duration
---     when sane, else UnitAttackSpeed / UnitRangedDamage. Ranged swings drive the ranged bar. /bcf swing debug prints every payload.
+--     when sane, else UnitAttackSpeed / UnitRangedDamage. Ranged swings drive the ranged bar. /gcf swing debug prints every payload.
 --   * Until PLAYER_SWING has been seen this session (or where it cannot be registered), an
 --     estimate: PLAYER_ENTER_COMBAT (auto-attack on) starts a swing at once, the bar loops on
 --     its own while auto-attack lasts, and on-next-swing abilities (Heroic Strike, Cleave,
@@ -972,7 +972,7 @@ local swingState = {
     eventOK = false,     -- PLAYER_SWING could be registered
     rangedEventSeen = false,   -- a ranged PLAYER_SWING arrived this session
     eventSeen = false,   -- a melee PLAYER_SWING arrived this session
-    debug = false,       -- /bcf swing debug, not saved
+    debug = false,       -- /gcf swing debug, not saved
 }
 local swingBlocked       -- error text, once the client has refused the swing timer
 local swingHolder        -- the frame the swing rows stack in, under the player bar
@@ -1091,7 +1091,7 @@ local function SwingEnumKinds()
     return swingEnumKind
 end
 
--- PLAYER_SWING payload, seen in game (/bcf swing debug): (duration, swingType), e.g.
+-- PLAYER_SWING payload, seen in game (/gcf swing debug): (duration, swingType), e.g.
 -- 2.9000000953674, 0 -> MH, with swingType an Enum.PlayerSwingType value (MainHand=0, OffHand=1,
 -- Ranged=2). Returns the hand and the duration (nil unless sane: > 0 and < 10, not secret).
 -- Guarded fallbacks: no number in arg2 and an integer 0..2 in arg1 is taken as the type; a
@@ -1414,7 +1414,7 @@ local function SetTesting(on)
         if f and f.test then ClearBar(f) end
         if not testing then Guard(u, Refresh, u) end
     end
-    Print(testing and "test bars on: every enabled bar loops a fake cast - drag them into place. /bcf test again to stop."
+    Print(testing and "test bars on: every enabled bar loops a fake cast - drag them into place. /gcf test again to stop."
         or "test bars off.")
 end
 
@@ -1433,7 +1433,7 @@ local function SetLocked(on)
         end
     end
     Print(db.locked and "bars locked: no dragging or resizing, clicks go through them."
-        or "bars unlocked: drag a bar to move it, the bottom-right grip to resize it (/bcf test shows them).")
+        or "bars unlocked: drag a bar to move it, the bottom-right grip to resize it (/gcf test shows them).")
 end
 
 local function ResetLayout()
@@ -1542,10 +1542,10 @@ local function SetSwingDebug(on)
     end
     Print("swing debug on: every PLAYER_SWING payload is printed. Enum.PlayerSwingType: "
         .. (#names > 0 and table.concat(names, ", ") or "missing")
-        .. ". /bcf swing debug again to stop.")
+        .. ". /gcf swing debug again to stop.")
 end
 
--- Where swings come from now, for /bcf status.
+-- Where swings come from now, for /gcf status.
 local function SwingSourceText()
     if swingState.eventSeen then return "PLAYER_SWING (seen this session)" end
     if swingState.eventOK then return "PLAYER_SWING registered, none seen yet - estimating from auto-attack" end
@@ -1582,26 +1582,26 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Its own cast bars for player, target, focus and pet, with icon, timer, spark and a latency safe-zone, plus a swing timer under the player bar. Place them yourself or let them follow Blizzard's bars from Edit Mode. Nice to know: unlock, then drag a bar to move it and its corner grip to resize it; /bcf test shows looping test casts; a grey bar with a shield cannot be interrupted."
+local INTRO = "Its own cast bars for player, target, focus and pet, with icon, timer, spark and a latency safe-zone, plus a swing timer under the player bar. Place them yourself or let them follow Blizzard's bars from Edit Mode. Nice to know: unlock, then drag a bar to move it and its corner grip to resize it; /gcf test shows looping test casts; a grey bar with a shield cannot be interrupted."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("drag a bar to move it, drag its bottom-right grip to resize it. /bcf test shows them out of combat.")
-    Print("/bcf status - what this client offers and the current settings")
-    Print("/bcf lock | /bcf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
-    Print("/bcf test - looping fake casts on every enabled bar (now: " .. OnOff(testing) .. ")")
-    Print("/bcf reset - positions and sizes back to the defaults")
-    Print("/bcf follow on|off - anchor each bar to Blizzard's own cast bar, placed with Edit Mode (now: " .. OnOff(db and db.follow) .. ")")
-    Print("/bcf bar <" .. table.concat(UNITS, "|") .. "> on|off - which bars to draw (now: "
+    Print("drag a bar to move it, drag its bottom-right grip to resize it. /gcf test shows them out of combat.")
+    Print("/gcf status - what this client offers and the current settings")
+    Print("/gcf lock | /gcf unlock - stop or allow moving and resizing (now: " .. ((db and db.locked) and "locked" or "unlocked") .. ")")
+    Print("/gcf test - looping fake casts on every enabled bar (now: " .. OnOff(testing) .. ")")
+    Print("/gcf reset - positions and sizes back to the defaults")
+    Print("/gcf follow on|off - anchor each bar to Blizzard's own cast bar, placed with Edit Mode (now: " .. OnOff(db and db.follow) .. ")")
+    Print("/gcf bar <" .. table.concat(UNITS, "|") .. "> on|off - which bars to draw (now: "
         .. (#EnabledList() > 0 and table.concat(EnabledList(), " ") or "none") .. ")")
-    Print("/bcf latency on|off - latency safe-zone on the player bar (now: " .. OnOff(db and db.latency) .. ")")
-    Print("/bcf texture blizzard|smooth|flat (now: " .. (db and db.texture or DEFAULTS.texture) .. ")")
-    Print("/bcf font 9|11|13 (now: " .. (db and db.fontSize or DEFAULTS.fontSize) .. ")")
-    Print("/bcf timer total|remain - \"remain / total\" or just remain (now: " .. (db and db.timer or DEFAULTS.timer) .. ")")
-    Print("/bcf debug - print what each target/focus/pet cast event read, and why a cast was or was not shown (now: " .. OnOff(castDebug) .. ")")
-    Print("/bcf swing on|off - swing timer under the player bar (now: " .. OnOff(db and db.swingTimer) .. ")")
-    Print("/bcf swing offhand on|off, /bcf swing ranged on|off - its off-hand and ranged bars (now: "
-        .. OnOff(db and db.swingOffhand) .. ", " .. OnOff(db and db.swingRanged) .. "); /bcf swing debug prints each swing event")
+    Print("/gcf latency on|off - latency safe-zone on the player bar (now: " .. OnOff(db and db.latency) .. ")")
+    Print("/gcf texture blizzard|smooth|flat (now: " .. (db and db.texture or DEFAULTS.texture) .. ")")
+    Print("/gcf font 9|11|13 (now: " .. (db and db.fontSize or DEFAULTS.fontSize) .. ")")
+    Print("/gcf timer total|remain - \"remain / total\" or just remain (now: " .. (db and db.timer or DEFAULTS.timer) .. ")")
+    Print("/gcf debug - print what each target/focus/pet cast event read, and why a cast was or was not shown (now: " .. OnOff(castDebug) .. ")")
+    Print("/gcf swing on|off - swing timer under the player bar (now: " .. OnOff(db and db.swingTimer) .. ")")
+    Print("/gcf swing offhand on|off, /gcf swing ranged on|off - its off-hand and ranged bars (now: "
+        .. OnOff(db and db.swingOffhand) .. ", " .. OnOff(db and db.swingRanged) .. "); /gcf swing debug prints each swing event")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -1641,7 +1641,7 @@ end
 local function SetCastDebug(on)
     castDebug = on and true or false
     if not castDebug then Print("cast debug off."); return end
-    Print("cast debug on: every cast event on target, focus and pet prints what was read and why a cast was or was not shown. /bcf debug again to stop.")
+    Print("cast debug on: every cast event on target, focus and pet prints what was read and why a cast was or was not shown. /gcf debug again to stop.")
     Print(CastApiLine())
 end
 
@@ -1707,7 +1707,7 @@ local function OnSlash(msg)
     elseif cmd == "bar" then
         local u, v = rest:match("^(%a+)%s*(%a*)$")
         if not u or not HasUnit(u) then
-            Print("/bcf bar <" .. table.concat(UNITS, "|") .. "> on|off")
+            Print("/gcf bar <" .. table.concat(UNITS, "|") .. "> on|off")
         elseif v == "on" then SetBar(u, true)
         elseif v == "off" then SetBar(u, false)
         else SetBar(u, not db.bars[u]) end
@@ -1734,7 +1734,7 @@ local function OnSlash(msg)
         elseif sub == "debug" then
             SetSwingDebug(not swingState.debug)
         else
-            Print("/bcf swing on|off, /bcf swing offhand on|off, /bcf swing ranged on|off, /bcf swing debug")
+            Print("/gcf swing on|off, /gcf swing offhand on|off, /gcf swing ranged on|off, /gcf swing debug")
         end
     else
         Print("unknown command \"" .. msg .. "\".")
@@ -1747,7 +1747,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterCastbarsForeverDB and change only through
--- the same functions /bcf uses, so the addon behaves the same with or without the hub.
+-- the same functions /gcf uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "unlocked · player target focus · own position"
@@ -1928,7 +1928,7 @@ local function OnCastEvent(f, kind, castGUID)
     end
 end
 
--- /bcf debug: one line per event on a non-player bar. Never prints a secret, only its kind.
+-- /gcf debug: one line per event on a non-player bar. Never prints a secret, only its kind.
 local function DebugCast(u, event, note)
     if not castDebug or u == "player" or not bars[u] then return end
     if blocked[u] then note = "OFF - the client refused it: " .. blocked[u] end
@@ -1982,11 +1982,13 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             Guard(arg1, OnCastEvent, f, kind, arg2)
             DebugCast(arg1, event)
         elseif f then
-            DebugCast(arg1, event, "bar is off (/bcf bar " .. arg1 .. " on)")
+            DebugCast(arg1, event, "bar is off (/gcf bar " .. arg1 .. " on)")
         end
     end
 end)
 
-SLASH_BETTERCASTBARSFOREVER1 = "/bcf"
-SLASH_BETTERCASTBARSFOREVER2 = "/bettercastbarsforever"
+SLASH_BETTERCASTBARSFOREVER1 = "/gcf"
+SLASH_BETTERCASTBARSFOREVER2 = "/gaarcastbarsforever"
+SLASH_BETTERCASTBARSFOREVER3 = "/bcf" -- the command before the Gaar rename
+SLASH_BETTERCASTBARSFOREVER4 = "/bettercastbarsforever"
 SlashCmdList.BETTERCASTBARSFOREVER = OnSlash

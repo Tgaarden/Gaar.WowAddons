@@ -1,26 +1,30 @@
-# BetterQuestsForever
+# GaarQuestsForever
+
+> Formerly **BetterQuestsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gqf` (`/gaarquestsforever`); the old `/bqf` and `/betterquestsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarquestsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It
 changes how the **Quests** section of Blizzard's own objective tracker (`QuestObjectiveTracker`)
 orders and limits the tracked quests, and (with auto-watch, default on) which quests are tracked
-so that the lowest ones fill the tracker's height. It needs BetterForever, the family hub, and no other addon or library.
+so that the lowest ones fill the tracker's height. It needs GaarForever, the family hub, and no other addon or library.
 
 ## What it does
 
 - **Order.** Tracked quests are shown by quest level, lowest first (the `[n]` the tracker shows,
   `C_QuestLog.GetInfo(logIndex).level`, falling back to `difficultyLevel`). Quests of the same
   level are ordered by title, ignoring case.
-- **Sort by distance (optional).** `/bqf sort distance` (or **Sort by** in the minimap menu)
+- **Sort by distance (optional).** `/gqf sort distance` (or **Sort by** in the minimap menu)
   shows the nearest quest first, using `C_QuestLog.GetDistanceSqToQuest` (what Blizzard's own
-  proximity sort uses; check your client with `/bqf distance`). Quests without a distance (no
+  proximity sort uses; check your client with `/gqf distance`). Quests without a distance (no
   value, not a number, negative) go after those with one, ordered by level then title. The order
   is worked out again about every 3 seconds, out of combat only and only while the tracker is
   shown, and the layout is only touched when the order changes. To stop quests from jumping
   around, two quests keep their order unless the one behind is closer by at least 50 yards and at
-  least 10 %. The limit then shows the N nearest quests. `/bqf sort level` (the default) is the
+  least 10 %. The limit then shows the N nearest quests. `/gqf sort level` (the default) is the
   level order described above, with no timer.
 - **Completed quests.** Quests that are ready to turn in (`C_QuestLog.IsComplete`) go to the
-  **bottom** by default. `/bqf completed top` puts them first; `/bqf completed level` sorts
+  **bottom** by default. `/gqf completed top` puts them first; `/gqf completed level` sorts
   them among the others (by level, or by distance in distance mode; the menu calls it "By level" or "With the others").
 - **Limit.** Only the first **N** quests of that order are shown (default **10**, 1-49, or all).
   With 30 tracked quests and N = 10, you see the 10 lowest-level quests that are not complete.
@@ -46,10 +50,10 @@ so that the lowest ones fill the tracker's height. It needs BetterForever, the f
   - **Manual tracking is overridden.** While auto-watch is on, a quest you track or untrack by
     hand is set back the way the order wants on the next pass (a fraction of a second later). Turn
     auto-watch off to manage the watch list yourself.
-  - **Off** (`/bqf autowatch off`, the menu's **Auto-watch quests that fit**, or `/bqf off`): the
+  - **Off** (`/gqf autowatch off`, the menu's **Auto-watch quests that fit**, or `/gqf off`): the
     watch list is left exactly as it is and is yours again; nothing is restored or re-tracked. The
     order and the limit then only change what is drawn of the quests you track, as before 1.7.
-- **Dungeon filter (1.10, default off).** `/bqf dungeon on` (or **Dungeon filter** in the menus).
+- **Dungeon filter (1.10, default off).** `/gqf dungeon on` (or **Dungeon filter** in the menus).
   Inside a dungeon or raid instance only that instance's quests are watched, in the usual order;
   the other quests of the Quests section are un-watched. If no quest matches, nothing changes (the
   normal order and auto-watch). Outside instances it does nothing. See
@@ -68,9 +72,9 @@ so that the lowest ones fill the tracker's height. It needs BetterForever, the f
   block, with 4 px of padding. It follows the content as it grows and shrinks (including after
   the order and the limit change the height) and is hidden when the tracker is hidden, collapsed
   or empty. See [Backdrop](#backdrop).
-- **Set GPS target** (1.6, needs [BetterGpsForever](../BetterGpsForever/README.md) 1.1). The
+- **Set GPS target** (1.6, needs [GaarGpsForever](../BetterGpsForever/README.md) 1.1). The
   tracker's own right-click menu for a quest (Focus, Open Quest Details, Open Quest Map, Untrack,
-  Abandon) gets **Set GPS target** after Focus. It sets BetterGpsForever's one waypoint on the
+  Abandon) gets **Set GPS target** after Focus. It sets GaarGpsForever's one waypoint on the
   point Blizzard shows for the quest, titled with the quest's name (e.g. "Harpy Raiders"):
   1. `C_QuestLog.GetNextWaypoint(questID)` - the next step of the route Blizzard plots to a quest
      somewhere else;
@@ -80,13 +84,13 @@ so that the lowest ones fill the tracker's height. It needs BetterForever, the f
   3. else `C_QuestLog.GetNextWaypointForMap(questID, uiMapID)` on the same maps.
 
   With none of them the entry is greyed out (and a click, where a client cannot grey it, says
-  "No map point for this quest."). Without BetterGpsForever the entry is not there and the addon
+  "No map point for this quest."). Without GaarGpsForever the entry is not there and the addon
   works as before. The entry is added with Blizzard's public
   `Menu.ModifyMenu("MENU_QUEST_OBJECTIVE_TRACKER", ...)`, which runs after Blizzard has built the
   menu and only adds an element of ours; the menu does not say which quest it is for, so that is
   the tracker block under the mouse, checked against the menu's title (or else the one tracked
   quest with that title). The waypoint goes through `BetterGpsForeverAPI.SetWaypoint` only. The
-  first error switches the entry off for the session with one line in chat; `/bqf status` shows
+  first error switches the entry off for the session with one line in chat; `/gqf status` shows
   its state.
 - **Hide in combat** (default on). When a fight starts the whole objective tracker ("All
   Objectives", every section) and the backdrop are hidden; when it ends the tracker comes back,
@@ -99,19 +103,19 @@ so that the lowest ones fill the tracker's height. It needs BetterForever, the f
 
 | Command | Does |
 |---|---|
-| `/bqf` | Help |
-| `/bqf max <n>`, `/bqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
-| `/bqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
-| `/bqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
-| `/bqf autowatch on`, `/bqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
-| `/bqf dungeon on`, `/bqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
-| `/bqf on`, `/bqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
-| `/bqf bg on`, `/bqf bg off` | Show or hide the backdrop behind the tracker (default on) |
-| `/bqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
-| `/bqf combat on`, `/bqf combat off` | Hide the whole objective tracker during combat (default on) |
-| `/bqf minimap` | Show or hide the minimap button |
-| `/bqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
-| `/bqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), auto-watch: its state (`settled`, waiting, paused and why), the Quests section's room from Blizzard's layout (watched, drawn, room and used px, which quest did not fit), how many quests fit and what the next one would need, and which quests the last pass watched and un-watched; the dungeon filter (`dungeon filter: on - in The Deadmines, 3 quests match` and which, `... no match, normal sort`, `... not in an instance`, how many of its changes are still to be undone, and which instance/quest-tag/quest-map/quest-text functions the client has); `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
+| `/gqf` | Help |
+| `/gqf max <n>`, `/gqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
+| `/gqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
+| `/gqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
+| `/gqf autowatch on`, `/gqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
+| `/gqf dungeon on`, `/gqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
+| `/gqf on`, `/gqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
+| `/gqf bg on`, `/gqf bg off` | Show or hide the backdrop behind the tracker (default on) |
+| `/gqf bg <0-100>` | Backdrop opacity in percent (default 50; values outside 0-100 are clamped) |
+| `/gqf combat on`, `/gqf combat off` | Hide the whole objective tracker during combat (default on) |
+| `/gqf minimap` | Show or hide the minimap button |
+| `/gqf minimap reset` | Minimap button back to its default place (285 degrees) and shown |
+| `/gqf status` | On/off, sort, max, completed mode, how many quests are tracked and shown, whether the tracker was recognised, which hooks are in place (and how Edit Mode is followed), auto-watch: its state (`settled`, waiting, paused and why), the Quests section's room from Blizzard's layout (watched, drawn, room and used px, which quest did not fit), how many quests fit and what the next one would need, and which quests the last pass watched and un-watched; the dungeon filter (`dungeon filter: on - in The Deadmines, 3 quests match` and which, `... no match, normal sort`, `... not in an instance`, how many of its changes are still to be undone, and which instance/quest-tag/quest-map/quest-text functions the client has); `order: visual (applied to N blocks)` or why it could not be applied, which client functions exist, whether hide in combat is ready (or why not), whether `ObjectiveTrackerFrame` is shown and protected, and the minimap button's state |
 
 ## Right-click the tracker headers (1.8)
 
@@ -127,7 +131,7 @@ Left- or right-click opens a menu with the same settings: **Enabled** (checkbox)
 quests that fit** (checkbox), **Dungeon filter** (checkbox), **Max quests
 shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
-(checkbox) and **Hide minimap button** (`/bqf minimap` brings it back). Changes apply at once. Drag the button
+(checkbox) and **Hide minimap button** (`/gqf minimap` brings it back). Changes apply at once. Drag the button
 to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,
 e.g. with GaarMap) it follows the square edge. The menu is Blizzard's `MenuUtil` where the
 client has it, otherwise a small menu drawn by the addon (never `UIDropDownMenu`). The placement
@@ -139,16 +143,16 @@ shape.
 Settings are saved in `BetterQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`, `autoWatch`,
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.10.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.10.1 (it is also the first line of the slash command's help). Since 1.10.2 it also takes its small helpers (the chat line, the secret-value check, the safe frame calls, the combat check, the addon-loaded check, drawing the menus) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.10.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.10.1 (it is also the first line of the slash command's help). Since 1.10.2 it also takes its small helpers (the chat line, the secret-value check, the safe frame calls, the combat check, the addon-loaded check, drawing the menus) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Quests** submenu with exactly the options above (all but **Hide minimap button**).
 While it is loaded, this addon's own minimap button is hidden for the session; the saved
 `minimap.hide` setting is not changed, so without the hub the button is back as you left it.
-`/bqf minimap` still changes the saved setting, and `/bqf status` says when the hub is hiding the
-button. Everything else (settings, `/bqf`, behaviour) is the same with or without the hub.
+`/gqf minimap` still changes the saved setting, and `/gqf status` says when the hub is hiding the
+button. Everything else (settings, `/gqf`, behaviour) is the same with or without the hub.
 
 The hub talks to this addon only through `BetterQuestsForeverAPI` (since 1.5):
 
@@ -241,14 +245,14 @@ How the fit is measured, without writing anything of Blizzard's:
   bound, so it is not tried again until there is more room or it changes. Nothing changes until
   Blizzard has laid out the previous change (or 2 s passed), at most 10 watch changes per pass,
   and more than 10 changing passes in 30 s pause auto-watch for a minute (said in chat and in
-  `/bqf status`). In distance mode the ranking uses the same 50 yd / 10 % hysteresis as the order.
+  `/gqf status`). In distance mode the ranking uses the same 50 yd / 10 % hysteresis as the order.
 - **When it leaves things alone.** In combat (queued to `PLAYER_REGEN_ENABLED`), while Edit Mode is
   open (re-run on `EditMode.Exit`), while the tracker or the section is collapsed, and when the
   sections above leave the Quests section no room at all.
 
 ## Dungeon filter
 
-Off by default; `/bqf dungeon on|off` or the **Dungeon filter** checkbox. It acts only while
+Off by default; `/gqf dungeon on|off` or the **Dungeon filter** checkbox. It acts only while
 `IsInInstance()` says `party` or `raid`. A quest belongs to the instance when:
 
 1. it sits under the quest-log header whose title is the instance's name (`GetInstanceInfo()`,
@@ -262,7 +266,7 @@ Off by default; `/bqf dungeon on|off` or the **Dungeon filter** checkbox. It act
    (`C_QuestLog.GetQuestObjectives`) contains the instance's name (plain, case-insensitive).
 
 Every client function is checked before use; a missing or secret value counts as no match.
-`/bqf status` lists the matching quests and which of these functions the client has.
+`/gqf status` lists the matching quests and which of these functions the client has.
 
 - **Auto-watch on:** the filter narrows the ranking auto-watch walks to the matching quests (as
   many as fit, in the usual order); the rest of the section is un-watched with all of
@@ -298,7 +302,7 @@ Blizzard frame:
 - **Hidden** when the tracker frame is hidden or collapsed, or when no module has a visible block.
 - **Combat.** With hide in combat on, the backdrop is hidden for the fight together with the
   tracker. With it off, the backdrop only reads Blizzard's positions and writes to its own frame,
-  so it keeps following the tracker in combat. `/bqf status` shows why it is hidden, if it is.
+  so it keeps following the tracker in combat. `/gqf status` shows why it is hidden, if it is.
 - **Moving the tracker** is Blizzard's Edit Mode. A move fires none of the hooks, but the 0.1 s
   measurement picks up the new position, so the backdrop follows.
 
@@ -338,13 +342,13 @@ What it does instead:
   show/hide logic is never overridden. The driver itself sets the tracker's `statehidden`
   attribute (`true` when it hides, `nil` when it shows), which nothing in the tracker reads; it
   stays `true` after a fight where the tracker was hidden to begin with.
-- It is independent of `/bqf on`/`off` (which only switches the order and the limit) and of the
+- It is independent of `/gqf on`/`off` (which only switches the order and the limit) and of the
   backdrop setting.
 - A change of the setting during a fight applies from the next fight; turning it off during a
   fight still brings the tracker back when the fight ends.
 - If the client has no `RegisterStateDriver`, if there is no `ObjectiveTrackerFrame`, or if the
   lockdown had already started when the event arrived, nothing is hidden (there is no insecure
-  fallback) and `/bqf status` says why.
+  fallback) and `/gqf status` says why.
 
 ## Taint
 
@@ -371,7 +375,7 @@ tainted code and the click would be blocked (`ADDON_ACTION_BLOCKED`). So:
 - Before each pass it checks every frame it would touch. If a quest block is protected or
   anchoring-restricted (`IsProtected()`, `IsAnchoringRestricted()`), or an item button or bar it
   would hide is protected, or the section itself is, that pass changes nothing (Blizzard's layout
-  is put back) and `/bqf status` says why.
+  is put back) and `/gqf status` says why.
 
 ## Names it relies on
 
@@ -396,7 +400,7 @@ target: `Menu.ModifyMenu`, `MenuUtil.CreateButton` and `GetElementText`, the des
 `GetQuestsOnMap`, `GetNextWaypointForMap`, `GetTitleForQuestID`, `GetQuestUiMapID`,
 `C_Map.GetBestMapForUnit` and `GetMapInfo` (all present in the Forever binary), and
 `BetterGpsForeverAPI`. Every one is checked before use. If the tracker is not recognised the addon
-does nothing and `/bqf status` says what is missing.
+does nothing and `/gqf status` says what is missing.
 
 It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001.
 

@@ -1,21 +1,21 @@
 --[[
-  BetterForever - the hub of the Better...Forever family for WoW Forever (renamed from
-  BetterGaarForever in 3.0). Every Better...Forever addon lists it under ## Dependencies.
+  BetterForever - the hub of the Gaar...Forever family for WoW Forever (renamed from
+  BetterGaarForever in 3.0). Every Gaar...Forever addon lists it under ## Dependencies.
 
   It carries no bag, quest, map, waypoint, unit-frame or other feature code of its own. The addons
   keep their logic, their settings (BetterBagsForeverDB, BetterQuestsForeverDB, ...) and their slash
-  commands (/bbf, /bqf, /bmf, ...). What the hub adds:
+  commands (/gbf, /gqf, /gmf, ...). What the hub adds:
 
     * Lib.lua      the shared library, global BetterForever (see README, "For addon authors")
-    * Settings.lua the pages under Esc > Options > AddOns > Better Forever, one per addon,
+    * Settings.lua the pages under Esc > Options > AddOns > Gaar Forever, one per addon,
                    generated from each addon's MenuEntries()
-    * this file    one minimap button whose menu has a submenu per addon, and /bf
+    * this file    one minimap button whose menu has a submenu per addon, and /gf
 
   Each addon fills its submenu and its Options page through the small API table it exports
   (BetterBagsForeverAPI, BetterQuestsForeverAPI, ...):
 
     version               the addon's version, a string
-    StatusLine()          one short line of state, shown in the tooltip and /bf status
+    StatusLine()          one short line of state, shown in the tooltip and /gf status
     MenuEntries()         the options as plain data, for the menu drawn without MenuUtil and the
                           Options page
     AddMenuEntries(root)  adds the same options to a MenuUtil description
@@ -44,31 +44,34 @@ local _, ns = ...
 local Lib = _G.BetterForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
-local TITLE = "BetterForever"
-local VERSION = "3.1.1"
-local PREFIX = "|cff33ff99BetterForever|r: "
+local TITLE = "GaarForever" -- shown; the folder, globals and saved variables keep BetterForever
+local VERSION = "3.2.0"
+local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 
--- The addons the hub has a submenu for, in menu order.
+-- The addons the hub has a submenu for, in menu order. name: the folder (and the key everywhere);
+-- title: the name users see (Gaar...Forever, set below); slash: the command, oldSlash: the one
+-- before the Gaar rename, still registered by each addon.
 local ADDONS = {
-    { key = "bags", label = "Bags", name = "BetterBagsForever", api = "BetterBagsForeverAPI", slash = "/bbf" },
-    { key = "quests", label = "Quests", name = "BetterQuestsForever", api = "BetterQuestsForeverAPI", slash = "/bqf" },
-    { key = "maps", label = "Maps", name = "BetterMapsForever", api = "BetterMapsForeverAPI", slash = "/bmf" },
-    { key = "castbars", label = "Castbars", name = "BetterCastbarsForever", api = "BetterCastbarsForeverAPI", slash = "/bcf" },
-    { key = "plates", label = "Plates", name = "BetterPlatesForever", api = "BetterPlatesForeverAPI", slash = "/bpf" },
-    { key = "gps", label = "GPS", name = "BetterGpsForever", api = "BetterGpsForeverAPI", slash = "/bgps" },
-    { key = "frames", label = "Frames", name = "BetterFramesForever", api = "BetterFramesForeverAPI", slash = "/bff" },
-    { key = "windows", label = "Windows", name = "BetterWindowsForever", api = "BetterWindowsForeverAPI", slash = "/bwf" },
-    { key = "fishing", label = "Fishing", name = "BetterFishingForever", api = "BetterFishingForeverAPI", slash = "/bfish" },
-    { key = "buffs", label = "Buffs", name = "BetterBuffsForever", api = "BetterBuffsForeverAPI", slash = "/bbuff" },
-    { key = "merchant", label = "Merchant", name = "BetterMerchantForever", api = "BetterMerchantForeverAPI", slash = "/bmerch" },
-    { key = "tooltips", label = "Tooltips", name = "BetterTooltipsForever", api = "BetterTooltipsForeverAPI", slash = "/btip" },
-    { key = "mail", label = "Mail", name = "BetterMailForever", api = "BetterMailForeverAPI", slash = "/bmail" },
-    { key = "xp", label = "XP", name = "BetterXPForever", api = "BetterXPForeverAPI", slash = "/bxp" },
-    { key = "chat", label = "Chat", name = "BetterChatForever", api = "BetterChatForeverAPI", slash = "/bchat" },
-    { key = "bars", label = "Bars", name = "BetterBarsForever", api = "BetterBarsForeverAPI", slash = "/bbars" },
-    { key = "loot", label = "Loot", name = "BetterLootForever", api = "BetterLootForeverAPI", slash = "/bloot" },
+    { key = "bags", label = "Bags", name = "BetterBagsForever", api = "BetterBagsForeverAPI", slash = "/gbf", oldSlash = "/bbf" },
+    { key = "quests", label = "Quests", name = "BetterQuestsForever", api = "BetterQuestsForeverAPI", slash = "/gqf", oldSlash = "/bqf" },
+    { key = "maps", label = "Maps", name = "BetterMapsForever", api = "BetterMapsForeverAPI", slash = "/gmf", oldSlash = "/bmf" },
+    { key = "castbars", label = "Castbars", name = "BetterCastbarsForever", api = "BetterCastbarsForeverAPI", slash = "/gcf", oldSlash = "/bcf" },
+    { key = "plates", label = "Plates", name = "BetterPlatesForever", api = "BetterPlatesForeverAPI", slash = "/gpf", oldSlash = "/bpf" },
+    { key = "gps", label = "GPS", name = "BetterGpsForever", api = "BetterGpsForeverAPI", slash = "/ggps", oldSlash = "/bgps" },
+    { key = "frames", label = "Frames", name = "BetterFramesForever", api = "BetterFramesForeverAPI", slash = "/gff", oldSlash = "/bff" },
+    { key = "windows", label = "Windows", name = "BetterWindowsForever", api = "BetterWindowsForeverAPI", slash = "/gwf", oldSlash = "/bwf" },
+    { key = "fishing", label = "Fishing", name = "BetterFishingForever", api = "BetterFishingForeverAPI", slash = "/gfish", oldSlash = "/bfish" },
+    { key = "buffs", label = "Buffs", name = "BetterBuffsForever", api = "BetterBuffsForeverAPI", slash = "/gbuff", oldSlash = "/bbuff" },
+    { key = "merchant", label = "Merchant", name = "BetterMerchantForever", api = "BetterMerchantForeverAPI", slash = "/gmerch", oldSlash = "/bmerch" },
+    { key = "tooltips", label = "Tooltips", name = "BetterTooltipsForever", api = "BetterTooltipsForeverAPI", slash = "/gtip", oldSlash = "/btip" },
+    { key = "mail", label = "Mail", name = "BetterMailForever", api = "BetterMailForeverAPI", slash = "/gmail", oldSlash = "/bmail" },
+    { key = "xp", label = "XP", name = "BetterXPForever", api = "BetterXPForeverAPI", slash = "/gxp", oldSlash = "/bxp" },
+    { key = "chat", label = "Chat", name = "BetterChatForever", api = "BetterChatForeverAPI", slash = "/gchat", oldSlash = "/bchat" },
+    { key = "bars", label = "Bars", name = "BetterBarsForever", api = "BetterBarsForeverAPI", slash = "/gbars", oldSlash = "/bbars" },
+    { key = "loot", label = "Loot", name = "BetterLootForever", api = "BetterLootForeverAPI", slash = "/glf", oldSlash = "/bloot" },
 }
+for _, a in ipairs(ADDONS) do a.title = Lib.DisplayName(a.name) end
 
 local db          -- BetterForeverDB, bound at ADDON_LOADED (never at file scope)
 local started     -- PLAYER_LOGIN work done
@@ -100,8 +103,8 @@ end
 
 -- Why an addon has no submenu: not loaded at all, or loaded but older than its API.
 local function MissingText(a)
-    if AddOnLoaded(a.name) then return a.name .. " " .. EN_DASH .. " update it for this menu" end
-    return a.name .. " " .. EN_DASH .. " not installed"
+    if AddOnLoaded(a.name) then return a.title .. " " .. EN_DASH .. " update it for this menu" end
+    return a.title .. " " .. EN_DASH .. " not installed"
 end
 
 local function StatusOf(a)
@@ -257,7 +260,7 @@ local function BuildMenuUtil(root)
             local sub = root:CreateButton(a.label)
             if type(sub) == "table" then
                 local ok, err = pcall(api.AddMenuEntries, sub)
-                if not ok then Print(a.name .. "'s menu entries failed: " .. tostring(err)) end
+                if not ok then Print(a.title .. "'s menu entries failed: " .. tostring(err)) end
             end
         else
             AddDisabled(root, MissingText(a))
@@ -466,7 +469,7 @@ local function BuildMinimapButton()
             if line then
                 tip:AddLine(a.label .. ": " .. line, 1, 1, 1)
             else
-                tip:AddLine(a.label .. ": " .. a.name .. " not installed", 0.6, 0.6, 0.6)
+                tip:AddLine(a.label .. ": " .. a.title .. " not installed", 0.6, 0.6, 0.6)
             end
         end
         tip:AddLine("Click: options", 1, 1, 1)
@@ -503,7 +506,7 @@ SetMinimapHidden = function(hide)
     MinimapDB().hide = hide and true or false
     ApplyMinimap()
     if hide then
-        Print("minimap button hidden. Type |cffffd100/bf minimap|r to show it again.")
+        Print("minimap button hidden. Type |cffffd100/gf minimap|r to show it again.")
     else
         Print("minimap button shown.")
     end
@@ -571,19 +574,20 @@ _G.BetterGaarForeverAPI = _G.BetterForeverAPI
 -- ---------------------------------------------------------------------------
 
 local function PrintHelp()
-    Print("version " .. VERSION .. ": the hub of the Better...Forever family - one minimap button, the shared library"
-        .. " and the pages under Esc > Options > AddOns > Better Forever.")
-    Print("/bf status - this version and each addon's state")
-    Print("/bf options [name] - open the Options pages (name: bags, quests, maps, ... - one addon's page)")
-    Print("/bf minimap - show or hide the minimap button; /bf minimap reset - default place, shown")
-    Print("/bf news [on|off] - what changed in the last update (the lines at login: on or off)")
-    Print("/bf profile [char|shared] <addon|all> - per-character or shared settings; /bf export <addon>,"
-        .. " /bf import - settings as a copyable string (addons on the library's settings: "
+    Print("version " .. VERSION .. ": the hub of the Gaar...Forever family (formerly Gaar...Forever) - one minimap"
+        .. " button, the shared library and the pages under Esc > Options > AddOns > Gaar Forever.")
+    Print("/gf status - this version and each addon's state")
+    Print("/gf options [name] - open the Options pages (name: bags, quests, maps, ... - one addon's page)")
+    Print("/gf minimap - show or hide the minimap button; /gf minimap reset - default place, shown")
+    Print("/gf news [on|off] - what changed in the last update (the lines at login: on or off)")
+    Print("/gf profile [char|shared] <addon|all> - per-character or shared settings; /gf export <addon>,"
+        .. " /gf import - settings as a copyable string (addons on the library's settings: "
         .. (Tools and Tools.CoveredText() or "none") .. ")")
-    Print("/bf selftest [show] - probe the client APIs the family uses, in and out of combat, as copyable text")
+    Print("/gf selftest [show] - probe the client APIs the family uses, in and out of combat, as copyable text")
     local cmds = {}
-    for _, a in ipairs(ADDONS) do cmds[#cmds + 1] = a.slash .. " (" .. a.name .. ")" end
+    for _, a in ipairs(ADDONS) do cmds[#cmds + 1] = a.slash .. " (" .. a.title .. ")" end
     Print("Each addon keeps its own commands: " .. table.concat(cmds, ", ") .. ".")
+    Print("The commands from before the Gaar rename (/bf, /bbf, /bqf, ...) still work.")
 end
 
 local function PrintStatus()
@@ -591,16 +595,16 @@ local function PrintStatus()
     for _, a in ipairs(ADDONS) do
         local api = API(a)
         if api then
-            Print(a.name .. " " .. tostring(api.version or "?") .. ": " .. (StatusOf(a) or "?")
+            Print(a.title .. " " .. tostring(api.version or "?") .. ": " .. (StatusOf(a) or "?")
                 .. "   (details: " .. a.slash .. " status)")
         elseif AddOnLoaded(a.name) then
-            Print(a.name .. ": loaded, but too old for the hub (no " .. a.api .. ")")
+            Print(a.title .. ": loaded, but too old for the hub (no " .. a.api .. ")")
         else
-            Print(a.name .. ": not installed")
+            Print(a.title .. ": not installed")
         end
     end
     local mm = MinimapDB()
-    Print("minimap button: " .. (mm.hide and "hidden (/bf minimap shows it)" or string.format("shown at %d degrees", mm.angle))
+    Print("minimap button: " .. (mm.hide and "hidden (/gf minimap shows it)" or string.format("shown at %d degrees", mm.angle))
         .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or "")
         .. "   menu: " .. (type(_G.MenuUtil) == "table" and "MenuUtil" or "own menu (no MenuUtil)"))
     Print("Options pages: " .. (Lib.Options and Lib.Options.State() or "not loaded"))
@@ -639,7 +643,8 @@ local function OnSlash(msg)
         local word = msg:match("^%S+ (%S+)")
         local key
         for _, a in ipairs(ADDONS) do
-            if a.key == word or a.label:lower() == word or a.name:lower() == word or a.slash == "/" .. word then key = a.key end
+            if a.key == word or a.label:lower() == word or a.name:lower() == word or a.title:lower() == word
+                or a.slash == "/" .. word or a.oldSlash == "/" .. word then key = a.key end
         end
         if not key then
             local names = {}
@@ -673,7 +678,8 @@ local function Start()
         if type(after) == "function" then after(4, News) else News() end
     end
     if AddOnLoaded("BetterGaarForever") then
-        Print("BetterGaarForever is the old name of this hub: disable it or delete its folder, BetterForever replaces it.")
+        Print("BetterGaarForever is the old folder of this hub: disable it or delete its folder, GaarForever (folder"
+            .. " BetterForever) replaces it.")
     end
 end
 
@@ -704,7 +710,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERFOREVER1 = "/bf"
-SLASH_BETTERFOREVER2 = "/betterforever"
-SLASH_BETTERFOREVER3 = "/bgf" -- the command before 3.0
+SLASH_BETTERFOREVER1 = "/gf"
+SLASH_BETTERFOREVER2 = "/gaarforever"
+SLASH_BETTERFOREVER3 = "/bf" -- the command before the Gaar rename
+SLASH_BETTERFOREVER4 = "/betterforever"
+SLASH_BETTERFOREVER5 = "/bgf" -- the command before 3.0
 SlashCmdList.BETTERFOREVER = OnSlash

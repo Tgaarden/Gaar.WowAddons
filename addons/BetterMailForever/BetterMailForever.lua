@@ -1,7 +1,7 @@
 --[[
   BetterMailForever - mailbox helpers for WoW Forever.
 
-  Every feature is its own saved setting, a /bmail command and a hub menu entry, and there is a
+  Every feature is its own saved setting, a /gmail command and a hub menu entry, and there is a
   master switch on top. Nothing here replaces a Blizzard function: the addon adds its own frames
   and follows Blizzard code with hooksecurefunc.
 
@@ -27,7 +27,7 @@
     mailNotice   (default on)   A chat line at login and when new mail arrives, with the senders
                                 GetLatestThreeSenders gives (only plain values are printed).
 
-  Safety: every handler runs in pcall (the last error is kept for /bmail status), every client
+  Safety: every handler runs in pcall (the last error is kept for /gmail status), every client
   API is checked with type(...) == "function", and a secret value is treated as no value, never
   compared or tested. Saved variables are read at ADDON_LOADED, never at file scope.
 
@@ -39,11 +39,11 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterMailForever", { version = VERSION })
+local A = BF.NewAddon("BetterMailForever", { title = "GaarMailForever", version = VERSION })
 local Plain, InCombat, Coins, OnOff = BF.Plain, BF.InCombat, BF.Coins, BF.OnOff
 
 local MAX_RECENT = 15
@@ -64,7 +64,7 @@ local SAVED_KEYS = { enabled = true, recent = true, alts = true }
 for _, f in ipairs(FEATURES) do SAVED_KEYS[f.key] = true end
 
 local db                 -- BetterMailForeverDB, bound at ADDON_LOADED
-local lastError          -- last error caught, for /bmail status
+local lastError          -- last error caught, for /gmail status
 local mailOpen = false
 local announced = false  -- new-mail line printed since the last mailbox visit
 local pendingTo          -- recipient of the letter being sent
@@ -351,7 +351,7 @@ local function OnDriver()
     end
     if now < run.nextAt then return end
     local ok, err = pcall(Step)
-    if not ok then Fail("open all", err); Finish("error, see /bmail status") end
+    if not ok then Fail("open all", err); Finish("error, see /gmail status") end
 end
 
 local function Answered()
@@ -364,7 +364,7 @@ end
 local function StartOpenAll(moneyOnly)
     if run then return end
     if not mailOpen then Print("open a mailbox first"); return end
-    if not Feature("openAll") then Print("Open All is off (/bmail openall on)"); return end
+    if not Feature("openAll") then Print("Open All is off (/gmail openall on)"); return end
     local n = Num(select(1, _G.GetInboxNumItems()))
     if not n or n == 0 then Print("the inbox is empty"); return end
     run = { money = 0, items = 0, deleted = 0, cod = 0, codSeen = {}, skip = {}, fails = 0,
@@ -553,9 +553,9 @@ local INTRO = "Mailbox helpers: an Open All button, an optional clean-up of empt
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bmail on|off - master switch")
-    Print("/bmail openall|deleteempty|recipients|sendmulti|notice on|off - one feature")
-    Print("/bmail open - run Open All (mailbox open); /bmail status")
+    Print("/gmail on|off - master switch")
+    Print("/gmail openall|deleteempty|recipients|sendmulti|notice on|off - one feature")
+    Print("/gmail open - run Open All (mailbox open); /gmail status")
 end
 
 local function PrintStatus()
@@ -585,7 +585,7 @@ local function OnSlash(msg)
         SetFeature(f.key, arg == "on")
         return Print(f.label .. " " .. arg)
     elseif f then
-        return Print(f.label .. " is " .. OnOff(db[f.key]) .. " - /bmail " .. f.cmd .. " on|off")
+        return Print(f.label .. " is " .. OnOff(db[f.key]) .. " - /gmail " .. f.cmd .. " on|off")
     end
     PrintHelp()
 end
@@ -603,7 +603,7 @@ end
 
 local function MenuEntries()
     if not db then return {} end
-    local list = { { text = "BetterMailForever on", checkbox = true,
+    local list = { { text = "GaarMailForever on", checkbox = true,
         checked = function() return db.enabled end, func = function() SetEnabled(not db.enabled) end },
         { divider = true } }
     for _, f in ipairs(FEATURES) do
@@ -710,8 +710,10 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERMAILFOREVER1 = "/bmail"
-SLASH_BETTERMAILFOREVER2 = "/bettermailforever"
+SLASH_BETTERMAILFOREVER1 = "/gmail"
+SLASH_BETTERMAILFOREVER2 = "/gaarmailforever"
+SLASH_BETTERMAILFOREVER3 = "/bmail" -- the command before the Gaar rename
+SLASH_BETTERMAILFOREVER4 = "/bettermailforever"
 SlashCmdList.BETTERMAILFOREVER = function(msg)
     Safe("slash", OnSlash, msg)
 end

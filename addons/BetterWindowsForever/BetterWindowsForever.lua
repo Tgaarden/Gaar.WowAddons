@@ -18,7 +18,7 @@
     * Reset per window or all: Blizzard's position and 100% scale.
     * Load-on-demand windows (Blizzard_Collections, Blizzard_AchievementUI, ...) are picked up at
       ADDON_LOADED. A window this client does not have is listed as such and left out of the menu.
-    * /bwf for help, list, on <name>, off <name>, reset <name>|all and status.
+    * /gwf for help, list, on <name>, off <name>, reset <name>|all and status.
     * BetterWindowsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -48,7 +48,7 @@ local _G = _G
 local ADDON_NAME = ... or "BetterWindowsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local SCALE_STEP = 0.05     -- per mouse-wheel notch
@@ -125,7 +125,7 @@ local panelHooked       -- the panel manager hooks are in
 -- first as a dependency). Num treats a secret value - the client hands one back where it hides
 -- a number, and it can be neither compared nor used in a sum - as no number at all.
 local BF = _G.BetterForever
-local A = BF.NewAddon(ADDON_NAME, { version = VERSION })
+local A = BF.NewAddon(ADDON_NAME, { title = "GaarWindowsForever", version = VERSION })
 local function Print(msg) A:Print(msg) end
 local InCombat, Num, AddOnLoaded = BF.InCombat, BF.Num, BF.AddOnLoaded
 
@@ -510,7 +510,7 @@ local function CreateDragHandle(w)
         if not tip then return end
         tip:SetOwner(self, "ANCHOR_TOP")
         tip:SetText("Drag to move " .. w.label)
-        tip:AddLine("Ctrl + mouse wheel over the window to scale it. /bwf reset " .. w.key .. " to reset, /bwf off "
+        tip:AddLine("Ctrl + mouse wheel over the window to scale it. /gwf reset " .. w.key .. " to reset, /gwf off "
             .. w.key .. " to leave it to Blizzard.", 1, 1, 1, true)
         tip:Show()
     end)
@@ -801,19 +801,19 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Move and scale Blizzard's own windows (Character, Spellbook, Professions, Bank, Auction House and many more); position and scale are remembered per window. Nice to know: drag a window's title bar to move it; Ctrl + mouse wheel over it scales it (50-150%); /bwf list shows every window and its key; protected windows are not moved in combat."
+local INTRO = "Move and scale Blizzard's own windows (Character, Spellbook, Professions, Bank, Auction House and many more); position and scale are remembered per window. Nice to know: drag a window's title bar to move it; Ctrl + mouse wheel over it scales it (50-150%); /gwf list shows every window and its key; protected windows are not moved in combat."
 
 local function PrintHelp()
     Print(INTRO)
     Print("drag a Blizzard window's title bar to move it; Ctrl + mouse wheel over it to scale it (50-150%).")
-    Print("/bwf list - every window, its key and its state")
-    Print("/bwf on <name> | /bwf off <name> - let the addon move the window, or leave it to Blizzard")
-    Print("/bwf reset <name> | /bwf reset all - Blizzard's position and 100% scale")
-    Print("/bwf status - what this client offers and the current settings")
+    Print("/gwf list - every window, its key and its state")
+    Print("/gwf on <name> | /gwf off <name> - let the addon move the window, or leave it to Blizzard")
+    Print("/gwf reset <name> | /gwf reset all - Blizzard's position and 100% scale")
+    Print("/gwf status - what this client offers and the current settings")
 end
 
 local function PrintList()
-    Print("windows (name for /bwf on|off|reset: the key in brackets):")
+    Print("windows (name for /gwf on|off|reset: the key in brackets):")
     for _, w in ipairs(WINDOWS) do
         local avail = Available(w)
         local color = (not avail and "|cff808080") or (WindowOn(w) and "|cffffffff") or "|cffaaaaaa"
@@ -858,7 +858,7 @@ local function OnSlash(msg)
         end
         local w = FindWindow(arg)
         if not w then
-            Print("no window called \"" .. arg .. "\". /bwf list shows them.")
+            Print("no window called \"" .. arg .. "\". /gwf list shows them.")
         elseif cmd == "reset" then
             ResetWindow(w)
         else
@@ -874,7 +874,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterWindowsForeverDB and change only through the
--- same functions /bwf uses, so the addon behaves the same with or without the hub.
+-- same functions /gwf uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "24 of 26 windows on · 3 moved"
@@ -984,6 +984,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERWINDOWSFOREVER1 = "/bwf"
-SLASH_BETTERWINDOWSFOREVER2 = "/betterwindowsforever"
+SLASH_BETTERWINDOWSFOREVER1 = "/gwf"
+SLASH_BETTERWINDOWSFOREVER2 = "/gaarwindowsforever"
+SLASH_BETTERWINDOWSFOREVER3 = "/bwf" -- the command before the Gaar rename
+SLASH_BETTERWINDOWSFOREVER4 = "/betterwindowsforever"
 SlashCmdList.BETTERWINDOWSFOREVER = OnSlash

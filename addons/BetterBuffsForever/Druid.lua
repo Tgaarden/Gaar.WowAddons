@@ -56,7 +56,7 @@ local M = {
     name = "Druid",
     blurb = "a druid's buff check: who lacks Mark of the Wild, and whether you or your tank lack Thorns. Click a name to buff it.",
     reagentSpells = "Gift of the Wild and Rebirth",
-    -- Boolean options (account-wide, on by default), in menu order; short = the /bbuff status name.
+    -- Boolean options (account-wide, on by default), in menu order; short = the /gbuff status name.
     options = {
         { key = "motw", short = "motw", label = "Mark of the Wild check" },
         { key = "thorns", short = "thorns", label = "Thorns on you" },
@@ -146,7 +146,7 @@ function M.Check(units, tankSet, entries, missing, stats)
 end
 
 -- One entry per reagent below its threshold: { item, name, count, min, spell }. Also returns
--- every reagent checked, for /bbuff status.
+-- every reagent checked, for /gbuff status.
 function M.LowReagents()
     local low, checked = {}, {}
     for _, r in ipairs({ { "gotw", "gotwMin", MIN_GOTW }, { "rebirth", "rebirthMin", MIN_REBIRTH } }) do
@@ -171,9 +171,9 @@ end
 
 function M.Help()
     return {
-        "/bbuff motw [on|off] - the Mark of the Wild check (Gift of the Wild counts)",
-        "/bbuff thorns [on|off] - warn when you lack Thorns",
-        "/bbuff tank [on|off] - warn when the tank lacks Thorns; /bbuff tank set - your target is the tank; /bbuff tank clear",
+        "/gbuff motw [on|off] - the Mark of the Wild check (Gift of the Wild counts)",
+        "/gbuff thorns [on|off] - warn when you lack Thorns",
+        "/gbuff tank [on|off] - warn when the tank lacks Thorns; /gbuff tank set - your target is the tank; /gbuff tank clear",
     }
 end
 
@@ -181,13 +181,13 @@ end
 function M.Slash(cmd, arg)
     if cmd == "motw" or cmd == "thorns" then
         local v = ns.Toggle(arg, On(cmd))
-        if v == nil then ns.Print("/bbuff " .. cmd .. " [on|off]") else ns.Set(cmd, v) end
+        if v == nil then ns.Print("/gbuff " .. cmd .. " [on|off]") else ns.Set(cmd, v) end
         return true
     elseif cmd == "tank" then
         if arg == "on" or arg == "off" then
             ns.Set("thornsTank", arg == "on")
         else
-            ns.Print("/bbuff tank (your target is the tank), /bbuff tank clear, /bbuff tank on|off")
+            ns.Print("/gbuff tank (your target is the tank), /gbuff tank clear, /gbuff tank on|off")
         end
         return true
     end

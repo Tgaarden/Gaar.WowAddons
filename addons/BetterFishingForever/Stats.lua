@@ -21,7 +21,7 @@
 
   The session is kept per character in BetterFishingForeverCharDB.session (it survives /reload)
   and starts empty: the first cast starts it. After IDLE_RESET seconds without a cast or a catch
-  it is reset by itself. /bfish stats reset resets it by hand, /bfish stats toggles the panel
+  it is reset by itself. /gfish stats reset resets it by hand, /gfish stats toggles the panel
   (BetterFishingForeverDB.stats, on by default). Drag the panel to move it; the position is saved
   in BetterFishingForeverDB.statsPos.
 
@@ -37,7 +37,7 @@ local ADDON_NAME, ns = ...
 ns = type(ns) == "table" and ns or {}
 
 local BF = _G.BetterForever
-local A = ns.addon or BF.NewAddon("BetterFishingForever")
+local A = ns.addon or BF.NewAddon("BetterFishingForever", { title = "GaarFishingForever" })
 ns.addon = A
 local Secret, Num, Str, Call = BF.IsSecret, BF.Num, BF.Str, BF.Call
 local DOT = " \194\183 "
@@ -221,7 +221,7 @@ local function ShowTooltip(self)
         end
     end
     tip:AddLine(" ")
-    tip:AddLine("Drag to move. /bfish stats reset starts over, /bfish stats hides it.", 0.6, 0.6, 0.6, true)
+    tip:AddLine("Drag to move. /gfish stats reset starts over, /gfish stats hides it.", 0.6, 0.6, 0.6, true)
     tip:Show()
 end
 
@@ -423,8 +423,8 @@ end
 
 function stats.HelpLines()
     return {
-        "/bfish stats - show or hide the session panel (now " .. (On() and "on" or "off")
-            .. "); /bfish stats reset - start a new session (it also resets after 30 min without fishing)",
+        "/gfish stats - show or hide the session panel (now " .. (On() and "on" or "off")
+            .. "); /gfish stats reset - start a new session (it also resets after 30 min without fishing)",
     }
 end
 

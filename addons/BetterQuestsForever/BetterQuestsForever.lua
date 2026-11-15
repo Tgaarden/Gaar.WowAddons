@@ -8,7 +8,7 @@
 
     * Order: by quest level, lowest first, ties by title. Quests that are ready to turn in go to
       the bottom (default), to the top, or are sorted among the others by level.
-    * Sort by distance (optional, /bqf sort distance): nearest first, from
+    * Sort by distance (optional, /gqf sort distance): nearest first, from
       C_QuestLog.GetDistanceSqToQuest; quests without a distance go last. The order is worked
       out again every few seconds out of combat, with hysteresis so near-equal quests do not
       jump around, and applied through the same hook-time code as the level order.
@@ -18,9 +18,9 @@
       height, and un-watches the rest, so the quests Blizzard draws are exactly the addon's top
       quests that fit. The tracker's height is never changed: it is Blizzard's (the Edit Mode
       Height). See "Auto-watch" above AutoWatch.Run for how the fit is measured and why it settles.
-      Off (/bqf autowatch off), the watch list is the player's and is never touched; the order and
+      Off (/gqf autowatch off), the watch list is the player's and is never touched; the order and
       the limit then only change what is drawn of it.
-    * Dungeon filter (1.10, default off, /bqf dungeon on): inside a dungeon or raid instance only
+    * Dungeon filter (1.10, default off, /gqf dungeon on): inside a dungeon or raid instance only
       the quests of that instance are watched (in the order above); the rest are un-watched. No
       matching quest: the normal behaviour. See "Dungeon filter" below auto-watch.
 
@@ -44,7 +44,7 @@
       theirs is re-anchored.
     * Only widget methods are used on Blizzard frames (GetPoint, SetPoint, Hide, Show, SetHeight),
       and only on frames that are not protected and not anchoring-restricted; otherwise that
-      update is skipped and /bqf status says why. The addon never writes a field into a Blizzard
+      update is skipped and /gqf status says why. The addon never writes a field into a Blizzard
       table, never calls a Blizzard Lua function of the tracker and never sets an attribute, so
       the code path that sets up the quest item buttons (SetAttribute("questLogIndex", ...))
       always runs untainted.
@@ -68,7 +68,7 @@
   secure state driver (RegisterStateDriver), never by this addon's own code; see "Hide in combat"
   below for why that is the only taint-safe way.
 
-  Options: /bqf, and a minimap button whose menu has the same settings.
+  Options: /gqf, and a minimap button whose menu has the same settings.
 
   Set GPS target (1.6): with BetterGpsForever loaded, the tracker's own right-click menu for a
   quest (Focus, Open Quest Details, ...) gets a "Set GPS target" entry after Focus. It sets
@@ -86,16 +86,16 @@
   session; the saved minimap setting is never changed for that. Without the hub nothing changes.
 
   Everything is feature-checked. If the tracker is not the structure this was written against,
-  the addon does nothing and says so in /bqf status.
+  the addon does nothing and says so in /gqf status.
 ]]
 
 local _G = _G
 local ADDON_NAME = ... or "BetterQuestsForever"
-local TITLE = "BetterQuestsForever"
+local TITLE = "GaarQuestsForever"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterQuestsForever")
+local A = BF.NewAddon("BetterQuestsForever", { title = "GaarQuestsForever" })
 
 local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
@@ -126,9 +126,9 @@ local THROTTLE = 0.3
 
 local db                -- BetterQuestsForeverDB, bound at ADDON_LOADED (never at file scope)
 local tracker           -- the QuestObjectiveTracker module once recognised
-local trackerProblem    -- why the tracker was not recognised, for /bqf status
+local trackerProblem    -- why the tracker was not recognised, for /gqf status
 local hooked            -- our hooksecurefunc hooks are in place
-local layoutProblem     -- why the last pass could not order/limit the section, for /bqf status
+local layoutProblem     -- why the last pass could not order/limit the section, for /gqf status
 local pending           -- an evaluation is waiting (throttle or combat)
 local heightSet         -- the section's frame is shorter than Blizzard's (the limit hid blocks)
 local shownCount        -- quest blocks visible after the last pass
@@ -225,7 +225,7 @@ local MODULE_NAMES = { "ScenarioObjectiveTracker", "UIWidgetObjectiveTracker", "
 
 local backdropFrame, backdropTexture
 local backdropDirty = true  -- a measurement is wanted on the next frame
-local backdropState         -- "shown", "off", or why it is hidden; for /bqf status
+local backdropState         -- "shown", "off", or why it is hidden; for /gqf status
 local backdropKey           -- the geometry last applied
 local backdropAlpha         -- the alpha last applied
 local backdropHooked = {}   -- frame -> true once our hooks are on it
@@ -464,7 +464,7 @@ end)
 -- ---------------------------------------------------------------------------
 
 local combatWasShown        -- the tracker was shown when the current fight started
-local combatProblem         -- why the tracker could not be hidden, for /bqf status
+local combatProblem         -- why the tracker could not be hidden, for /gqf status
 
 -- The tracker, or nil and why it cannot be hidden in combat on this client.
 local function CombatHideTarget()
@@ -1075,7 +1075,7 @@ end
 --   * In distance mode the ranking keeps the distance order's own hysteresis (SortByDistance).
 --
 -- Manual tracking: while auto-watch is on, a quest tracked or untracked by hand is set back the
--- way the ranking wants on the next pass. /bqf autowatch off hands the watch list back; nothing
+-- way the ranking wants on the next pass. /gqf autowatch off hands the watch list back; nothing
 -- is restored or changed when it goes off (or when the addon is switched off).
 -- ---------------------------------------------------------------------------
 
@@ -1343,7 +1343,7 @@ function AutoWatch.Apply(pool, target, watched, now)
     AutoWatch.passTimes = recent
     if #recent >= AutoWatch.THRASH_PASSES then
         AutoWatch.pausedUntil = now + AutoWatch.THRASH_PAUSE
-        Print("watch changes paused for " .. AutoWatch.THRASH_PAUSE .. " s: the watch list kept changing. /bqf status shows the last change.")
+        Print("watch changes paused for " .. AutoWatch.THRASH_PAUSE .. " s: the watch list kept changing. /gqf status shows the last change.")
         return false
     end
     recent[#recent + 1] = now
@@ -1392,8 +1392,8 @@ end
 function AutoWatch.Run()
     local function state(s) AutoWatch.state = s end
     if not db then return end
-    if not db.enabled then return state("off - BetterQuestsForever is off") end
-    if not db.autoWatch then return state("off - the watch list is yours (/bqf autowatch on)") end
+    if not db.enabled then return state("off - GaarQuestsForever is off") end
+    if not db.autoWatch then return state("off - the watch list is yours (/gqf autowatch on)") end
     if InCombat() then return state("waiting for the end of combat") end
     if AutoWatch.IsEditMode() then return state("paused while Edit Mode is open") end
     if not tracker then return state("waiting for the tracker") end
@@ -1466,7 +1466,7 @@ function AutoWatch.HookEditMode()
     end
 end
 
--- /bqf status lines.
+-- /gqf status lines.
 function AutoWatch.StatusLines(inSection)
     local lines = {}
     lines[1] = "auto-watch: " .. (db.autoWatch and "on" or "off") .. " - " .. (AutoWatch.state or "not run yet")
@@ -1498,7 +1498,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Dungeon filter (1.10)
 --
--- Off by default (/bqf dungeon on). While the player is inside a dungeon or raid instance
+-- Off by default (/gqf dungeon on). While the player is inside a dungeon or raid instance
 -- (IsInInstance: "party" or "raid"), only the quests that belong to that instance are watched and
 -- the other quests of the Quests section are un-watched. A quest belongs to the instance when
 --   1. it sits under the quest-log header whose title is the instance's name (GetInstanceInfo,
@@ -1767,7 +1767,7 @@ function Dungeon.Remember(kind, questID)
 end
 
 -- The filter no longer applies: undo what it changed. At most MAX_CHANGES per pass; the rest on
--- the next one. Returns the state for /bqf status.
+-- the next one. Returns the state for /gqf status.
 function Dungeon.Restore(now)
     local r = db.dungeonRestore
     if type(r) ~= "table" then return nil end
@@ -1882,7 +1882,7 @@ function Dungeon.Run()
     state(AutoWatch.pausedUntil and "paused: the watch list kept changing" or "settled")
 end
 
--- The quests of the Quests section in the quest log, in level order (for /bqf status; read-only,
+-- The quests of the Quests section in the quest log, in level order (for /gqf status; read-only,
 -- so the distance ranking's memory is not touched).
 function Dungeon.QuestsInLog()
     local list = {}
@@ -1903,7 +1903,7 @@ function Dungeon.StatusLines()
     if not db.dungeonFilter then
         line = "dungeon filter: off"
     elseif not db.enabled then
-        line = "dungeon filter: on - BetterQuestsForever is off"
+        line = "dungeon filter: on - GaarQuestsForever is off"
     else
         local inst, why = Dungeon.Instance()
         if not inst then
@@ -2115,7 +2115,7 @@ local function SetAutoWatch(on)
         ApplyNow()
     else
         -- Nothing is restored: the watch list stays as it is and is the player's again.
-        AutoWatch.state = "off - the watch list is yours (/bqf autowatch on)"
+        AutoWatch.state = "off - the watch list is yours (/gqf autowatch on)"
         Print("auto-watch off: the watch list is yours again; it is left as it is.")
     end
 end
@@ -2146,7 +2146,7 @@ end
 local function SetBackdropAlpha(pct)
     pct = math.min(100, math.max(0, math.floor(pct + 0.5)))
     BackdropDB().alpha = pct / 100
-    Print("backdrop opacity " .. pct .. "%." .. (BackdropDB().enabled and "" or " (The backdrop is off: /bqf bg on.)"))
+    Print("backdrop opacity " .. pct .. "%." .. (BackdropDB().enabled and "" or " (The backdrop is off: /gqf bg on.)"))
     ApplyBackdrop()
 end
 
@@ -2574,9 +2574,9 @@ SaveMinimapHidden = function(hide)
     MinimapDB().hide = hide and true or false
     ApplyMinimap()
     if hide then
-        Print("minimap button hidden. Type |cffffd100/bqf minimap|r to show it again.")
+        Print("minimap button hidden. Type |cffffd100/gqf minimap|r to show it again.")
     elseif HiddenByHub() then
-        Print("minimap button set to shown; it stays hidden while BetterForever is loaded, whose button has these options.")
+        Print("minimap button set to shown; it stays hidden while GaarForever is loaded, whose button has these options.")
     else
         Print("minimap button shown.")
     end
@@ -2588,7 +2588,7 @@ local function ResetMinimapButton()
     m.hide = false
     ApplyMinimap()
     Print("minimap button reset to its default position."
-        .. (HiddenByHub() and " It stays hidden while BetterForever is loaded." or ""))
+        .. (HiddenByHub() and " It stays hidden while GaarForever is loaded." or ""))
 end
 
 -- ---------------------------------------------------------------------------
@@ -2605,7 +2605,7 @@ end
 local GPS_ADDON = "BetterGpsForever"
 local GPS_MENU_TAG = "MENU_QUEST_OBJECTIVE_TRACKER"
 local GPS_TEXT = "Set GPS target"
-local gpsMenuState      -- "registered", or why the entry cannot be offered; for /bqf status
+local gpsMenuState      -- "registered", or why the entry cannot be offered; for /gqf status
 local gpsMenuBroken     -- switched off for the session after its first error
 
 -- BetterGpsForeverAPI when BetterGpsForever is loaded and can take a waypoint from us (1.1+).
@@ -2755,7 +2755,7 @@ local function SetGpsTarget(questID, title)
         return
     end
     local ok, set = pcall(api.SetWaypoint, m, x, y, title)
-    if not ok or not set then Print("BetterGpsForever could not take that point.") end
+    if not ok or not set then Print("GaarGpsForever could not take that point.") end
 end
 
 -- Our ModifyMenu callback: adds the entry after Focus (Blizzard's SUPER_TRACK_QUEST or
@@ -2813,8 +2813,8 @@ end
 local function GpsMenuStatus()
     if gpsMenuBroken then return "switched off after an error" end
     if gpsMenuState ~= "registered" then return "not available - " .. (gpsMenuState or "not set up yet") end
-    if not AddOnLoaded(GPS_ADDON) then return "hidden - BetterGpsForever is not loaded" end
-    if not GpsApi() then return "hidden - BetterGpsForever 1.1 or later is needed" end
+    if not AddOnLoaded(GPS_ADDON) then return "hidden - GaarGpsForever is not loaded" end
+    if not GpsApi() then return "hidden - GaarGpsForever 1.1 or later is needed" end
     return "in the tracker's quest menu, after Focus"
 end
 
@@ -2824,7 +2824,7 @@ end
 
 local function Yes(v) return v and "yes" or "MISSING" end
 
--- /bqf distance: a read-only check of whether this client can tell how far away each tracked
+-- /gqf distance: a read-only check of whether this client can tell how far away each tracked
 -- quest is (C_QuestLog.GetDistanceSqToQuest, what Blizzard's own proximity sort uses). It prints
 -- one line per tracked quest and keeps the last result in BetterQuestsForeverDB.distanceProbe so
 -- it can be read from the SavedVariables file after /reload. Nothing about the tracker changes.
@@ -2864,30 +2864,30 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Orders the Quests section of the objective tracker by level or distance, shows at most N quests and auto-watches the lowest ones that fit. Nice to know: right-click the tracker's Quests header for the same options; inside a dungeon the dungeon filter watches only its quests; the tracker can hide in combat (/bqf combat on)."
+local INTRO = "Orders the Quests section of the objective tracker by level or distance, shows at most N quests and auto-watches the lowest ones that fit. Nice to know: right-click the tracker's Quests header for the same options; inside a dungeon the dungeon filter watches only its quests; the tracker can hide in combat (/gqf combat on)."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bqf sort level | distance - order by quest level or by how near the quest is (now: "
+    Print("/gqf sort level | distance - order by quest level or by how near the quest is (now: "
         .. (db and db.sort or DEFAULTS.sort) .. ")")
-    Print("/bqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
+    Print("/gqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
         .. MaxLabel(db and db.max or DEFAULTS.max) .. ")")
-    Print("/bqf completed top | level | bottom - where quests ready to turn in go (now: "
+    Print("/gqf completed top | level | bottom - where quests ready to turn in go (now: "
         .. (db and db.completed or DEFAULTS.completed) .. ")")
-    Print("/bqf autowatch on | off - watch the lowest quests that fit the tracker's height and un-watch the rest (now: "
+    Print("/gqf autowatch on | off - watch the lowest quests that fit the tracker's height and un-watch the rest (now: "
         .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
-    Print("/bqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
+    Print("/gqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
         .. ((db and db.dungeonFilter) and "on" or "off") .. ")")
-    Print("/bqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
+    Print("/gqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
-    Print("/bqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
+    Print("/gqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
         .. (db and (BackdropDB().enabled and (AlphaPercent() .. "%") or "off") or "?") .. ")")
-    Print("/bqf combat on | off - hide the whole objective tracker during combat (now: "
+    Print("/gqf combat on | off - hide the whole objective tracker during combat (now: "
         .. ((db and db.hideInCombat or not db and DEFAULTS.hideInCombat) and "on" or "off") .. ")")
     Print("Right-click the tracker's \"All Objectives\" or \"Quests\" header for the same settings menu.")
-    Print("/bqf minimap - show or hide the minimap button; /bqf minimap reset - default place, shown")
-    Print("/bqf status - settings, counts and what this client offers")
-    Print("/bqf distance - check whether this client knows how far away each tracked quest is")
+    Print("/gqf minimap - show or hide the minimap button; /gqf minimap reset - default place, shown")
+    Print("/gqf status - settings, counts and what this client offers")
+    Print("/gqf distance - check whether this client knows how far away each tracked quest is")
 end
 
 local function PrintStatus()
@@ -2956,8 +2956,8 @@ local function PrintStatus()
         and type(qis.GetQuestClassification) == "function")
         .. "   MenuUtil: " .. (type(_G.MenuUtil) == "table" and "yes" or "no (own menu)"))
     local m = MinimapDB()
-    local state = m.hide and "hidden (/bqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
-    if HiddenByHub() then state = "hidden while BetterForever is loaded (saved setting: " .. state .. ")" end
+    local state = m.hide and "hidden (/gqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
+    if HiddenByHub() then state = "hidden while GaarForever is loaded (saved setting: " .. state .. ")" end
     Print("minimap button: " .. state .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
     Print("Set GPS target: " .. GpsMenuStatus() .. "   GetNextWaypoint: " .. Yes(ql and type(ql.GetNextWaypoint) == "function")
         .. "   GetQuestsOnMap: " .. Yes(ql and type(ql.GetQuestsOnMap) == "function")
@@ -2988,13 +2988,13 @@ local function OnSlash(msg)
         SetMax(n)
     elseif mode then
         if not COMPLETED_MODES[mode] then
-            Print("use /bqf completed top, level or bottom.")
+            Print("use /gqf completed top, level or bottom.")
             return
         end
         SetCompleted(mode)
     elseif sortMode or msg == "sort" then
         if not SORT_MODES[sortMode] then
-            Print("use /bqf sort level or distance (now: " .. db.sort .. ").")
+            Print("use /gqf sort level or distance (now: " .. db.sort .. ").")
             return
         end
         SetSort(sortMode)
@@ -3009,7 +3009,7 @@ local function OnSlash(msg)
     elseif msg:match("^bg ") then
         local pct = tonumber(msg:match("^bg (.+)$"))
         if not pct or pct ~= pct then
-            Print("use /bqf bg on, off or a percentage 0-100.")
+            Print("use /gqf bg on, off or a percentage 0-100.")
             return
         end
         SetBackdropAlpha(pct)
@@ -3018,19 +3018,19 @@ local function OnSlash(msg)
     elseif msg == "autowatch off" then
         SetAutoWatch(false)
     elseif msg == "autowatch" or msg:match("^autowatch ") then
-        Print("use /bqf autowatch on or off (now: " .. (db.autoWatch and "on" or "off") .. ").")
+        Print("use /gqf autowatch on or off (now: " .. (db.autoWatch and "on" or "off") .. ").")
     elseif msg == "dungeon on" then
         SetDungeonFilter(true)
     elseif msg == "dungeon off" then
         SetDungeonFilter(false)
     elseif msg == "dungeon" or msg:match("^dungeon ") then
-        Print("use /bqf dungeon on or off (now: " .. (db.dungeonFilter and "on" or "off") .. ").")
+        Print("use /gqf dungeon on or off (now: " .. (db.dungeonFilter and "on" or "off") .. ").")
     elseif msg == "combat on" then
         SetHideInCombat(true)
     elseif msg == "combat off" then
         SetHideInCombat(false)
     elseif msg == "combat" or msg:match("^combat ") then
-        Print("use /bqf combat on or off (now: " .. (db.hideInCombat and "on" or "off") .. ").")
+        Print("use /gqf combat on or off (now: " .. (db.hideInCombat and "on" or "off") .. ").")
     elseif msg == "minimap" then
         SaveMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
@@ -3047,7 +3047,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterQuestsForeverDB and change only through the
--- same functions /bqf and this addon's own menu use.
+-- same functions /gqf and this addon's own menu use.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state (the minimap button's tooltip line)
@@ -3060,7 +3060,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.10.3"
+local VERSION = "1.11.0"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3152,6 +3152,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
-SLASH_BETTERQUESTSFOREVER1 = "/bqf"
-SLASH_BETTERQUESTSFOREVER2 = "/betterquestsforever"
+SLASH_BETTERQUESTSFOREVER1 = "/gqf"
+SLASH_BETTERQUESTSFOREVER2 = "/gaarquestsforever"
+SLASH_BETTERQUESTSFOREVER3 = "/bqf" -- the command before the Gaar rename
+SLASH_BETTERQUESTSFOREVER4 = "/betterquestsforever"
 SlashCmdList.BETTERQUESTSFOREVER = OnSlash

@@ -30,16 +30,16 @@
   else from here:
 
     * Only for a class with a module (Druid, Paladin, Shaman, Priest, Mage). Any other class
-      (Warrior, Rogue, Hunter, Warlock) leaves the addon idle: no scans, no box; /bbuff status
+      (Warrior, Rogue, Hunter, Warlock) leaves the addon idle: no scans, no box; /gbuff status
       says so.
     * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
       every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
-      (/bbuff tank, your current target, per character); else there is no tank. You count too.
+      (/gbuff tank, your current target, per character); else there is no tank. You count too.
     * Only spells the character knows are checked.
     * A box at the top centre of the screen, shown only while something is missing: one section
       per thing missing ("Missing Mark of the Wild:", "Missing Blessing of Might:", ...), one row
       per member with a class-coloured name. Dead or ghost, offline and not-visible members
-      (UnitIsVisible) are never warned about; out-of-range members are left out unless /bbuff range on (then dimmed, still
+      (UnitIsVisible) are never warned about; out-of-range members are left out unless /gbuff range on (then dimmed, still
       clickable, the cast just fails). A member whose auras cannot be read (secret) counts as
       unknown, never as missing.
     * Click to buff: every row is a SecureActionButtonTemplate button, type "spell", spell = the
@@ -59,8 +59,8 @@
       change, and buffing mid-fight is not the point. A state driver ("[combat] hide; show")
       hides it the moment combat starts, PLAYER_REGEN_DISABLED as a fallback; nothing is scanned
       in combat, and the box is rebuilt at PLAYER_REGEN_ENABLED.
-    * The box can be moved: drag it while unlocked (/bbuff unlock), or Alt + drag at any time.
-      The position is saved account-wide. /bbuff reset puts it back at the top centre.
+    * The box can be moved: drag it while unlocked (/gbuff unlock), or Alt + drag at any time.
+      The position is saved account-wide. /gbuff reset puts it back at the top centre.
     * Updates are throttled to 4 a second (UNIT_AURA, GROUP_ROSTER_UPDATE, ...), plus a refresh
       every 1.5 s while in a group, for range, death and visibility, which have no cheap event,
       and while the module's Tick() says so (the shaman's weapon imbue check).
@@ -69,12 +69,12 @@
     * Expiring soon (since 1.6.0, out of combat): a buff the module tracks (Mark of the Wild,
       Thorns, Fortitude, Arcane Intellect, your blessings, Lightning Shield, a weapon imbue) with
       less than N minutes left gets a row in an "Expiring ...:" section, the time left after the
-      name: "(1:45)". N is /bbuff expire 0-5 (default 2, 0 = off). Only a plain, finite
+      name: "(1:45)". N is /gbuff expire 0-5 (default 2, 0 = off). Only a plain, finite
       duration counts; a secret or permanent one is never warned about. The box is refreshed
       every 1.5 s while this is on, so the time and the threshold follow without an event.
     * An optional short sound when something new goes missing (off by default). Members left
-      out because they are out of range (/bbuff range off) never trigger it.
-    * /bbuff for help; the shared commands are on, off, group, sound, range, expire, reagents, tank,
+      out because they are out of range (/gbuff range off) never trigger it.
+    * /gbuff for help; the shared commands are on, off, group, sound, range, expire, reagents, tank,
       unlock, lock, reset, test and status, and each module adds its own.
     * BetterBuffsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -90,7 +90,7 @@
   Taint: Blizzard code is only followed, never replaced; no Blizzard function or table is
   written. Attributes are only ever set out of combat, on the addon's own buttons. Every client
   API is checked with type(...) == "function" first, every handler runs in pcall (the last error
-  is kept for /bbuff status), and a secret value is never compared or tested: it is treated as no
+  is kept for /gbuff status), and a secret value is never compared or tested: it is treated as no
   value.
 ]]
 
@@ -100,11 +100,11 @@ ADDON_NAME = ADDON_NAME or "BetterBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 
 -- The shared library (BetterForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterBuffsForever", { version = VERSION })
+local A = BF.NewAddon("BetterBuffsForever", { title = "GaarBuffsForever", version = VERSION })
 local InCombat, Secret, Str, Bool, OnOff = BF.InCombat, BF.IsSecret, BF.Str, BF.Bool, BF.OnOff
 
 local MAX_THRESHOLD = 200
@@ -125,7 +125,7 @@ local SAVED_KEYS = { enabled = true, group = true, sound = true, locked = true, 
     showOutOfRange = true, expireMin = true }
 local DEFAULTS = { enabled = true, group = true, sound = false, locked = true, reagents = true, showOutOfRange = false }
 local LABELS = {
-    enabled = "BetterBuffsForever",
+    enabled = "GaarBuffsForever",
     group = "List group members",
     sound = "Sound when something goes missing",
     reagents = "Low reagent warning",
@@ -166,7 +166,7 @@ local driverOn            -- the visibility state driver is registered
 local spellsPending       -- the spells changed in combat; resolve at PLAYER_REGEN_ENABLED
 local dirty = true        -- something changed since the last update
 local lastUpdate = 0
-local testMode            -- /bbuff test: fake rows
+local testMode            -- /gbuff test: fake rows
 local lastError
 local lastScan = { units = 0, unknown = 0, tanks = "none", tankSource = "none" }
 local prevMissing = {}    -- keys missing at the last update, for the sound
@@ -849,9 +849,9 @@ local function Layout(entries, reagents, mod)
     local unlocked = db and db.locked == false
     if unlocked or testMode then
         local parts = {}
-        if n == 0 and #reagents == 0 then parts[#parts + 1] = "BetterBuffsForever: nothing missing." end
-        if testMode then parts[#parts + 1] = "Test rows (/bbuff test hides them)." end
-        if unlocked then parts[#parts + 1] = "Unlocked: drag to move, /bbuff lock." end
+        if n == 0 and #reagents == 0 then parts[#parts + 1] = "GaarBuffsForever: nothing missing." end
+        if testMode then parts[#parts + 1] = "Test rows (/gbuff test hides them)." end
+        if unlocked then parts[#parts + 1] = "Unlocked: drag to move, /gbuff lock." end
         hint:ClearAllPoints()
         hint:SetPoint("TOPLEFT", box, "TOPLEFT", PAD + 2, y - 2)
         hint:SetText(table.concat(parts, "\n"))
@@ -1076,7 +1076,7 @@ local function SetLocked(locked, quiet)
     db.locked = locked and true or false
     SafeUpdate()
     if not quiet then
-        Print(locked and "box locked (Alt + drag still moves it)." or "box unlocked: drag it to move, /bbuff lock when done.")
+        Print(locked and "box locked (Alt + drag still moves it)." or "box unlocked: drag it to move, /gbuff lock when done.")
     end
 end
 
@@ -1103,7 +1103,7 @@ local function SetTank()
         return
     end
     if not Bool(Call("UnitExists", "target")) then
-        Print("target a group member first, then /bbuff tank.")
+        Print("target a group member first, then /gbuff tank.")
         return
     end
     local member
@@ -1141,7 +1141,7 @@ local function SetTest(on)
         return
     end
     SafeUpdate()
-    Print(testMode and "test rows shown (they cast nothing). /bbuff test again hides them." or "test rows hidden.")
+    Print(testMode and "test rows shown (they cast nothing). /gbuff test again hides them." or "test rows hidden.")
 end
 
 -- The modules, yours first.
@@ -1170,7 +1170,7 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/bbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /bbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
+local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/gbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /gbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
 
 local function PrintHelp()
     Print(INTRO)
@@ -1180,22 +1180,22 @@ local function PrintHelp()
         Print("a buff check for druids, paladins, shamans, priests and mages: who lacks your buffs. Click a name to buff it."
             .. (module == false and " Idle on this character (not a druid, mage, paladin, priest or shaman)." or ""))
     end
-    Print("/bbuff on | off - switch it on or off")
+    Print("/gbuff on | off - switch it on or off")
     for _, m in ipairs(module and { module } or Modules()) do
         for _, line in ipairs(m.Help()) do Print(line) end
     end
-    Print("/bbuff group [on|off] - list group members (off: only you)")
-    Print("/bbuff sound [on|off] - a short sound when something goes missing")
-    Print("/bbuff range [on|off] - show members who are out of range, dimmed (off: left out, the default)")
-    Print("/bbuff expire <0-" .. EXPIRE_MAX .. "> - out of combat, warn when one of your buffs has less than this many minutes left (now "
+    Print("/gbuff group [on|off] - list group members (off: only you)")
+    Print("/gbuff sound [on|off] - a short sound when something goes missing")
+    Print("/gbuff range [on|off] - show members who are out of range, dimmed (off: left out, the default)")
+    Print("/gbuff expire <0-" .. EXPIRE_MAX .. "> - out of combat, warn when one of your buffs has less than this many minutes left (now "
         .. ExpireText() .. "; 0 = off, default " .. EXPIRE_DEFAULT .. ")")
     local parts = {}
     for _, t in ipairs(ThresholdList()) do
-        parts[#parts + 1] = string.format("/bbuff reagents %s <n> (now %d)", t.word, Threshold(t.key, t.default))
+        parts[#parts + 1] = string.format("/gbuff reagents %s <n> (now %d)", t.word, Threshold(t.key, t.default))
     end
-    Print("/bbuff reagents [on|off] - warn on low reagents" .. (#parts > 0 and ("; " .. table.concat(parts, ", ")) or ""))
-    Print("/bbuff unlock | lock | reset - move the box (Alt + drag works when locked), or put it back at the top centre")
-    Print("/bbuff test - show the box with test rows; /bbuff status - the current state")
+    Print("/gbuff reagents [on|off] - warn on low reagents" .. (#parts > 0 and ("; " .. table.concat(parts, ", ")) or ""))
+    Print("/gbuff unlock | lock | reset - move the box (Alt + drag works when locked), or put it back at the top centre")
+    Print("/gbuff test - show the box with test rows; /gbuff status - the current state")
 end
 
 local function PrintStatus()
@@ -1264,17 +1264,17 @@ local function OnSlash(msg)
         if cmd == "on" and module == false then Print("not a druid, mage, paladin, priest or shaman: it stays idle on this character.") end
     elseif cmd == "group" or cmd == "sound" then
         local v = Toggle(arg, On(cmd))
-        if v == nil then Print("/bbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
+        if v == nil then Print("/gbuff " .. cmd .. " [on|off]") else Set(cmd, v) end
     elseif cmd == "range" then
         local v = Toggle(arg, ShowFar())
-        if v == nil then Print("/bbuff range [on|off]") else Set("showOutOfRange", v) end
+        if v == nil then Print("/gbuff range [on|off]") else Set("showOutOfRange", v) end
     elseif cmd == "expire" or cmd == "expiring" then
         local n = tonumber(arg)
         if arg == "off" then n = 0 end
         if n and n == n then
             SetExpire(n)
         else
-            Print("/bbuff expire <0-" .. EXPIRE_MAX .. "> (minutes; 0 = off)   now: " .. ExpireText())
+            Print("/gbuff expire <0-" .. EXPIRE_MAX .. "> (minutes; 0 = off)   now: " .. ExpireText())
         end
     elseif cmd == "reagents" then
         local which, n = arg:match("^(%a+)%s*(.*)$")
@@ -1291,8 +1291,8 @@ local function OnSlash(msg)
             local t = Toggle(arg, On("reagents"))
             if t == nil then
                 local parts = {}
-                for _, th in ipairs(ThresholdList()) do parts[#parts + 1] = "/bbuff reagents " .. th.word .. " <n>" end
-                Print("/bbuff reagents [on|off]" .. (#parts > 0 and (", " .. table.concat(parts, ", ")) or ""))
+                for _, th in ipairs(ThresholdList()) do parts[#parts + 1] = "/gbuff reagents " .. th.word .. " <n>" end
+                Print("/gbuff reagents [on|off]" .. (#parts > 0 and (", " .. table.concat(parts, ", ")) or ""))
             else
                 Set("reagents", t)
             end
@@ -1327,7 +1327,7 @@ end
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBuffsForeverDB (the tank and the paladin's
 -- per-character options in BetterBuffsForeverCharDB) and change only through the same functions
--- /bbuff uses, so the addon behaves the same with or without the hub.
+-- /gbuff uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · 2 missing", "on · all buffed" or
@@ -1412,7 +1412,7 @@ _G.BetterBuffsForeverAPI = {
     Intro = function() return INTRO end,
     StatusLine = StatusLine,
     MenuEntries = MenuEntries,
-    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title or "BetterBuffsForever") end,
+    AddMenuEntries = function(root) BF.RenderMenu(root, MenuEntries(), A.title or "GaarBuffsForever") end,
     SetMinimapHidden = function() end,
 }
 
@@ -1581,6 +1581,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERBUFFSFOREVER1 = "/bbuff"
-SLASH_BETTERBUFFSFOREVER2 = "/betterbuffsforever"
+SLASH_BETTERBUFFSFOREVER1 = "/gbuff"
+SLASH_BETTERBUFFSFOREVER2 = "/gaarbuffsforever"
+SLASH_BETTERBUFFSFOREVER3 = "/bbuff" -- the command before the Gaar rename
+SLASH_BETTERBUFFSFOREVER4 = "/betterbuffsforever"
 SlashCmdList.BETTERBUFFSFOREVER = OnSlash

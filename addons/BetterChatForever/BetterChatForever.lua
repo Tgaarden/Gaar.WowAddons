@@ -1,7 +1,7 @@
 --[[
   BetterChatForever - small chat tweaks on WoW Forever, each one switchable.
 
-  Eight features, all on /bchat <feature> on|off, plus a master on|off:
+  Eight features, all on /gchat <feature> on|off, plus a master on|off:
 
     shortChannels  (on)   [Guild] -> [G], [Party] -> [P], [Raid Leader] -> [RL] ..., numbered
                           channels [2. Trade - City] -> [2], [4. LookingForGroup] -> [LFG].
@@ -14,7 +14,7 @@
     timestamps     (off)  Blizzard's showTimestamps cvar, with the stamp drawn as a soft grey [HH:MM].
     urlCopy        (on)   URLs in plain text become |Hbcurl:...|h links; a click opens a small box
                           with the URL selected, ready for Ctrl+C.
-    copyChat       (on)   A small button on every chat frame (and /bchat copy [n]) opens a scrollable
+    copyChat       (on)   A small button on every chat frame (and /gchat copy [n]) opens a scrollable
                           edit box with the last 200 lines of that frame, as plain text.
     whisperSound   (on)   A short sound on incoming whispers and Battle.net whispers.
     stickyChannels (on)   ChatTypeInfo[x].sticky = 1 for say, party, guild, raid, officer, whisper ...
@@ -29,7 +29,7 @@
   flags (CHAT_*_GET, ChatTypeInfo[x].sticky, CHAT_TIMESTAMP_FORMAT) and the AddMessage field of
   chat frames, a wrapper that always calls the original. Every client API is checked with
   type(...) == "function" first, every handler runs in pcall (the last error is kept for
-  /bchat status).
+  /gchat status).
 
   Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
   through ## Dependencies): the chat prefix, the secret check and the menu drawing.
@@ -42,10 +42,10 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterChatForever"
 local DOT = " \194\183 "
-local VERSION = "1.0.4"
+local VERSION = "1.1.0"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterChatForever", { version = VERSION })
+local A = BF.NewAddon("BetterChatForever", { title = "GaarChatForever", version = VERSION })
 
 local COPY_LINES = 200
 local LINK_COLOR = "|cff66b3ff"
@@ -557,16 +557,16 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels and arrow keys without Alt. Nice to know: click a URL to get it selected for Ctrl+C; /bchat copy [n] copies the last 200 lines of a chat frame; /bchat off turns every tweak off at once."
+local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels and arrow keys without Alt. Nice to know: click a URL to get it selected for Ctrl+C; /gchat copy [n] copies the last 200 lines of a chat frame; /gchat off turns every tweak off at once."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bchat on | off - the master switch")
+    Print("/gchat on | off - the master switch")
     for _, f in ipairs(FEATURES) do
-        Print(string.format("/bchat %s on|off - %s (default %s)", f.key, f.label, f.default and "on" or "off"))
+        Print(string.format("/gchat %s on|off - %s (default %s)", f.key, f.label, f.default and "on" or "off"))
     end
-    Print("/bchat copy [n] - copy the last " .. COPY_LINES .. " lines of chat frame n (default: the selected one)")
-    Print("/bchat status - the current state")
+    Print("/gchat copy [n] - copy the last " .. COPY_LINES .. " lines of chat frame n (default: the selected one)")
+    Print("/gchat status - the current state")
 end
 
 local function PrintStatus()
@@ -596,7 +596,7 @@ local function OnSlash(msg)
         if arg == "on" or arg == "off" then
             SetFeature(feature.key, arg == "on")
         else
-            Print(string.format("%s is %s. /bchat %s on|off", feature.key, db[feature.key] and "on" or "off", feature.key))
+            Print(string.format("%s is %s. /gchat %s on|off", feature.key, db[feature.key] and "on" or "off", feature.key))
         end
     elseif cmd == "copy" then
         local n = tonumber(arg)
@@ -614,7 +614,7 @@ end
 -- Public API: BetterChatForeverAPI
 --
 -- For BetterForever's hub menu. Settings live in BetterChatForeverDB and change only through
--- the same functions /bchat uses.
+-- the same functions /gchat uses.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on . 7/8 features"
@@ -719,8 +719,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERCHATFOREVER1 = "/bchat"
-SLASH_BETTERCHATFOREVER2 = "/betterchatforever"
+SLASH_BETTERCHATFOREVER1 = "/gchat"
+SLASH_BETTERCHATFOREVER2 = "/gaarchatforever"
+SLASH_BETTERCHATFOREVER3 = "/bchat" -- the command before the Gaar rename
+SLASH_BETTERCHATFOREVER4 = "/betterchatforever"
 SlashCmdList.BETTERCHATFOREVER = function(msg)
     local ok, err = pcall(OnSlash, msg)
     if not ok then Fail("slash", err); Print("error: " .. tostring(err)) end

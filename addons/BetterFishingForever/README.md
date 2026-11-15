@@ -1,4 +1,8 @@
-# BetterFishingForever
+# GaarFishingForever
+
+> Formerly **BetterFishingForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gfish` (`/gaarfishingforever`); the old `/bfish` and `/betterfishingforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarfishingforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). Double
 right-click in the 3D world casts Fishing while a fishing pole is equipped, and Shift + double
@@ -8,8 +12,8 @@ key binding does both from the keyboard. Since 1.4 a small **session panel** cou
 catches per hour, skill gained and what you fished up, and an optional **loud splash** mode makes
 the bobber's splash easy to hear. Since 1.2 it also carries an optional **Fishing
 1-300 route**: the current step from your Fishing skill, pins on the world map and minimap, and
-BetterGpsForever's arrow on the nearest spot. It needs BetterForever, the family hub, and no other addon or library (the arrow needs
-BetterGpsForever), and it is not part of the Gaar suite.
+GaarGpsForever's arrow on the nearest spot. It needs GaarForever, the family hub, and no other addon or library (the arrow needs
+GaarGpsForever), and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -31,15 +35,15 @@ BetterGpsForever), and it is not part of the Gaar suite.
   entry under the localized name of 7620. The button casts it by localized name (the highest
   known rank), or by ID when the client gives no name.
 
-- **Double right-click reels in while the line is out** (1.3, `/bfish reel on|off`, on by
+- **Double right-click reels in while the line is out** (1.3, `/gfish reel on|off`, on by
   default). See [Reel in](#reel-in-13).
-- **Cast / Reel key** (1.3): bind one key under Esc > Options > Keybindings > BetterFishingForever.
+- **Cast / Reel key** (1.3): bind one key under Esc > Options > Keybindings > GaarFishingForever.
   See [Reel in](#reel-in-13).
 - **Shift + double right-click swaps the pole** (1.1). See [Pole swap](#pole-swap).
-- **Fishing 1-300 route** (1.2, off until `/bfish route on`). See
+- **Fishing 1-300 route** (1.2, off until `/gfish route on`). See
   [Fishing route](#fishing-route-1-300).
-- **Session stats** (1.4, `/bfish stats`, on by default). See [Session stats](#session-stats-14).
-- **Loud splash** (1.4, `/bfish splash on|off`, off by default): the bite alert. See
+- **Session stats** (1.4, `/gfish stats`, on by default). See [Session stats](#session-stats-14).
+- **Loud splash** (1.4, `/gfish splash on|off`, off by default): the bite alert. See
   [Loud splash](#loud-splash-the-bite-alert-14).
 
 Settings are saved account-wide in `BetterFishingForeverDB`: `enabled` (default on),
@@ -55,7 +59,7 @@ skipped steps, a step picked by hand, and the waypoint the route set), and the f
 ## Session stats (1.4)
 
 A small panel (drag it to move it; the position is saved) shown while a fishing pole is equipped
-or while the line is out. `/bfish stats` shows or hides it, `/bfish stats reset` starts a new
+or while the line is out. `/gfish stats` shows or hides it, `/gfish stats reset` starts a new
 session. The code is in `Stats.lua`.
 
 - **Session time** from the first cast of the session, **casts**, **catches** and **catches per
@@ -83,7 +87,7 @@ do not change either. An addon sound or screen flash "on the bite" would only be
 addon plays no sound and flashes nothing of its own. It uses the classic fishing-addon trick
 instead: it makes the game's own splash loud.
 
-- `/bfish splash on` (account-wide, **off by default**). While the line is out, out of combat
+- `/gfish splash on` (account-wide, **off by default**). While the line is out, out of combat
   only, each CVar only when the client has it and it is not already there:
 
   | CVar | Set to | Left alone at |
@@ -97,7 +101,7 @@ instead: it makes the game's own splash loud.
 
 - The previous values are kept in `BetterFishingForeverDB.splashHeld` and put back exactly like
   the reel CVars: at the channel stop, when the pole comes off, at `PLAYER_REGEN_DISABLED`, at
-  `/bfish splash off`, at `PLAYER_LOGOUT`, and at the next login for anything a crash or a logout
+  `/gfish splash off`, at `PLAYER_LOGOUT`, and at the next login for anything a crash or a logout
   in combat left behind. Nothing is set or put back in combat; that waits for
   `PLAYER_REGEN_ENABLED`.
 - A volume you change yourself while the line is out is overwritten by the value from before the
@@ -129,17 +133,17 @@ never calls it; it only points a key press at the binding.
   | `SoftTargetInteractRangeIsHard` | 0 | 0 |
 
   The previous values are kept in `BetterFishingForeverDB.held` and put back at the channel stop,
-  when the pole comes off, at `PLAYER_REGEN_DISABLED`, at `/bfish reel off`, at `PLAYER_LOGOUT`,
+  when the pole comes off, at `PLAYER_REGEN_DISABLED`, at `/gfish reel off`, at `PLAYER_LOGOUT`,
   and at the next login for anything a crash or a logout in combat left behind. Nothing is set or
   put back in combat; that waits for `PLAYER_REGEN_ENABLED`.
 - **Cast / Reel key.** `Bindings.xml` adds `CLICK BetterFishingForeverKeyButton:LeftButton` under
-  the **BetterFishingForever** section of the Key Bindings page. The key clicks a second secure
+  the **GaarFishingForever** section of the Key Bindings page. The key clicks a second secure
   button (`type` = `spell`, the same Fishing; `useOnKeyDown` = true and registered for
   `AnyDown` only, so it casts on the press and its release never does anything). It casts with or
   without a pole (without one, Fishing just fails). While the line is out and reeling is on, the
   keys bound to it are overridden to `INTERACTTARGET` on a frame of their own, and cleared again
-  with the CVars. It does not follow `/bfish on|off` (that is the double-click), only
-  `/bfish reel`.
+  with the CVars. It does not follow `/gfish on|off` (that is the double-click), only
+  `/gfish reel`.
 - **First time:** a one-line chat hint the first time the line goes out (saved, shown once).
 - **Not supported** (no `INTERACTTARGET` binding or no `SoftTargetInteract` CVar): the double
   right-click casts again as before, and the first cast says so once per session.
@@ -147,7 +151,7 @@ never calls it; it only points a key press at the binding.
 ## Pole swap
 
 **Shift + double right-click** in the world (the second press with Shift held, within the
-double-click window of the first) or **`/bfish swap`**:
+double-click window of the first) or **`/gfish swap`**:
 
 - **No pole in the main hand:** the main hand (slot 16) and off hand (slot 17) are remembered
   (itemID + link, per character, so they survive `/reload`), and the best fishing pole in the
@@ -168,17 +172,17 @@ double-click window of the first) or **`/bfish swap`**:
   **Shift + single right-click** is untouched.
 - **Not in combat** (`can't swap weapons in combat`), **not while casting or channelling**,
   Fishing included (`stop fishing first`), and not with an item on the cursor. The gesture follows
-  `/bfish on|off`; `/bfish swap` always works.
+  `/gfish on|off`; `/gfish swap` always works.
 - **Equip path:** `C_Item.EquipItemByName`, else `EquipItemByName`, else
   `PickupContainerItem` + `EquipCursorItem`, called directly. These are not protected out of
   combat on classic or on the retail engine, and the gesture calls them inside the second press's
   own handler (a hardware event) anyway, so no secure macro button is needed. If the client ever
   blocks the call, `ADDON_ACTION_BLOCKED` / `ADDON_ACTION_FORBIDDEN` is caught, printed and shown
-  in `/bfish status`.
+  in `/gfish status`.
 
 ## Fishing route (1-300)
 
-`/bfish route on` (per character, off by default) shows where to go next on the way from 1 to
+`/gfish route on` (per character, off by default) shows where to go next on the way from 1 to
 300. The route data is in `Route.lua`, the logic in `RouteGuide.lua`; both reach the main file
 through the addon namespace, not a global.
 
@@ -186,7 +190,7 @@ through the addon namespace, not a global.
   line named like spell 7620 (Fishing, localized), giving the rank and the max rank (the cap:
   75 Apprentice, 150 Journeyman, 225 Expert, 300 Artisan). Where that finds nothing, the retail
   `GetProfessions` / `GetProfessionInfo`. No Fishing at all reads as 0/0. A collapsed
-  *Secondary Skills* header in the skill window hides the line; `/bfish status` says so, and the
+  *Secondary Skills* header in the skill window hides the line; `/gfish status` says so, and the
   route then keeps the step it had.
 - **Your faction.** Only the steps for `UnitFactionGroup("player")` and the ones for both.
 - **The current step** is the first step in route order that is not done and whose range holds
@@ -197,23 +201,23 @@ through the addon namespace, not a global.
     Pagle;
   - a **fish** step is done once the skill reaches its upper end;
   - an **optional** vendor or quest step (a pole and lures, Nightcrawlers, the FC-5000 pole quest)
-    is done once you skip it with `/bfish route next` (saved), or once the skill is past it.
-- **`/bfish route next | prev`** moves by hand (next on an optional step skips it for good). A step
+    is done once you skip it with `/gfish route next` (saved), or once the skill is past it.
+- **`/gfish route next | prev`** moves by hand (next on an optional step skips it for good). A step
   picked by hand holds until the automatic step changes (a skill-up past it, a new rank). The
-  Artisan quest needs four fish: `/bfish route next` after each one.
+  Artisan quest needs four fish: `/gfish route next` after each one.
 - **Auto-advance** on `SKILL_LINES_CHANGED`, `CHAT_MSG_SKILL`, `SPELLS_CHANGED` and
   `LEARNED_SPELL_IN_TAB` (where the client has it): `Fishing route: <step>` in chat when the step
   changes.
 - **Pins.** The current step's fishing spots (fish icon) or its NPC (book for a trainer, `!` for a
   quest, coin for a vendor) on the world map, when that map or the continent holding it is shown,
   and on the minimap within its radius. The tooltip has the step, the NPC, the note and the
-  coordinate with its source. They are drawn the way BetterGpsForever draws its pins: our own
+  coordinate with its source. They are drawn the way GaarGpsForever draws its pins: our own
   frames on the map canvas and the minimap, placed by normalised coordinates; no library.
-- **GPS arrow.** With BetterGpsForever loaded, `BetterGpsForeverAPI.SetWaypoint(mapID, x, y,
+- **GPS arrow.** With GaarGpsForever loaded, `BetterGpsForeverAPI.SetWaypoint(mapID, x, y,
   title)` points its arrow at the step's nearest spot (on your continent; else the first one),
-  titled with the step. Only when the step changes and at `/bfish route on`: a waypoint you set
-  yourself stays until the step changes. `/bfish route off` clears the waypoint only while it is
-  still the route's. Without BetterGpsForever: pins only, and `/bfish status` says so.
+  titled with the step. Only when the step changes and at `/gfish route on`: a waypoint you set
+  yourself stays until the step changes. `/gfish route off` clears the waypoint only while it is
+  still the route's. Without GaarGpsForever: pins only, and `/gfish status` says so.
 
 ### The route in short
 
@@ -247,8 +251,8 @@ Horde:
 
 The four Artisan fish: Feralas Ahi (Verdantis River, Feralas), Misty Reed Mahi Mahi (Misty Reed
 Strand, Swamp of Sorrows), Sar'theris Striker (Sar'theris Strand, Desolace) and Savage Coast Blue
-Sailfin (Savage Coast, Stranglethorn Vale). `/bfish route list` prints every step with its range,
-`/bfish route gear` the poles and lures worth having.
+Sailfin (Savage Coast, Stranglethorn Vale). `/gfish route list` prints every step with its range,
+`/gfish route gear` the poles and lures worth having.
 
 Some facts differ between sources and are marked in the notes: whether the FC-5000 quest exists
 for the Alliance, the character level for Artisan (guides say 35), and the Stormwind trainer's
@@ -304,37 +308,37 @@ with both settings and never takes the first click away from the bobber.
 - **Shift + double right-click while the line is out** reels in if Shift and the second press come
   in the same frame; the pole swap refuses while fishing anyway (`stop fishing first`).
 - **A client without `IsMouseButtonDown`** gets the older way (arm on the second press, catch its
-  release, `AnyUp`), which casts only with `ActionButtonUseKeyDown` = 0. `/bfish status` says so.
+  release, `AnyUp`), which casts only with `ActionButtonUseKeyDown` = 0. `/gfish status` says so.
 
 ## Commands
 
 | Command | Does |
 |---|---|
-| `/bfish` or `/bfish help` | Help |
-| `/bfish on`, `/bfish off` | Switch double right-click fishing on or off |
-| `/bfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
-| `/bfish reel on`, `/bfish reel off` | While the line is out, double right-click anywhere (and the Cast / Reel key) reels in; on by default |
-| `/bfish stats` | Show or hide the session panel (on by default); `/bfish stats on` and `/bfish stats off` also work |
-| `/bfish stats reset` | Start a new session (it also resets after 30 minutes without fishing) |
-| `/bfish splash on`, `/bfish splash off` | Loud splash while the line is out: sound effects up, music and ambience down, put back after; off by default |
-| `/bfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
-| `/bfish route on`, `/bfish route off` | Switch the Fishing 1-300 route (pins and GPS arrow) on or off, per character; off by default |
-| `/bfish route` | Your Fishing skill, the current step with its NPC and note, and the next step |
-| `/bfish route next`, `/bfish route prev` | Move one step by hand; next on an optional vendor or quest step skips it for good |
-| `/bfish route list` | Every step for your faction with its range; the current one marked, done ones say so |
-| `/bfish route gear` | Poles and lures worth having on the way |
-| `/bfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, reel on/off, supported, line out, the Cast / Reel key, the soft interact CVars and what is held to put back, loud splash and its held sound CVars, the session, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
+| `/gfish` or `/gfish help` | Help |
+| `/gfish on`, `/gfish off` | Switch double right-click fishing on or off |
+| `/gfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
+| `/gfish reel on`, `/gfish reel off` | While the line is out, double right-click anywhere (and the Cast / Reel key) reels in; on by default |
+| `/gfish stats` | Show or hide the session panel (on by default); `/gfish stats on` and `/gfish stats off` also work |
+| `/gfish stats reset` | Start a new session (it also resets after 30 minutes without fishing) |
+| `/gfish splash on`, `/gfish splash off` | Loud splash while the line is out: sound effects up, music and ambience down, put back after; off by default |
+| `/gfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
+| `/gfish route on`, `/gfish route off` | Switch the Fishing 1-300 route (pins and GPS arrow) on or off, per character; off by default |
+| `/gfish route` | Your Fishing skill, the current step with its NPC and note, and the next step |
+| `/gfish route next`, `/gfish route prev` | Move one step by hand; next on an optional vendor or quest step skips it for good |
+| `/gfish route list` | Every step for your faction with its range; the current one marked, done ones say so |
+| `/gfish route gear` | Poles and lures worth having on the way |
+| `/gfish status` | Version, enabled, the window, fishing pole equipped yes/no, the resolved Fishing spell, whether the override is armed, `ActionButtonUseKeyDown`, reel on/off, supported, line out, the Cast / Reel key, the soft interact CVars and what is held to put back, loud splash and its held sound CVars, the session, the remembered weapons and the equip path (`swap: remembered <links> / none`), the route (on/off, skill and where it was read, faction, step, GPS available) and the last error caught |
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.2.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help). Since 1.2.2 it also takes its small helpers (the chat line, the secret-value, number, text and true/false checks, the safe calls, the combat check, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.2.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.2.1 (it is also the first line of the slash command's help). Since 1.2.2 it also takes its small helpers (the chat line, the secret-value, number, text and true/false checks, the safe calls, the combat check, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
-menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/bfish
-on|off`), **Double right-click reels in** (the same as `/bfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/bfish window`), **Loud splash while fishing**
-(the same as `/bfish splash on|off`), **Session stats panel** (the same as `/bfish stats`),
-**Reset session stats** (the same as `/bfish stats reset`) and **Fishing
-route** (the same as `/bfish route on|off`). Both go through
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
+menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/gfish
+on|off`), **Double right-click reels in** (the same as `/gfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/gfish window`), **Loud splash while fishing**
+(the same as `/gfish splash on|off`), **Session stats panel** (the same as `/gfish stats`),
+**Reset session stats** (the same as `/gfish stats reset`) and **Fishing
+route** (the same as `/gfish route on|off`). Both go through
 the same functions as the slash command. This addon has no minimap button or menu of its own, so
 nothing here changes with or without the hub.
 
@@ -357,7 +361,7 @@ The hub talks to this addon only through `BetterFishingForeverAPI`:
 - Attributes and click registration are set only on the addon's own secure button, only out of
   combat; a spellbook change in combat waits for `PLAYER_REGEN_ENABLED`.
 - Every client API is checked with `type(...) == "function"` before use, every handler runs in
-  `pcall` (the last error is kept for `/bfish status`), and a secret value is treated as no value,
+  `pcall` (the last error is kept for `/gfish status`), and a secret value is treated as no value,
   never compared or tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `enabled` and `dblClick`
   are kept account-wide (plus `reel`, `held` and `reelHint` since 1.3, and `splash`, `splashHeld`,

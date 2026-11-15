@@ -23,9 +23,9 @@
     * macroText (on): macro names on the buttons; off hides them (alpha 0, never Hide).
     * outOfRangeHotkey (off): out of range tints only the hotkey text red instead of the icon.
       When on, it overrides rangeColor for the icon.
-    * A master switch (/bbars on|off) and one switch per feature (/bbars <feature> on|off), all in
+    * A master switch (/gbars on|off) and one switch per feature (/gbars <feature> on|off), all in
       BetterBarsForeverDB (account-wide), and one menu entry each for the hub.
-    * /bbars for help, /bbars status for the hooks found, the buttons handled and whether the
+    * /gbars for help, /gbars status for the hooks found, the buttons handled and whether the
       client answered with secrets.
     * BetterBarsForeverAPI, a small global table for BetterForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -42,7 +42,7 @@
   right after it: hooksecurefunc on every Blizzard update function it finds - the 12.x mixin
   methods on each button (UpdateUsable, UpdateRangeIndicator, Update, UpdateHotkeys, SetHotkeys)
   and the older globals (ActionButton_UpdateUsable, ActionButton_UpdateRangeIndicator,
-  ActionButton_Update, ActionButton_UpdateHotkeys, PetActionButton_SetHotkeys). /bbars status
+  ActionButton_Update, ActionButton_UpdateHotkeys, PetActionButton_SetHotkeys). /gbars status
   lists which exist. ActionButton_OnUpdate is deliberately not hooked: it runs every frame for
   every button, and the ticker already covers what it would give.
 
@@ -52,7 +52,7 @@
   for a red overlay of the addon's own when both answers are secret, the Cooldown's own countdown
   numbers for the time. Without those setters the icon is left to Blizzard. Two secret booleans
   cannot be combined, so with a secret usable flag the icon is white or grey (no blue). Every
-  secret answer is counted for /bbars status.
+  secret answer is counted for /gbars status.
 
   Taint: Blizzard code is only followed, never replaced. No Blizzard function, script or table is
   written (hooksecurefunc only), no protected function is called, and no button is shown, hidden,
@@ -60,7 +60,7 @@
   vertex colour, the hotkey's text and colour, the macro name's alpha, the cooldown's countdown
   numbers, and textures, font strings and one plain frame per button that the addon creates
   itself (out of combat). Every client API is checked with type(...) == "function" first, every
-  handler runs in pcall (the last error is kept for /bbars status).
+  handler runs in pcall (the last error is kept for /gbars status).
 
   Shared helpers come from BetterForever's library (global BetterForever, Lib.lua, loaded first
   through ## Dependencies): the chat prefix, the secret checks, Num / Str, InCombat, the "56" /
@@ -72,10 +72,10 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "BetterBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.0.4"
+local VERSION = "1.1.0"
 
 local BF = _G.BetterForever
-local A = BF.NewAddon("BetterBarsForever", { version = VERSION })
+local A = BF.NewAddon("BetterBarsForever", { title = "GaarBarsForever", version = VERSION })
 
 local TICK = 0.2              -- seconds between ticker passes
 local GCD_MAX = 1.5           -- a cooldown this short or shorter is the global cooldown
@@ -89,7 +89,7 @@ local WHITE_RGB = { 1.0, 1.0, 1.0 }
 local HOTKEY_RED_RGB = { 1.0, 0.1, 0.1 }
 local HOTKEY_NORMAL_RGB = { 0.6, 0.6, 0.6 } -- fallback when the hotkey's own colour is unreadable
 
--- The features, in menu and help order. key = the saved key; cmd = what /bbars accepts besides
+-- The features, in menu and help order. key = the saved key; cmd = what /gbars accepts besides
 -- the key itself (lower case).
 local FEATURES = {
     { key = "rangeColor", cmd = "range", default = true, label = "Red icon out of range" },
@@ -142,7 +142,7 @@ local pendingFrames       -- an overlay frame was due in combat; create at PLAYE
 local ticker
 local elapsedSince = 0
 
--- Secret answers seen, for /bbars status.
+-- Secret answers seen, for /gbars status.
 local secrets = { usable = 0, range = 0, cooldown = 0, setterMissing = 0, setterFailed = 0 }
 
 -- ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ end
 local EXPECT = { { 55.3, "56" }, { 61, "2m" }, { 3540, "59m" }, { 3600, "1h" } }
 local formatter, why
 
--- The formatter, or false; and a line for /bbars status.
+-- The formatter, or false; and a line for /gbars status.
 function TimeText.Formatter()
     if formatter ~= nil then return formatter, why end
     formatter, why = false, "C_StringUtil.CreateNumericRuleFormatter missing"
@@ -885,7 +885,7 @@ local function SetFeature(f, on, quiet)
     end)
     if not ok then Fail("apply", err) end
     if not quiet then
-        Print(f.label .. ": " .. (on and "on" or "off") .. "." .. (Enabled() and "" or " (the addon is off: /bbars on)"))
+        Print(f.label .. ": " .. (on and "on" or "off") .. "." .. (Enabled() and "" or " (the addon is off: /gbars on)"))
     end
 end
 
@@ -895,16 +895,16 @@ end
 
 -- The intro BetterForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Clearer action buttons: a red icon when out of range, a blue icon when you lack mana, energy or rage, big cooldown numbers (56, 2m, 1h) and short hotkey labels (Mouse Button 4 becomes M4). Every part has its own switch. Nice to know: /bbars <feature> on|off; /bbars off gives every button back exactly as Blizzard draws it; the global cooldown gets no number."
+local INTRO = "Clearer action buttons: a red icon when out of range, a blue icon when you lack mana, energy or rage, big cooldown numbers (56, 2m, 1h) and short hotkey labels (Mouse Button 4 becomes M4). Every part has its own switch. Nice to know: /gbars <feature> on|off; /gbars off gives every button back exactly as Blizzard draws it; the global cooldown gets no number."
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/bbars on | /bbars off - switch the addon on or off")
+    Print("/gbars on | /gbars off - switch the addon on or off")
     for _, f in ipairs(FEATURES) do
-        Print(string.format("/bbars %s on|off - %s (now %s, default %s)", f.cmd, f.label,
+        Print(string.format("/gbars %s on|off - %s (now %s, default %s)", f.cmd, f.label,
             db[f.key] and "on" or "off", f.default and "on" or "off"))
     end
-    Print("/bbars status - the hooks found, the buttons handled and whether the client hid any values")
+    Print("/gbars status - the hooks found, the buttons handled and whether the client hid any values")
 end
 
 local function PrintStatus()
@@ -975,7 +975,7 @@ local function OnSlash(msg)
             elseif arg == "" then
                 SetFeature(f, not db[f.key])
             else
-                Print("/bbars " .. f.cmd .. " on|off")
+                Print("/gbars " .. f.cmd .. " on|off")
             end
         else
             PrintHelp()
@@ -992,7 +992,7 @@ end
 --
 -- For BetterForever, the family hub that puts this addon's options in its own minimap menu.
 -- Everything stays here: the settings live in BetterBarsForeverDB and change only through the
--- same functions /bbars uses, so the addon behaves the same with or without the hub.
+-- same functions /gbars uses, so the addon behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · 120 buttons"
@@ -1103,6 +1103,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if not ok then Fail(event, err) end
 end)
 
-SLASH_BETTERBARSFOREVER1 = "/bbars"
-SLASH_BETTERBARSFOREVER2 = "/betterbarsforever"
+SLASH_BETTERBARSFOREVER1 = "/gbars"
+SLASH_BETTERBARSFOREVER2 = "/gaarbarsforever"
+SLASH_BETTERBARSFOREVER3 = "/bbars" -- the command before the Gaar rename
+SLASH_BETTERBARSFOREVER4 = "/betterbarsforever"
 SlashCmdList.BETTERBARSFOREVER = OnSlash

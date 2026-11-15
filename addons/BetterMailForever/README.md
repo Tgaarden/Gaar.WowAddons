@@ -1,8 +1,12 @@
-# BetterMailForever
+# GaarMailForever
+
+> Formerly **BetterMailForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gmail` (`/gaarmailforever`); the old `/bmail` and `/bettermailforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarmailforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001): mailbox
-helpers. It needs BetterForever, the family hub, and no other addon or library and is not part of the Gaar suite. Every feature
-is its own setting (`/bmail <feature> on|off`) and there is a master switch (`/bmail on|off`).
+helpers. It needs GaarForever, the family hub, and no other addon or library and is not part of the Gaar suite. Every feature
+is its own setting (`/gmail <feature> on|off`) and there is a master switch (`/gmail on|off`).
 
 ## Features
 
@@ -31,18 +35,18 @@ is its own setting (`/bmail <feature> on|off`) and there is a master switch (`/b
 
 | Command | Does |
 |---|---|
-| `/bmail` or `/bmail help` | Help |
-| `/bmail on`, `/bmail off` | Master switch |
-| `/bmail openall\|deleteempty\|recipients\|sendmulti\|notice on\|off` | One feature on or off (without `on`/`off` it prints the state) |
-| `/bmail open` | Run Open All, the same as the button (mailbox must be open) |
-| `/bmail status` | Version, master and every feature, mailbox open or closed, Open All running or idle, remembered names, the last error caught |
+| `/gmail` or `/gmail help` | Help |
+| `/gmail on`, `/gmail off` | Master switch |
+| `/gmail openall\|deleteempty\|recipients\|sendmulti\|notice on\|off` | One feature on or off (without `on`/`off` it prints the state) |
+| `/gmail open` | Run Open All, the same as the button (mailbox must be open) |
+| `/gmail status` | Version, master and every feature, mailbox open or closed, Open All running or idle, remembered names, the last error caught |
 
-Also `/bettermailforever`. Settings are saved account-wide in `BetterMailForeverDB`
+Also `/gaarmailforever`. Settings are saved account-wide in `BetterMailForeverDB`
 (the features, `recent`, `alts`).
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.0.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help). Since 1.0.2 it also takes its small helpers (the chat line, the secret-value check, the combat check, the coin text, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.0.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.0.1 (it is also the first line of the slash command's help). Since 1.0.2 it also takes its small helpers (the chat line, the secret-value check, the combat check, the coin text, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
 The hub talks to this addon only through `BetterMailForeverAPI`:
 
@@ -58,7 +62,7 @@ The hub talks to this addon only through `BetterMailForeverAPI`:
 
 - Blizzard code is only followed (`hooksecurefunc` on `SendMail`, `HandleModifiedItemClick` and
   `ContainerFrameItemButton_OnModifiedClick`, `HookScript` on `SendMailFrame`), never replaced.
-- Every handler runs in `pcall` (the last error is kept for `/bmail status`), every client API is
+- Every handler runs in `pcall` (the last error is kept for `/gmail status`), every client API is
   checked with `type(...) == "function"`, and a secret value is treated as no value.
 - The Open All button sits at the top left of the inbox and the recipient button right of the
   **To:** box. Neither can be checked here without the client, so move them if they collide with

@@ -1,8 +1,12 @@
-# BetterMapsForever
+# GaarMapsForever
+
+> Formerly **BetterMapsForever**; the folder on disk keeps that name so settings carry over. The command is
+> now `/gmf` (`/gaarmapsforever`); the old `/bmf` and `/bettermapsforever` still work.
+> CurseForge: https://www.curseforge.com/wow/addons/gaarmapsforever
 
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It lets you
 move, scale and fade Blizzard's own world map window, **Map & Quest Log** (`WorldMapFrame`), and
-does nothing else. It needs BetterForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+does nothing else. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -30,8 +34,8 @@ does nothing else. It needs BetterForever, the family hub, and no other addon or
 - **Reset.** Blizzard's default position and 100% scale.
 - **Combat.** The map is never moved or scaled in combat. Dragging the title bar or the grip
   prints a short message instead, a drag that is still going when combat starts ends there, and
-  anything that would move or scale the map (opening it, Blizzard re-anchoring it, `/bmf scale`,
-  `/bmf reset`) waits for `PLAYER_REGEN_ENABLED`. Opening the map in combat is Blizzard's own
+  anything that would move or scale the map (opening it, Blizzard re-anchoring it, `/gmf scale`,
+  `/gmf reset`) waits for `PLAYER_REGEN_ENABLED`. Opening the map in combat is Blizzard's own
   path and keeps working; it opens at Blizzard's anchor and moves to your position once combat
   ends.
 - **Maximized map.** Left to Blizzard: no handle, no grip, 100% scale. Going back to the windowed
@@ -43,22 +47,22 @@ At 100% and the default position the addon does not touch the map at all.
 
 | Command | Does |
 |---|---|
-| `/bmf` | Help |
-| `/bmf lock`, `/bmf unlock` | Stop or allow moving and resizing (hides or shows the grip and the handle) |
-| `/bmf reset` | Back to Blizzard's default position and 100% scale |
-| `/bmf scale <50-150>` | Set the scale in percent. On the open, windowed map the top-left corner stays put (and is saved) |
-| `/bmf fade on`, `/bmf fade off` | Fade the map while you move, or not |
-| `/bmf fade <10-100>` | Opacity while moving, in percent (default 35) |
-| `/bmf status` | Which frames and functions this client has, whether the map is open and maximized, and the current settings |
+| `/gmf` | Help |
+| `/gmf lock`, `/gmf unlock` | Stop or allow moving and resizing (hides or shows the grip and the handle) |
+| `/gmf reset` | Back to Blizzard's default position and 100% scale |
+| `/gmf scale <50-150>` | Set the scale in percent. On the open, windowed map the top-left corner stays put (and is saved) |
+| `/gmf fade on`, `/gmf fade off` | Fade the map while you move, or not |
+| `/gmf fade <10-100>` | Opacity while moving, in percent (default 35) |
+| `/gmf status` | Which frames and functions this client has, whether the map is open and maximized, and the current settings |
 
-## With BetterForever (required)
+## With GaarForever (required)
 
-Since 1.1.1 this addon lists `BetterForever` under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. BetterForever also gives it a page under **Esc > Options > AddOns > Better Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.1.1 (it is also the first line of the slash command's help). Since 1.1.2 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from BetterForever's shared library instead of carrying its own copies; nothing it does or shows changed.
+Since 1.1.1 this addon lists `BetterForever` (the GaarForever folder) under `## Dependencies`: install the `BetterForever` folder next to it, or the client will not load this addon. GaarForever also gives it a page under **Esc > Options > AddOns > Gaar Forever**, built from the same `MenuEntries()` as the hub's menu, with a short intro at the top; that intro comes from `Intro()`, a field the API table gained in 1.1.1 (it is also the first line of the slash command's help). Since 1.1.2 it also takes its small helpers (the chat line, the number and secret-value checks, drawing the hub's menu) from GaarForever's shared library instead of carrying its own copies; nothing it does or shows changed.
 
-[BetterForever](../BetterForever/README.md) is the family hub: one minimap button whose
+[GaarForever](../BetterForever/README.md) is the family hub: one minimap button whose
 menu has a **Maps** submenu with **Lock position & size**, **Reset position & size**, **Scale**
 (75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), the same
-settings as `/bmf lock|unlock`, `/bmf reset`, `/bmf scale`, `/bmf fade on|off` and `/bmf fade
+settings as `/gmf lock|unlock`, `/gmf reset`, `/gmf scale`, `/gmf fade on|off` and `/gmf fade
 <percent>` (both go through the same functions). This addon has no minimap button or menu of its
 own, so nothing here changes with or without the hub.
 
@@ -85,7 +89,7 @@ The hub talks to this addon only through `BetterMapsForeverAPI`:
   checks once a frame after the map opens and then every 0.1 s while it is open (only out of
   combat, and only when it manages the map) whether the anchor or the scale has been put back,
   and re-applies them.
-- Blizzard's last anchor is remembered, so `/bmf reset` can put it back on the open map.
+- Blizzard's last anchor is remembered, so `/gmf reset` can put it back on the open map.
 - Every name is checked before use, and secret geometry is treated as no geometry.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `scale`,
   `position`, `fade` and `fadeAlpha` are kept.
@@ -102,7 +106,7 @@ This addon does not do that, so the correction is not here.
 ## GaarMap
 
 GaarMap also scales and fades the world map. With both loaded they fight over the same frame, so
-BetterMapsForever says so at login and in `/bmf status`. Use one of the two.
+GaarMapsForever says so at login and in `/gmf status`. Use one of the two.
 
 ## Names it relies on
 

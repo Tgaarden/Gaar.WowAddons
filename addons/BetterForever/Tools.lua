@@ -10,18 +10,18 @@
       BetterForever: updated - BetterBuffsForever 1.5.1 -> 1.6.0: <note>
     with the note from CHANGES below (only when it is written for that exact version; otherwise
     just the versions). The first login with this feature only records the versions. An addon
-    installed later is announced as new. /bf news reprints the last block; /bf news on|off
+    installed later is announced as new. /gf news reprints the last block; /gf news on|off
     switches the lines (versions are still recorded while it is off).
 
   Profiles, export, import
     For addons built on the library's A:InitDB (see Lib.lua, "Per-character settings"):
-    /bf profile, /bf profile char|shared <addon|all>, /bf export <addon>, /bf import.
+    /gf profile, /gf profile char|shared <addon|all>, /gf export <addon>, /gf import.
 
   Self-test
-    /bf selftest probes, each call in pcall, the client APIs the family relies on, on player,
+    /gf selftest probes, each call in pcall, the client APIs the family relies on, on player,
     target and party1, and records ok / nil / secret / error per call. It runs now and once more
     on the other side of the next combat change (entering combat after an out-of-combat run),
-    then shows both side by side in a copyable text window. /bf selftest show reopens the window.
+    then shows both side by side in a copyable text window. /gf selftest show reopens the window.
 ]]
 
 local _G = _G
@@ -41,86 +41,106 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 -- ---------------------------------------------------------------------------
 -- Change notes, written by hand from the git history: the newest note per addon, keyed by the
--- version it belongs to. A version not listed here is announced without a note.
+-- version it belongs to. Keyed by folder name (BetterBagsForever ...), the name the hub and the
+-- saved "seen" versions use; shown under the Gaar name. A version not listed here is announced
+-- without a note.
 -- ---------------------------------------------------------------------------
 
 local CHANGES = {
     BetterForever = {
+        ["3.2.0"] = "Renamed to GaarForever (new /gf commands; old commands and settings keep working)",
         ["3.1.1"] = "notes for every addon's current version",
-        ["3.1.0"] = "what's new on login, per-character settings, export / import, /bf selftest",
-        ["3.0.2"] = "a Loot row for BetterLootForever",
+        ["3.1.0"] = "what's new on login, per-character settings, export / import, /gf selftest",
+        ["3.0.2"] = "a Loot row for GaarLootForever",
     },
     BetterBagsForever = {
+        ["1.10.0"] = "Renamed to GaarBagsForever (new /gbf commands; old commands and settings keep working)",
         ["1.9.3"] = "the addon's own name in its menu errors",
-        ["1.9.2"] = "shared helpers from the BetterForever library",
+        ["1.9.2"] = "shared helpers from the GaarForever library",
     },
     BetterQuestsForever = {
+        ["1.11.0"] = "Renamed to GaarQuestsForever (new /gqf commands; old commands and settings keep working)",
         ["1.10.3"] = "the addon's own name in its menu errors",
-        ["1.10.2"] = "uses the BetterForever shared library",
+        ["1.10.2"] = "uses the GaarForever shared library",
     },
     BetterMapsForever = {
+        ["1.2.0"] = "Renamed to GaarMapsForever (new /gmf commands; old commands and settings keep working)",
         ["1.1.3"] = "the addon's own name in its chat lines and menu errors",
-        ["1.1.2"] = "uses the BetterForever shared library",
+        ["1.1.2"] = "uses the GaarForever shared library",
     },
     BetterCastbarsForever = {
+        ["1.2.0"] = "Renamed to GaarCastbarsForever (new /gcf commands; old commands and settings keep working)",
         ["1.1.6"] = "the addon's own name in its menu errors",
-        ["1.1.5"] = "uses the BetterForever shared library",
+        ["1.1.5"] = "uses the GaarForever shared library",
     },
     BetterPlatesForever = {
+        ["1.3.0"] = "Renamed to GaarPlatesForever (new /gpf commands; old commands and settings keep working)",
         ["1.2.12"] = "the addon's own name in its menu errors",
         ["1.2.11"] = "secret-safe value checks",
     },
     BetterGpsForever = {
+        ["1.3.0"] = "Renamed to GaarGpsForever (new /ggps commands; old commands and settings keep working)",
         ["1.2.3"] = "the addon's own name in its menu errors",
-        ["1.2.2"] = "shared helpers from the BetterForever library",
+        ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     BetterFramesForever = {
+        ["1.3.0"] = "Renamed to GaarFramesForever (new /gff commands; old commands and settings keep working)",
         ["1.2.16"] = "the addon's own name in its menu errors",
         ["1.2.15"] = "the addon's own name in its chat lines and menu errors",
         ["1.2.14"] = "secret-safe value checks",
     },
     BetterWindowsForever = {
+        ["1.1.0"] = "Renamed to GaarWindowsForever (new /gwf commands; old commands and settings keep working)",
         ["1.0.3"] = "the addon's own name in its menu errors",
-        ["1.0.2"] = "uses the BetterForever shared library",
+        ["1.0.2"] = "uses the GaarForever shared library",
     },
     BetterFishingForever = {
+        ["1.5.0"] = "Renamed to GaarFishingForever (new /gfish commands; old commands and settings keep working)",
         ["1.4.1"] = "the addon's own name in its menu errors",
         ["1.4.0"] = "session stats panel, loud splash mode",
         ["1.3.0"] = "reel in with double right-click, Cast / Reel key",
-        ["1.2.2"] = "uses the BetterForever shared library",
+        ["1.2.2"] = "uses the GaarForever shared library",
     },
     BetterBuffsForever = {
-        ["1.6.0"] = "combat dispel icons, lower rank for low-level members, expiring-soon warning /bbuff expire, out-of-range sound fix",
-        ["1.5.1"] = "out-of-range members left out unless /bbuff range on",
+        ["1.7.0"] = "Renamed to GaarBuffsForever (new /gbuff commands; old commands and settings keep working)",
+        ["1.6.0"] = "combat dispel icons, lower rank for low-level members, expiring-soon warning /gbuff expire, out-of-range sound fix",
+        ["1.5.1"] = "out-of-range members left out unless /gbuff range on",
         ["1.5.0"] = "Fortitude for priests, Arcane Intellect for mages",
         ["1.4.0"] = "dispel panel for priests, paladins and mages",
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     BetterMerchantForever = {
+        ["1.1.0"] = "Renamed to GaarMerchantForever (new /gmerch commands; old commands and settings keep working)",
         ["1.0.3"] = "the addon's own name in its menu errors",
-        ["1.0.2"] = "shared helpers from the BetterForever library",
+        ["1.0.2"] = "shared helpers from the GaarForever library",
     },
     BetterTooltipsForever = {
+        ["1.1.0"] = "Renamed to GaarTooltipsForever (new /gtip commands; old commands and settings keep working)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     BetterMailForever = {
+        ["1.1.0"] = "Renamed to GaarMailForever (new /gmail commands; old commands and settings keep working)",
         ["1.0.3"] = "the addon's own name in its chat lines and menu errors",
-        ["1.0.2"] = "uses the BetterForever shared library",
+        ["1.0.2"] = "uses the GaarForever shared library",
     },
     BetterXPForever = {
+        ["1.1.0"] = "Renamed to GaarXPForever (new /gxp commands; old commands and settings keep working)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     BetterChatForever = {
+        ["1.1.0"] = "Renamed to GaarChatForever (new /gchat commands; old commands and settings keep working)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     BetterBarsForever = {
+        ["1.1.0"] = "Renamed to GaarBarsForever (new /gbars commands; old commands and settings keep working)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     BetterLootForever = {
+        ["1.2.0"] = "Renamed to GaarLootForever (new /glf commands; old commands and settings keep working)",
         ["1.1.0"] = "roll result summary panel",
         ["1.0.0"] = "Need / Greed / Pass counts on group loot rolls",
     },
@@ -247,7 +267,7 @@ end
 function Tools.ShowText(title, text, hint, actionLabel, onAction)
     local ok, f = pcall(BuildPopup)
     if not ok or not f then return false end
-    f.title:SetText(title or "BetterForever")
+    f.title:SetText(title or "GaarForever")
     f.hint:SetText(hint or "")
     f.readOnly = text ~= nil
     f.text = text or ""
@@ -313,9 +333,9 @@ local function NewsLine(name, old, new)
     local note = Note(name, new)
     local text
     if old then
-        text = "updated " .. EM_DASH .. " " .. name .. " " .. old .. ARROW .. new
+        text = "updated " .. EM_DASH .. " " .. Lib.DisplayName(name) .. " " .. old .. ARROW .. new
     else
-        text = "new " .. EM_DASH .. " " .. name .. " " .. new
+        text = "new " .. EM_DASH .. " " .. Lib.DisplayName(name) .. " " .. new
     end
     if note then text = text .. ": " .. note end
     return text
@@ -364,7 +384,7 @@ function Tools.NewsCommand(rest)
         return
     end
     if #db.lastNews == 0 then
-        Print("nothing new recorded yet. What's new at login is " .. Lib.OnOff(db.news) .. " (/bf news on|off).")
+        Print("nothing new recorded yet. What's new at login is " .. Lib.OnOff(db.news) .. " (/gf news on|off).")
         return
     end
     for _, l in ipairs(db.lastNews) do Print(l) end
@@ -389,7 +409,8 @@ Tools.ProfileAddons = ProfileAddons
 local function FindRow(word)
     word = tostring(word or ""):lower()
     for _, a in ipairs(hub.ADDONS) do
-        if a.key == word or a.label:lower() == word or a.name:lower() == word or a.slash == "/" .. word then return a end
+        if a.key == word or a.label:lower() == word or a.name:lower() == word or a.title:lower() == word
+            or a.slash == "/" .. word or a.oldSlash == "/" .. word then return a end
     end
 end
 
@@ -400,17 +421,17 @@ local function FindLibAddon(word)
     local obj = Lib.addons and Lib.addons[a.name]
     if type(obj) ~= "table" or not obj.dbShared then
         if Lib.AddOnLoaded(a.name) then
-            return nil, a.name .. " keeps its own settings table, not the library's - profiles and export cover only: "
+            return nil, a.title .. " keeps its own settings table, not the library's - profiles and export cover only: "
                 .. Tools.CoveredText()
         end
-        return nil, a.name .. " is not loaded"
+        return nil, a.title .. " is not loaded"
     end
     return obj
 end
 
 function Tools.CoveredText()
     local names = {}
-    for _, obj in ipairs(ProfileAddons()) do names[#names + 1] = obj.name end
+    for _, obj in ipairs(ProfileAddons()) do names[#names + 1] = obj.title end
     return #names > 0 and table.concat(names, ", ") or "none loaded"
 end
 
@@ -425,16 +446,16 @@ function Tools.ProfileCommand(rest)
         if #list == 0 then
             Print("no loaded addon keeps its settings through the library, so there is nothing to switch.")
         end
-        for _, obj in ipairs(list) do Print(obj.name .. ": " .. ModeText(obj)) end
-        Print("/bf profile char <addon|all> - this character gets its own copy (from the shared settings);"
-            .. " /bf profile shared <addon|all> - back to the shared settings (the copy is dropped).")
+        for _, obj in ipairs(list) do Print(obj.title .. ": " .. ModeText(obj)) end
+        Print("/gf profile char <addon|all> - this character gets its own copy (from the shared settings);"
+            .. " /gf profile shared <addon|all> - back to the shared settings (the copy is dropped).")
         return
     end
     local target
     if mode == "char" or mode == "character" then target = "character"
     elseif mode == "shared" or mode == "account" then target = "shared"
     else
-        Print("/bf profile [char|shared] <addon|all>")
+        Print("/gf profile [char|shared] <addon|all>")
         return
     end
     local list
@@ -455,16 +476,16 @@ function Tools.ProfileCommand(rest)
     for _, obj in ipairs(list) do
         local ok, msg = obj:SetProfileMode(target)
         if ok then
-            Print(obj.name .. ": " .. ModeText(obj))
+            Print(obj.title .. ": " .. ModeText(obj))
         else
-            Print(obj.name .. ": " .. tostring(msg))
+            Print(obj.title .. ": " .. tostring(msg))
         end
     end
 end
 
 function Tools.ExportCommand(word)
     if word == "" then
-        Print("/bf export <addon> - one of: " .. Tools.CoveredText())
+        Print("/gf export <addon> - one of: " .. Tools.CoveredText())
         return
     end
     local obj, why = FindLibAddon(word)
@@ -477,8 +498,8 @@ function Tools.ExportCommand(word)
         Print("export failed: " .. tostring(err))
         return
     end
-    local shown = Tools.ShowText(obj.name .. " settings (" .. ModeText(obj) .. ")", s,
-        "Ctrl+C to copy. Paste it with /bf import.")
+    local shown = Tools.ShowText(obj.title .. " settings (" .. ModeText(obj) .. ")", s,
+        "Ctrl+C to copy. Paste it with /gf import.")
     if not shown then Print(s) end
 end
 
@@ -494,7 +515,7 @@ local function DoImport(text)
         return
     end
     local applied, ignored = obj:ImportSettings(t)
-    Print(string.format("imported %d setting(s) into %s (%s)%s.", applied, obj.name, ModeText(obj),
+    Print(string.format("imported %d setting(s) into %s (%s)%s.", applied, obj.title, ModeText(obj),
         ignored > 0 and (", " .. ignored .. " unknown or invalid left out") or ""))
     Tools.HideText()
 end
@@ -502,7 +523,7 @@ Tools.DoImport = DoImport
 
 function Tools.ImportCommand()
     local shown = Tools.ShowText("Import settings", nil,
-        "Paste a /bf export string (Ctrl+V), then Import. Only known settings are taken.", "Import", DoImport)
+        "Paste a /gf export string (Ctrl+V), then Import. Only known settings are taken.", "Import", DoImport)
     if not shown then Print("no text window on this client.") end
 end
 
@@ -706,7 +727,7 @@ local function Header()
     local build = { Lib.Call(_G.GetBuildInfo) }
     local class = Str(select(2, Lib.Call(_G.UnitClass, "player"))) or "?"
     local level = Num(Lib.Call(_G.UnitLevel, "player"))
-    return string.format("BetterForever %s self-test (library %s) - client %s (%s, interface %s) - %s %s - %s",
+    return string.format("GaarForever %s self-test (library %s) - client %s (%s, interface %s) - %s %s - %s",
         tostring(hub.VERSION), tostring(Lib.version), tostring(build[1] or "?"), tostring(build[2] or "?"),
         tostring(build[4] or "?"), class, tostring(level or "?"), tostring(Lib.Call(_G.date, "%Y-%m-%d") or "?"))
 end
@@ -729,7 +750,7 @@ function Tools.SelfTestText()
     return table.concat(lines, "\n")
 end
 
-local SELFTEST_HINT = "Ctrl+C to copy and send it. /bf selftest show reopens it."
+local SELFTEST_HINT = "Ctrl+C to copy and send it. /gf selftest show reopens it."
 
 -- quiet: only refresh the window when it is open, never open it or take the keyboard (the second
 -- run happens as combat starts).
@@ -737,7 +758,7 @@ local function SaveAndShow(quiet)
     local text = Tools.SelfTestText()
     if #text <= MAX_SAVED_TEXT then hub.db.selftest = text end
     if not quiet then
-        Tools.ShowText("BetterForever self-test", text, SELFTEST_HINT)
+        Tools.ShowText("GaarForever self-test", text, SELFTEST_HINT)
     elseif popup and popup:IsShown() and popup.readOnly then
         popup.text = text
         popup.edit:SetText(text)
@@ -777,7 +798,7 @@ local function Arm(event)
                 Print("self-test " .. (label == "in" and "in combat" or "out of combat") .. ": " .. Summary(runs[label]))
                 PrintDiff()
                 SaveAndShow(true)
-                Print("self-test done: /bf selftest show for the text to copy.")
+                Print("self-test done: /gf selftest show for the text to copy.")
             end
             -- A moment later, so the client is fully in (or out of) combat.
             local after = _G.C_Timer and _G.C_Timer.After
@@ -793,9 +814,9 @@ function Tools.SelfTestCommand(rest)
         if runs.out or runs["in"] then
             SaveAndShow()
         elseif hub.db.selftest then
-            Tools.ShowText("BetterForever self-test (saved)", hub.db.selftest, "Ctrl+C to copy. /bf selftest runs it again.")
+            Tools.ShowText("GaarForever self-test (saved)", hub.db.selftest, "Ctrl+C to copy. /gf selftest runs it again.")
         else
-            Print("no self-test yet: /bf selftest")
+            Print("no self-test yet: /gf selftest")
         end
         return
     end

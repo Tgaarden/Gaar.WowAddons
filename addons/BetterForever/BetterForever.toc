@@ -1,10 +1,10 @@
 ## Interface: 16001
-## Title: BetterForever
-## Notes: The hub of the Better...Forever family, required by every one of them: the shared library, one minimap button whose menu holds their options, and their pages under Esc > Options > AddOns > Better Forever. Each addon keeps its own settings and commands. Also: what's new after an update, per-character settings and export / import, and an API self-test. /bf
-## Category: Better Forever
-## Category-enUS: Better Forever
+## Title: GaarForever
+## Notes: The hub of the Gaar...Forever family, required by every one of them: the shared library, one minimap button whose menu holds their options, and their pages under Esc > Options > AddOns > Gaar Forever. Each addon keeps its own settings and commands. Also: what's new after an update, per-character settings and export / import, and an API self-test. /gf
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 3.1.1
+## Version: 3.2.0
 ## X-Curse-Project-ID: 1790363
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10
 ## SavedVariables: BetterForeverDB

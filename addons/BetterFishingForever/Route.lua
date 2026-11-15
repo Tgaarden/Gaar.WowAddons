@@ -13,11 +13,11 @@
     grants    the skill cap the step unlocks (75 Apprentice, 150 Journeyman, 225 Expert,
               300 Artisan). A step with grants is done once the cap reaches it, and becomes the
               current step only while the skill sits at the cap.
-    optional  a vendor or quest step that unlocks nothing; /bfish route next skips it for good
+    optional  a vendor or quest step that unlocks nothing; /gfish route next skips it for good
     title     the line shown in chat, on the pins and as the GPS waypoint's name
     zone, mapID, x, y   the NPC (or, for the first fish steps, the anchor: fish any water nearby)
     spots     fishing coordinates { x, y, src }, src = where the coordinate comes from
-    npc, note shown in the tooltip and by /bfish route
+    npc, note shown in the tooltip and by /gfish route
 
   Sources (see the README's Credits): pool coordinates are facts read from the GatherMate2 data
   dumps (Thurdi/GatherMate2_Data_Classic for Classic Era maps, "GM2 Classic"; Nevcairiel/
@@ -43,7 +43,7 @@ ns.route = {
     { id = "vendor_pole", faction = "Both", from = 1, to = 75, kind = "vendor", optional = true,
       title = "Fishing 1-75: buy a pole and lures",
       zone = "Any starting zone", npc = "Fishing Supply or Trade Supplies vendor",
-      note = "Buy a Fishing Pole and Shiny Baubles (+25 for 10 min); a Strong Fishing Pole (+5) if you can. /bfish route next when done." },
+      note = "Buy a Fishing Pole and Shiny Baubles (+25 for 10 min); a Strong Fishing Pole (+5) if you can. /gfish route next when done." },
     { id = "a_fish_elwynn", faction = "Alliance", from = 1, to = 75, kind = "fish",
       title = "Fishing 1-75: Elwynn Forest",
       zone = "Elwynn Forest", mapID = 1429, x = 47.6, y = 62.2,
@@ -65,7 +65,7 @@ ns.route = {
     { id = "vendor_crawlers", faction = "Both", from = 50, to = 150, kind = "vendor", optional = true,
       title = "Fishing 75-150: buy Nightcrawlers",
       zone = "Any Fishing Supply vendor", npc = "Fishing Supply vendor",
-      note = "Nightcrawlers (+50, needs skill 50) keep fish from escaping. /bfish route next when done." },
+      note = "Nightcrawlers (+50, needs skill 50) keep fish from escaping. /gfish route next when done." },
     { id = "a_fish_westfall", faction = "Alliance", from = 75, to = 150, kind = "fish",
       title = "Fishing 75-150: Westfall",
       zone = "Westfall", mapID = 1436,
@@ -97,11 +97,11 @@ ns.route = {
     { id = "h_quest_snapjaws", faction = "Horde", from = 100, to = 225, kind = "quest", optional = true,
       title = "Fishing 100-225: pole quest, The Hinterlands",
       zone = "The Hinterlands", mapID = 1425, x = 80.2, y = 81.4, npc = "Katoom the Angler",
-      note = "Optional: 'Snapjaws, Mon!' gives Nat Pagle's Extreme Angler FC-5000 (needs skill 100). Revantusk Village. /bfish route next to skip." },
+      note = "Optional: 'Snapjaws, Mon!' gives Nat Pagle's Extreme Angler FC-5000 (needs skill 100). Revantusk Village. /gfish route next to skip." },
     { id = "a_quest_snapjaws", faction = "Alliance", from = 100, to = 225, kind = "quest", optional = true,
       title = "Fishing 100-225: pole quest, The Hinterlands",
       zone = "The Hinterlands", mapID = 1425, npc = "Dron Blastbrew",
-      note = "Optional and unconfirmed: 'Snapjaws, Lad!' (Stormfeather Outpost) is listed by warcraft.wiki.gg only; other guides say the pole quest is Horde-only. No position known. /bfish route next to skip." },
+      note = "Optional and unconfirmed: 'Snapjaws, Lad!' (Stormfeather Outpost) is listed by warcraft.wiki.gg only; other guides say the pole quest is Horde-only. No position known. /gfish route next to skip." },
     { id = "fish_dustwallow", faction = "Both", from = 150, to = 225, kind = "fish",
       title = "Fishing 150-225: Dustwallow Marsh",
       zone = "Dustwallow Marsh", mapID = 1445,
@@ -126,12 +126,12 @@ ns.route = {
     { id = "artisan_quest", faction = "Both", from = 225, to = 225, kind = "quest", grants = 300,
       title = "Fishing 225: Artisan quest, Nat Pagle",
       zone = "Dustwallow Marsh", mapID = 1445, x = 58.6, y = 60.0, npc = "Nat Pagle",
-      note = "Take 'Nat Pagle, Angler Extreme' (skill 225; guides say character level 35). Nat's Landing, the island south-west of Theramore. Do not be in a raid group while you fish the four fish. /bfish route next for each fish." },
+      note = "Take 'Nat Pagle, Angler Extreme' (skill 225; guides say character level 35). Nat's Landing, the island south-west of Theramore. Do not be in a raid group while you fish the four fish. /gfish route next for each fish." },
     { id = "artisan_feralas", faction = "Both", from = 225, to = 225, kind = "fish", grants = 300,
       title = "Fishing 225: Feralas Ahi",
       zone = "Feralas", mapID = 1444,
       spots = { { x = 62.0, y = 51.0, src = "warcraft.wiki.gg" } },
-      note = "Feralas Ahi, in the Verdantis River south-east of Dire Maul. The quest must be active. /bfish route next once you have it." },
+      note = "Feralas Ahi, in the Verdantis River south-east of Dire Maul. The quest must be active. /gfish route next once you have it." },
     { id = "artisan_swamp", faction = "Both", from = 225, to = 225, kind = "fish", grants = 300,
       title = "Fishing 225: Misty Reed Mahi Mahi",
       zone = "Swamp of Sorrows", mapID = 1435,
@@ -140,7 +140,7 @@ ns.route = {
         { x = 90.4, y = 37.2, src = "GM2 retail" },
         { x = 90.0, y = 43.4, src = "GM2 retail" },
       },
-      note = "Misty Reed Mahi Mahi, at the Misty Reed Strand on the south-east shore. /bfish route next once you have it." },
+      note = "Misty Reed Mahi Mahi, at the Misty Reed Strand on the south-east shore. /gfish route next once you have it." },
     { id = "artisan_desolace", faction = "Both", from = 225, to = 225, kind = "fish", grants = 300,
       title = "Fishing 225: Sar'theris Striker",
       zone = "Desolace", mapID = 1443,
@@ -148,7 +148,7 @@ ns.route = {
         { x = 25.0, y = 77.0, src = "warcraft.wiki.gg" },
         { x = 25.2, y = 78.2, src = "GM2 Classic" },
       },
-      note = "Sar'theris Striker, at the Sar'theris Strand south of Shadowprey Village. /bfish route next once you have it." },
+      note = "Sar'theris Striker, at the Sar'theris Strand south of Shadowprey Village. /gfish route next once you have it." },
     { id = "artisan_stv", faction = "Both", from = 225, to = 225, kind = "fish", grants = 300,
       title = "Fishing 225: Savage Coast Blue Sailfin",
       zone = "Stranglethorn Vale", mapID = 1434,
@@ -156,7 +156,7 @@ ns.route = {
         { x = 33.0, y = 32.0, src = "warcraft.wiki.gg" },
         { x = 34.1, y = 32.9, src = "GM2 Classic" },
       },
-      note = "Savage Coast Blue Sailfin, on the Savage Coast south of Grom'gol. /bfish route next once you have it." },
+      note = "Savage Coast Blue Sailfin, on the Savage Coast south of Grom'gol. /gfish route next once you have it." },
     { id = "artisan_turnin", faction = "Both", from = 225, to = 225, kind = "quest", grants = 300,
       title = "Fishing 225: hand in to Nat Pagle",
       zone = "Dustwallow Marsh", mapID = 1445, x = 58.6, y = 60.0, npc = "Nat Pagle",
@@ -178,7 +178,7 @@ ns.route = {
         { x = 44.0, y = 51.0, src = "GM2 Classic" },
       },
       npc = "Brannock",
-      note = "The coast and the Verdantis River around Feathermoon Stronghold (32.2, 41.6, trainer Brannock). Bright Baubles. Tanaris is the alternative (/bfish route next)." },
+      note = "The coast and the Verdantis River around Feathermoon Stronghold (32.2, 41.6, trainer Brannock). Bright Baubles. Tanaris is the alternative (/gfish route next)." },
     { id = "h_fish_hinterlands", faction = "Horde", from = 225, to = 300, kind = "fish",
       title = "Fishing 225-300: The Hinterlands",
       zone = "The Hinterlands", mapID = 1425,
@@ -187,7 +187,7 @@ ns.route = {
         { x = 79.4, y = 61.9, src = "GM2 retail" },
       },
       npc = "Katoom the Angler",
-      note = "Revantusk Village and the east coast (trainer Katoom 80.2, 81.4). Bright Baubles. Tanaris is the alternative (/bfish route next)." },
+      note = "Revantusk Village and the east coast (trainer Katoom 80.2, 81.4). Bright Baubles. Tanaris is the alternative (/gfish route next)." },
     { id = "fish_tanaris", faction = "Both", from = 225, to = 300, kind = "fish",
       title = "Fishing 225-300: Tanaris",
       zone = "Tanaris", mapID = 1446,
@@ -200,7 +200,7 @@ ns.route = {
       note = "The coast at Steamwheedle Port, often named the best spot to 300. Also fine: Un'Goro Crater, Felwood, Western Plaguelands." },
   },
 
-  -- Gear worth having on the way; shown by /bfish route gear.
+  -- Gear worth having on the way; shown by /gfish route gear.
   gear = {
     { name = "Fishing Pole", how = "Any Fishing Supply or Trade Supplies vendor." },
     { name = "Strong Fishing Pole (+5, skill 10)", how = "Fishing vendors, about 10s." },

@@ -8,7 +8,7 @@
       enchant (GetWeaponEnchantInfo): the main hand, and the off hand only when it holds a weapon
       (not a shield, an off-hand item or nothing). Any temporary enchant counts (an imbue, a
       poison, a sharpening stone, ...); a fishing pole is never warned about. The row casts the
-      imbue you chose (/bbuff imbue <name>, per character, also in the hub menu): Rockbiter,
+      imbue you chose (/gbuff imbue <name>, per character, also in the hub menu): Rockbiter,
       Flametongue, Frostbrand or Windfury Weapon, the highest rank you know, by name. "auto"
       (the default) is Windfury Weapon when known, else Flametongue, else Rockbiter; a chosen
       imbue you do not know falls back to auto. Since 1.6.0 a temporary enchant with less than
@@ -19,13 +19,13 @@
     * Lightning Shield: a row when you lack it, once you know it, and under "Expiring Lightning
       Shield:" when it runs out within the "expiring" minutes. The row casts it.
     * Low reagents, each only once you know the spell that needs it:
-        Ankh (17030)               Reincarnation, below 2 by default (/bbuff reagents ankh <n>)
+        Ankh (17030)               Reincarnation, below 2 by default (/gbuff reagents ankh <n>)
         Earth/Fire/Water/Air Totem (5175/5176/5177/5178)
                                    once you know any totem of that element; the item is not
                                    used up, so the default threshold is 1: warns only when it is
-                                   not in your bags (/bbuff reagents totems 0|1)
+                                   not in your bags (/gbuff reagents totems 0|1)
         Shiny Fish Scales (17057)  Water Breathing, below 5 by default
-        Fish Oil (17058)           Water Walking, below 5 by default (/bbuff reagents water <n>)
+        Fish Oil (17058)           Water Walking, below 5 by default (/gbuff reagents water <n>)
       Counted by item ID, and by the item's name when the ID finds none.
 
   Spells (classic ranks, highest first; the same IDs as WhatsTraining's Vanilla shaman data):
@@ -283,7 +283,7 @@ function M.Check(units, tankSet, entries, missing, stats)
     if unknownHere then stats.unknown = stats.unknown + 1 end
 end
 
--- One entry per reagent below its threshold, and every reagent checked (for /bbuff status).
+-- One entry per reagent below its threshold, and every reagent checked (for /gbuff status).
 function M.LowReagents()
     local low, checked = {}, {}
     local function Check(item, key, default, label)
@@ -326,9 +326,9 @@ local IMBUE_WORDS = "auto|rockbiter|flametongue|frostbrand|windfury"
 
 function M.Help()
     return {
-        "/bbuff imbue [on|off] - warn when a weapon has no imbue (any temporary enchant counts); /bbuff imbue " .. IMBUE_WORDS
+        "/gbuff imbue [on|off] - warn when a weapon has no imbue (any temporary enchant counts); /gbuff imbue " .. IMBUE_WORDS
             .. " - what a click casts (this character; auto = Windfury, else Flametongue, else Rockbiter)",
-        "/bbuff shield [on|off] - warn when you lack Lightning Shield",
+        "/gbuff shield [on|off] - warn when you lack Lightning Shield",
     }
 end
 
@@ -340,12 +340,12 @@ function M.Slash(cmd, arg)
         elseif arg == "auto" or IMBUE_IDS[arg] then
             SetChoice(arg)
         else
-            ns.Print("/bbuff imbue [on|off], /bbuff imbue " .. IMBUE_WORDS .. "   now: " .. ChoiceLabel(Choice()))
+            ns.Print("/gbuff imbue [on|off], /gbuff imbue " .. IMBUE_WORDS .. "   now: " .. ChoiceLabel(Choice()))
         end
         return true
     elseif cmd == "shield" or cmd == "lshield" then
         local v = ns.Toggle(arg, On("shield"))
-        if v == nil then ns.Print("/bbuff shield [on|off]") else ns.Set("shield", v) end
+        if v == nil then ns.Print("/gbuff shield [on|off]") else ns.Set("shield", v) end
         return true
     end
     return false

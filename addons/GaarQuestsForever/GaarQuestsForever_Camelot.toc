@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: GaarQuestsForever
-## Notes: Orders the Quests section of Forever's objective tracker by level or distance, watches the lowest quests that fit the tracker's height (auto-watch), optionally only the current dungeon's quests, and shows at most N. /gqf or the minimap button
+## Notes: Orders the Quests section of Forever's objective tracker by level or distance, watches the lowest quests that fit the tracker's height (auto-watch), optionally only the current dungeon's quests, and shows at most N. auto-accepts quests if asked. /gqf or the minimap button
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.11.0
+## Version: 1.12.0
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## Dependencies: GaarForever
 ## SavedVariables: GaarQuestsForeverDB

@@ -113,13 +113,14 @@ local DEFAULTS = {
     hideInCombat = true,
     autoWatch = true,
     dungeonFilter = false,
+    autoAccept = false,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key GaarQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
     hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true, dungeonFilter = true,
-    dungeonRestore = true }
+    dungeonRestore = true, autoAccept = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -2120,6 +2121,12 @@ local function SetAutoWatch(on)
     end
 end
 
+local function SetAutoAccept(on)
+    db.autoAccept = on and true or false
+    Print("auto-accept quests " .. (on and "on: quests are accepted when their window opens (hold Shift to skip). Turn-ins and dialogue are never touched."
+        or "off.") )
+end
+
 local function SetDungeonFilter(on)
     db.dungeonFilter = on and true or false
     if on then
@@ -2254,6 +2261,8 @@ local function OptionEntries()
           func = function() SetEnabled(not db.enabled) end },
         { text = "Auto-watch quests that fit", checkbox = true, checked = function() return db.autoWatch end,
           func = function() SetAutoWatch(not db.autoWatch) end },
+        { text = "Auto-accept quests", checkbox = true, checked = function() return db.autoAccept end,
+          func = function() SetAutoAccept(not db.autoAccept) end },
         { text = "Dungeon filter", checkbox = true, checked = function() return db.dungeonFilter end,
           func = function() SetDungeonFilter(not db.dungeonFilter) end },
     }
@@ -2876,6 +2885,8 @@ local function PrintHelp()
         .. (db and db.completed or DEFAULTS.completed) .. ")")
     Print("/gqf autowatch on | off - watch the lowest quests that fit the tracker's height and un-watch the rest (now: "
         .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
+    Print("/gqf autoaccept - toggle accepting quests automatically when their window opens; hold Shift to skip; never turns in or picks gossip (now: "
+        .. ((db and db.autoAccept) and "on" or "off") .. ")")
     Print("/gqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
         .. ((db and db.dungeonFilter) and "on" or "off") .. ")")
     Print("/gqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
@@ -3019,6 +3030,10 @@ local function OnSlash(msg)
         SetAutoWatch(false)
     elseif msg == "autowatch" or msg:match("^autowatch ") then
         Print("use /gqf autowatch on or off (now: " .. (db.autoWatch and "on" or "off") .. ").")
+    elseif msg == "autoaccept" then
+        SetAutoAccept(not db.autoAccept)
+    elseif msg:match("^autoaccept ") then
+        Print("use /gqf autoaccept to toggle (now: " .. (db.autoAccept and "on" or "off") .. ").")
     elseif msg == "dungeon on" then
         SetDungeonFilter(true)
     elseif msg == "dungeon off" then
@@ -3103,6 +3118,7 @@ local function BindSavedVariables()
     if type(db.hideInCombat) ~= "boolean" then db.hideInCombat = DEFAULTS.hideInCombat end
     if type(db.autoWatch) ~= "boolean" then db.autoWatch = DEFAULTS.autoWatch end
     if type(db.dungeonFilter) ~= "boolean" then db.dungeonFilter = DEFAULTS.dungeonFilter end
+    if type(db.autoAccept) ~= "boolean" then db.autoAccept = DEFAULTS.autoAccept end
     Dungeon.CleanRestore()
     MinimapDB()
     BackdropDB()
@@ -3153,6 +3169,19 @@ events:SetScript("OnEvent", function(_, event, arg1)
         Schedule()
     end
 end)
+
+-- Auto-accept: only QUEST_DETAIL (the accept window). Shift held = skip. A quest the client
+-- already accepted on its own (QuestGetAutoAccept) is left alone. No turn-in, no gossip.
+local acceptFrame = CreateFrame("Frame")
+if pcall(acceptFrame.RegisterEvent, acceptFrame, "QUEST_DETAIL") then
+    acceptFrame:SetScript("OnEvent", function()
+        if not (db and db.autoAccept) then return end
+        if type(_G.IsShiftKeyDown) == "function" and _G.IsShiftKeyDown() then return end
+        if type(_G.QuestGetAutoAccept) == "function" and _G.QuestGetAutoAccept() then return end
+        if type(_G.AcceptQuest) ~= "function" then return end
+        pcall(_G.AcceptQuest)
+    end)
+end
 
 SLASH_GAARQUESTSFOREVER1 = "/gqf"
 SLASH_GAARQUESTSFOREVER2 = "/gaarquestsforever"

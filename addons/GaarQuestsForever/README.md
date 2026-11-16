@@ -55,6 +55,7 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
   - **Off** (`/gqf autowatch off`, the menu's **Auto-watch quests that fit**, or `/gqf off`): the
     watch list is left exactly as it is and is yours again; nothing is restored or re-tracked. The
     order and the limit then only change what is drawn of the quests you track, as before 1.7.
+- **Auto-accept (1.12, default off).** `/gqf autoaccept` toggles it (or **Auto-accept quests** in the menus). When a quest's accept window opens (`QUEST_DETAIL`) the quest is accepted. Hold Shift while it opens to skip. Quests the client already accepts itself and escort/shared confirmations are left alone; turn-ins and gossip are never touched.
 - **Dungeon filter (1.10, default off).** `/gqf dungeon on` (or **Dungeon filter** in the menus).
   Inside a dungeon or raid instance only that instance's quests are watched, in the usual order;
   the other quests of the Quests section are un-watched. If no quest matches, nothing changes (the
@@ -110,6 +111,7 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 | `/gqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
 | `/gqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/gqf autowatch on`, `/gqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
+| `/gqf autoaccept` | Toggle auto-accept (1.12, default off): accepts a quest when its window opens; hold Shift to skip. Never turns in quests or picks gossip |
 | `/gqf dungeon on`, `/gqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
 | `/gqf on`, `/gqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/gqf bg on`, `/gqf bg off` | Show or hide the backdrop behind the tracker (default on) |

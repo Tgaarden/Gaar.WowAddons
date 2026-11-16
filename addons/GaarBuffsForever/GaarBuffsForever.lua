@@ -100,7 +100,7 @@ ADDON_NAME = ADDON_NAME or "GaarBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.7.0"
+local VERSION = "1.7.1"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever

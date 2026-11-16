@@ -23,10 +23,7 @@ if [ "$ids" = "[]" ]; then
 fi
 
 meta="$(jq -n --argjson gv "$ids" --rawfile cl "$notes" '{changelog:$cl, changelogType:"markdown", displayName:null, gameVersions:$gv, releaseType:"release"}' | jq 'del(.displayName)')"
-dep_addon="$(jq -r '.requiredDependencyAddon' "$cfg")"; slug="$(jq -r '.requiredDependencySlug // empty' "$cfg")"
-if [ -n "$slug" ] && grep -qE "^## Dependencies:.*\b$dep_addon\b" "$REPO/addons/$name/$name.toc"; then
-  meta="$(echo "$meta" | jq --arg s "$slug" '.relations={projects:[{slug:$s,type:"requiredDependency"}]}')"
-fi
+meta="$(echo "$meta" | jq --slurpfile c "$cfg" --arg n "$name" '($c[0].relations[$n] // []) as $r | if ($r | length) > 0 then .relations={projects:$r} else . end')"
 echo "Uploading $zip to CurseForge project $pid with metadata:"; echo "$meta" | jq -c 'del(.changelog)'
 out="$(mktemp)"
 code="$(curl -sS -o "$out" -w '%{http_code}' -X POST -H "X-Api-Token: $CF_API_KEY" --form-string "metadata=$meta" -F "file=@$zip" "$api/projects/$pid/upload-file")"

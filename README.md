@@ -533,7 +533,7 @@ Bump `## Version` in both TOCs and merge first; the tag must match the TOC versi
   release is still made). Seeded from the `X-Curse-Project-ID` lines in the TOCs.
 - Game version(s): `tools/curseforge-config.json` (`gameVersionIds`, or `gameVersionNames`
   resolved via the API). The upload fails and lists candidate IDs if they can't be resolved.
-- Required dependency on GaarForever is sent only once `requiredDependencySlug` is filled in.
+- CurseForge relations (required GaarForever, optional extras) come from `relations` in `tools/curseforge-config.json`.
 - Secret `CF_API_KEY` (repo Settings > Secrets > Actions): API token from
   https://wow.curseforge.com/account/api-tokens. Without it the CurseForge step is skipped.
 - The changelog is the tag message (release.sh fills it from the addon's commits; the first

@@ -72,7 +72,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })

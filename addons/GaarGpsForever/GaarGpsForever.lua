@@ -60,7 +60,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarGpsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates

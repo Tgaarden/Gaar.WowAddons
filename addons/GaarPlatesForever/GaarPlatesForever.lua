@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarPlatesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 -- The shared helpers (GaarForever's library, Lib.lua; the addon depends on GaarForever).
 local BF = _G.GaarForever

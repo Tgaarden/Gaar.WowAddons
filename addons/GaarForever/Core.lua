@@ -56,7 +56,7 @@ local Lib = _G.GaarForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "GaarForever"
-local VERSION = "3.2.3"
+local VERSION = "3.2.4"
 local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -299,10 +299,23 @@ local function AddDisabled(root, text)
     if type(d) == "table" and type(d.SetEnabled) == "function" then pcall(d.SetEnabled, d, false) end
 end
 
+-- The addons as the menu lists them: a copy of ADDONS sorted by displayed label, case-insensitive
+-- (ADDONS keeps its registration order for everything else).
+local function SortedAddons()
+    local list = {}
+    for i, a in ipairs(ADDONS) do list[i] = a end
+    table.sort(list, function(x, y)
+        local lx, ly = tostring(x.label):lower(), tostring(y.label):lower()
+        if lx ~= ly then return lx < ly end
+        return tostring(x.label) < tostring(y.label)
+    end)
+    return list
+end
+
 -- Blizzard's menu: each addon fills its own submenu through its API.
 local function BuildMenuUtil(root)
     if type(root.CreateTitle) == "function" then root:CreateTitle(TITLE) end
-    for _, a in ipairs(ADDONS) do
+    for _, a in ipairs(SortedAddons()) do
         local api = API(a)
         if api and type(api.AddMenuEntries) == "function" then
             local sub = root:CreateButton(a.label)
@@ -322,7 +335,7 @@ end
 -- func }, { text, submenu }, { label } (a line that cannot be clicked) and { divider }.
 local function MenuEntries()
     local list = {}
-    for _, a in ipairs(ADDONS) do
+    for _, a in ipairs(SortedAddons()) do
         local api = API(a)
         local items = api and pcall1(api.MenuEntries)
         if type(items) == "table" then

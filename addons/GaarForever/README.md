@@ -157,9 +157,9 @@ One button (`GaarForeverMinimapButton`), with the placement code of GaarQuestsFo
 GaarVanguard: on the rim of the minimap (half its width plus 5), or on the edge of a square
 minimap (`GetMinimapShape() == "SQUARE"`), dragged around it, angle saved, 285 degrees by default
 (clear of GaarOptions at 205 and GaarVanguard at 245). The tooltip shows each addon's state line.
-A click opens a submenu per addon - **Bags**, **Quests**, **Maps**, **Castbars**, **Plates**,
-**GPS**, **Frames**, **Windows**, **Fishing**, **Buffs**, **Merchant**, **Tooltips**, **Mail**,
-**XP**, **Chat**, **Bars** and **Loot** - each filled by the addon itself through its API, then
+A click opens a submenu per addon, sorted alphabetically (since 3.2.4) - **Bags**, **Bars**,
+**Buffs**, **Castbars**, **Chat**, **Fishing**, **Frames**, **GPS**, **Loot**, **Mail**, **Maps**,
+**Merchant**, **Plates**, **Quests**, **Tooltips**, **Windows** and **XP** - each filled by the addon itself through its API, then
 **Hide minimap button** (`/gf minimap` brings it back). An addon that is not installed shows a
 disabled `GaarBagsForever – not installed` line instead; one that is loaded but older than its
 API says to update it.
@@ -427,6 +427,11 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
    shape stays the same, so the hub needs no change.
 7. Bump the version, run `tools/check.sh`, and check `/x`, `/x status`, the minimap submenu and
    the Options page in game.
+
+## 3.2.4
+
+- The minimap menu lists the addons alphabetically by label (case-insensitive) instead of in
+  registration order. Only the menu changes.
 
 ## 3.2.2
 

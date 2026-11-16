@@ -72,7 +72,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -99,6 +99,8 @@ local FEATURES = {
     { key = "macroText", cmd = "macro", default = true, label = "Macro names" },
     { key = "outOfRangeHotkey", cmd = "rangehotkey", default = false,
       label = "Out of range: red hotkey instead of red icon" },
+    { key = "lowRankWarn", cmd = "rank", default = true,
+      label = "Orange ring on low-rank spells (spellbook open)" },
 }
 local FEATURE_BY_CMD = {}
 for _, f in ipairs(FEATURES) do
@@ -797,6 +799,212 @@ local function Scan()
     HookGlobals()
 end
 
+-- ---------------------------------------------------------------------------
+-- Low-rank ring (lowRankWarn)
+--
+-- While the spellbook is open, an action button whose spell is not the highest known rank of
+-- that spell gets a pulsing orange ring. The ring is a frame of our own, a child of the button
+-- (created and shown out of combat only; hiding it works in combat through a stopped animation
+-- and alpha 0). Nothing is compared in combat: the state then stays as it was.
+-- ---------------------------------------------------------------------------
+
+local RING_RGB = { 1.0, 0.5, 0.0 }
+local RING_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border"
+local RING_SCALE = 1.8
+local RING_PULSE = 0.8        -- seconds from bright to dim; it bounces back
+local RING_LOW_ALPHA = 0.35
+
+-- Frames that count as "the spellbook": Classic's SpellBookFrame and the retail-style
+-- PlayerSpellsFrame (Blizzard_PlayerSpells, load on demand). Whichever exists gets hooked.
+local SPELLBOOK_FRAMES = { "SpellBookFrame", "PlayerSpellsFrame" }
+local SPELLBOOK_ADDONS = { Blizzard_PlayerSpells = true, Blizzard_SpellBookUI = true,
+    Blizzard_SpellBook = true, Blizzard_PlayerSpellsFrame = true }
+local spellbookHooked = {}
+local spellbookOpen = false
+
+local function SpellName(id)
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellName) == "function" then
+        local ok, n = pcall(C.GetSpellName, id)
+        if ok and not Secret(n) then return Str(n) end
+    end
+    if type(_G.GetSpellInfo) == "function" then
+        local ok, n = pcall(_G.GetSpellInfo, id)
+        if ok and not Secret(n) and type(n) == "string" then return n end
+    end
+    return nil
+end
+
+-- "Rank 3" -> 3; nil when the spell has no rank.
+local function SpellRank(id)
+    local sub
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellSubtext) == "function" then
+        local ok, s = pcall(C.GetSpellSubtext, id)
+        if ok and not Secret(s) then sub = Str(s) end
+    end
+    if not sub and type(_G.GetSpellSubtext) == "function" then
+        local ok, s = pcall(_G.GetSpellSubtext, id)
+        if ok and not Secret(s) then sub = Str(s) end
+    end
+    local n = sub and sub:match("(%d+)")
+    return n and tonumber(n) or nil
+end
+
+-- name -> highest rank number the player knows, from the spellbook. Nil when no spellbook API
+-- answered.
+local function KnownMaxRanks()
+    local max = {}
+    local seen = false
+    local function Add(id)
+        id = Num(id)
+        if not id or id <= 0 then return end
+        local name, rank = SpellName(id), SpellRank(id)
+        seen = true
+        if name and rank and (not max[name] or rank > max[name]) then max[name] = rank end
+    end
+    local SB = _G.C_SpellBook
+    if type(SB) == "table" and type(SB.GetNumSpellBookSkillLines) == "function"
+        and type(SB.GetSpellBookSkillLineInfo) == "function" and type(SB.GetSpellBookItemInfo) == "function" then
+        local bank = _G.Enum and _G.Enum.SpellBookSpellBank and _G.Enum.SpellBookSpellBank.Player or 0
+        local spellType = _G.Enum and _G.Enum.SpellBookItemType and _G.Enum.SpellBookItemType.Spell
+        local okN, lines = pcall(SB.GetNumSpellBookSkillLines)
+        lines = okN and Num(lines) or 0
+        for i = 1, lines do
+            local okL, li = pcall(SB.GetSpellBookSkillLineInfo, i)
+            if okL and type(li) == "table" and not Secret(li) then
+                local off, count = Num(li.itemIndexOffset) or 0, Num(li.numSpellBookItems) or 0
+                for j = off + 1, off + count do
+                    local okI, info = pcall(SB.GetSpellBookItemInfo, j, bank)
+                    if okI and type(info) == "table" and not Secret(info)
+                        and (spellType == nil or info.itemType == spellType) and not info.isOffSpec then
+                        Add(info.spellID or info.actionID)
+                    end
+                end
+            end
+        end
+    elseif type(_G.GetNumSpellTabs) == "function" and type(_G.GetSpellTabInfo) == "function"
+        and type(_G.GetSpellBookItemInfo) == "function" then
+        local okN, tabs = pcall(_G.GetNumSpellTabs)
+        tabs = okN and Num(tabs) or 0
+        for t = 1, tabs do
+            local okT, _, _, off, count = pcall(_G.GetSpellTabInfo, t)
+            off, count = okT and Num(off) or 0, okT and Num(count) or 0
+            for j = off + 1, off + count do
+                local okI, kind, id = pcall(_G.GetSpellBookItemInfo, j, "spell")
+                if okI and kind == "SPELL" then Add(id) end
+            end
+        end
+    end
+    return seen and max or nil
+end
+
+-- true when the button's spell is a lower rank than a rank the player knows.
+local function IsLowRank(st, maxRanks)
+    if st.kind ~= "action" or type(_G.GetActionInfo) ~= "function" then return false end
+    local slot = ActionSlot(st)
+    if not slot then return false end
+    local ok, kind, id = pcall(_G.GetActionInfo, slot)
+    if not ok or Secret(kind) or Secret(id) or kind ~= "spell" then return false end
+    id = Num(id)
+    if not id then return false end
+    local name, rank = SpellName(id), SpellRank(id)
+    local best = name and maxRanks[name]
+    return rank ~= nil and best ~= nil and rank < best
+end
+
+local function EnsureRing(st)
+    if st.rankRing then return st.rankRing end
+    if InCombat() then return nil end
+    local b = st.b
+    local f = CreateFrame("Frame", nil, b)
+    local w = type(b.GetWidth) == "function" and Num(b:GetWidth()) or nil
+    w = (w and w > 0) and w or 36
+    f:SetSize(w * RING_SCALE, w * RING_SCALE)
+    f:SetPoint("CENTER", b, "CENTER", 0, 0)
+    local lvl = type(b.GetFrameLevel) == "function" and Num(b:GetFrameLevel()) or 0
+    f:SetFrameLevel((lvl or 0) + 3)
+    local tex = f:CreateTexture(nil, "OVERLAY")
+    tex:SetAllPoints(f)
+    tex:SetTexture(RING_TEXTURE)
+    tex:SetBlendMode("ADD")
+    tex:SetVertexColor(RING_RGB[1], RING_RGB[2], RING_RGB[3])
+    local ag = f:CreateAnimationGroup()
+    ag:SetLooping("BOUNCE")
+    local a = ag:CreateAnimation("Alpha")
+    a:SetFromAlpha(1)
+    a:SetToAlpha(RING_LOW_ALPHA)
+    a:SetDuration(RING_PULSE)
+    f.pulse = ag
+    f:SetAlpha(0)
+    f:Hide()
+    st.rankRing = f
+    return f
+end
+
+local function SetRing(st, on)
+    if on then
+        local f = EnsureRing(st)
+        if f and not st.rankOn then
+            f:SetAlpha(1)
+            f:Show()
+            f.pulse:Play()
+            st.rankOn = true
+        end
+    elseif st.rankOn and st.rankRing then
+        local f = st.rankRing
+        f.pulse:Stop()
+        f:SetAlpha(0)
+        if not InCombat() then f:Hide() end
+        st.rankOn = false
+    end
+end
+
+local function RefreshRank()
+    if not db then return end
+    local show = spellbookOpen and On("lowRankWarn")
+    if show and InCombat() then return end -- keep the state as it is
+    local maxRanks = show and KnownMaxRanks() or nil
+    for _, st in ipairs(list) do
+        local want = false
+        if maxRanks then
+            local ok, r = pcall(IsLowRank, st, maxRanks)
+            want = ok and r or false
+        end
+        SetRing(st, want)
+    end
+end
+
+local function SafeRefreshRank()
+    local ok, err = pcall(RefreshRank)
+    if not ok then Fail("rank", err) end
+end
+
+local function AnySpellbookShown()
+    for _, name in ipairs(SPELLBOOK_FRAMES) do
+        local f = _G[name]
+        if type(f) == "table" and type(f.IsShown) == "function" then
+            local ok, v = pcall(f.IsShown, f)
+            if ok and not Secret(v) and v then return true end
+        end
+    end
+    return false
+end
+
+local function HookSpellbook()
+    for _, name in ipairs(SPELLBOOK_FRAMES) do
+        local f = _G[name]
+        if type(f) == "table" and not spellbookHooked[name] and type(f.HookScript) == "function" then
+            local ok = pcall(function()
+                f:HookScript("OnShow", function() spellbookOpen = true; SafeRefreshRank() end)
+                f:HookScript("OnHide", function() spellbookOpen = AnySpellbookShown(); SafeRefreshRank() end)
+            end)
+            if ok then spellbookHooked[name] = true end
+        end
+    end
+    spellbookOpen = AnySpellbookShown()
+end
+
 local function Tick()
     if not Enabled() then return end
     local now = Now()
@@ -853,6 +1061,7 @@ local function ApplyAll()
         end
     end
     if Enabled() then SafeTick() end
+    SafeRefreshRank()
 end
 
 -- ---------------------------------------------------------------------------
@@ -1077,20 +1286,24 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 -- Not every client knows every event; registering an unknown one raises an error.
 for _, e in ipairs({ "UPDATE_BINDINGS", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED",
-    "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORMS", "PET_BAR_UPDATE" }) do
+    "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORMS", "PET_BAR_UPDATE",
+    "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB" }) do
     pcall(events.RegisterEvent, events, e)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
     local ok, err = pcall(function()
         if event == "ADDON_LOADED" then
+            if SPELLBOOK_ADDONS[arg1] and db then HookSpellbook(); SafeRefreshRank() end
             if arg1 == ADDON_NAME then
                 BindSavedVariables()
+                HookSpellbook()
                 if type(_G.IsLoggedIn) == "function" and _G.IsLoggedIn() then Setup() end
             end
         elseif not db then
             return
         elseif event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
             Setup()
+            HookSpellbook()
         elseif event == "PLAYER_REGEN_ENABLED" then
             if pendingFrames then
                 pendingFrames = false
@@ -1100,6 +1313,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             -- Bindings, pages, forms or the pet bar changed: repaint now rather than at the next
             -- tick (Blizzard's own handler may run after this one; the ticker catches that).
             SafeTick()
+            SafeRefreshRank()
         end
     end)
     if not ok then Fail(event, err) end

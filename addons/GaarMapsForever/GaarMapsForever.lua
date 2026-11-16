@@ -45,7 +45,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.3.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -59,10 +59,12 @@ local DEFAULTS = {
     scale = 1,
     fade = true,
     fadeAlpha = DEFAULT_FADE_ALPHA,
+    zoneMapScale = 1,
 }
 
 -- Every key GaarMapsForeverDB may hold; anything else is cleared on load.
-local SAVED_KEYS = { locked = true, scale = true, position = true, fade = true, fadeAlpha = true }
+local SAVED_KEYS = { locked = true, scale = true, position = true, fade = true, fadeAlpha = true,
+    zoneMapPoint = true, zoneMapScale = true }
 
 local db                -- GaarMapsForeverDB, bound at ADDON_LOADED (never at file scope)
 local map               -- WorldMapFrame once found
@@ -597,6 +599,326 @@ local function HookBlizzard()
 end
 
 -- ---------------------------------------------------------------------------
+-- Zone map (Shift+M): BattlefieldMapFrame, from the load-on-demand Blizzard_BattlefieldMap
+--
+-- Same approach as the world map, in its own saved keys (zoneMapPoint, zoneMapScale). Blizzard
+-- already lets you drag it by its tab and sets the opacity from the tab's menu; this adds a
+-- scale grip and drags from the frame itself. Its opacity is never touched, and it does not
+-- fade while you move.
+-- ---------------------------------------------------------------------------
+
+local ZMIN, ZMAX = 0.5, 2
+local ZONE_PRESETS = { 75, 100, 125, 150, 200 } -- percent, for the menu
+
+local zf                -- BattlefieldMapFrame once found
+local zGrip             -- resize grip, bottom-right
+local zHooked           -- hooks are in place
+local zBlizz            -- the anchor Blizzard gave the frame, for /gmf zone reset
+local zApplied          -- the anchor we last set
+local zMoving, zSizing  -- a drag or a grip drag is in progress
+local zPending          -- a move or scale that has to wait for combat to end
+local zRestore          -- /gmf zone reset is waiting to put Blizzard's anchor and scale back
+
+local ZoneApply -- defined below
+
+local function ZoneFrame()
+    local f = _G.BattlefieldMapFrame
+    if type(f) == "table" and f.SetScale and f.SetPoint and f.ClearAllPoints and f.HookScript then return f end
+end
+
+-- Protected frames cannot be moved or scaled in combat. Unknown counts as protected.
+local function ZoneLocked()
+    if not InCombat() then return false end
+    if not zf or not zf.IsProtected then return true end
+    local ok, v = pcall(zf.IsProtected, zf)
+    if not ok then return true end
+    return v and true or false
+end
+
+-- The frame that carries the anchor: normally the frame itself, but the tab if the frame hangs
+-- off it. Moving that one keeps frame and tab together.
+local function ZoneRoot()
+    local tab = _G.BattlefieldMapTab
+    if type(tab) == "table" and tab.SetPoint and tab.ClearAllPoints and zf and zf.GetPoint then
+        local ok, _, rel = pcall(zf.GetPoint, zf, 1)
+        if ok and rel == tab then return tab end
+    end
+    return zf
+end
+
+local function ZoneRatio(r)
+    local parent = _G.UIParent
+    local mine = Num(r.GetEffectiveScale and r:GetEffectiveScale())
+    local theirs = Num(parent and parent.GetEffectiveScale and parent:GetEffectiveScale())
+    if not mine or mine <= 0 or not theirs or theirs <= 0 then return nil end
+    return mine / theirs
+end
+
+local function ZoneTopLeft()
+    local r = ZoneRoot()
+    local ratio = ZoneRatio(r)
+    local left, top = Num(r:GetLeft()), Num(r:GetTop())
+    if not ratio or not left or not top then return nil end
+    return left * ratio, top * ratio
+end
+
+local function ZonePlace(x, y)
+    local r = ZoneRoot()
+    local parent = _G.UIParent
+    local ratio = ZoneRatio(r)
+    if not parent or not ratio then return false end
+    local pw, ph = Num(parent:GetWidth()), Num(parent:GetHeight())
+    local w, h = Num(r:GetWidth()), Num(r:GetHeight())
+    if pw and ph and w and h and pw > 0 and ph > 0 then
+        w, h = w * ratio, h * ratio
+        x = math.max(0, math.min(x, math.max(0, pw - w)))
+        y = math.min(ph, math.max(y, math.min(h, ph)))
+    end
+    r:ClearAllPoints()
+    r:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", x / ratio, y / ratio)
+    zApplied = CapturePoints(r)
+    return true
+end
+
+local function ZoneManaged()
+    return db and (db.zoneMapPoint ~= nil or not Near(db.zoneMapScale, 1, 0.001)) or false
+end
+
+local function ZoneSavePosition(x, y)
+    if not db then return end
+    if not x then x, y = ZoneTopLeft() end
+    if x and y then db.zoneMapPoint = { x = x, y = y } end
+end
+
+local function ZoneApplyNow()
+    if not zf or not db or zMoving or zSizing then return end
+    if ZoneLocked() then
+        zPending = true
+        return
+    end
+    zPending = false
+    local root = ZoneRoot()
+    if not zBlizz and not zApplied then zBlizz = CapturePoints(root) end
+    if zRestore then
+        zRestore = false
+        zf:SetScale(1)
+        if zApplied and zBlizz and #zBlizz > 0 then SetPoints(root, zBlizz) end
+        zApplied = nil
+        if not ZoneManaged() then return end
+    end
+    local s = db.zoneMapScale
+    if not Near(Num(zf:GetScale()), s, 0.001) then zf:SetScale(s) end
+    local pos = db.zoneMapPoint
+    if pos then ZonePlace(pos.x, pos.y) end
+end
+
+ZoneApply = function()
+    local ok = pcall(ZoneApplyNow)
+    if not ok then zPending = true end
+end
+
+-- Moving: drag the frame itself (the tab's own drag is Blizzard's; see OnTabDragStop).
+local function ZoneStartDrag()
+    if not zf or not db or db.locked or zMoving or zSizing then return end
+    if ZoneLocked() then
+        Print("the zone map cannot be moved in combat.")
+        return
+    end
+    if zf.IsMovable and not zf:IsMovable() and zf.SetMovable then zf:SetMovable(true) end
+    if zf.SetClampedToScreen then zf:SetClampedToScreen(true) end
+    local r = ZoneRoot()
+    if r ~= zf and r.SetMovable then r:SetMovable(true) end
+    r:StartMoving()
+    zMoving = true
+end
+
+local function ZoneStopDrag()
+    if not zMoving then return end
+    zMoving = false
+    local r = ZoneRoot()
+    r:StopMovingOrSizing()
+    -- Ours lives in the saved variables, not in the client's layout-local copy.
+    if r.SetUserPlaced then pcall(r.SetUserPlaced, r, false) end
+    ZoneSavePosition()
+    if db.zoneMapPoint then pcall(ZonePlace, db.zoneMapPoint.x, db.zoneMapPoint.y) end
+    ZoneApply()
+end
+
+-- Blizzard's tab drag has just ended: keep where it put the frame, or undo it if locked.
+local function OnTabDragStop()
+    if not zf or not db then return end
+    C_Timer.After(0, function()
+        if not zf or not db then return end
+        if db.locked then
+            if db.zoneMapPoint or zBlizz then
+                if db.zoneMapPoint then pcall(ZonePlace, db.zoneMapPoint.x, db.zoneMapPoint.y)
+                elseif zBlizz and #zBlizz > 0 and not ZoneLocked() then pcall(SetPoints, ZoneRoot(), zBlizz) end
+            end
+        else
+            ZoneSavePosition()
+            ZoneApply()
+        end
+    end)
+end
+
+-- Resizing: the corner grip, scale only, the top-left corner stays put.
+local function ZoneStopSizing()
+    if not zSizing then return end
+    zSizing = false
+    if zGrip then zGrip:SetScript("OnUpdate", nil) end
+    if zGrip and zGrip.anchorX then ZoneSavePosition(zGrip.anchorX, zGrip.anchorY) end
+    ZoneApply()
+end
+
+local function ZoneSizingUpdate(self)
+    if ZoneLocked() then
+        ZoneStopSizing()
+        return
+    end
+    local cx, cy = GetCursorPosition()
+    cx, cy = Num(cx), Num(cy)
+    if not cx or not cy then return end
+    local s
+    if self.screenLeft then
+        local dx0, dy0 = self.startX - self.screenLeft, self.screenTop - self.startY
+        local dx, dy = cx - self.screenLeft, self.screenTop - cy
+        if dx0 > 10 and dy0 > 10 then
+            s = self.startScale * ((dx / dx0) + (dy / dy0)) / 2
+        end
+    end
+    if not s then s = self.startScale + (self.startY - cy) / 400 end
+    s = Clamp(math.floor(s * 100 + 0.5) / 100, ZMIN, ZMAX)
+    if Near(s, db.zoneMapScale, 0.001) and Near(Num(zf:GetScale()), s, 0.001) then return end
+    db.zoneMapScale = s
+    pcall(zf.SetScale, zf, s)
+    if self.anchorX then pcall(ZonePlace, self.anchorX, self.anchorY) end
+end
+
+local function ZoneStartSizing(self, button)
+    if button and button ~= "LeftButton" then return end
+    if not zf or not db or db.locked or zMoving or zSizing then return end
+    if ZoneLocked() then
+        Print("the zone map cannot be resized in combat.")
+        return
+    end
+    local cx, cy = GetCursorPosition()
+    cx, cy = Num(cx), Num(cy)
+    if not cx or not cy then return end
+    self.startX, self.startY = cx, cy
+    self.startScale = db.zoneMapScale
+    self.anchorX, self.anchorY = ZoneTopLeft()
+    local eff = Num(zf:GetEffectiveScale())
+    local left, top = Num(zf:GetLeft()), Num(zf:GetTop())
+    if eff and left and top then
+        self.screenLeft, self.screenTop = left * eff, top * eff
+    else
+        self.screenLeft, self.screenTop = nil, nil
+    end
+    zSizing = true
+    self:SetScript("OnUpdate", ZoneSizingUpdate)
+end
+
+local function ZoneUpdateWidgets()
+    if zGrip then zGrip:SetShown((db and not db.locked and zf) and true or false) end
+end
+
+local function ZoneCreateGrip()
+    if zGrip or not zf then return end
+    local g = CreateFrame("Button", "GaarMapsForeverZoneGrip", zf)
+    g:SetSize(18, 18)
+    g:SetPoint("BOTTOMRIGHT", zf, "BOTTOMRIGHT", -2, 2)
+    g:SetFrameStrata("HIGH")
+    g:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    g:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    if g.SetPushedTexture then g:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down") end
+    g:SetScript("OnMouseDown", ZoneStartSizing)
+    g:SetScript("OnMouseUp", ZoneStopSizing)
+    g:SetScript("OnHide", ZoneStopSizing)
+    g:SetScript("OnEnter", function(self)
+        local tip = _G.GameTooltip
+        if not tip then return end
+        tip:SetOwner(self, "ANCHOR_LEFT")
+        tip:AddLine("Drag to resize the zone map")
+        tip:AddLine(string.format("Scale: %d%%", Percent(db and db.zoneMapScale or 1)), 1, 1, 1)
+        tip:Show()
+    end)
+    g:SetScript("OnLeave", function()
+        if _G.GameTooltip then _G.GameTooltip:Hide() end
+    end)
+    zGrip = g
+end
+
+local function OnZoneShown()
+    if not db then return end
+    ZoneApply()
+    -- Blizzard may place its own saved position a moment after the show.
+    C_Timer.After(0, ZoneApply)
+    C_Timer.After(0.5, ZoneApply)
+end
+
+local function HookZone()
+    if zHooked then return true end
+    zf = ZoneFrame()
+    if not zf or not db then zf = nil return false end
+    zHooked = true
+    zf:HookScript("OnShow", OnZoneShown)
+    zf:HookScript("OnHide", ZoneStopDrag)
+    -- The frame drags from anywhere on it; Blizzard's own tab drag keeps working.
+    if zf.RegisterForDrag then
+        pcall(zf.RegisterForDrag, zf, "LeftButton")
+        if zf.EnableMouse and not ZoneLocked() then pcall(zf.EnableMouse, zf, true) end
+        zf:HookScript("OnDragStart", ZoneStartDrag)
+        zf:HookScript("OnDragStop", ZoneStopDrag)
+    end
+    local tab = _G.BattlefieldMapTab
+    if type(tab) == "table" and tab.HookScript then
+        pcall(tab.HookScript, tab, "OnDragStop", OnTabDragStop)
+    end
+    ZoneCreateGrip()
+    ZoneUpdateWidgets()
+    if zf:IsShown() then OnZoneShown() end
+    return true
+end
+
+local function ZoneReset()
+    if not db then return end
+    if zMoving then ZoneStopDrag() end
+    if zSizing then ZoneStopSizing() end
+    db.zoneMapPoint = nil
+    db.zoneMapScale = 1
+    zRestore = true
+    ZoneApply()
+    if zPending then
+        Print("zone map position and size reset; it moves back once combat ends.")
+    else
+        Print("zone map position and size reset (100%).")
+    end
+end
+
+local function ZoneSetScalePercent(p)
+    if not db then return end
+    p = Num(tonumber(p))
+    if not p or p < ZMIN * 100 or p > ZMAX * 100 then
+        Print(string.format("zone map scale must be between %d and %d.", ZMIN * 100, ZMAX * 100))
+        return
+    end
+    local s = math.floor(p + 0.5) / 100
+    if zf and zf:IsShown() and not ZoneLocked() then
+        local x, y = ZoneTopLeft()
+        db.zoneMapScale = s
+        if x then ZoneSavePosition(x, y) end
+    else
+        db.zoneMapScale = s
+    end
+    ZoneApply()
+    if zPending then
+        Print(string.format("zone map scale set to %d%%; it applies once combat ends.", Percent(s)))
+    else
+        Print(string.format("zone map scale set to %d%%.", Percent(s)))
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Settings, shared by the slash command and the menu entries of the API
 -- ---------------------------------------------------------------------------
 
@@ -623,7 +945,8 @@ local function SetLocked(on)
         if sizing then StopSizing() end
     end
     UpdateWidgets()
-    Print(db.locked and "map locked: no moving or resizing."
+    ZoneUpdateWidgets()
+    Print(db.locked and "maps locked: no moving or resizing (world map and zone map)."
         or "map unlocked: drag the title bar to move it, the bottom-right grip to resize it.")
 end
 
@@ -696,6 +1019,9 @@ local function PrintHelp()
     Print(string.format("/gmf scale <%d-%d> - set the scale in percent (now: %d%%)", MIN_SCALE * 100, MAX_SCALE * 100, Percent(db and db.scale or 1)))
     Print("/gmf fade on | /gmf fade off - fade the map while you move (now: " .. OnOff(db and db.fade) .. ")")
     Print(string.format("/gmf fade <%d-%d> - opacity while moving, in percent (now: %d%%)", MIN_FADE * 100, MAX_FADE * 100, Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
+    Print("Zone map (Shift+M): drag the frame or Blizzard's tab to move it, the bottom-right grip to scale it (50-200%).")
+    Print(string.format("/gmf zone scale <%d-%d> - zone map scale in percent (now: %d%%)", ZMIN * 100, ZMAX * 100, Percent(db and db.zoneMapScale or 1)))
+    Print("/gmf zone reset - zone map back to its default position and 100%")
     Print("/gmf status - what this client offers and the current settings")
 end
 
@@ -714,7 +1040,9 @@ local function PrintStatus()
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
-    if pendingApply then Print("waiting for combat to end to apply the layout.") end
+    Print("zone map: " .. (zf and "hooked" or "not loaded yet") .. string.format(", scale %d%%", Percent(db and db.zoneMapScale or 1))
+        .. "   position: " .. ((db and db.zoneMapPoint) and string.format("moved (%.0f, %.0f)", db.zoneMapPoint.x, db.zoneMapPoint.y) or "default position"))
+    if pendingApply or zPending then Print("waiting for combat to end to apply the layout.") end
     if AddOnLoaded("GaarMap") then Print("GaarMap is loaded too: it also scales and fades the map. Use one of the two.") end
 end
 
@@ -726,12 +1054,17 @@ local function OnSlash(msg)
     end
     local scaleArg = msg:match("^scale (%d+)%%?$")
     local fadeArg = msg:match("^fade (%d+)%%?$")
+    local zoneScaleArg = msg:match("^zone scale (%d+)%%?$")
     if msg == "lock" then
         SetLocked(true)
     elseif msg == "unlock" then
         SetLocked(false)
     elseif msg == "reset" then
         ResetLayout()
+    elseif msg == "zone reset" then
+        ZoneReset()
+    elseif zoneScaleArg then
+        ZoneSetScalePercent(zoneScaleArg)
     elseif msg == "status" then
         PrintStatus()
     elseif scaleArg then
@@ -776,6 +1109,12 @@ local function MenuEntries()
             checked = function() return Percent(db.scale) == p end,
             func = function() SetScalePercent(p) end }
     end
+    local zones = {}
+    for _, p in ipairs(ZONE_PRESETS) do
+        zones[#zones + 1] = { text = p .. "%", radio = true,
+            checked = function() return Percent(db.zoneMapScale) == p end,
+            func = function() ZoneSetScalePercent(p) end }
+    end
     for _, p in ipairs(FADE_PRESETS) do
         fades[#fades + 1] = { text = p .. "%", radio = true,
             checked = function() return Percent(db.fadeAlpha) == p end,
@@ -790,6 +1129,9 @@ local function MenuEntries()
         { text = "Fade while moving", checkbox = true, checked = function() return db.fade end,
           func = function() SetFade(not db.fade) end },
         { text = "Fade opacity", submenu = fades },
+        { divider = true },
+        { text = "Zone map (Shift+M) scale", submenu = zones },
+        { text = "Reset zone map", func = ZoneReset },
     }
 end
 
@@ -825,6 +1167,11 @@ local function BindSavedVariables()
     if pos ~= nil and (type(pos) ~= "table" or not Num(pos.x) or not Num(pos.y)) then
         db.position = nil
     end
+    db.zoneMapScale = Clamp(Num(tonumber(db.zoneMapScale)) or 1, ZMIN, ZMAX)
+    local zpos = db.zoneMapPoint
+    if zpos ~= nil and (type(zpos) ~= "table" or not Num(zpos.x) or not Num(zpos.y)) then
+        db.zoneMapPoint = nil
+    end
 end
 
 local events = CreateFrame("Frame")
@@ -837,12 +1184,14 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 == ADDON_NAME then
             BindSavedVariables()
             HookBlizzard()
+            HookZone() -- immediately, if Blizzard_BattlefieldMap is already loaded
         elseif db and not hooked then
             -- In case the map arrives with a Blizzard addon loaded after us.
             HookBlizzard()
         end
+        if db and arg1 == "Blizzard_BattlefieldMap" then HookZone() end
     elseif event == "PLAYER_LOGIN" then
-        if db then HookBlizzard() end
+        if db then HookBlizzard() HookZone() end
         if AddOnLoaded("GaarMap") then
             Print("GaarMap is loaded too and also scales and fades the world map; use one of the two.")
         end
@@ -850,11 +1199,14 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- A drag that is still going when combat starts ends here, where it is.
         if moving then StopDrag() end
         if sizing then StopSizing() end
+        if zMoving then ZoneStopDrag() end
+        if zSizing then ZoneStopSizing() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pendingApply or (map and map:IsShown()) then
             pendingApply = false
             ApplyLayout()
         end
+        if zPending then ZoneApply() end
     end
 end)
 

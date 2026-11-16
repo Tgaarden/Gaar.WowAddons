@@ -40,6 +40,11 @@ does nothing else. It needs GaarForever, the family hub, and no other addon or l
   `/gmf reset`) waits for `PLAYER_REGEN_ENABLED`. Opening the map in combat is Blizzard's own
   path and keeps working; it opens at Blizzard's anchor and moves to your position once combat
   ends.
+- **Zone map (Shift+M)** (1.3.0). Blizzard's zone map (`BattlefieldMapFrame`, from the load-on-demand
+  `Blizzard_BattlefieldMap`) can be moved and scaled too. Drag the frame itself or Blizzard's tab to move it; drag the grip in its
+  bottom-right corner to scale it, from 50% to 200%. Position and scale are saved in their own keys (`zoneMapPoint`, `zoneMapScale`)
+  and put back whenever the map is shown. `/gmf lock` locks it as well. Blizzard's opacity option (right-click the tab) is left
+  alone, and it does not fade while you move. Skipped in combat and applied once combat ends.
 - **Maximized map.** Left to Blizzard: no handle, no grip, 100% scale. Going back to the windowed
   map puts the saved position and scale back.
 
@@ -53,6 +58,8 @@ At 100% and the default position the addon does not touch the map at all.
 | `/gmf lock`, `/gmf unlock` | Stop or allow moving and resizing (hides or shows the grip and the handle) |
 | `/gmf reset` | Back to Blizzard's default position and 100% scale |
 | `/gmf scale <50-150>` | Set the scale in percent. On the open, windowed map the top-left corner stays put (and is saved) |
+| `/gmf zone scale <50-200>` | Set the zone map (Shift+M) scale in percent |
+| `/gmf zone reset` | Zone map back to its default position and 100% |
 | `/gmf fade on`, `/gmf fade off` | Fade the map while you move, or not |
 | `/gmf fade <10-100>` | Opacity while moving, in percent (default 35) |
 | `/gmf status` | Which frames and functions this client has, whether the map is open and maximized, and the current settings |
@@ -63,7 +70,7 @@ Since 1.1.1 this addon lists `GaarForever` (the GaarForever folder) under `## De
 
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a **Maps** submenu with **Lock position & size**, **Reset position & size**, **Scale**
-(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), the same
+(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), **Zone map (Shift+M) scale** (75, 100, 125, 150, 200%) and **Reset zone map**, the same
 settings as `/gmf lock|unlock`, `/gmf reset`, `/gmf scale`, `/gmf fade on|off` and `/gmf fade
 <percent>` (both go through the same functions). This addon has no minimap button or menu of its
 own, so nothing here changes with or without the hub.

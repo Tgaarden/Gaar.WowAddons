@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMerchantForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -83,10 +83,18 @@ end
 local function Enabled() return db ~= nil and db.enabled ~= false end
 local function Flag(key) return db ~= nil and db[key] == true end
 
-local function Money(copper)
-    local s = Call(API("GetCoinTextureString"), copper)
-    if type(s) == "string" then return s end
-    return tostring(copper) .. "c"
+-- Coin-icon money string (like Blizzard's "You gained: 46 [silver] 61 [copper]"). Falls back to
+-- plain text such as "35g 5s 54c" (zero leading units omitted) when the engine has no coin API.
+local function FormatMoney(copper)
+    copper = math.floor(Num(copper) or 0)
+    local s = Call(API("GetCoinTextureString"), copper) or Call(API("C_CurrencyInfo", "GetCoinTextureString"), copper)
+    if type(s) == "string" and s ~= "" then return s end
+    local g, sv, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+    local out = {}
+    if g > 0 then out[#out + 1] = g .. "g" end
+    if g > 0 or sv > 0 then out[#out + 1] = sv .. "s" end
+    out[#out + 1] = c .. "c"
+    return table.concat(out, " ")
 end
 
 -- ---------------------------------------------------------------------------
@@ -194,7 +202,7 @@ local function FinishSale(closed)
     if pendingRepair then parts[#parts + 1] = pendingRepair; pendingRepair = nil end
     if s and s.n > 0 then
         parts[#parts + 1] = string.format("sold %d junk item%s for %s%s", s.n, s.n == 1 and "" or "s",
-            Money(s.copper), closed and " (merchant closed early)" or "")
+            FormatMoney(s.copper), closed and " (merchant closed early)" or "")
     end
     Emit(parts)
 end
@@ -260,7 +268,7 @@ local function AskSale(list)
         timeout = 0, whileDead = false, hideOnEscape = true, preferredIndex = 3,
     }
     _G.StaticPopup_Show(POPUP, string.format("GaarMerchantForever: sell %d junk item%s for about %s?",
-        #list, #list == 1 and "" or "s", Money(Estimate(list))))
+        #list, #list == 1 and "" or "s", FormatMoney(Estimate(list))))
     return true
 end
 
@@ -291,20 +299,20 @@ local function DoRepair()
                         local m = type(_G.GetMoney) == "function" and Num(_G.GetMoney()) or nil
                         if left and left > 0 and m and m >= left then
                             _G.RepairAllItems()
-                            Print("guild funds refused; repaired for " .. Money(left) .. " from your own money.")
+                            Print("guild funds refused; repaired for " .. FormatMoney(left) .. " from your own money.")
                         end
                     end)
                 end)
             end
-            return "repaired for " .. Money(cost) .. " (guild funds)"
+            return "repaired for " .. FormatMoney(cost) .. " (guild funds)"
         end
     end
 
     if not money or money < cost then
-        return "could not repair: need " .. Money(cost)
+        return "could not repair: need " .. FormatMoney(cost)
     end
     _G.RepairAllItems()
-    return "repaired for " .. Money(cost)
+    return "repaired for " .. FormatMoney(cost)
 end
 
 -- ---------------------------------------------------------------------------

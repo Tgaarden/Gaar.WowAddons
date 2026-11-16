@@ -25,7 +25,7 @@ merchant it sells your grey items and repairs your gear. Every feature has its o
 - **Guild repair** (`guildRepair`, off by default). Tries guild funds first when the client offers
   `CanGuildBankRepair` and the guild's withdraw allowance covers the cost; if the guild refuses,
   your own money is used.
-- **Summary** (on by default). One chat line, e.g. `sold 12 junk items for 3s 40c; repaired for 1g 2s`.
+- **Summary** (on by default). One chat line, e.g. `sold 12 junk items for 3s 40c; repaired for 1g 2s`, with coin icons like Blizzard's own loot lines (since 1.1.2; plain `1g 2s 3c` text if the client has no coin API).
   With it off, each part prints its own line.
 - **Master switch.** `/gmerch off` turns all of the above off (`/gmerch sell` still works).
 

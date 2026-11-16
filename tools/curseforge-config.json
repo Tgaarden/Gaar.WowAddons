@@ -6,9 +6,124 @@
   "gameVersionNames": [
     "1.60.1"
   ],
-  "requiredDependencyAddon": "GaarForever",
-  "requiredDependencySlug": "gaarforever",
   "_comment_bridges": "bridges: new folder -> old folder. While an entry is here, the release zip of that addon also carries addons/<old>/ (its settings bridge: a TOC with the old saved variables, so the first login moves them over). Remove the entries and the Better...Forever folders after the transition (about two weeks, at most a month).",
+  "_comment_relations": "relations: addon -> CurseForge project relations sent with every upload (slug = CurseForge project slug; type = requiredDependency | optionalDependency | ...). Addons not listed send none.",
+  "relations": {
+    "GaarBagsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarBarsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarBuffsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarCastbarsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarChatForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarFishingForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      },
+      {
+        "slug": "gaargpsforever",
+        "type": "optionalDependency"
+      }
+    ],
+    "GaarFramesForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarGpsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarLootForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarMailForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarMapsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarMerchantForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      },
+      {
+        "slug": "gaarbagsforever",
+        "type": "optionalDependency"
+      }
+    ],
+    "GaarPlatesForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarQuestsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      },
+      {
+        "slug": "gaargpsforever",
+        "type": "optionalDependency"
+      }
+    ],
+    "GaarTooltipsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarWindowsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
+    "GaarXPForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ]
+  },
   "bridges": {
     "GaarBagsForever": "BetterBagsForever",
     "GaarBarsForever": "BetterBarsForever",

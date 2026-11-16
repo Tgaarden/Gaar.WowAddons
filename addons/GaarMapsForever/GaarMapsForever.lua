@@ -45,7 +45,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1

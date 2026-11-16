@@ -48,7 +48,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarWindowsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local SCALE_STEP = 0.05     -- per mouse-wheel notch

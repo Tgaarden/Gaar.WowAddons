@@ -21,6 +21,7 @@ names you can switch off. Every part can be switched on or off on its own. It ne
 | `hotkeyShort` | on | Short hotkey labels: `Mouse Button 4` -> `M4`, `Middle Mouse` -> `M3`, `Num Pad 1` -> `N1`, `Mouse Wheel Up/Down` -> `WU`/`WD`, `Shift-` -> `s`, `Ctrl-` -> `c`, `Alt-` -> `a` (`Ctrl-Shift-4` -> `cs4`). Blizzard's own short forms (`s-`, `MwU`, ...) are shortened the same way |
 | `macroText` | on | Macro names on the buttons. Off hides them (the text is made transparent, never hidden) |
 | `outOfRangeHotkey` | off | Out of range tints only the hotkey text red, not the icon. While on, it overrides `rangeColor` for the icon |
+| `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. It disappears when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
 
 - **Order.** Out of range wins over no mana. When neither applies, the icon gets its normal
   colour back.
@@ -86,6 +87,7 @@ one checked first:
 | `/gbars hotkey on\|off` (or `hotkeyShort`) | Short hotkeys |
 | `/gbars macro on\|off` (or `macroText`) | Macro names |
 | `/gbars rangehotkey on\|off` (or `outOfRangeHotkey`) | Out of range: red hotkey instead of red icon |
+| `/gbars rank on\|off` (or `lowRankWarn`) | Orange ring on low-rank spells while the spellbook is open |
 | `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
@@ -133,7 +135,7 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 ([Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source)): the action button names above,
 `ActionBarButtonEventsFrame`, the button fields `action`, `icon`, `HotKey`, `Name` and `cooldown`,
 `IsUsableAction`, `IsActionInRange`, `HasAction`, `C_ActionBar.GetActionCooldown`,
-`GetActionCooldown`, `GetShapeshiftFormCooldown`, `GetPetActionCooldown`, `RANGE_INDICATOR`,
+`GetActionCooldown`, `GetShapeshiftFormCooldown`, `GetPetActionCooldown`, `RANGE_INDICATOR`, `GetActionInfo`, `C_Spell.GetSpellSubtext`, `C_SpellBook` (or `GetSpellBookItemInfo`), `SpellBookFrame` / `PlayerSpellsFrame`,
 `Texture:SetVertexColorFromBoolean`, `Region:SetAlphaFromBoolean`, `CreateColor`,
 `Cooldown:SetHideCountdownNumbers`, `GetCountdownFontString`, `SetCountdownFont`,
 `SetCountdownFormatter`, `C_StringUtil.CreateNumericRuleFormatter`, `issecretvalue`,

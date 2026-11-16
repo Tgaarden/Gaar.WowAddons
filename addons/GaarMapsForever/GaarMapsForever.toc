@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: GaarMapsForever
-## Notes: Move, scale and fade the world map (Map & Quest Log) on WoW Forever: drag the title bar, resize from the corner grip, fade while moving. /gmf
+## Notes: Move, scale and fade the world map (Map & Quest Log), and move and scale the Shift+M zone map, on WoW Forever: drag, resize from the corner grip. /gmf
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.2.1
+## Version: 1.3.0
 ## X-Curse-Project-ID: 1790375
 ## IconTexture: Interface\Icons\INV_Misc_Map_01
 ## Dependencies: GaarForever

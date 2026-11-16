@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.4"] = "The minimap menu lists the addons alphabetically",
         ["3.2.3"] = "GaarMerchantForever still skips locked items when an old BetterBagsForever is installed",
         ["3.2.2"] = "Renamed to GaarForever (new folders; settings move over automatically on first login; new /gf commands, old ones still work); /gf export all and /gf import move every addon's settings; an old Better...Forever addon not yet updated no longer breaks beside the new hub",
         ["3.2.1"] = "Renamed to GaarForever (new folders; settings move over automatically on first login; new /gf commands, old ones still work); /gf export all and /gf import move every addon's settings",

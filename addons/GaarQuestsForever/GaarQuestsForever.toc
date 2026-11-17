@@ -10,5 +10,6 @@
 ## SavedVariables: GaarQuestsForeverDB
 ## OptionalDeps: GaarGpsForever, BetterQuestsForever
 ## X-Curse-Project-ID: 1786827
+## X-Donate: https://buymeacoffee.com/tgaarden
 
 GaarQuestsForever.lua

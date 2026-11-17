@@ -10,5 +10,6 @@
 ## OptionalDeps: BetterFramesForever
 ## SavedVariables: GaarFramesForeverDB
 ## X-Curse-Project-ID: 1793613
+## X-Donate: https://buymeacoffee.com/tgaarden
 
 GaarFramesForever.lua

@@ -10,5 +10,6 @@
 ## OptionalDeps: BetterGpsForever
 ## SavedVariables: GaarGpsForeverDB
 ## X-Curse-Project-ID: 1793611
+## X-Donate: https://buymeacoffee.com/tgaarden
 
 GaarGpsForever.lua

@@ -10,5 +10,6 @@
 ## OptionalDeps: BetterPlatesForever
 ## SavedVariables: GaarPlatesForeverDB
 ## X-Curse-Project-ID: 1793608
+## X-Donate: https://buymeacoffee.com/tgaarden
 
 GaarPlatesForever.lua

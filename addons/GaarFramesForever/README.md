@@ -407,3 +407,7 @@ GaarFramesForever.lua    frames, Blizzard hiding, combat queue, /gff, GaarFrames
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

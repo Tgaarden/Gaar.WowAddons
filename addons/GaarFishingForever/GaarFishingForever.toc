@@ -6,6 +6,7 @@
 ## Author: Gaar
 ## Version: 1.5.1
 ## X-Curse-Project-ID: 1808611
+## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\Trade_Fishing
 ## Dependencies: GaarForever
 ## OptionalDeps: BetterFishingForever

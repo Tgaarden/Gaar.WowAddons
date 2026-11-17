@@ -21,7 +21,7 @@ names you can switch off. Every part can be switched on or off on its own. It ne
 | `hotkeyShort` | on | Short hotkey labels: `Mouse Button 4` -> `M4`, `Middle Mouse` -> `M3`, `Num Pad 1` -> `N1`, `Mouse Wheel Up/Down` -> `WU`/`WD`, `Shift-` -> `s`, `Ctrl-` -> `c`, `Alt-` -> `a` (`Ctrl-Shift-4` -> `cs4`). Blizzard's own short forms (`s-`, `MwU`, ...) are shortened the same way |
 | `macroText` | on | Macro names on the buttons. Off hides them (the text is made transparent, never hidden) |
 | `outOfRangeHotkey` | off | Out of range tints only the hotkey text red, not the icon. While on, it overrides `rangeColor` for the icon |
-| `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. It disappears when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
+| `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. The same ring sits on the spellbook entry of the highest rank you know when a bar holds a lower rank of it (Claw Rank 3 in the book gets it when Claw Rank 1 is on the bar), so you see what to drag up; classic `SpellButton1..12` and the paged `PlayerSpellsFrame` are both handled, and the book rings follow page and tab changes. Rings disappear when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
 
 - **Order.** Out of range wins over no mana. When neither applies, the icon gets its normal
   colour back.

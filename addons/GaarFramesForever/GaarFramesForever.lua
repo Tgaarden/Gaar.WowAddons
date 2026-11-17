@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -315,29 +315,137 @@ function Look.BuildMark(f)
     f.raidIcon = t
 end
 
--- Hunter pet happiness (1.4.0): Blizzard's happy / content / unhappy face on its own non-secure
--- frame, just right of the pet frame, with a tooltip. Shown while a hunter has a pet.
+-- Hunter pet happiness (1.4.0; 1.4.1 hardened): Blizzard's happy / content / unhappy face on its
+-- own non-secure frame, just right of the pet frame, with a tooltip, and the pet's health bar
+-- coloured by happiness. Shown while the player is a hunter and has a pet out.
+-- 1.4.1: the face did not show on WoW: Forever. The level is now read from GetPetHappiness()
+-- and, where that is missing or gives nothing, from the pet's happiness power (UnitPower);
+-- HasPetUI() no longer gates it; UnitExists may answer 1 as well as true; when the client has
+-- no face texture, coloured dots are drawn instead. /gff status prints the raw reads.
 local HAPPY_TEX = "Interface\\PetPaperDollFrame\\UI-PetHappiness"
 local HAPPY_COORDS = {
     [1] = { 0.375, 0.5625, 0, 0.359375 },
     [2] = { 0.1875, 0.375, 0, 0.359375 },
     [3] = { 0, 0.1875, 0, 0.359375 },
 }
-local HAPPY_NAMES = { "Unhappy", "Content", "Happy" }
+-- Fallback when the face texture is not in the client's files: red, yellow and green dots.
+local HAPPY_DOTS = {
+    "Interface\\COMMON\\Indicator-Red", "Interface\\COMMON\\Indicator-Yellow", "Interface\\COMMON\\Indicator-Green",
+}
 local HAPPY_DEFAULT_TEXT = { "Pet is Unhappy", "Pet is Content", "Pet is Happy" }
+-- Health bar colour by happiness: unhappy red, content yellow, happy green.
+local HAPPY_BAR = { { 0.9, 0.15, 0.1 }, { 1, 0.85, 0.1 }, { 0.1, 0.8, 0.1 } }
+-- Damage done at each level in Classic, for the tooltip when only the power value is known.
+local HAPPY_DMG = { 75, 100, 125 }
+-- Classic's happiness power runs to 1050000: unhappy below 350000, content below 700000.
+local HAPPY_MAX = 1050000
 
--- happiness (1-3), damage percentage (e.g. 125) and loyalty rate, or nil. Plain numbers only.
-local function ReadHappiness()
-    if type(_G.GetPetHappiness) ~= "function" then return nil end
-    local ok, h, dmg, loy = pcall(_G.GetPetHappiness)
-    if not ok then return nil end
-    h = Num(h)
-    if not h or h < 1 or h > 3 then return nil end
-    return math.floor(h), Num(dmg), Num(loy)
+local Happy = { diag = {} }   -- diag: the last raw reads, for /gff status
+
+-- A raw value as text for /gff status; a secret is never looked into.
+local function Raw(v)
+    if IsSecret(v) then return "secret" end
+    return tostring(v)
+end
+
+local function HappinessPowerType()
+    local E = _G.Enum
+    local v = type(E) == "table" and type(E.PowerType) == "table" and Num(E.PowerType.Happiness)
+    return v or 4
+end
+
+-- happiness (1-3), damage percentage (e.g. 125) and loyalty rate, or nil. GetPetHappiness()
+-- first; else the pet's happiness power against its maximum (thirds of it). Plain numbers only:
+-- Num turns a secret into nil before anything is compared.
+function Happy.Read()
+    local d = Happy.diag
+    d.gph, d.power, d.source, d.secret = "missing", "n/a", "none", false
+    if type(_G.GetPetHappiness) == "function" then
+        local ok, h, dmg, loy = pcall(_G.GetPetHappiness)
+        if not ok then
+            d.gph = "error"; d.err = "GetPetHappiness: " .. tostring(h)
+        else
+            d.gph = Raw(h) .. ", " .. Raw(dmg) .. ", " .. Raw(loy)
+            if IsSecret(h) then d.secret = true end
+            h = Num(h)
+            if h then h = math.floor(h + 0.5) end
+            if h and h >= 1 and h <= 3 then
+                d.source = "GetPetHappiness"
+                return h, Num(dmg), Num(loy)
+            end
+        end
+    end
+    if type(_G.UnitPower) == "function" then
+        local pt = HappinessPowerType()
+        local ok, cur, mx = pcall(function()
+            return _G.UnitPower("pet", pt), type(_G.UnitPowerMax) == "function" and _G.UnitPowerMax("pet", pt) or nil
+        end)
+        if not ok then
+            d.power = "error"; d.err = "UnitPower: " .. tostring(cur)
+        else
+            d.power = Raw(cur) .. "/" .. Raw(mx) .. " (type " .. pt .. ")"
+            if IsSecret(cur) or IsSecret(mx) then d.secret = true end
+            cur, mx = Num(cur), Num(mx)
+            local top = (mx and mx > 0) and mx or ((cur and cur > 0) and HAPPY_MAX or nil)
+            if cur and top and cur >= 0 then
+                local h
+                if top == 3 then
+                    -- A client that gives the level itself (1-3) as the power value.
+                    h = math.min(3, math.max(1, math.floor(cur + 0.5)))
+                else
+                    local t = cur / top
+                    h = (t < 1 / 3 and 1) or (t < 2 / 3 and 2) or 3
+                end
+                d.source = "UnitPower"
+                return h, HAPPY_DMG[h], nil
+            end
+        end
+    end
+    return nil
+end
+
+-- The player is a hunter with a pet out and the setting is on. Never HasPetUI(): on some
+-- clients it is false or missing while the pet is out (it is only read for /gff status).
+function Happy.Gate()
+    local d = Happy.diag
+    local _, cls = UnitClass("player")
+    d.hunter = Plain(cls) == "HUNTER"
+    d.exists = Plain(UnitExists("pet")) and true or false
+    if type(_G.HasPetUI) == "function" then
+        local ok, a, b = pcall(_G.HasPetUI)
+        d.petui = ok and (Raw(a) .. ", " .. Raw(b)) or "error"
+    else
+        d.petui = "missing"
+    end
+    return (db.petHappiness and d.hunter and d.exists) and true or false
+end
+
+-- happiness (1-3), damage and loyalty while the gate is open, else nil. Where the client hides
+-- the values (in combat), the last level read stays, so the face and colour do not flicker.
+function Happy.Level()
+    local d = Happy.diag
+    if blocked.happiness or not Happy.Gate() then d.level, Happy.last = nil, nil; return nil end
+    local h, dmg, loy = Happy.Read()
+    if h then
+        Happy.last = h
+    elseif d.secret and Happy.last then
+        h, d.source = Happy.last, "last known (values hidden)"
+    end
+    d.level = h
+    return h, dmg, loy
+end
+
+-- The health bar colour for f, or nil to keep the normal one: the real pet frame only.
+function Happy.BarRGB(f)
+    if f.key ~= "pet" or f.unit ~= "pet" or f.preview then return nil end
+    local h = Happy.Level()
+    if not h then return nil end
+    local c = HAPPY_BAR[h]
+    return c[1], c[2], c[3]
 end
 
 local function HappinessTooltip(self)
-    local h, dmg, loy = ReadHappiness()
+    local h, dmg, loy = Happy.Level()
     if not h then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local fmt = _G["PET_HAPPINESS" .. h]
@@ -361,14 +469,21 @@ end
 
 function Look.BuildHappiness(f)
     local m = CreateFrame("Frame", nil, f)
+    m:SetFrameStrata(f:GetFrameStrata())
     m:SetFrameLevel(f:GetFrameLevel() + 10)
     m:SetSize(20, 20)
     m:SetPoint("LEFT", f, "RIGHT", 2, 0)
     m:EnableMouse(true)
     local t = m:CreateTexture(nil, "OVERLAY")
     t:SetAllPoints(m)
-    t:SetTexture(HAPPY_TEX)
-    t:SetTexCoord(unpack(HAPPY_COORDS[3]))
+    -- SetTexture answers false for a file the client does not have: use the dots then.
+    if t:SetTexture(HAPPY_TEX) == false then
+        m.dots = true
+        t:SetTexture(HAPPY_DOTS[3])
+        t:SetTexCoord(0, 1, 0, 1)
+    else
+        t:SetTexCoord(unpack(HAPPY_COORDS[3]))
+    end
     m.tex = t
     m:SetScript("OnEnter", function(self) pcall(HappinessTooltip, self) end)
     m:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -379,17 +494,32 @@ end
 function Look.UpdateHappiness(f)
     local m = f.happyFrame
     if not m then return end
-    local _, cls = UnitClass("player")
-    local hunter = Plain(cls) == "HUNTER"
-    if not db.petHappiness or not hunter or Plain(UnitExists("pet")) ~= true
-        or (type(_G.HasPetUI) == "function" and not Plain(_G.HasPetUI())) then
-        m:Hide()
-        return
-    end
-    local h = ReadHappiness()
-    if not h then m:Hide(); return end
-    m.tex:SetTexCoord(unpack(HAPPY_COORDS[h]))
+    local h = Happy.Level()
+    if not h then m:Hide(); m.level = nil; return end
+    if m.dots then m.tex:SetTexture(HAPPY_DOTS[h]) else m.tex:SetTexCoord(unpack(HAPPY_COORDS[h])) end
+    m.level = h
     m:Show()
+end
+
+-- The /gff status line: fresh raw reads, the source used and whether the face is up.
+function Happy.Status(pf)
+    local d = Happy.diag
+    local ok, err = pcall(Happy.Gate)
+    if not ok then d.err = "gate: " .. tostring(err) end
+    local h
+    ok, h = pcall(Happy.Read)
+    if not ok then d.err = "read: " .. tostring(h); h = nil end
+    d.level = h or (d.secret and Happy.last) or nil
+    local m = pf and pf.happyFrame
+    local icon = not m and "not built" or (m:IsVisible() and "shown") or (m:IsShown() and "shown, pet frame hidden")
+        or "hidden"
+    return "pet happiness: " .. OnOff(db.petHappiness)
+        .. DOT .. "hunter " .. tostring(d.hunter) .. DOT .. "pet out " .. tostring(d.exists)
+        .. DOT .. "GetPetHappiness " .. tostring(d.gph) .. DOT .. "HasPetUI " .. tostring(d.petui)
+        .. DOT .. "UnitPower happiness " .. tostring(d.power)
+        .. DOT .. "source " .. tostring(d.source) .. DOT .. "level " .. tostring(d.level or "-")
+        .. DOT .. "icon " .. icon .. (m and m.dots and " (dots: no face texture)" or "")
+        .. DOT .. "last error " .. tostring(blocked.happiness or d.err or "none")
 end
 
 -- Show or hide the mark. idx is the unit's raid target index and may be secret: it is never
@@ -559,7 +689,7 @@ local CLEAR = {
         f.manaShown = false
         f.health:SetHeight(f.powerShown == false and (f.layout.hp + 1 + f.layout.mp) or f.layout.hp)
     end,
-    happiness = function(f) if f.happyFrame then f.happyFrame:Hide() end end,
+    happiness = function(f) if f.happyFrame then f.happyFrame:Hide(); f.happyFrame.level = nil end end,
     icons = function(f)
         if f.raidIcon then f.raidIcon:Hide() end
         if f.leaderIcon then f.leaderIcon:Hide() end
@@ -1839,6 +1969,12 @@ local function UpdateHealth(f)
         pct = cur / mx
     end
     local r, g, b = HealthRGB(u)
+    -- The hunter's pet: its happiness colour wins over the normal one (1.4.1), every update.
+    if f.happyFrame and not blocked.happiness then
+        local ok, hr, hg, hb = pcall(Happy.BarRGB, f)
+        if not ok then Happy.diag.err = "bar colour: " .. tostring(hr)
+        elseif hr then r, g, b = hr, hg, hb end
+    end
     Look.SetBarColor(bar, r, g, b)
 
     local fs = bar.text
@@ -3562,7 +3698,7 @@ local SETTING_TOGGLES = {
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
     { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks" },
-    { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon" },
+    { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon and health colour" },
 }
 
 local function SetToggle(t, on)
@@ -3615,7 +3751,7 @@ local function PrintHelp()
     Print("/gff hotdebug - the raw buff data of your target (or you) behind the HoT prediction, to paste back")
     Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
-    Print("/gff pethappiness on | off - hunter pet happiness icon next to the pet frame, tooltip on hover (now: "
+    Print("/gff pethappiness on | off - hunter pet happiness icon next to the pet frame (tooltip on hover) and pet health bar coloured by happiness (now: "
         .. OnOff(db and db.petHappiness) .. ")")
 end
 
@@ -3816,8 +3952,9 @@ local function PrintStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
-    Print("raid marks " .. OnOff(db.raidMark) .. DOT .. "pet happiness " .. OnOff(db.petHappiness)
-        .. (blocked.happiness and (" (off: " .. blocked.happiness .. ")") or ""))
+    Print("raid marks " .. OnOff(db.raidMark))
+    local okH, happyLine = pcall(Happy.Status, real.pet)
+    Print(okH and happyLine or ("pet happiness: status failed (" .. tostring(happyLine) .. ")"))
     for _, line in ipairs(HealPred.HotLines()) do Print(line) end
     local p = real.player
     Print("player mana bar: " .. ((p and p.manaShown) and "shown" or "hidden")
@@ -4050,10 +4187,14 @@ local function OnUnitEvent(event, unit, arg2)
         if Visible(t) then Run("combo", UpdateCombo, t) end
         if event == "UNIT_COMBO_POINTS" then return end
     end
-    if unit == "pet" and (event == "UNIT_HAPPINESS" or (event == "UNIT_POWER_UPDATE" and arg2 == "HAPPINESS")) then
+    if unit == "pet" and (event == "UNIT_HAPPINESS" or ((event == "UNIT_POWER_UPDATE"
+        or event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER") and arg2 == "HAPPINESS")) then
         local pf = real.pet
-        if Visible(pf) then Run("happiness", Look.UpdateHappiness, pf) end
-        if event == "UNIT_HAPPINESS" or arg2 == "HAPPINESS" then return end
+        if Visible(pf) then
+            Run("health", UpdateHealth, pf)
+            Run("happiness", Look.UpdateHappiness, pf)
+        end
+        return
     end
     if event == "UNIT_FACTION" then
         local f = real[unit]
@@ -4140,7 +4281,10 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         if FollowOn() and started and not editOpen then Refollow() end
     elseif event == "PET_UI_UPDATE" then
         local pf = real.pet
-        if Visible(pf) then Run("happiness", Look.UpdateHappiness, pf) end
+        if Visible(pf) then
+            Run("health", UpdateHealth, pf)
+            Run("happiness", Look.UpdateHappiness, pf)
+        end
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateUnit("target")
         UpdateUnit("targettarget")
@@ -4169,6 +4313,7 @@ end)
 -- The light ticker: target of target (it has no events of its own) and party range.
 local driver = CreateFrame("Frame")
 local acc = 0
+local happyAcc, HAPPY_POLL = 0, 2   -- seconds between pet happiness checks
 driver:SetScript("OnUpdate", function(_, elapsed)
     if not db or not started then return end
     acc = acc + (elapsed or 0)
@@ -4176,6 +4321,18 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     acc = 0
     local tot = real.targettarget
     if Visible(tot) then UpdateFrame(tot) end
+    -- Pet happiness, in case this client sends no happiness event: repaint on a change only.
+    happyAcc = happyAcc + TICK
+    local pf = real.pet
+    if happyAcc >= HAPPY_POLL and pf and pf.happyFrame and db.petHappiness and Visible(pf)
+        and not blocked.happiness then
+        happyAcc = 0
+        local ok, h = pcall(Happy.Level)
+        if ok and h ~= pf.happyFrame.level then
+            Run("health", UpdateHealth, pf)
+            Run("happiness", Look.UpdateHappiness, pf)
+        end
+    end
     if not testing then
         for _, u in ipairs(UNITS_OF.party) do
             local f = real[u]

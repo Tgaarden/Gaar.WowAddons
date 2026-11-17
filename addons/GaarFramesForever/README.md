@@ -79,6 +79,15 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
 - **Hunter pet happiness** (1.4.0, on by default: `/gff pethappiness off` to hide). A 20 px happy / content / unhappy face
   just right of the pet frame, always shown while a hunter has a pet, with a tooltip on hover (happiness, damage bonus
   or penalty, gaining or losing loyalty). Read with `GetPetHappiness()` inside a pcall; no chat or sound alert.
+  1.4.1 fixes the face not showing on WoW Forever and adds the bar colour: the level comes from `GetPetHappiness()`,
+  or, where that is missing or empty, from the pet's happiness power (`UnitPower("pet", Enum.PowerType.Happiness)`
+  against `UnitPowerMax`, split in thirds: below 350000 of 1050000 unhappy, below 700000 content, else happy).
+  It shows for a hunter with a pet out (`HasPetUI()` is no longer required), with red / yellow / green dots where the
+  client has no face texture, and is re-checked every 2 seconds in case no happiness event comes. The pet's health
+  bar is coloured by happiness too (happy green, content yellow, unhappy red; the health value and text are
+  unchanged), on every health update; with no happiness known it keeps its normal colour. `/gff pethappiness`
+  switches icon and colour together. `/gff status` prints a `pet happiness:` line with the raw reads (hunter, pet
+  out, `GetPetHappiness`, `HasPetUI`, `UnitPower` happiness, source used, level, icon shown, last error).
 - **Raid target marks** (1.2.9, on by default: `/gff marks off` to hide). On every frame the raid
   mark (skull, cross, star ...) is an 18 px icon on a frame of its own above the bars, centred on the
   top edge so half of it sticks out above the frame; nothing covers it and it does not touch the
@@ -158,7 +167,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
 | `/gff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
 | `/gff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
-| `/gff pethappiness on\|off` | Hunter pet happiness icon next to the pet frame (on by default) |
+| `/gff pethappiness on\|off` | Hunter pet happiness icon next to the pet frame and pet health bar coloured by happiness (on by default) |
 
 `/gaarframesforever` works the same as `/gff`. `targettarget` works for `tot`.
 

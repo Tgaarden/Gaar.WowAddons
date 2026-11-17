@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: GaarChatForever
-## Notes: Chat tweaks for WoW Forever, each one switchable: short channel names, class-coloured names, timestamps, clickable and copyable links, a copy-chat button, a whisper sound, sticky chat types and arrow keys in the edit box. /gchat
+## Notes: Chat tweaks for WoW Forever, each one switchable: short channel names, class-coloured names, timestamps, clickable and copyable links, a copy-chat button, a whisper sound, sticky chat types, arrow keys in the edit box and a scrolling feed of whispers, group chat and mentions. /gchat
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.1.1
+## Version: 1.2.0
 ## X-Curse-Project-ID: 1808605
 ## IconTexture: Interface\Icons\INV_Misc_Note_01
 ## Dependencies: GaarForever
@@ -12,3 +12,4 @@
 ## SavedVariables: GaarChatForeverDB
 
 GaarChatForever.lua
+Feed.lua

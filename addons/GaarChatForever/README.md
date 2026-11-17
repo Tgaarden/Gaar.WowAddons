@@ -25,6 +25,28 @@ command and a checkbox in the GaarForever menu. A master switch turns them all o
 | `whisperSound` | on | A short sound on incoming whispers and Battle.net whispers, never for your own outgoing ones. |
 | `stickyChannels` | on | Remembers the last used chat type for say, emote, yell, party, raid, guild, officer, whisper, Battle.net whisper, instance and channels (`ChatTypeInfo[x].sticky = 1`). |
 | `arrowKeys` | on | Arrow keys move the cursor in the chat edit box without Alt (`SetAltArrowKeyMode(false)`). |
+| `feed` | on | A scrolling chat feed (since 1.2.0), see below. |
+
+## Chat feed
+
+Like scrolling combat text, but for the chat you should not miss: whispers in and out (Battle.net
+too), party, raid and instance chat (leaders and raid warnings included), and lines in say, yell,
+emote or a public channel that say your character's name (a whole word, any case). Each message
+comes in at the bottom of a small area at the left of the screen, the older ones slide up, and
+every line fades out after 10 seconds; at most 8 lines are shown and the oldest is pushed out. With
+the mouse over the feed it stops and every line is shown in full. Your own messages are left out,
+except the whispers you send (`[To] Name: text`).
+
+A line reads `[P] Name: text`: a short tag (`W` whisper, `To` your whisper, `BN` Battle.net whisper,
+`P` party, `R` raid, `RW` raid warning, `I` instance, `@` your name was said), in the chat type's
+own colour, with the sender's name in their class colour when the client knows it. Long lines wrap
+to the width of the feed. A click on a line replies: a whisper (or Battle.net whisper) to that
+person, or the edit box opened on that group chat type; for a mention, a whisper to the sender.
+
+The regular chat frames are not touched: the feed only shows copies. Each kind (whispers, group,
+mentions) has its own switch, and the feed's settings are saved with the others in
+`GaarChatForeverDB`. In the menu and on the Options page they are under **Chat feed**: the three
+kinds, locked, font size, scale, width, seconds on screen, test lines and reset.
 
 ## Commands
 
@@ -33,6 +55,16 @@ command and a checkbox in the GaarForever menu. A master switch turns them all o
 | `/gchat` or `/gaarchatforever` | Help |
 | `/gchat on`, `/gchat off` | Master switch |
 | `/gchat <feature> on`, `/gchat <feature> off` | Switch one feature (`shortChannels`, `classColors`, `timestamps`, `urlCopy`, `copyChat`, `whisperSound`, `stickyChannels`, `arrowKeys`) |
+| `/gchat feed` | The feed's state and its commands |
+| `/gchat feed on`, `/gchat feed off` | Switch the feed (the same as the `feed` feature) |
+| `/gchat feed whispers\|group\|mentions on\|off` | Switch one kind of message in the feed |
+| `/gchat feed unlock`, `/gchat feed lock` | Unlocked, the feed shows a dark area with a label: drag it to move it |
+| `/gchat feed scale <50-200>` | Size of the feed in percent (default 100) |
+| `/gchat feed font <8-32>` | Font size (default 14) |
+| `/gchat feed width <200-800>` | Width in pixels (default 400) |
+| `/gchat feed time <3-60>` | Seconds a line stays before it is gone (default 10) |
+| `/gchat feed test` | Sample lines of every kind |
+| `/gchat feed reset` | Position, scale, font size, width and time back to default |
 | `/gchat copy [n]` | Open the copy window for chat frame `n` (default: the selected one) |
 | `/gchat status` | Version, master switch, every feature and the last error caught |
 
@@ -42,6 +74,13 @@ On the 12.x engine a chat message, its sender and stored history lines can be se
 especially in instances and in combat. A secret value is never compared, tested, matched or
 `gsub`'ed: the filter and the `AddMessage` wrapper pass it on untouched, the copy window skips such
 lines (and says how many), and the whisper sound never reads the event arguments.
+
+The chat feed checks every value it reads (message, sender, GUID, channel number) before it uses
+it. A message whose text or sender is secret is still shown: the tag, the name and the text are
+put in separate pieces of text by the client itself, on one line cut to the feed's width (its
+wrapped height cannot be read). A secret message is never searched for your name, so mentions
+only come from plain text, and a click on a whisper with a secret name falls back to "reply to the
+last whisper".
 
 ## With GaarForever (required)
 
@@ -56,7 +95,7 @@ hub talks to this addon only through `GaarChatForeverAPI`:
 |---|---|
 | `version` | This addon's version, a string |
 | `StatusLine()` | One line of state, e.g. `on · 7/8 features` |
-| `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, submenu }`, `{ divider }`): the master switch and one checkbox per feature |
+| `MenuEntries()` | The options as plain data (`{ text, func }`, `{ text, checkbox, checked, func }`, `{ text, radio, checked, func }`, `{ text, slider, min, max, step, value, set }`, `{ text, submenu }`, `{ divider }`): the master switch, one checkbox per feature and the **Chat feed** submenu |
 | `AddMenuEntries(root)` | Adds the same options to a `MenuUtil` root or submenu description |
 | `SetMinimapHidden(hidden)` | Does nothing: there is no minimap button to hide |
 
@@ -64,7 +103,9 @@ hub talks to this addon only through `GaarChatForeverAPI`:
 
 - Blizzard code is followed, not replaced. Only strings and flags are written (`CHAT_*_GET`,
   `ChatTypeInfo[x].sticky`, `CHAT_TIMESTAMP_FORMAT`) plus a wrapper on each chat frame's
-  `AddMessage` that always calls the original.
+  `AddMessage` that always calls the original. The chat feed has its own frame and events and
+  registers only the chat events of the kinds that are on; its animation is one `OnUpdate` that
+  runs only while a line is shown.
 - Every client API is checked with `type(...) == "function"` before use and every handler runs in
   `pcall` (the last error is kept for `/gchat status`).
 - Saved variables are read at `ADDON_LOADED`; unknown keys are dropped.

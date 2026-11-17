@@ -1,7 +1,7 @@
 --[[
   GaarChatForever - small chat tweaks on WoW Forever, each one switchable.
 
-  Eight features, all on /gchat <feature> on|off, plus a master on|off:
+  Nine features, all on /gchat <feature> on|off, plus a master on|off:
 
     shortChannels  (on)   [Guild] -> [G], [Party] -> [P], [Raid Leader] -> [RL] ..., numbered
                           channels [2. Trade - City] -> [2], [4. LookingForGroup] -> [LFG].
@@ -19,6 +19,9 @@
     whisperSound   (on)   A short sound on incoming whispers and Battle.net whispers.
     stickyChannels (on)   ChatTypeInfo[x].sticky = 1 for say, party, guild, raid, officer, whisper ...
     arrowKeys      (on)   SetAltArrowKeyMode(false) on the chat edit boxes: arrows move the cursor.
+    feed           (on)   A scrolling feed of whispers, group chat and mentions of your name, like
+                          scrolling combat text (Feed.lua, /gchat feed ...). It only shows copies:
+                          nothing is taken out of the chat frames.
 
   Secret text. On the 12.x engine a chat message, its sender and the stored history lines can be
   secret values in instances and in combat. A secret value is never compared, tested, matched or
@@ -39,10 +42,11 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ...
+local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
+ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.1.1"
+local VERSION = "1.2.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -61,8 +65,9 @@ local FEATURES = {
     { key = "whisperSound",   label = "Whisper sound",               default = true  },
     { key = "stickyChannels", label = "Remember last chat type",     default = true  },
     { key = "arrowKeys",      label = "Arrow keys in the edit box",  default = true  },
+    { key = "feed",           label = "Scrolling chat feed",         default = true  },
 }
-local SAVED_KEYS = { enabled = true, owned = true }
+local SAVED_KEYS = { enabled = true, owned = true, feedOpts = true }
 for _, f in ipairs(FEATURES) do SAVED_KEYS[f.key] = true end
 
 local db                    -- GaarChatForeverDB, bound at ADDON_LOADED
@@ -514,6 +519,7 @@ local APPLY = {
     whisperSound   = function() end,   -- the event handler checks Effective() itself
     stickyChannels = function(on) ApplySticky(on) end,
     arrowKeys      = function() ApplyArrowKeys() end,
+    feed           = function(on) ns.Feed.Apply(on) end,
 }
 
 local function ApplyFeature(key)
@@ -537,6 +543,10 @@ local function SetEnabled(v)
     Print("addon " .. (db.enabled and "on" or "off"))
 end
 
+-- For Feed.lua.
+ns.Print, ns.Safe, ns.SetFeature, ns.Effective = Print, Safe, SetFeature, Effective
+ns.GetDB = function() return db end
+
 -- ---------------------------------------------------------------------------
 -- Whisper sound
 -- ---------------------------------------------------------------------------
@@ -557,7 +567,7 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels and arrow keys without Alt. Nice to know: click a URL to get it selected for Ctrl+C; /gchat copy [n] copies the last 200 lines of a chat frame; /gchat off turns every tweak off at once."
+local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels, arrow keys without Alt and a scrolling feed of whispers, group chat and mentions of your name. Nice to know: click a URL to get it selected for Ctrl+C; /gchat copy [n] copies the last 200 lines of a chat frame; /gchat feed unlock lets you drag the feed, and a click on a feed line replies; /gchat off turns every tweak off at once."
 
 local function PrintHelp()
     Print(INTRO)
@@ -565,6 +575,7 @@ local function PrintHelp()
     for _, f in ipairs(FEATURES) do
         Print(string.format("/gchat %s on|off - %s (default %s)", f.key, f.label, f.default and "on" or "off"))
     end
+    ns.Feed.PrintHelp()
     Print("/gchat copy [n] - copy the last " .. COPY_LINES .. " lines of chat frame n (default: the selected one)")
     Print("/gchat status - the current state")
 end
@@ -574,6 +585,7 @@ local function PrintStatus()
     for _, f in ipairs(FEATURES) do
         Print(string.format("%s: %s", f.key, db[f.key] and "on" or "off"))
     end
+    Print(ns.Feed.StatusText())
     Print("last error: " .. (lastError or "none"))
 end
 
@@ -592,6 +604,8 @@ local function OnSlash(msg)
     local feature = FindFeature(cmd)
     if cmd == "on" or cmd == "off" then
         SetEnabled(cmd == "on")
+    elseif cmd == "feed" then
+        ns.Feed.Slash(arg)
     elseif feature then
         if arg == "on" or arg == "off" then
             SetFeature(feature.key, arg == "on")
@@ -617,7 +631,7 @@ end
 -- the same functions /gchat uses.
 --
 --   version              this addon's version, a string
---   StatusLine()         one short line of state, e.g. "on . 7/8 features"
+--   StatusLine()         one short line of state, e.g. "on . 8/9 features"
 --   MenuEntries()        the options as plain data: { text, func }, { text, checkbox = true,
 --                        checked, func }, { text, radio = true, checked, func }, { text, submenu }
 --                        and { divider = true }
@@ -642,6 +656,8 @@ local function MenuEntries()
             checked = function() return db and db[f.key] and true or false end,
             func = function() SetFeature(f.key, not db[f.key]) end }
     end
+    list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Chat feed", submenu = ns.Feed.MenuEntries() }
     return list
 end
 
@@ -672,6 +688,7 @@ local function BindSavedVariables()
         if type(db[f.key]) ~= "boolean" then db[f.key] = f.default end
     end
     if type(db.owned) ~= "table" then db.owned = {} end
+    ns.Feed.Bind(db)
 end
 
 local events = CreateFrame("Frame")

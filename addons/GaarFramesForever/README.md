@@ -88,6 +88,9 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   unchanged), on every health update; with no happiness known it keeps its normal colour. `/gff pethappiness`
   switches icon and colour together. `/gff status` prints a `pet happiness:` line with the raw reads (hunter, pet
   out, `GetPetHappiness`, `HasPetUI`, `UnitPower` happiness, source used, level, icon shown, last error).
+  1.4.2 fixes the pet health bar staying white: `Happy` was declared inside the Look block, so it was a nil global in
+  `UpdateHealth` and the health update threw (and latched off). It is now declared at file scope; the bar is green,
+  yellow or red by happiness as intended.
 - **Raid target marks** (1.2.9, on by default: `/gff marks off` to hide). On every frame the raid
   mark (skull, cross, star ...) is an 18 px icon on a frame of its own above the bars, centred on the
   top edge so half of it sticks out above the frame; nothing covers it and it does not touch the

@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.1"
+local VERSION = "1.4.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -203,6 +203,10 @@ local editOwner = {}        -- owner handle for EventRegistry
 
 -- Forward declarations: used by the frame scripts before they are defined.
 local UpdateFrame, StartDrag, StopDrag, ApplyBorder
+-- Happy lives in the file-scope table below (assigned in the Look block): declared here because it is
+-- also used after that block's end (UpdateHealth, status, poll). Declared inside the block it was a
+-- nil global out there (1.4.1 bug: UpdateHealth threw and the health feature latched off).
+local Happy
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -340,7 +344,7 @@ local HAPPY_DMG = { 75, 100, 125 }
 -- Classic's happiness power runs to 1050000: unhappy below 350000, content below 700000.
 local HAPPY_MAX = 1050000
 
-local Happy = { diag = {} }   -- diag: the last raw reads, for /gff status
+Happy = { diag = {} }   -- diag: the last raw reads, for /gff status
 
 -- A raw value as text for /gff status; a secret is never looked into.
 local function Raw(v)

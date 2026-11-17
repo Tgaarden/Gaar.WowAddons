@@ -613,3 +613,7 @@ From Blizzard's retail FrameXML and API documentation, which Forever's UI follow
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

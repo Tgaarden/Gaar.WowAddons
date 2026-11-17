@@ -228,3 +228,7 @@ and without the old `nameSubtext`), `C_UnitAuras.GetAuraDataByIndex` (or `UnitAu
 `issecretvalue` where it exists, `RAID_CLASS_COLORS`, `AbbreviateLargeNumbers`, `STANDARD_TEXT_FONT`,
 `BackdropTemplate`, `C_AddOns.IsAddOnLoaded` (or `IsAddOnLoaded`), `CreateColor`,
 `Texture:SetGradient`.
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

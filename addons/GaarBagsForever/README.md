@@ -244,3 +244,7 @@ For the item lock (1.9): `ContainerFrame1`-`13` and their `UpdateItems` / `Enume
 `GetBuybackItemLink`, `GetBuybackItemInfo`, `BuybackItem`, the events `MERCHANT_SHOW`,
 `MERCHANT_CLOSED`, `MERCHANT_UPDATE` and `CURSOR_CHANGED`, and the frame methods
 `SetPassThroughButtons` and `SetPropagateMouseMotion`.
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

@@ -10,5 +10,6 @@
 ## OptionalDeps: BetterCastbarsForever
 ## SavedVariables: GaarCastbarsForeverDB
 ## X-Curse-Project-ID: 1793607
+## X-Donate: https://buymeacoffee.com/tgaarden
 
 GaarCastbarsForever.lua

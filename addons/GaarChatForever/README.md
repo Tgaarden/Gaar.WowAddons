@@ -113,3 +113,7 @@ hub talks to this addon only through `GaarChatForeverAPI`:
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

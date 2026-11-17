@@ -195,3 +195,7 @@ From Blizzard's retail FrameXML, which Forever's UI follows
 `Interface\RaidFrame\Raid-Bar-Hp-Fill`, `Interface\Buttons\WHITE8x8`,
 `Interface\CastingBar\UI-CastingBar-Spark`, `Interface\ChatFrame\UI-ChatIM-SizeGrabber-*` and the
 icon `Interface\Icons\INV_Shield_06`; the strings `INTERRUPTED` and `FAILED`.
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

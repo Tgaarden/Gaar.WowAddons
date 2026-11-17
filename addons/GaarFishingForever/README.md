@@ -419,3 +419,7 @@ the `Sound_*` CVars above. It ships a `_Camelot` TOC and a plain fallback TOC, b
 ## License
 
 MIT, see [LICENSE](LICENSE). The credits above cover where the route's facts come from.
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

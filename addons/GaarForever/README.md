@@ -604,3 +604,7 @@ Core.lua            saved variables, minimap button and menu, /gf
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Support
+
+If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

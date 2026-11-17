@@ -547,3 +547,7 @@ Bump `## Version` in both TOCs and merge first; the tag must match the TOC versi
   `addons/Better*Forever` bridge folders** (and the `## OptionalDeps: BetterXForever` line in each
   addon's TOCs, and the hub's `MigrateOldHubDB`); `GaarForever.Migrate` then simply finds nothing
   to move.
+
+## Support
+
+If you enjoy these addons, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕

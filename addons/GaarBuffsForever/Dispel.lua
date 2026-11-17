@@ -70,11 +70,20 @@
       found, in the class's order (left-click's first), the first on the left half and the second
       on the right half; a member with only one kind is that colour all over (a paladin with
       three kinds shows the first two); dispellable but of an unknown kind = yellow.
-    * Clicks, on the rows and the strip alike: left-click (type1/spell1) = the first action's
-      spell, right-click (type2/spell2) = the second's, or the same spell for a one-action class
-      (paladin, mage); unit = the member's token. A click whose spell you do not know, or whose
-      kinds are all switched off, does nothing. Registered for the one direction
-      ActionButtonUseKeyDown acts on, like the buff rows.
+    * Clicks (since 1.8.0): left-click (type1/spell1) = the first action's spell, right-click
+      (type2/spell2) = the second's, or the same spell for a one-action class (paladin, mage);
+      unit = the member's token. Out of combat a row is bound to what its member has: when every
+      kind found is removed by one action, both buttons cast that action's spell (a poisoned
+      member: Abolish/Cure Poison on either button). The strip cannot know in advance (its
+      attributes cannot change in combat), so it keeps the fixed order. On both, a button whose
+      own spell you do not know or whose kinds are all switched off casts the other action's
+      spell (a druid without Remove Curse gets Cure Poison on left-click too); nothing known and
+      switched on = the click does nothing. The tooltip shows what the button is bound to.
+      Registered for the one direction ActionButtonUseKeyDown acts on, like the buff rows.
+    * Druid "leave form to dispel" (/gbuff dispel form, per character, off by default): the rows
+      and the strip use type "macro" with macrotext1/2 = "/cancelform [form]" + "/cast [@unit]
+      <spell name>", built out of combat in Bind; off = the plain spell cast. Changed in combat,
+      it is stored at once and the buttons are bound again after combat.
 
   Detecting a dispellable debuff in combat. On this client (Forever 1.60.1, retail 12.x rules)
   auras are secret in combat and an index read from addon code is refused with an error (see
@@ -272,10 +281,55 @@ local function Want(a)
     return false
 end
 
--- The spell a mouse button (1 left, 2 right) casts, or nil.
+-- The spell a mouse button (1 left, 2 right) casts, or nil. Its own action's spell when you know
+-- it and want it; else the other action's (a druid without Remove Curse, or with curses off,
+-- casts the poison spell on left-click too).
 local function ButtonSpell(button)
     local a = (button == 2 and not Single()) and 2 or 1
-    return Want(a) and ActionSpell(a) or nil
+    if Want(a) then return ActionSpell(a) end
+    local o = (not Single()) and (3 - a) or nil
+    if o and Want(o) then return ActionSpell(o) end
+    return nil
+end
+
+-- What the two mouse buttons cast for a member with these kinds (found: the kinds the member has
+-- that you can remove, in order; nil = not known, the in-combat strip). When every kind found is
+-- removed by one action, both buttons cast that action's spell; otherwise left = the first
+-- action's, right = the second's, with the fallback of ButtonSpell.
+local function ClickSpells(found)
+    local l, r = ButtonSpell(1), ButtonSpell(2)
+    if found and #found > 0 then
+        local _, of = Removable()
+        local acts, seen = {}, {}
+        for _, k in ipairs(found) do
+            local a = of[k]
+            if a and not seen[a] then
+                seen[a] = true
+                acts[#acts + 1] = a
+            end
+        end
+        if #acts == 1 then
+            local s = ActionSpell(acts[1])
+            if s then l, r = s, s end
+        end
+    end
+    return l, r
+end
+
+-- Druid, per character, off by default: the dispel buttons leave a shapeshift form first.
+local function CancelFormWanted()
+    local c = ns.CharDB()
+    return Cfg().class == "DRUID" and type(c) == "table" and c.dispelCancelForm == true
+end
+
+-- The click attributes for one spell: "spell" and its value, or with the druid's "leave form"
+-- on (and a spell known by name) "macro" and "/cancelform [form]" + "/cast [@unit] Name".
+local function ClickAttr(s, unit)
+    if not (s and unit) then return nil, nil, nil end
+    if CancelFormWanted() and type(s.value) == "string" then
+        return "macro", "/cancelform [form]\n/cast [@" .. unit .. "] " .. s.value, s.label .. " (leaves form first)"
+    end
+    return "spell", s.value, s.label
 end
 
 -- "curse", "poison/disease/magic": a field of each kind, joined.
@@ -699,10 +753,15 @@ local function Tooltip(self)
     if self.fake then
         tip:AddLine("Test button: clicking does nothing.", 0.7, 0.7, 0.7)
     else
-        for a in ipairs(Actions()) do
-            local s = ButtonSpell(a)
-            tip:AddLine((Single() and "Left- or right-click: " or a == 1 and "Left-click: " or "Right-click: ")
-                .. (s and s.label or ("nothing (" .. KindsText(ActionKinds(a), "plural") .. " off or not known)")), 1, 1, 1)
+        -- What Bind set on this button (out of combat), so a row shows what it really casts.
+        local clicks = self.clicks or {}
+        local l, r = clicks[1], clicks[2]
+        local none = "nothing (no dispel spell known and switched on)"
+        if l and l == r then
+            tip:AddLine("Left- or right-click: " .. l, 1, 1, 1)
+        else
+            tip:AddLine("Left-click: " .. (l or none), 1, 1, 1)
+            tip:AddLine("Right-click: " .. (r or none), 1, 1, 1)
         end
         if self.far then tip:AddLine("Out of range", 1, 0.3, 0.3) end
     end
@@ -714,17 +773,32 @@ local function HookTooltip(b)
     b:HookScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
 end
 
--- The click attributes, out of combat only: left = the first action's spell, right = the
--- second's (the same one for a one-action class).
-local function Bind(b, unit)
-    local c, p = ButtonSpell(1), ButtonSpell(2)
-    b:RegisterForClicks(ns.UseKeyDown() and "AnyDown" or "AnyUp")
+-- The click attributes, out of combat only (in combat it does nothing; the next bind out of
+-- combat catches up). found = the member's kinds (a row) or nil (a strip button, whose member is
+-- not known in advance): see ClickSpells. Left = type1 / spell1 or macrotext1, right = type2 /
+-- spell2 or macrotext2. The attributes are only written when something changed (rows are bound
+-- again on every list refresh).
+local function Bind(b, unit, found)
+    if InCombat() then return end
+    local l, r = ClickSpells(found)
+    local t1, v1, label1 = ClickAttr(l, unit)
+    local t2, v2, label2 = ClickAttr(r, unit)
+    b.clicks = { label1, label2 }
+    local keyDown = ns.UseKeyDown()
+    local key = table.concat({ tostring(unit), tostring(keyDown), tostring(t1), tostring(v1),
+        tostring(t2), tostring(v2) }, "\031")
+    if b.bindKey == key then return end
+    b.bindKey = key
+    b:RegisterForClicks(keyDown and "AnyDown" or "AnyUp")
     b:SetAttribute("type", nil)
     b:SetAttribute("spell", nil)
-    b:SetAttribute("type1", (unit and c) and "spell" or nil)
-    b:SetAttribute("spell1", (unit and c) and c.value or nil)
-    b:SetAttribute("type2", (unit and p) and "spell" or nil)
-    b:SetAttribute("spell2", (unit and p) and p.value or nil)
+    b:SetAttribute("macrotext", nil)
+    b:SetAttribute("type1", t1)
+    b:SetAttribute("spell1", t1 == "spell" and v1 or nil)
+    b:SetAttribute("macrotext1", t1 == "macro" and v1 or nil)
+    b:SetAttribute("type2", t2)
+    b:SetAttribute("spell2", t2 == "spell" and v2 or nil)
+    b:SetAttribute("macrotext2", t2 == "macro" and v2 or nil)
     b:SetAttribute("unit", unit)
 end
 
@@ -1213,7 +1287,7 @@ local function Entry(unit, found, of)
     for _, k in ipairs(found) do tags[#tags + 1] = KINDS[k].tag end
     if unit == "player" then suffix[#suffix + 1] = "you" end
     local spell = ActionSpell(of[found[1]])
-    local e = { unit = unit, plainName = plain, icon = spell and spell.icon }
+    local e = { unit = unit, plainName = plain, icon = spell and spell.icon, found = found }
     local inRange, isSecret, secretRange = ns.InSpellRange(spell and spell.value, unit)
     if inRange == false then
         e.far = true
@@ -1284,11 +1358,14 @@ local function FakeStrip()
     return out
 end
 
--- What each mouse button removes: "left: curse, right: poison" or "left or right: poison/disease".
+-- What each mouse button removes on the strip: "left: curse, right: poison" or "left or right:
+-- poison/disease" (a button whose own spell you lack or switched off casts the other's).
 local function ClickText()
-    if Single() then return "left or right: " .. KindsText(ActionKinds(1), "name", "/"):lower() end
-    return "left: " .. KindsText(ActionKinds(1), "name", "/"):lower()
-        .. ", right: " .. KindsText(ActionKinds(2), "name", "/"):lower()
+    local l, r = ButtonSpell(1), ButtonSpell(2)
+    local function Kinds(s, a) return KindsText(s and s.kinds or ActionKinds(a), "name", "/"):lower() end
+    local form = CancelFormWanted() and ", leaving form first" or ""
+    if Single() or (l and l == r) then return "left or right: " .. Kinds(l, 1) .. form end
+    return "left: " .. Kinds(l, 1) .. ", right: " .. Kinds(r, 2) .. form
 end
 
 local function UpdateList()
@@ -1319,7 +1396,7 @@ local function UpdateList()
     for i, e in ipairs(entries) do
         local r = Row(i)
         r.plainName, r.far, r.fake = e.plainName, e.far, e.fake
-        Bind(r, (not e.fake) and e.unit or nil)
+        Bind(r, (not e.fake) and e.unit or nil, e.found)
         r.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
         r.text:SetText(e.text)
         r:ClearAllPoints()
@@ -1415,7 +1492,20 @@ end
 local function Signature()
     local c, p = ButtonSpell(1), ButtonSpell(2)
     return table.concat({ tostring(Active()), tostring(Testing()), table.concat((Removable()), "/"),
-        tostring(Locked()), tostring(ns.UseKeyDown()), tostring(c and c.value), tostring(p and p.value) }, ",")
+        tostring(Locked()), tostring(ns.UseKeyDown()), tostring(c and c.value), tostring(p and p.value),
+        tostring(CancelFormWanted()) }, ",")
+end
+
+-- The druid's "leave form to dispel" (this character). Stored at once; the buttons are bound
+-- again out of combat (the ticker sees the changed Signature), so in combat it waits for
+-- PLAYER_REGEN_ENABLED.
+local function SetCancelForm(on)
+    local c = ns.CharDB()
+    if type(c) ~= "table" then return end
+    c.dispelCancelForm = on and true or nil
+    listDirty, stripPending = true, true
+    Print("dispel: leave form to dispel (this character): " .. (on and "on" or "off") .. "."
+        .. (InCombat() and " The buttons change after combat." or ""))
 end
 
 local function SetLocked(locked)
@@ -1456,9 +1546,17 @@ local function Slash(arg)
         SetLocked(true)
     elseif what == "reset" then
         ResetPosition()
+    elseif what == "form" then
+        if not (cfg and cfg.class == "DRUID") then
+            Print("leave form to dispel is for druids only.")
+        else
+            local v = ns.Toggle(rest, CancelFormWanted())
+            if v == nil then Print("/gbuff dispel form [on|off]") else SetCancelForm(v) end
+        end
     else
         Print("/gbuff dispel [on|off], /gbuff dispel " .. table.concat(cfg and ClassKinds(cfg) or KIND_ORDER, "|")
-            .. " [on|off], /gbuff dispel unlock|lock|reset")
+            .. " [on|off], /gbuff dispel unlock|lock|reset"
+            .. ((cfg and cfg.class == "DRUID") and ", /gbuff dispel form [on|off]" or ""))
     end
     listDirty = true
 end
@@ -1542,7 +1640,7 @@ local function StatusExtra()
         end
     end
     local reasons = Reasons(seen)
-    return {
+    local out = {
         "dispel panel: " .. ns.OnOff(On("dispel")) .. "   " .. (Active() and "active" or "idle")
             .. "   " .. (InCombat() and "strip (combat)" or (panel and panel:IsShown() and listBox:IsShown()) and ("shown, " .. shownRows .. " rows") or "hidden")
             .. "   " .. (Locked() and "locked" or "unlocked")
@@ -1552,23 +1650,36 @@ local function StatusExtra()
         "strip: " .. stripMode .. ", " .. stripCount .. " buttons" .. ((stripPending or rosterInCombat) and " (rebuild after combat)" or "")
             .. "   combat show: " .. (drivers and "state driver" or "PLAYER_REGEN_DISABLED")
             .. "   left: " .. (c and c.label or "nothing")
-            .. "   right: " .. (po and po.label or "nothing"),
+            .. "   right: " .. (po and po.label or "nothing")
+            .. " (a row with one kind casts that kind's spell on both)",
         "dispel filter: " .. (f or "none") .. " (" .. tostring(filterInfo) .. ")   GetUnitAuraInstanceIDs "
             .. Has("GetUnitAuraInstanceIDs") .. "   GetAuraDispelTypeColor " .. Has("GetAuraDispelTypeColor")
             .. "   colour curve " .. ns.YesNo(Curve() ~= nil),
         "combat icons (Blizzard aura container): " .. CellStatus(),
         "in-combat detection (tried in order: " .. ORDER .. "; shown / hidden / secret = SetAlphaFromBoolean / unknown = hidden): " .. detection,
-        reasons and ("ways that gave no answer: " .. reasons) or nil,
     }
+    if reasons then out[#out + 1] = "ways that gave no answer: " .. reasons end
+    if Cfg().class == "DRUID" then
+        out[#out + 1] = "leave form to dispel (druid, this character): " .. ns.OnOff(CancelFormWanted())
+            .. (CancelFormWanted() and "   (/cancelform [form] + /cast on the member)" or "   (plain spell cast)")
+            .. ((InCombat() and sig ~= Signature()) and "   (the buttons change after combat)" or "")
+    end
+    return out
 end
 
 local function Menu()
-    return {
+    local out = {
         { text = "Lock dispel panel", checkbox = true,
           checked = function() return Locked() end,
           func = function() SetLocked(not Locked()) end },
         { text = "Reset dispel panel position", func = ResetPosition },
     }
+    if cfg and cfg.class == "DRUID" then
+        table.insert(out, 1, { text = "Dispel: leave form first (this character)", checkbox = true,
+          checked = function() return CancelFormWanted() end,
+          func = function() SetCancelForm(not CancelFormWanted()) end })
+    end
+    return out
 end
 
 -- Adds the panel to one class module: its options (labelled for that class, one per kind the
@@ -1585,6 +1696,11 @@ local function Hook(mod, classFile)
     end
     mod.savedKeys = mod.savedKeys or {}
     mod.savedKeys.dispelPos, mod.savedKeys.dispelLocked = true, true
+    if classFile == "DRUID" then
+        -- Per character (GaarBuffsForeverCharDB): only wanted on the druid that dispels.
+        mod.charKeys = mod.charKeys or {}
+        mod.charKeys.dispelCancelForm = true
+    end
 
     local clicks
     if #c.actions == 1 then
@@ -1608,6 +1724,12 @@ local function Hook(mod, classFile)
             .. KindsText(kinds, "plural") .. ") out of combat, in combat a button per member, seen only when there is one to remove: the game draws the debuff's icon and name itself (Blizzard aura container), what this addon cannot read stays hidden; "
             .. clicks
         out[#out + 1] = "/gbuff dispel " .. table.concat(kinds, "|") .. " [on|off] - each kind; /gbuff dispel unlock | lock | reset - move the panel"
+        out[#out + 1] = "  clicks: out of combat a row whose member has one kind casts that kind's spell on either button;"
+            .. " in combat the strip keeps the fixed order; a button whose spell you lack (or switched off) casts the other one"
+        if classFile == "DRUID" then
+            out[#out + 1] = "/gbuff dispel form [on|off] - druid, this character, off by default: the dispel buttons leave"
+                .. " cat/bear/travel form first (/cancelform [form] + /cast); changed in combat, it applies after combat"
+        end
         return out
     end
     mod.StatusExtra = StatusExtra

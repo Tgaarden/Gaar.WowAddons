@@ -18,6 +18,14 @@ an **"Expiring ..." warning** out of combat when one of your buffs has less than
 (`/gbuff expire 0-5`); and the "something went missing" sound no longer fires for members left
 out because they are out of range.
 
+New in 1.8: **dispel clicks follow what the member has**. Out of combat a dispel row whose member
+has one kind casts that kind's spell on either mouse button (a poisoned member: Abolish/Cure
+Poison on left- and right-click alike); a button whose own spell you do not know (or switched
+off) casts the other one, on the rows and the in-combat strip, so a druid without Remove Curse
+gets Cure Poison on left-click too. A spell the client can name but you have not learned
+(Abolish Poison on a low-level druid) no longer counts as known. And druids get an optional
+**leave form to dispel** (`/gbuff dispel form`, per character, off by default).
+
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
   and the tank, **Gift of the Wild and Rebirth reagents**, and a **dispel panel** for curses and
   poisons (a list out of combat, one click button per member in combat).
@@ -210,10 +218,36 @@ out on purpose).
   Paladin (one action): the kinds in the order poison, disease, magic, so poison + magic = left
   half green, right half blue (three kinds: the first two). Mage: a curse = purple all over.
   Dispellable but of an unknown kind (a druid's disease, say) = yellow.
-- **Clicks**, on the rows and the strip alike: **left-click** and **right-click** cast the spells
-  in the table above on that member (`type1`/`spell1`, `type2`/`spell2`, `unit`); a paladin and a
-  mage have one spell on both. A click whose spell you do not know or whose kinds are all switched
-  off does nothing. Registered for the click direction `ActionButtonUseKeyDown` acts on.
+- **Clicks**: **left-click** and **right-click** cast the spells in the table above on that member
+  (`type1`/`spell1`, `type2`/`spell2`, `unit`); a paladin and a mage have one spell on both.
+  Since 1.8:
+  - **Out of combat a row follows what its member has**: when every kind the member has is
+    removed by one spell, both buttons cast it. A druid's poisoned member: Abolish Poison (else
+    Cure Poison) on left- and right-click; cursed: Remove Curse on both; cursed and poisoned:
+    left = Remove Curse, right = poison, as in the table. The rows are bound again whenever that
+    changes (out of combat only).
+  - **In combat the strip keeps the fixed order** of the table (left = the first column, right =
+    the second): a secure button's attributes cannot change in combat, and who has what is not
+    known when the strip is built.
+  - **The other spell as a fallback**, rows and strip alike: a button whose own spell you do not
+    know, or whose kinds are all switched off, casts the other one. A druid without Remove Curse
+    (level 14-23) gets Cure Poison on left-click too. Nothing known and switched on = the click
+    does nothing.
+  - The tooltip of a row or strip button says what each mouse button casts.
+
+  Registered for the click direction `ActionButtonUseKeyDown` acts on.
+- **Leave form to dispel** (druid, new in 1.8, **off by default**, per character):
+  `/gbuff dispel form [on|off]`, or the checkbox *Dispel: leave form first (this character)* in
+  the menu and settings page. On: the dispel rows and strip buttons use a macro instead of a
+  plain spell cast, `/cancelform [form]` then `/cast [@<unit>] <spell name>`, so a click in cat,
+  bear, aquatic or travel form drops the form and dispels (moonkin form too, since it is a form).
+  Off: the plain spell cast, no form is left. Switched in combat it is saved at once and the
+  buttons change after combat. `/gbuff status` shows it.
+- **Spell lookup by name** (since 1.8): when no rank reports itself as known, the localized name
+  counts only when the spellbook confirms it (`C_SpellBook.FindSpellBookSlotForSpell` or
+  `IsSpellKnownOrOverridesKnown`), so a spell you have not learned yet no longer beats the one
+  you have (Abolish Poison vs Cure Poison). Where neither API answers, the name alone counts as
+  before.
 - **`/gbuff dispel magic off`** / **`curse off`** / **`poison off`** / **`disease off`**: that
   kind is ignored (no rows, no colour, no click). The settings are account-wide, so `poison off`
   applies to a druid, a shaman and a paladin alike. The menu and settings page show only the
@@ -411,6 +445,7 @@ The position is saved account-wide in `GaarBuffsForeverDB`, as an offset from th
 | `/gbuff dispel [on\|off]` | The dispel panel (no argument toggles) |
 | `/gbuff dispel curse [on\|off]`, `/gbuff dispel poison [on\|off]` | Each kind (also `magic` and `disease`, for the other classes) |
 | `/gbuff dispel unlock`, `lock`, `reset` | Move the dispel panel, stop moving it, put it back below the box |
+| `/gbuff dispel form [on\|off]` | Leave cat/bear/travel form when you click a dispel button (this character; off by default; changed in combat, it applies after combat) |
 | **Paladin** | |
 | `/gbuff bless [on\|off]` | The blessing check |
 | `/gbuff bless <class> <type>` | Assign a blessing to a class: `warrior`, `rogue`, `hunter`, `mage`, `priest`, `warlock`, `druid`, `paladin`, `shaman`; `might`, `wisdom`, `kings`, `salvation`, `light`, `sanctuary` or `none` |
@@ -435,7 +470,7 @@ The position is saved account-wide in `GaarBuffsForeverDB`, as an offset from th
 | `/gbuff reagents brilliance <n>` | Warn below n Arcane Powder (default 10), 0-200, once Arcane Brilliance is known |
 | `/gbuff dispel [on\|off]`, `/gbuff dispel curse [on\|off]`, `unlock`, `lock`, `reset` | The dispel panel |
 
-The class settings are account-wide (except the shaman's imbue choice, per character), so the
+The class settings are account-wide (except the shaman's imbue choice and the druid's leave form to dispel, per character), so the
 druid commands also work on a paladin and the other way round; they only matter on that class.
 
 ## With GaarForever (required)

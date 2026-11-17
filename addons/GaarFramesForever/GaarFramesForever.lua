@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -168,13 +168,14 @@ local DEFAULTS = {
     healPrediction = true,
     hotPred = true,
     raidMark = true,
+    petHappiness = true,
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
 -- Every key GaarFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, classColor = true, followEditMode = true,
-    playerBuffs = true, healPrediction = true, hotPred = true, raidMark = true, frames = true, scales = true, positions = true,
+    playerBuffs = true, healPrediction = true, hotPred = true, raidMark = true, petHappiness = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- GaarFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -312,6 +313,83 @@ function Look.BuildMark(f)
     t:SetTexture(RAID_ICONS)
     t:Hide()
     f.raidIcon = t
+end
+
+-- Hunter pet happiness (1.4.0): Blizzard's happy / content / unhappy face on its own non-secure
+-- frame, just right of the pet frame, with a tooltip. Shown while a hunter has a pet.
+local HAPPY_TEX = "Interface\\PetPaperDollFrame\\UI-PetHappiness"
+local HAPPY_COORDS = {
+    [1] = { 0.375, 0.5625, 0, 0.359375 },
+    [2] = { 0.1875, 0.375, 0, 0.359375 },
+    [3] = { 0, 0.1875, 0, 0.359375 },
+}
+local HAPPY_NAMES = { "Unhappy", "Content", "Happy" }
+local HAPPY_DEFAULT_TEXT = { "Pet is Unhappy", "Pet is Content", "Pet is Happy" }
+
+-- happiness (1-3), damage percentage (e.g. 125) and loyalty rate, or nil. Plain numbers only.
+local function ReadHappiness()
+    if type(_G.GetPetHappiness) ~= "function" then return nil end
+    local ok, h, dmg, loy = pcall(_G.GetPetHappiness)
+    if not ok then return nil end
+    h = Num(h)
+    if not h or h < 1 or h > 3 then return nil end
+    return math.floor(h), Num(dmg), Num(loy)
+end
+
+local function HappinessTooltip(self)
+    local h, dmg, loy = ReadHappiness()
+    if not h then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local fmt = _G["PET_HAPPINESS" .. h]
+    GameTooltip:SetText(type(fmt) == "string" and fmt ~= "" and fmt or HAPPY_DEFAULT_TEXT[h])
+    if dmg then
+        local pct = math.floor(dmg - 100 + 0.5)
+        local dfmt = _G.PET_DAMAGE_PERCENTAGE
+        if type(dfmt) == "string" and dfmt:find("%%") and pcall(string.format, dfmt, pct) then
+            GameTooltip:AddLine(string.format(dfmt, pct), 1, 1, 1)
+        else
+            GameTooltip:AddLine(string.format("Damage: %s%d%%", pct > 0 and "+" or "", pct), 1, 1, 1)
+        end
+    end
+    if loy and loy > 0 then
+        GameTooltip:AddLine("Pet is gaining loyalty", 0.2, 1, 0.2)
+    elseif loy and loy < 0 then
+        GameTooltip:AddLine("Pet is losing loyalty", 1, 0.2, 0.2)
+    end
+    GameTooltip:Show()
+end
+
+function Look.BuildHappiness(f)
+    local m = CreateFrame("Frame", nil, f)
+    m:SetFrameLevel(f:GetFrameLevel() + 10)
+    m:SetSize(20, 20)
+    m:SetPoint("LEFT", f, "RIGHT", 2, 0)
+    m:EnableMouse(true)
+    local t = m:CreateTexture(nil, "OVERLAY")
+    t:SetAllPoints(m)
+    t:SetTexture(HAPPY_TEX)
+    t:SetTexCoord(unpack(HAPPY_COORDS[3]))
+    m.tex = t
+    m:SetScript("OnEnter", function(self) pcall(HappinessTooltip, self) end)
+    m:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    m:Hide()
+    f.happyFrame = m
+end
+
+function Look.UpdateHappiness(f)
+    local m = f.happyFrame
+    if not m then return end
+    local _, cls = UnitClass("player")
+    local hunter = Plain(cls) == "HUNTER"
+    if not db.petHappiness or not hunter or Plain(UnitExists("pet")) ~= true
+        or (type(_G.HasPetUI) == "function" and not Plain(_G.HasPetUI())) then
+        m:Hide()
+        return
+    end
+    local h = ReadHappiness()
+    if not h then m:Hide(); return end
+    m.tex:SetTexCoord(unpack(HAPPY_COORDS[h]))
+    m:Show()
 end
 
 -- Show or hide the mark. idx is the unit's raid target index and may be secret: it is never
@@ -459,6 +537,7 @@ local FEATURE_LABELS = {
     powerhide = "hide an empty power line from hidden values",
     healpred = "draw heal prediction and absorbs",
     mana = "show the player's mana under a form's power",
+    happiness = "read the hunter pet's happiness",
     blizzard = "switch Blizzard's unit frames off",
     frames = "build secure unit frames",
     editmode = "follow Blizzard's Edit Mode positions",
@@ -480,6 +559,7 @@ local CLEAR = {
         f.manaShown = false
         f.health:SetHeight(f.powerShown == false and (f.layout.hp + 1 + f.layout.mp) or f.layout.hp)
     end,
+    happiness = function(f) if f.happyFrame then f.happyFrame:Hide() end end,
     icons = function(f)
         if f.raidIcon then f.raidIcon:Hide() end
         if f.leaderIcon then f.leaderIcon:Hide() end
@@ -1629,6 +1709,7 @@ local function Build(key, unit, preview)
 
     -- Icons.
     Look.BuildMark(f)
+    if key == "pet" then Look.BuildHappiness(f) end
     if key == "player" or key == "party" then
         local li = f:CreateTexture(nil, "OVERLAY")
         li:SetSize(14, 14)
@@ -2652,6 +2733,7 @@ UpdateFrame = function(f)
     Run("name", UpdateName, f)
     Run("portrait", UpdatePortrait, f)
     Run("icons", UpdateIcons, f)
+    if f.happyFrame then Run("happiness", Look.UpdateHappiness, f) end
     Run("threat", UpdateThreat, f)
     if f.auraIcons then Run("auras", UpdateAuras, f, true) end
     if f.key == "party" then Run("range", UpdateRange, f) end
@@ -3480,6 +3562,7 @@ local SETTING_TOGGLES = {
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
     { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks" },
+    { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon" },
 }
 
 local function SetToggle(t, on)
@@ -3532,6 +3615,8 @@ local function PrintHelp()
     Print("/gff hotdebug - the raw buff data of your target (or you) behind the HoT prediction, to paste back")
     Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
+    Print("/gff pethappiness on | off - hunter pet happiness icon next to the pet frame, tooltip on hover (now: "
+        .. OnOff(db and db.petHappiness) .. ")")
 end
 
 local function Yes(v) return v and "yes" or "MISSING" end
@@ -3731,7 +3816,8 @@ local function PrintStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
-    Print("raid marks " .. OnOff(db.raidMark))
+    Print("raid marks " .. OnOff(db.raidMark) .. DOT .. "pet happiness " .. OnOff(db.petHappiness)
+        .. (blocked.happiness and (" (off: " .. blocked.happiness .. ")") or ""))
     for _, line in ipairs(HealPred.HotLines()) do Print(line) end
     local p = real.player
     Print("player mana bar: " .. ((p and p.manaShown) and "shown" or "hidden")
@@ -3964,6 +4050,11 @@ local function OnUnitEvent(event, unit, arg2)
         if Visible(t) then Run("combo", UpdateCombo, t) end
         if event == "UNIT_COMBO_POINTS" then return end
     end
+    if unit == "pet" and (event == "UNIT_HAPPINESS" or (event == "UNIT_POWER_UPDATE" and arg2 == "HAPPINESS")) then
+        local pf = real.pet
+        if Visible(pf) then Run("happiness", Look.UpdateHappiness, pf) end
+        if event == "UNIT_HAPPINESS" or arg2 == "HAPPINESS" then return end
+    end
     if event == "UNIT_FACTION" then
         local f = real[unit]
         if Visible(f) then Run("health", UpdateHealth, f); Run("name", UpdateName, f) end
@@ -3999,7 +4090,7 @@ for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_R
     "PLAYER_TARGET_CHANGED", "PLAYER_UPDATE_RESTING", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
     "RAID_TARGET_UPDATE", "UNIT_FACTION", "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
     "UNIT_TARGET", "UNIT_PET", "UNIT_COMBO_POINTS", "EDIT_MODE_LAYOUTS_UPDATED", "DISPLAY_SIZE_CHANGED",
-    "UI_SCALE_CHANGED", "UPDATE_SHAPESHIFT_FORM" }) do
+    "UI_SCALE_CHANGED", "UPDATE_SHAPESHIFT_FORM", "PET_UI_UPDATE", "UNIT_HAPPINESS" }) do
     pcall(events.RegisterEvent, events, e)
 end
 if HAS_FOCUS then pcall(events.RegisterEvent, events, "PLAYER_FOCUS_CHANGED") end
@@ -4047,6 +4138,9 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         UpdateAllFrames()
     elseif event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
         if FollowOn() and started and not editOpen then Refollow() end
+    elseif event == "PET_UI_UPDATE" then
+        local pf = real.pet
+        if Visible(pf) then Run("happiness", Look.UpdateHappiness, pf) end
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateUnit("target")
         UpdateUnit("targettarget")

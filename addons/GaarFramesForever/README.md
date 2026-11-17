@@ -76,6 +76,9 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   lighter green, then absorb shields in white (with Blizzard's shield stripes where the client has
   the texture), and heal absorbs (necrotic and the like) in dark red drawn back over the health.
   Nothing is drawn past the end of the bar.
+- **Hunter pet happiness** (1.4.0, on by default: `/gff pethappiness off` to hide). A 20 px happy / content / unhappy face
+  just right of the pet frame, always shown while a hunter has a pet, with a tooltip on hover (happiness, damage bonus
+  or penalty, gaining or losing loyalty). Read with `GetPetHappiness()` inside a pcall; no chat or sound alert.
 - **Raid target marks** (1.2.9, on by default: `/gff marks off` to hide). On every frame the raid
   mark (skull, cross, star ...) is an 18 px icon on a frame of its own above the bars, centred on the
   top edge so half of it sticks out above the frame; nothing covers it and it does not touch the
@@ -155,6 +158,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
 | `/gff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
 | `/gff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
+| `/gff pethappiness on\|off` | Hunter pet happiness icon next to the pet frame (on by default) |
 
 `/gaarframesforever` works the same as `/gff`. `targettarget` works for `tot`.
 

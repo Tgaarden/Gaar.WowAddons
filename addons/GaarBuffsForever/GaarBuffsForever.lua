@@ -100,7 +100,7 @@ ADDON_NAME = ADDON_NAME or "GaarBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.7.1"
+local VERSION = "1.8.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -296,6 +296,31 @@ local function Known(id)
     return false
 end
 
+-- Whether the spellbook holds a spell ID: true (an API says yes), false (an API answered and
+-- none said yes) or nil (no API answered: missing, refused or secret). For the name fallback
+-- below, so a spell the client can name but this character has not learned (Abolish Poison on a
+-- low-level druid, say) is not taken for a known one.
+local function InSpellbook(id)
+    local answered = false
+    local sb = _G.C_SpellBook
+    if type(sb) == "table" and type(sb.FindSpellBookSlotForSpell) == "function" then
+        local ok, slot = pcall(sb.FindSpellBookSlotForSpell, id)
+        if ok and not Secret(slot) then
+            if Num(slot) then return true end
+            answered = true
+        end
+    end
+    if type(_G.IsSpellKnownOrOverridesKnown) == "function" then
+        local ok, known = pcall(_G.IsSpellKnownOrOverridesKnown, id)
+        if ok and not Secret(known) then
+            if known then return true end
+            answered = true
+        end
+    end
+    if answered then return false end
+    return nil
+end
+
 -- { value = name or ID or nil, knownID, text, label, icon, names = {localized names}, ids = {set},
 --   order = ids (highest rank first), known = {set of the ranks this character knows} }
 local function ResolveSpell(ids, fallbackLabel)
@@ -323,11 +348,22 @@ local function ResolveSpell(ids, fallbackLabel)
             return s
         end
     end
-    -- No rank reported as known: the localized name finds it only when it is in the spellbook.
+    -- No rank reported as known: the localized name may find it in the spellbook. The client can
+    -- also name a spell this character has not learned, so it counts only when the spellbook
+    -- confirms it (FindSpellBookSlotForSpell / IsSpellKnownOrOverridesKnown); where neither
+    -- answers, the name alone is taken as before. Not confirmed = not known, so the next spell
+    -- of the list (Cure Poison after Abolish Poison) gets its turn.
     local name, id = SpellName(s.label)
     if name and id and s.ids[id] then
-        s.knownID = id
-        s.value, s.text = name, string.format("%s (spellbook by name: spell %d)", name, id)
+        local confirmed = InSpellbook(id)
+        if confirmed ~= false then
+            s.knownID = id
+            s.value, s.text = name, string.format("%s (spellbook by name: spell %d%s)", name, id,
+                confirmed and ", confirmed" or ", unconfirmed: no spellbook API answered")
+            return s
+        end
+        s.text = s.label .. " - not known by this character (the name resolves to spell " .. id
+            .. ", but the spellbook does not have it)"
         return s
     end
     s.text = s.label .. " - not known by this character"
@@ -1325,9 +1361,10 @@ end
 -- Public API: GaarBuffsForeverAPI
 --
 -- For GaarForever, the family hub that puts this addon's options in its own minimap menu.
--- Everything stays here: the settings live in GaarBuffsForeverDB (the tank and the paladin's
--- per-character options in GaarBuffsForeverCharDB) and change only through the same functions
--- /gbuff uses, so the addon behaves the same with or without the hub.
+-- Everything stays here: the settings live in GaarBuffsForeverDB (the tank, the paladin's and the
+-- shaman's per-character options and the druid's "leave form to dispel" in
+-- GaarBuffsForeverCharDB) and change only through the same functions /gbuff uses, so the addon
+-- behaves the same with or without the hub.
 --
 --   version              this addon's version, a string
 --   StatusLine()         one short line of state, e.g. "on · 2 missing", "on · all buffed" or

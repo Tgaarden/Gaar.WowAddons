@@ -72,7 +72,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.1"
+local VERSION = "1.3.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -899,30 +899,28 @@ local function KnownMaxRanks()
     return seen and max or nil
 end
 
--- true when the button's spell is a lower rank than a rank the player knows.
-local function IsLowRank(st, maxRanks)
-    if st.kind ~= "action" or type(_G.GetActionInfo) ~= "function" then return false end
+-- The spell name when the button holds a lower rank than a rank the player knows, else nil.
+local function BarLowName(st, maxRanks)
+    if st.kind ~= "action" or type(_G.GetActionInfo) ~= "function" then return nil end
     local slot = ActionSlot(st)
-    if not slot then return false end
+    if not slot then return nil end
     local ok, kind, id = pcall(_G.GetActionInfo, slot)
-    if not ok or Secret(kind) or Secret(id) or kind ~= "spell" then return false end
+    if not ok or Secret(kind) or Secret(id) or kind ~= "spell" then return nil end
     id = Num(id)
-    if not id then return false end
+    if not id then return nil end
     local name, rank = SpellName(id), SpellRank(id)
     local best = name and maxRanks[name]
-    return rank ~= nil and best ~= nil and rank < best
+    if rank ~= nil and best ~= nil and rank < best then return name end
+    return nil
 end
 
-local function EnsureRing(st)
-    if st.rankRing then return st.rankRing end
-    if InCombat() then return nil end
-    local b = st.b
-    local f = CreateFrame("Frame", nil, b)
-    local w = type(b.GetWidth) == "function" and Num(b:GetWidth()) or nil
+-- Builds our pulsing ring as a child of `parent`, centred on `anchor`, sized from `w`.
+local function BuildRing(parent, anchor, w)
     w = (w and w > 0) and w or 36
+    local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w * RING_SCALE, w * RING_SCALE)
-    f:SetPoint("CENTER", b, "CENTER", 0, 0)
-    local lvl = type(b.GetFrameLevel) == "function" and Num(b:GetFrameLevel()) or 0
+    f:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    local lvl = type(parent.GetFrameLevel) == "function" and Num(parent:GetFrameLevel()) or 0
     f:SetFrameLevel((lvl or 0) + 3)
     local tex = f:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints(f)
@@ -938,8 +936,16 @@ local function EnsureRing(st)
     f.pulse = ag
     f:SetAlpha(0)
     f:Hide()
-    st.rankRing = f
     return f
+end
+
+local function EnsureRing(st)
+    if st.rankRing then return st.rankRing end
+    if InCombat() then return nil end
+    local b = st.b
+    local w = type(b.GetWidth) == "function" and Num(b:GetWidth()) or nil
+    st.rankRing = BuildRing(b, b, w)
+    return st.rankRing
 end
 
 local function SetRing(st, on)
@@ -960,19 +966,219 @@ local function SetRing(st, on)
     end
 end
 
+-- ---- Spellbook entries -------------------------------------------------------------------
+-- An entry gets the ring when its spell is the highest known rank of a name and an action bar
+-- holds a lower rank of the same name. Classic's SpellButton1..12 and the retail-style
+-- PlayerSpellsFrame.SpellBookFrame (paged item frames) are both read; whichever answers wins.
+
+local BOOK_POLL = 0.25
+local bookState = setmetatable({}, { __mode = "k" }) -- entry button -> { ring =, on = }
+local bookInfo = { variant = "none", entries = 0, rings = 0, err = nil }
+local bookMax, bookLow, bookDirty = nil, nil, true
+local bookSig = nil
+local bookElapsed = 0
+
+local function FieldOf(t, key)
+    local ok, v = pcall(function() return t[key] end)
+    if ok and not Secret(v) then return v end
+    return nil
+end
+
+local function CallOf(t, method, ...)
+    local f = FieldOf(t, method)
+    if type(f) ~= "function" then return nil end
+    local ok, a = pcall(f, t, ...)
+    if ok and not Secret(a) then return a end
+    return nil
+end
+
+-- Spell id at a spellbook slot, only for plain spells.
+local function SlotSpellID(slot, pet)
+    slot = Num(slot)
+    if not slot then return nil end
+    local SB = _G.C_SpellBook
+    if type(SB) == "table" and type(SB.GetSpellBookItemInfo) == "function" then
+        local E = _G.Enum
+        local bank = E and E.SpellBookSpellBank and (pet and E.SpellBookSpellBank.Pet or E.SpellBookSpellBank.Player)
+            or (pet and 1 or 0)
+        local ok, info = pcall(SB.GetSpellBookItemInfo, slot, bank)
+        if ok and type(info) == "table" and not Secret(info) then
+            local spellType = E and E.SpellBookItemType and E.SpellBookItemType.Spell
+            if spellType == nil or info.itemType == spellType then
+                return Num(info.spellID or info.actionID)
+            end
+        end
+    elseif type(_G.GetSpellBookItemInfo) == "function" then
+        local ok, kind, id = pcall(_G.GetSpellBookItemInfo, slot, pet and "pet" or "spell")
+        if ok and not Secret(kind) and kind == "SPELL" then return Num(id) end
+    end
+    return nil
+end
+
+local function EntryIcon(btn)
+    for _, k in ipairs({ "IconTexture", "Icon", "icon" }) do
+        local v = FieldOf(btn, k)
+        if type(v) == "table" and type(v.GetWidth) == "function" then return v end
+    end
+    local n = CallOf(btn, "GetName")
+    local g = type(n) == "string" and _G[n .. "IconTexture"] or nil
+    if type(g) == "table" and type(g.GetWidth) == "function" then return g end
+    return nil
+end
+
+-- Visible spellbook entries as { btn =, id = } and the variant name.
+local function BookEntries()
+    local out = {}
+    -- Classic: SpellButton1..12, slot from SpellBook_GetSpellBookSlot.
+    if type(_G.SpellButton1) == "table" and type(_G.SpellBook_GetSpellBookSlot) == "function" then
+        local sbf = _G.SpellBookFrame
+        local pet = type(sbf) == "table" and FieldOf(sbf, "bookType") == "pet"
+        for i = 1, 12 do
+            local btn = _G["SpellButton" .. i]
+            if type(btn) == "table" and CallOf(btn, "IsShown") then
+                local ok, slot = pcall(_G.SpellBook_GetSpellBookSlot, btn)
+                local id = ok and SlotSpellID(slot, pet) or nil
+                if id then out[#out + 1] = { btn = btn, id = id } end
+            end
+        end
+        if #out > 0 or CallOf(_G.SpellBookFrame, "IsShown") then return out, "SpellButton" end
+    end
+    -- Retail-style: paged item frames under PlayerSpellsFrame.SpellBookFrame.
+    local psf = _G.PlayerSpellsFrame
+    local sb = type(psf) == "table" and FieldOf(psf, "SpellBookFrame") or nil
+    local paged = type(sb) == "table" and FieldOf(sb, "PagedSpellsFrame") or nil
+    if type(paged) == "table" and type(FieldOf(paged, "EnumerateFrames")) == "function" then
+        local ok = pcall(function()
+            for _, el in paged:EnumerateFrames() do
+                if type(el) == "table" and CallOf(el, "IsShown") then
+                    local info = FieldOf(el, "spellBookItemInfo")
+                    local id
+                    if type(info) == "table" and not Secret(info) then
+                        id = Num(FieldOf(info, "spellID") or FieldOf(info, "actionID"))
+                    end
+                    if not id then
+                        local slot = FieldOf(el, "slotIndex")
+                        if slot then id = SlotSpellID(slot, FieldOf(el, "spellBank") == 1) end
+                    end
+                    if not id then id = Num(CallOf(el, "GetSpellID")) end
+                    if id then out[#out + 1] = { btn = el, id = id } end
+                end
+            end
+        end)
+        if ok then return out, "PagedSpellsFrame" end
+    end
+    return out, "none"
+end
+
+local function SetBookRing(btn, on)
+    local st = bookState[btn]
+    if on then
+        if not st then
+            if InCombat() then return end
+            st = {}
+            bookState[btn] = st
+        end
+        if not st.ring then
+            if InCombat() then return end
+            local icon = EntryIcon(btn)
+            local w = icon and Num(icon:GetWidth()) or Num(CallOf(btn, "GetWidth"))
+            st.ring = BuildRing(btn, icon or btn, w)
+        end
+        if not st.on then
+            st.ring:SetAlpha(1)
+            st.ring:Show()
+            st.ring.pulse:Play()
+            st.on = true
+        end
+    elseif st and st.on and st.ring then
+        st.ring.pulse:Stop()
+        st.ring:SetAlpha(0)
+        if not InCombat() then st.ring:Hide() end
+        st.on = false
+    end
+end
+
+local function HideBookRings()
+    for btn in pairs(bookState) do SetBookRing(btn, false) end
+    bookInfo.rings = 0
+    bookSig = nil
+end
+
+-- Recomputes the book's rings. `force` rescans the bars and spellbook ranks too.
+local function RefreshBook(force)
+    if not (spellbookOpen and On("lowRankWarn")) then
+        HideBookRings()
+        return
+    end
+    if InCombat() then return end
+    if force or bookDirty or not bookMax then
+        bookMax = KnownMaxRanks()
+        bookLow = {}
+        if bookMax then
+            for _, st in ipairs(list) do
+                local ok, n = pcall(BarLowName, st, bookMax)
+                if ok and n then bookLow[n] = true end
+            end
+        end
+        bookDirty = false
+        bookSig = nil
+    end
+    local entries, variant = BookEntries()
+    bookInfo.variant = variant
+    bookInfo.entries = #entries
+    local sig = {}
+    for i, e in ipairs(entries) do sig[i] = e.id end
+    sig = table.concat(sig, ",") .. "|" .. (next(bookLow or {}) and "L" or "-")
+    if sig == bookSig then return end
+    bookSig = sig
+    local seen, rings = {}, 0
+    for _, e in ipairs(entries) do
+        local want = false
+        if bookMax and bookLow then
+            local name, rank = SpellName(e.id), SpellRank(e.id)
+            want = name ~= nil and rank ~= nil and bookLow[name] == true and bookMax[name] == rank
+        end
+        SetBookRing(e.btn, want)
+        seen[e.btn] = true
+        if want then rings = rings + 1 end
+    end
+    for btn, st in pairs(bookState) do
+        if st.on and not seen[btn] then SetBookRing(btn, false) end
+    end
+    bookInfo.rings = rings
+end
+
+local function SafeRefreshBook(force)
+    local ok, err = pcall(RefreshBook, force)
+    if not ok then bookInfo.err = tostring(err); Fail("book", err) end
+end
+
+-- Page and tab changes have no event we can rely on: poll lightly while the book is open.
+local bookDriver = CreateFrame("Frame")
+bookDriver:Hide()
+bookDriver:SetScript("OnUpdate", function(_, elapsed)
+    bookElapsed = bookElapsed + (elapsed or 0)
+    if bookElapsed < BOOK_POLL then return end
+    bookElapsed = 0
+    SafeRefreshBook(false)
+end)
+
 local function RefreshRank()
     if not db then return end
     local show = spellbookOpen and On("lowRankWarn")
+    bookDirty = true
+    if show then bookDriver:Show() else bookDriver:Hide() end
     if show and InCombat() then return end -- keep the state as it is
     local maxRanks = show and KnownMaxRanks() or nil
     for _, st in ipairs(list) do
         local want = false
         if maxRanks then
-            local ok, r = pcall(IsLowRank, st, maxRanks)
-            want = ok and r or false
+            local ok, r = pcall(BarLowName, st, maxRanks)
+            want = ok and r ~= nil or false
         end
         SetRing(st, want)
     end
+    SafeRefreshBook(true)
 end
 
 local function SafeRefreshRank()
@@ -1135,6 +1341,8 @@ local function PrintStatus()
     Print("hooks not on this client: " .. (#missing > 0 and table.concat(missing, ", ") or "none"))
     Print(string.format("secret answers: usable %d, range %d, cooldown %d   setter missing %d, refused %d",
         secrets.usable, secrets.range, secrets.cooldown, secrets.setterMissing, secrets.setterFailed))
+    Print(string.format("book rings: %d on, %d entries seen (%s)   last error: %s",
+        bookInfo.rings, bookInfo.entries, bookInfo.variant, bookInfo.err or "none"))
     local sample = list[1] and list[1].icon
     local cd = list[1] and list[1].cd
     Print("issecretvalue: " .. YesNo(_G.issecretvalue ~= nil)

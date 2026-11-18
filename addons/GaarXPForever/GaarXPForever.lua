@@ -14,6 +14,11 @@
                         TIME_PLAYED_MSG). Blizzard's own time-played print is held back for that
                         one request, so chat gets one line, not two.
     * questXP (off)     a quest's XP reward in its tooltip, where the client gives it.
+    * questReady (on)   quests in the log that are complete but not turned in: a panel line
+                        "Quests ready: N (+X XP)" and "After turn-in: ...", or "Turn in to level
+                        up!". Their XP is also taken off the remaining XP, so "To level" and the
+                        kill/quest counts are about what is left AFTER turning them in. (The
+                        older questXP setting is the reward line in quest tooltips.)
     * /gxp reset        resets the session's numbers.
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
@@ -34,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.1"
+local VERSION = "1.2.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -44,16 +49,17 @@ local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session
 
 local DEFAULTS = {
     enabled = true, panel = true, xpbarText = true, xpbarAlways = false,
-    levelLog = true, questXP = false, locked = true,
+    levelLog = true, questXP = false, questReady = true, locked = true,
 }
 local FEATURES = {            -- /gxp <name> on|off  (lower-case aliases map to the saved key)
     panel = "panel", xpbartext = "xpbarText", xpbar = "xpbarText", always = "xpbarAlways",
     xpbaralways = "xpbarAlways", levellog = "levelLog", level = "levelLog", questxp = "questXP",
-    quest = "questXP",
+    quest = "questXP", ready = "questReady", questready = "questReady",
 }
 local LABELS = {
     panel = "XP panel", xpbarText = "Text on the XP bar", xpbarAlways = "XP bar text always visible",
     levelLog = "Time played on level-up", questXP = "Quest XP in tooltips",
+    questReady = "Ready quests in the XP panel",
 }
 
 local db
@@ -181,6 +187,102 @@ local function OnXPUpdate()
 end
 
 -- ---------------------------------------------------------------------------
+-- Ready quests (complete, not turned in) and the XP maths
+-- ---------------------------------------------------------------------------
+
+-- Pure: remaining XP after the ready quests are turned in, kills and time to level.
+-- killAvg / rate may be nil (no data). Plain numbers only.
+local function Calc(cur, max, questXP, rate, killAvg)
+    questXP = (questXP and questXP > 0) and questXP or 0
+    local r = { remaining = math.max(0, max - cur - questXP), questXP = questXP }
+    r.levelUp = questXP > 0 and questXP >= max - cur
+    r.after = math.min(max, cur + questXP)
+    r.secs = rate and rate > 0 and (r.remaining / rate * 3600) or nil
+    r.kills = killAvg and killAvg > 0 and math.ceil(r.remaining / killAvg) or nil
+    return r
+end
+
+local ready = { count = 0, xp = 0 }     -- last scan
+local readyDirty, lastScan, ignoreLogUntil = true, -10, 0
+local SCAN_INTERVAL = 0.5
+
+local function Call(f, ...)
+    if type(f) ~= "function" then return nil end
+    local ok, a, b, c, d, e, g, h, i = pcall(f, ...)
+    if ok and not Secret(a) then return a, b, c, d, e, g, h, i end
+end
+
+-- XP reward of one quest. 1) C_QuestLog.GetQuestLogRewardXP(questID) (retail-style engine).
+-- 2) Legacy global GetQuestLogRewardXP() reads the SELECTED log entry, so select the entry and
+--    put the old selection back. Not used while the quest log window is open (selection is the
+--    player's), and the selection's own QUEST_LOG_UPDATE is ignored for a moment.
+local function ReadyQuestXP(questID, index)
+    local C = _G.C_QuestLog
+    if C and type(C.GetQuestLogRewardXP) == "function" then
+        local v = Num(Call(C.GetQuestLogRewardXP, questID))
+        if v then return v end
+    end
+    if index and type(_G.GetQuestLogRewardXP) == "function" and type(_G.SelectQuestLogEntry) == "function"
+        and type(_G.GetQuestLogSelection) == "function"
+        and not (_G.QuestLogFrame and type(_G.QuestLogFrame.IsShown) == "function" and _G.QuestLogFrame:IsShown()) then
+        local prev = Num(Call(_G.GetQuestLogSelection))
+        ignoreLogUntil = Now() + 0.5
+        pcall(_G.SelectQuestLogEntry, index)
+        local v = Num(Call(_G.GetQuestLogRewardXP))
+        if prev then pcall(_G.SelectQuestLogEntry, prev) end
+        return v
+    end
+end
+
+local function ScanReady()
+    local count, xp = 0, 0
+    local C = _G.C_QuestLog
+    local n
+    if C and type(C.GetNumQuestLogEntries) == "function" then n = Num(Call(C.GetNumQuestLogEntries)) end
+    if not n then n = Num(Call(_G.GetNumQuestLogEntries)) end
+    for i = 1, n or 0 do
+        local qid, header, complete
+        if C and type(C.GetInfo) == "function" then
+            local info = Call(C.GetInfo, i)
+            if type(info) == "table" and not Secret(info) then
+                header, qid = info.isHeader, Num(info.questID)
+            end
+        end
+        if qid == nil and header == nil and type(_G.GetQuestLogTitle) == "function" then
+            -- legacy: title, level, tag, isHeader, isCollapsed, isComplete, frequency, questID
+            local _, _, _, h, _, c, _, id = Call(_G.GetQuestLogTitle, i)
+            header, qid = h, Num(id)
+            if c == 1 then complete = true end
+        end
+        if not header and qid and qid > 0 then
+            if C and type(C.ReadyForTurnIn) == "function" and Call(C.ReadyForTurnIn, qid) == true then
+                complete = true
+            elseif C and type(C.IsComplete) == "function" and Call(C.IsComplete, qid) == true then
+                complete = true
+            end
+            if complete then
+                count = count + 1
+                xp = xp + (ReadyQuestXP(qid, i) or 0)
+            end
+        end
+    end
+    ready.count, ready.xp = count, xp
+end
+
+local function MaybeScanReady()
+    if not readyDirty or not Enabled("questReady") then return end
+    local t = Now()
+    if t - lastScan < SCAN_INTERVAL then return end
+    readyDirty, lastScan = false, t
+    Safe("quest scan", ScanReady)
+end
+
+local function MarkReadyDirty()
+    if Now() < ignoreLogUntil then return end   -- our own selection change
+    readyDirty = true
+end
+
+-- ---------------------------------------------------------------------------
 -- Text
 -- ---------------------------------------------------------------------------
 
@@ -204,14 +306,26 @@ local function PanelText()
     if AtMax() then return "Max level" end
     local cur, max, rested = XPValues()
     if not cur then return "XP: no data" end
-    local remaining = max - cur
+    local qx = Enabled("questReady") and ready.count > 0 and ready.xp or 0
+    local rate = Rate()
+    local killAvg = session.kills > 0 and session.killXP > 0 and session.killXP / session.kills or nil
+    local calc = Calc(cur, max, qx, rate, killAvg)
+    local remaining = calc.remaining
     local lines = { string.format("XP: %s/%s (%.1f%%)", Commas(cur), Commas(max), cur / max * 100) }
     lines[#lines + 1] = (rested and rested > 0)
         and string.format("Rested: %s (%.0f%% of level)", Commas(rested), rested / max * 100)
         or "Rested: 0"
-    local rate = Rate()
     lines[#lines + 1] = "XP/hour: " .. (rate and Commas(rate) or "--")
-    lines[#lines + 1] = "To level: " .. (rate and Duration(remaining / rate * 3600) or "--")
+    if Enabled("questReady") and ready.count > 0 then
+        lines[#lines + 1] = "Quests ready: " .. ready.count .. " (+" .. Commas(ready.xp) .. " XP)"
+        if calc.levelUp then
+            lines[#lines + 1] = "Turn in to level up!"
+        elseif ready.xp > 0 then
+            lines[#lines + 1] = string.format("After turn-in: %s/%s (%.1f%%)",
+                Commas(calc.after), Commas(max), calc.after / max * 100)
+        end
+    end
+    lines[#lines + 1] = "To level: " .. (calc.levelUp and "turn in quests" or (calc.secs and Duration(calc.secs) or "--"))
     local parts = {}
     if session.kills > 0 and session.killXP > 0 then
         parts[#parts + 1] = "~" .. math.ceil(remaining / (session.killXP / session.kills)) .. " kills"
@@ -435,6 +549,7 @@ end
 local function SetFlag(key, v)
     if not db then return end
     db[key] = v and true or false
+    if key == "questReady" or key == "enabled" then readyDirty = true end
     Refresh()
 end
 
@@ -454,13 +569,13 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, and quest XP in tooltips. Nice to know: Alt-drag moves the panel (or /gxp unlock); /gxp reset starts a new session."
+local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, quest XP in tooltips, and the XP of quests ready to turn in (taken off the XP left). Nice to know: Alt-drag moves the panel (or /gxp unlock); /gxp reset starts a new session."
 
 local function PrintHelp()
     Print(INTRO)
     Print("/gxp  " .. VERSION)
     Print("/gxp on|off - everything on or off")
-    Print("/gxp panel|xpbar|always|levellog|questxp on|off - one part (no value shows its state)")
+    Print("/gxp panel|xpbar|always|levellog|questxp|ready on|off - one part (no value shows its state)")
     Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
     Print("/gxp resetpos - panel back to its default place; /gxp status")
 end
@@ -470,6 +585,8 @@ local function PrintStatus()
     Print("version " .. VERSION .. DOT .. "enabled " .. yn(db.enabled))
     Print("panel " .. yn(db.panel) .. DOT .. "xpbarText " .. yn(db.xpbarText) .. DOT .. "xpbarAlways "
         .. yn(db.xpbarAlways) .. DOT .. "levelLog " .. yn(db.levelLog) .. DOT .. "questXP " .. yn(db.questXP)
+        .. DOT .. "questReady " .. yn(db.questReady) .. DOT .. "ready quests " .. ready.count
+        .. " (+" .. Commas(ready.xp) .. " xp)"
         .. DOT .. "panel " .. (db.locked and "locked (Alt-drag)" or "unlocked"))
     local bar = FindBar()
     Print("xp bar frame: " .. (bar and (bar:GetName() or "?") or "none found") .. DOT .. "max level " .. MaxLevel()
@@ -525,6 +642,7 @@ local function MenuEntries()
         toggle("xpbarAlways", LABELS.xpbarAlways),
         toggle("levelLog", LABELS.levelLog),
         toggle("questXP", LABELS.questXP),
+        toggle("questReady", LABELS.questReady),
         { text = "Panel unlocked (drag)", checkbox = true,
           checked = function() return not db.locked end,
           func = function() db.locked = not db.locked end },
@@ -569,6 +687,7 @@ events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("UPDATE_EXHAUSTION")
 events:RegisterEvent("TIME_PLAYED_MSG")
 events:RegisterEvent("QUEST_TURNED_IN")
+events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 events:SetScript("OnEvent", function(_, event, arg1, arg2)
     Safe(event, function()
@@ -576,6 +695,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             if arg1 == ADDON_NAME then BindSavedVariables() end
         elseif event == "PLAYER_LOGIN" then
             ResetSession()
+            readyDirty = true
             HookTooltips()
             Refresh()
         elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_EXHAUSTION" then
@@ -589,6 +709,9 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             OnTimePlayed(arg1, arg2)
         elseif event == "QUEST_TURNED_IN" then
             flagQuest = true
+            readyDirty = true
+        elseif event == "QUEST_LOG_UPDATE" then
+            MarkReadyDirty()
         elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
             flagKill = true
         end
@@ -601,7 +724,7 @@ events:SetScript("OnUpdate", function(_, dt)
     acc = acc + (Num(dt) or 0)
     if acc < 0.25 then return end
     acc = 0
-    if db then Refresh() end
+    if db then MaybeScanReady(); Refresh() end
 end)
 
 SLASH_GAARXPFOREVER1 = "/gxp"

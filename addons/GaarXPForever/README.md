@@ -23,6 +23,17 @@ level on level-up, and quest XP in tooltips. Every part has its own switch. It n
   in total. Blizzard's own time-played print is held back for that one request.
 - **Quest XP** (`questXP`, off): the quest's XP reward as a line in the quest log / quest link
   tooltip, where the client gives it (`C_QuestLog.GetQuestLogRewardXP`). Plain values only.
+- **Ready quests** (`questReady`, on): quests in the log that are complete but not turned in
+  (`C_QuestLog.ReadyForTurnIn` / `IsComplete`, else the legacy `GetQuestLogTitle` isComplete flag;
+  headers skipped). Their XP rewards are summed (`C_QuestLog.GetQuestLogRewardXP(questID)`, else the
+  legacy `GetQuestLogRewardXP()` on the selected log entry, with the old selection restored; not used
+  while the quest log window is open). The panel gets `Quests ready: 3 (+2,450 XP)` and
+  `After turn-in: 8,654/8,800 (98.3%)`, or `Turn in to level up!` and `To level: turn in quests`
+  when they cover the rest of the level. "To level" and the kill/quest counts use
+  remaining XP = max(0, XP needed - XP - ready quest XP); XP/hour is unchanged. The lines show only
+  when at least one quest is ready. Rescanned on `QUEST_LOG_UPDATE` / `QUEST_TURNED_IN`, at most every
+  0.5 s, each call in `pcall`. Quests under a collapsed zone header may not be listed by a legacy
+  client's quest log API.
 - **Session reset**: `/gxp reset` resets the session's XP, rate, kills and quests.
 
 How the change is counted: `PLAYER_XP_UPDATE` deltas (across a level-up, the rest of the old level
@@ -31,7 +42,7 @@ plus the new XP), classified a moment later: a `CHAT_MSG_COMBAT_XP_GAIN` = a kil
 The rate needs a minute of session.
 
 Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbarText`,
-`xpbarAlways`, `levelLog`, `questXP`, `locked` and `pos`.
+`xpbarAlways`, `levelLog`, `questXP`, `questReady`, `locked` and `pos`.
 
 ## Commands
 
@@ -46,6 +57,7 @@ Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbar
 | `/gxp always on\|off` | Keep the bar text visible without hover (`xpbarAlways`) |
 | `/gxp levellog on\|off` | Time played on level-up |
 | `/gxp questxp on\|off` | Quest XP in tooltips |
+| `/gxp ready on\|off` | Ready quests and their XP in the panel (`questReady`) |
 | `/gxp unlock`, `/gxp lock` | Drag the panel without Alt / back to Alt-drag |
 | `/gxp resetpos` | Panel back to its default place |
 | `/gxp reset` | Reset the session |

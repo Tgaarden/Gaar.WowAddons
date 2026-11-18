@@ -72,7 +72,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -915,11 +915,12 @@ local function BarLowName(st, maxRanks)
 end
 
 -- Builds our pulsing ring as a child of `parent`, centred on `anchor`, sized from `w`.
-local function BuildRing(parent, anchor, w)
+-- `x`/`y` offset the centre from `anchor` (default 0); `anchorPoint` defaults to CENTER.
+local function BuildRing(parent, anchor, w, anchorPoint, x, y)
     w = (w and w > 0) and w or 36
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w * RING_SCALE, w * RING_SCALE)
-    f:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    f:SetPoint("CENTER", anchor, anchorPoint or "CENTER", x or 0, y or 0)
     local lvl = type(parent.GetFrameLevel) == "function" and Num(parent:GetFrameLevel()) or 0
     f:SetFrameLevel((lvl or 0) + 3)
     local tex = f:CreateTexture(nil, "OVERLAY")
@@ -1015,14 +1016,30 @@ local function SlotSpellID(slot, pet)
     return nil
 end
 
+local function IsRegion(v)
+    return type(v) == "table" and type(v.GetWidth) == "function"
+end
+
+-- Icon region of a spellbook entry, or nil. Classic's SpellButtonN is itself the icon holder
+-- (IconTexture child); paged entries are wide frames whose icon lives on entry.Button.
 local function EntryIcon(btn)
     for _, k in ipairs({ "IconTexture", "Icon", "icon" }) do
         local v = FieldOf(btn, k)
-        if type(v) == "table" and type(v.GetWidth) == "function" then return v end
+        if IsRegion(v) then return v end
     end
     local n = CallOf(btn, "GetName")
     local g = type(n) == "string" and _G[n .. "IconTexture"] or nil
-    if type(g) == "table" and type(g.GetWidth) == "function" then return g end
+    if IsRegion(g) then return g end
+    for _, k in ipairs({ "Button", "button", "SpellButton", "ItemButton" }) do
+        local b = FieldOf(btn, k)
+        if type(b) == "table" then
+            for _, ik in ipairs({ "Icon", "IconTexture", "icon" }) do
+                local v = FieldOf(b, ik)
+                if IsRegion(v) then return v end
+            end
+            if IsRegion(b) then return b end
+        end
+    end
     return nil
 end
 
@@ -1081,8 +1098,18 @@ local function SetBookRing(btn, on)
         if not st.ring then
             if InCombat() then return end
             local icon = EntryIcon(btn)
-            local w = icon and Num(icon:GetWidth()) or Num(CallOf(btn, "GetWidth"))
-            st.ring = BuildRing(btn, icon or btn, w)
+            if icon then
+                -- Square from the icon's smaller side, centred on the icon.
+                local iw, ih = Num(icon:GetWidth()), Num(icon:GetHeight())
+                local side = (iw and ih) and math.min(iw, ih) or iw or ih
+                st.ring = BuildRing(btn, icon, side)
+            else
+                -- No icon child: never use the entry width. Square of entry height, centred
+                -- half a height in from the entry's left edge.
+                local h = Num(CallOf(btn, "GetHeight"))
+                if not (h and h > 0) then h = 36 end
+                st.ring = BuildRing(btn, btn, h, "LEFT", h / 2, 0)
+            end
         end
         if not st.on then
             st.ring:SetAlpha(1)

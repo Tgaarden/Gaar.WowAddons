@@ -30,6 +30,11 @@
     * /ggps (or /bettergpsforever) for help, status, arrow on|off, lock, unlock, reset, clear,
       corpse on|off and way <x y>. When TomTom is loaded /way stays TomTom's and /ggps way does
       the same job.
+    * Gathering spots (1.4, Gather.lua, /ggps gather): herb, ore and treasure nodes you gather are
+      remembered account-wide per map; a sound and a line when you come near a known spot of a
+      kind you track; /ggps gather (next, hover) points the arrow at the nearest one, the next
+      one, or a node hovered on the minimap, and moves on to the next one on arrival. See the
+      header of Gather.lua.
     * GaarGpsForeverAPI, a small global table for GaarForever's hub menu and for other
       addons that set the waypoint (GaarQuestsForever's "Set GPS target"): SetWaypoint,
       ClearWaypoint, GetWaypoint.
@@ -57,10 +62,12 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "GaarGpsForever"
+local ADDON_NAME, ns = ...
+ADDON_NAME = ADDON_NAME or "GaarGpsForever"
+ns = type(ns) == "table" and ns or {} -- shared with Gather.lua (ns.gather)
 local DOT = " \194\183 "
 
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -98,8 +105,11 @@ local DEFAULTS = {
 
 -- Every key GaarGpsForeverDB may hold; anything else is cleared on load.
 -- corpseRun: { prev = <waypoint or nil>, done = <bool> } while a corpse route runs.
+-- The gather* keys belong to Gather.lua (1.4), which checks them in gather.Bind; they are listed
+-- here so the spots survive even a session where that file failed to load.
 local SAVED_KEYS = { waypoint = true, arrow = true, locked = true, arrowPos = true, corpse = true,
-    corpseRun = true }
+    corpseRun = true, gather = true, gatherAlert = true, gatherRadius = true, gatherSound = true,
+    gatherHover = true, gatherAutoNext = true, gatherNodes = true }
 
 local db                -- GaarGpsForeverDB, bound at ADDON_LOADED (never at file scope)
 local started           -- PLAYER_LOGIN work done
@@ -203,6 +213,10 @@ local FEATURE_TEXT = {
     native = "Blizzard's own waypoint",
     click = "Alt + left-click (Option on Mac) on the world map",
     corpse = "the corpse route",
+    gatherRecord = "recording gathering spots",
+    gatherAlert = "the gathering spot alert",
+    gatherHover = "the minimap hover hint",
+    gatherGo = "the next gathering spot on arrival",
 }
 local OnFeatureBroken -- hides what belongs to a feature; defined with the frames below
 
@@ -407,6 +421,8 @@ local function ClearWaypoint(reason)
         run.prev = nil
         RestoreWaypoint(prev)
     end
+    -- A gathering spot reached: Gather.lua may set the next one.
+    if reason == "arrived" and had and ns.gather then Safe("gatherGo", ns.gather.OnArrived, had) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -737,8 +753,16 @@ local function MinimapRadius(mm)
     local r = Num(Call(API("C_Minimap", "GetViewRadius")))
     if r and r > 0 then return r end
     local zoom = Num(Method(mm, "GetZoom")) or 0
-    local cvar = Num(tonumber(Call(_G.GetCVar, "minimapZoom") or ""))
-    local outdoor = cvar == nil or cvar == zoom
+    -- Indoors from IsIndoors() where the client answers; else the zoom matching the outdoor
+    -- CVar counts as outdoor.
+    local indoors = Bool(Call(_G.IsIndoors))
+    local outdoor
+    if indoors ~= nil then
+        outdoor = not indoors
+    else
+        local cvar = Num(tonumber(Call(_G.GetCVar, "minimapZoom") or ""))
+        outdoor = cvar == nil or cvar == zoom
+    end
     return (outdoor and MINIMAP_RADIUS.outdoor or MINIMAP_RADIUS.indoor)[zoom] or 150
 end
 
@@ -1215,7 +1239,7 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "One TomTom-style waypoint with an arrow showing distance and time to get there, plus world map and minimap pins; while you are a ghost it routes you to your corpse. Nice to know: /way x y or /way <zone> x y sets it; Alt-click (Option-click on a Mac) the world map to set it there; right-click the arrow to clear it; /way is left to TomTom when TomTom is loaded."
+local INTRO = "One TomTom-style waypoint with an arrow showing distance and time to get there, plus world map and minimap pins; while you are a ghost it routes you to your corpse. It remembers the herbs, ore and chests you gather, says when you are near one, and /ggps gather points the arrow at the nearest. Nice to know: /way x y or /way <zone> x y sets it; Alt-click (Option-click on a Mac) the world map to set it there; right-click the arrow to clear it; /way is left to TomTom when TomTom is loaded."
 
 local function PrintHelp()
     Print(INTRO)
@@ -1228,6 +1252,9 @@ local function PrintHelp()
     Print("/ggps corpse on | /ggps corpse off - waypoint to your corpse while you are a ghost, the old one back after"
         .. " resurrection (now: " .. OnOff(db and db.corpse) .. ")")
     Print("/ggps clear - clear the waypoint (or right-click the arrow); /ggps status - what this client offers")
+    if ns.gather then
+        for _, line in ipairs(ns.gather.HelpLines()) do Print(line) end
+    end
     if wayOwner then Print("/way belongs to " .. wayOwner .. ", so use /ggps way x y here.") end
 end
 
@@ -1258,6 +1285,9 @@ local function PrintStatus()
         .. "   super track: " .. Yes(API("C_SuperTrack", "SetSuperTrackedUserWaypoint"))
         .. "   minimap radius: " .. (API("C_Minimap", "GetViewRadius") and "C_Minimap" or "zoom table")
         .. "   world map: " .. Yes(Canvas()))
+    if ns.gather then
+        for _, line in ipairs(ns.gather.StatusLines()) do Print(line) end
+    end
     local off = {}
     for k in pairs(broken) do off[#off + 1] = FEATURE_TEXT[k] or k end
     if #off > 0 then
@@ -1293,6 +1323,8 @@ local function OnSlash(msg)
         SetCorpse(lower == "corpse on")
     elseif lower == "corpse" then
         SetCorpse(not db.corpse)
+    elseif (lower == "gather" or lower:sub(1, 7) == "gather ") and ns.gather then
+        ns.gather.Slash(lower:sub(8))
     else
         PrintHelp()
     end
@@ -1378,6 +1410,8 @@ local function MenuEntries()
     else
         entries[#entries + 1] = { label = "Clear waypoint (none set)" }
     end
+    local g = ns.gather and ns.gather.MenuEntry() -- 1.4: a submenu
+    if g then entries[#entries + 1] = g end
     return entries
 end
 
@@ -1409,6 +1443,26 @@ _G.GaarGpsForeverAPI = {
     end,
 }
 _G.BetterGpsForeverAPI = _G.GaarGpsForeverAPI -- the name before the folder rename
+
+-- ---------------------------------------------------------------------------
+-- For Gather.lua (ns.gather): the core's helpers, handed over in gather.Bind
+-- ---------------------------------------------------------------------------
+
+ns.core = {
+    Print = Print,
+    Safe = Safe,
+    PlayerPosition = PlayerPosition,
+    PlayerMapID = function() return MapID(Call(MapAPI("GetBestMapForUnit"), "player")) end,
+    WorldPos = WorldPos,
+    MapName = MapName,
+    CoordText = CoordText,
+    YardsText = YardsText,
+    SetWaypoint = SetWaypoint,
+    ClearWaypoint = ClearWaypoint,
+    Waypoint = function() return db and db.waypoint end,
+    MinimapRadius = MinimapRadius,
+    RotatingMinimap = RotatingMinimap,
+}
 
 -- ---------------------------------------------------------------------------
 -- Events
@@ -1444,6 +1498,7 @@ local function BindSavedVariables()
     if type(db.corpse) ~= "boolean" then db.corpse = DEFAULTS.corpse end
     db.waypoint = ValidWaypoint(db.waypoint)
     db.corpseRun = ValidCorpseRun(db.corpseRun)
+    if ns.gather then ns.gather.Bind(db, ns.core) end
     local pos = db.arrowPos
     if pos ~= nil and (type(pos) ~= "table" or type(pos.point) ~= "string" or not Num(pos.x) or not Num(pos.y)) then
         db.arrowPos = nil
@@ -1457,6 +1512,7 @@ local function Start()
     HookMap()
     UpdateNow()
     UpdateCorpse()
+    if ns.gather then ns.gather.Start() end
 end
 
 local events = CreateFrame("Frame")

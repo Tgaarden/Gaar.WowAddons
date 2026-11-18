@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.11"] = "notes for GaarBarsForever 1.3.1: the orange low-rank ring in the paged spellbook is now sized and centred on the spell icon, not the whole entry",
         ["3.2.10"] = "notes for GaarXPForever 1.3.0: the XP of ready quests as a coloured segment on the XP bar (/gxp readybar)",
         ["3.2.9"] = "notes for GaarXPForever 1.2.1",
         ["3.2.8"] = "notes for GaarGpsForever 1.4.0",

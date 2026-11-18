@@ -16,6 +16,12 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 - **Order.** Tracked quests are shown by quest level, lowest first (the `[n]` the tracker shows,
   `C_QuestLog.GetInfo(logIndex).level`, falling back to `difficultyLevel`). Quests of the same
   level are ordered by title, ignoring case.
+- **Sort by zone (optional, 1.13).** `/gqf sort zone` (or **Sort by > Zone** in the minimap menu)
+  groups quests by the zone header they sit under in your quest log. The zone you are in comes
+  first, the other zones follow alphabetically, and quests whose header cannot be found ("Other")
+  go last. Inside a zone the order is the level order; completed quests go top, bottom or among
+  the others within each zone. Changing zone re-sorts. Auto-watch ranks the same way: your zone's
+  quests first, then by level.
 - **Sort by distance (optional).** `/gqf sort distance` (or **Sort by** in the minimap menu)
   shows the nearest quest first, using `C_QuestLog.GetDistanceSqToQuest` (what Blizzard's own
   proximity sort uses; check your client with `/gqf distance`). Quests without a distance (no
@@ -108,7 +114,7 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 |---|---|
 | `/gqf` | Help |
 | `/gqf max <n>`, `/gqf max all` | Show at most n quests, 1-49 (default 10); `all` (stored as 50) shows every one, still sorted |
-| `/gqf sort level`, `distance` | Order by quest level (default) or by distance, nearest first |
+| `/gqf sort level`, `distance`, `zone` | Order by quest level (default), by distance (nearest first) or by zone (yours first, then A-Z) |
 | `/gqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/gqf autowatch on`, `/gqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
 | `/gqf autoaccept` | Toggle auto-accept (1.12, default off): accepts a quest when its window opens; hold Shift to skip. Never turns in quests or picks gossip |
@@ -133,7 +139,7 @@ collapse button) and hooks nothing on Blizzard's frames. It also works in combat
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Auto-watch
 quests that fit** (checkbox), **Dungeon filter** (checkbox), **Max quests
-shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance), **Completed quests** (Top, By level, Bottom),
+shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance, Zone), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
 (checkbox) and **Hide minimap button** (`/gqf minimap` brings it back). Changes apply at once. Drag the button
 to move it around the minimap's edge; on a square minimap (`GetMinimapShape() == "SQUARE"`,

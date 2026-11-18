@@ -108,7 +108,9 @@ order) that fit the tracker's height are watched and the rest un-watched, so Bli
 exactly those; the tracker's height is always Blizzard's (Edit Mode) and is never changed.
 `/gqf autowatch off` hands the watch list back untouched. Since 1.10 an optional **dungeon
 filter** (`/gqf dungeon on`, default off) watches only the current dungeon's or raid's quests while
-inside one, and falls back to the normal behaviour when none match.
+inside one, and falls back to the normal behaviour when none match. Since 1.13 `/gqf sort zone`
+groups quests by their quest-log zone: your current zone first, the others A-Z, unknown zone last,
+level order inside each (`/gqf sort level|distance|zone`).
 During combat the section is Blizzard's own. Other tracker sections are not touched. `/gqf` for
 help, `/gqf max <n>|all`, `/gqf completed top|level|bottom`, `/gqf autowatch on|off`, `/gqf dungeon on|off`, `/gqf on|off`,
 `/gqf minimap [reset]` and `/gqf status`; a minimap button opens the same options as a menu. Since 1.6, with

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.14"] = "notes for GaarQuestsForever 1.13.0: new sort mode, zone",
         ["3.2.13"] = "notes for GaarXPForever 1.3.1: ready quests, their XP and the orange bar segment now update right when a quest completes, is turned in, abandoned or accepted (more quest events, a trailing scan after the throttle, and a follow-up scan about 1 s later)",
         ["3.2.12"] = "notes for GaarBarsForever 1.3.2: spellbook low-rank ring re-evaluated on every page/tab/search change from the spell actually bound to each pooled entry, hidden on entries that are not visible",
         ["3.2.11"] = "notes for GaarBarsForever 1.3.1: the orange low-rank ring in the paged spellbook is now sized and centred on the spell icon, not the whole entry",
@@ -73,6 +74,7 @@ local CHANGES = {
         ["1.9.2"] = "shared helpers from the GaarForever library",
     },
     GaarQuestsForever = {
+        ["1.13.0"] = "New sort mode: /gqf sort zone groups quests by quest-log zone, your current zone first, the others A-Z, no zone last; level order inside each zone; re-sorts when you change zone",
         ["1.11.0"] = "Renamed to GaarQuestsForever (new folders; settings move over automatically on first login; new /gqf commands, old ones still work)",
         ["1.10.3"] = "the addon's own name in its menu errors",
         ["1.10.2"] = "uses the GaarForever shared library",

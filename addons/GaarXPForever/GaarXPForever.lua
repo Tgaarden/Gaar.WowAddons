@@ -19,6 +19,10 @@
                         up!". Their XP is also taken off the remaining XP, so "To level" and the
                         kill/quest counts are about what is left AFTER turning them in. (The
                         older questXP setting is the reward line in quest tooltips.)
+    * questBar (on)     the XP of ready quests as a coloured segment on the XP bar, from the current
+                        fill to fill + quest XP (clamped at the end of the bar). Own frame, child of
+                        the bar's StatusBar; follows its size and visibility. Needs questReady.
+                        /gxp readybar on|off, /gxp readybar color orange|green|yellow.
     * /gxp reset        resets the session's numbers.
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
@@ -39,7 +43,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.2.1"
+local VERSION = "1.3.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -49,17 +53,21 @@ local MIN_RATE_SECONDS = 60   -- no XP/hour before a minute of session
 
 local DEFAULTS = {
     enabled = true, panel = true, xpbarText = true, xpbarAlways = false,
-    levelLog = true, questXP = false, questReady = true, locked = true,
+    levelLog = true, questXP = false, questReady = true, questBar = true, locked = true,
+}
+local BAR_COLORS = {          -- /gxp readybar color <name>: r, g, b (alpha is set in SegmentAlpha)
+    orange = { 1, 0.5, 0 }, green = { 0.2, 0.9, 0.2 }, yellow = { 1, 0.9, 0.1 },
 }
 local FEATURES = {            -- /gxp <name> on|off  (lower-case aliases map to the saved key)
     panel = "panel", xpbartext = "xpbarText", xpbar = "xpbarText", always = "xpbarAlways",
     xpbaralways = "xpbarAlways", levellog = "levelLog", level = "levelLog", questxp = "questXP",
     quest = "questXP", ready = "questReady", questready = "questReady",
+    readybar = "questBar", questbar = "questBar",
 }
 local LABELS = {
     panel = "XP panel", xpbarText = "Text on the XP bar", xpbarAlways = "XP bar text always visible",
     levelLog = "Time played on level-up", questXP = "Quest XP in tooltips",
-    questReady = "Ready quests in the XP panel",
+    questReady = "Ready quests in the XP panel", questBar = "Ready quest XP on the XP bar",
 }
 
 local db
@@ -203,6 +211,18 @@ local function Calc(cur, max, questXP, rate, killAvg)
 end
 
 local ready = { count = 0, xp = 0 }     -- last scan
+local RefreshQuestBar                   -- defined with the XP bar code below
+
+-- Pure geometry of the quest segment on a bar barWidth wide: offset from the left edge and width,
+-- clamped at the end of the bar. nil when there is nothing to draw.
+local function SegmentGeometry(cur, max, questXP, barWidth)
+    if not (cur and max and questXP and barWidth) or max <= 0 or questXP <= 0 or barWidth <= 0 then return nil end
+    cur = math.min(math.max(cur, 0), max)
+    local offset = barWidth * cur / max
+    local width = math.min(barWidth * questXP / max, barWidth - offset)
+    if width <= 0 then return nil end
+    return offset, width
+end
 local readyDirty, lastScan, ignoreLogUntil = true, -10, 0
 local SCAN_INTERVAL = 0.5
 
@@ -354,6 +374,7 @@ local function MaybeScanReady()
     if t - lastScan < SCAN_INTERVAL then return end
     readyDirty, lastScan = false, t
     Safe("quest scan", ScanReady)
+    Safe("quest bar", RefreshQuestBar)
 end
 
 local function MarkReadyDirty()
@@ -369,6 +390,7 @@ local function BarText()
     local cur, max, rested = XPValues()
     if not cur then return nil end
     local s = Commas(cur) .. "/" .. Commas(max) .. string.format(" (%.1f%%)", cur / max * 100)
+    if ready.xp > 0 and Enabled("questReady") then s = s .. " (+" .. Commas(ready.xp) .. ")" end
     if rested and rested > 0 then
         s = s .. DOT .. "rested " .. Commas(rested) .. string.format(" (%.0f%%)", rested / max * 100)
     end
@@ -520,6 +542,75 @@ local function RefreshBarText()
 end
 
 -- ---------------------------------------------------------------------------
+-- Quest XP segment on the XP bar
+-- ---------------------------------------------------------------------------
+
+-- The StatusBar that is the XP bar. Old UI: MainMenuExpBar itself. Newer UI: a bar in the container's
+-- .bars (each with .StatusBar); the one whose max matches UnitXPMax, else the first shown one.
+local function FindStatusBar(container)
+    if not container then return nil end
+    if type(container.GetMinMaxValues) == "function" and type(container.SetStatusBarColor) == "function" then
+        return container
+    end
+    local _, xpMax = XPValues()
+    local first
+    local bars = container.bars
+    if type(bars) == "table" and not Secret(bars) then
+        for i = 1, #bars do
+            local b = bars[i]
+            local sb = type(b) == "table" and (b.StatusBar or b) or nil
+            if sb and type(sb.GetMinMaxValues) == "function" and type(sb.CreateTexture) == "function" then
+                local ok, _, mx = pcall(sb.GetMinMaxValues, sb)
+                if ok and xpMax and Num(mx) == xpMax then return sb end
+                local shown = type(sb.IsShown) == "function" and sb:IsShown()
+                if not first and shown then first = sb end
+            end
+        end
+    end
+    return first or (type(container.StatusBar) == "table" and container.StatusBar) or nil
+end
+
+local segFrame, segTex, segBar
+local function HideSegment() if segFrame then segFrame:Hide() end end
+
+RefreshQuestBar = function()
+    if not db then return end
+    if not (Enabled("questBar") and Enabled("questReady")) or AtMax() or ready.xp <= 0 then
+        HideSegment(); return
+    end
+    barFrame = barFrame or FindBar()
+    local sb = FindStatusBar(barFrame)
+    if not sb or type(sb.GetWidth) ~= "function" then HideSegment(); return end
+    if sb ~= segBar then
+        segBar = sb
+        if segFrame then segFrame:Hide() end
+        segFrame = CreateFrame("Frame", "GaarXPForeverQuestBar", sb)
+        segFrame:EnableMouse(false)
+        segTex = segFrame:CreateTexture(nil, "ARTWORK")
+        segTex:SetAllPoints(segFrame)
+        segTex:SetTexture("Interface\\Buttons\\WHITE8X8")
+        -- Follow the bar: size and visibility (our frame is its child, so Hide/Show propagate).
+        if type(sb.HookScript) == "function" then
+            pcall(sb.HookScript, sb, "OnSizeChanged", function() Safe("quest bar", RefreshQuestBar) end)
+            pcall(sb.HookScript, sb, "OnShow", function() Safe("quest bar", RefreshQuestBar) end)
+        end
+    end
+    local cur, max = XPValues()
+    local w = Num(sb:GetWidth())
+    local h = type(sb.GetHeight) == "function" and Num(sb:GetHeight()) or nil
+    local offset, width = SegmentGeometry(cur, max, ready.xp, w)
+    if not offset or not h or h <= 0 or not sb:IsShown() then HideSegment(); return end
+    local c = BAR_COLORS[db.questBarColor] or BAR_COLORS.orange
+    local covers = ready.xp >= max - cur   -- fills to the end: a little brighter
+    segTex:SetColorTexture(c[1], c[2], c[3], covers and 0.75 or 0.5)
+    if type(sb.GetFrameLevel) == "function" then segFrame:SetFrameLevel((Num(sb:GetFrameLevel()) or 0) + 1) end
+    segFrame:ClearAllPoints()
+    segFrame:SetPoint("TOPLEFT", sb, "TOPLEFT", offset, 0)
+    segFrame:SetSize(width, h)
+    segFrame:Show()
+end
+
+-- ---------------------------------------------------------------------------
 -- Level log
 -- ---------------------------------------------------------------------------
 
@@ -622,7 +713,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function Refresh()
-    Safe("refresh", function() RefreshPanel(); RefreshBarText() end)
+    Safe("refresh", function() RefreshPanel(); RefreshBarText(); RefreshQuestBar() end)
 end
 
 local function SetFlag(key, v)
@@ -654,7 +745,8 @@ local function PrintHelp()
     Print(INTRO)
     Print("/gxp  " .. VERSION)
     Print("/gxp on|off - everything on or off")
-    Print("/gxp panel|xpbar|always|levellog|questxp|ready on|off - one part (no value shows its state)")
+    Print("/gxp panel|xpbar|always|levellog|questxp|ready|readybar on|off - one part (no value shows its state)")
+    Print("/gxp readybar color orange|green|yellow - colour of the ready-quest segment on the XP bar")
     Print("/gxp ready debug - per ready quest: id, XP and which source gave it")
     Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
     Print("/gxp resetpos - panel back to its default place; /gxp status")
@@ -665,7 +757,8 @@ local function PrintStatus()
     Print("version " .. VERSION .. DOT .. "enabled " .. yn(db.enabled))
     Print("panel " .. yn(db.panel) .. DOT .. "xpbarText " .. yn(db.xpbarText) .. DOT .. "xpbarAlways "
         .. yn(db.xpbarAlways) .. DOT .. "levelLog " .. yn(db.levelLog) .. DOT .. "questXP " .. yn(db.questXP)
-        .. DOT .. "questReady " .. yn(db.questReady) .. DOT .. "ready quests " .. ready.count
+        .. DOT .. "questReady " .. yn(db.questReady) .. DOT .. "questBar " .. yn(db.questBar)
+        .. " (" .. (db.questBarColor or "orange") .. ")" .. DOT .. "ready quests " .. ready.count
         .. " (+" .. Commas(ready.xp) .. " xp)"
         .. DOT .. "panel " .. (db.locked and "locked (Alt-drag)" or "unlocked"))
     local bar = FindBar()
@@ -697,6 +790,13 @@ local function OnSlash(msg)
         local a, b = tostring(msg or ""):lower():match("^%s*(%S*)%s*(%S*)")
         local v = OnOff(b)
         if a == "ready" and b == "debug" then PrintReadyDebug(); return end
+        if a == "readybar" and b == "color" then
+            local col = tostring(msg):lower():match("^%s*%S+%s+%S+%s+(%S+)")
+            if col and BAR_COLORS[col] then
+                db.questBarColor = col; Refresh(); Print("ready bar colour " .. col)
+            else Print("ready bar colour: " .. (db.questBarColor or "orange") .. " (/gxp readybar color orange|green|yellow)") end
+            return
+        end
         if a == "" or a == "help" then PrintHelp()
         elseif a == "on" or a == "off" then SetFlag("enabled", a == "on"); Print("master " .. a)
         elseif a == "status" then PrintStatus()
@@ -739,6 +839,15 @@ local function MenuEntries()
         toggle("levelLog", LABELS.levelLog),
         toggle("questXP", LABELS.questXP),
         toggle("questReady", LABELS.questReady),
+        toggle("questBar", LABELS.questBar),
+        { text = "Ready bar colour: " .. (db.questBarColor or "orange") .. " (click to change)",
+          func = function()
+              local order = { "orange", "green", "yellow" }
+              for i, n in ipairs(order) do
+                  if n == (db.questBarColor or "orange") then db.questBarColor = order[i % #order + 1]; break end
+              end
+              Refresh()
+          end },
         { text = "Panel unlocked (drag)", checkbox = true,
           checked = function() return not db.locked end,
           func = function() db.locked = not db.locked end },
@@ -766,12 +875,13 @@ local function BindSavedVariables()
     if type(GaarXPForeverDB) ~= "table" then GaarXPForeverDB = {} end
     db = GaarXPForeverDB
     for k in pairs(db) do
-        if DEFAULTS[k] == nil and k ~= "pos" then db[k] = nil end
+        if DEFAULTS[k] == nil and k ~= "pos" and k ~= "questBarColor" then db[k] = nil end
     end
     for k, v in pairs(DEFAULTS) do
         if type(db[k]) ~= "boolean" then db[k] = v end
     end
     if type(db.pos) ~= "table" then db.pos = nil end
+    if not BAR_COLORS[db.questBarColor] then db.questBarColor = "orange" end
 end
 
 local events = CreateFrame("Frame")

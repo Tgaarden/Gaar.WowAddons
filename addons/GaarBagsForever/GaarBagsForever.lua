@@ -26,8 +26,13 @@
       padlock in the bottom-left corner of its slot, and a merchant cannot get it: right-click,
       drag-and-drop and Blizzard's Sell Junk are blocked, and a sale that slips through anyway is
       bought back once. /gbf locked, /gbf unlockall yes.
+    * Locked items and the mailbox (since 1.11): a locked item cannot be mailed. When one lands in
+      a Send Mail attachment slot (drag-and-drop, right-click, anything else), it is taken off
+      again and goes back to its bag slot, with a chat line and an OK popup. Always on. And while
+      the Send tab has attachments, each bag slot whose item is attached gets a pulsing cyan ring
+      (/gbf mailglow on|off, on by default, GaarBagsForeverDB.mailGlow).
     * /gbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
-      unlockall, stop and status.
+      unlockall, mailglow, stop and status.
     * GaarBagsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The API only exposes the settings
       the slash command already changes. The small helpers (Print, InCombat, OnOff, Plain, the
@@ -41,7 +46,9 @@
 
   Taint: Blizzard code is only ever followed, never replaced. The item lock blocks a sale with
   separate guard frames of its own laid over the item button or the merchant window, never by
-  replacing or wrapping a Blizzard click handler; see the item lock section. Hooks go through hooksecurefunc
+  replacing or wrapping a Blizzard click handler; see the item lock section. The mail block takes a
+  locked attachment off with the plain ClickSendMailItemButton API, one frame after Blizzard's
+  update; see the mail section. Hooks go through hooksecurefunc
   and HookScript, no Blizzard button is clicked, and nothing protected is touched; the reversal
   moves items only with C_Container.PickupContainerItem, outside combat. If the
   bag frame ever turns out to be protected, a move that lands in combat waits for
@@ -50,7 +57,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.10.2"
+local VERSION = "1.11.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -70,11 +77,12 @@ local DEFAULTS = {
     reverse = false,
     showCounts = true,
     autoSort = true,
+    mailGlow = true,
 }
 
 -- Every key GaarBagsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
-                     showCounts = true, inventory = true, autoSort = true }
+                     showCounts = true, inventory = true, autoSort = true, mailGlow = true }
 
 local db                -- GaarBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -2216,6 +2224,9 @@ local function BuildItemLock()
             pcall(idle and HookLockButton or UpdateLockButton, button)
         end
         if not idle then pcall(UpdateJunkGuard) end
+        -- The mail section (since 1.11) follows every refresh: a bag opening, items moving, a lock
+        -- toggled while an item sits in an outgoing attachment.
+        if Lock.OnRefresh then pcall(Lock.OnRefresh) end
     end
 
     QueueLockRefresh = function()
@@ -2362,8 +2373,489 @@ local function BuildItemLock()
     Lock.QueueSoldCheck = QueueSoldCheck
     Lock.UpdateMerchantGuard = UpdateMerchantGuard
     Lock.MerchantOpen = function() return merchantOpen end
+    -- For the mail section (since 1.11).
+    Lock.ItemLabel = ItemLabel
+    Lock.Buttons = LockButtons
+    Lock.ButtonSlot = LockButtonSlot
 end
 BuildItemLock()
+
+-- ---------------------------------------------------------------------------
+-- Locked items and the mailbox (since 1.11)
+--
+-- Two things, both only while the mailbox is open (MAIL_SHOW until MAIL_CLOSED):
+--
+--   no mailing   a locked item (see the item lock above) cannot stay in a Send Mail attachment
+--                slot, however it got there: drag-and-drop, a right-click in the bags with the
+--                Send tab open, another addon. MAIL_SEND_INFO_UPDATE, Blizzard's
+--                SendMailFrame_Update (followed with hooksecurefunc) and every item lock refresh
+--                schedule a scan one frame later, so nothing of ours runs inside Blizzard's
+--                update. The scan reads GetSendMailItem / GetSendMailItemLink for every slot up
+--                to ATTACHMENTS_MAX_SEND (12 when the constant is missing), and each attachment
+--                whose item ID is locked is taken off with ClickSendMailItemButton(index, true),
+--                which sends it back to its bag slot. Chat prints "<link> is locked - it cannot
+--                be mailed. Alt-click to unlock." and a StaticPopup with an OK button
+--                (StaticPopupDialogs.GAARBAGSFOREVER_MAIL_LOCKED) says the same; the popup is
+--                skipped in combat, the chat line is not. Always on, like the merchant block.
+--   mail glow    every bag slot whose item sits in an outgoing attachment gets a pulsing cyan
+--                ring: GaarBarsForever's low-rank ring (UI-ActionButton-Border, ADD blend, 1.8x
+--                the button, alpha pulse) in cyan, so the two never look alike. /gbf mailglow,
+--                on by default, saved in GaarBagsForeverDB.mailGlow.
+--
+-- Which bag slot an attachment came from: the client does not say, so it is worked out from what
+-- the bags show. An attached item stays in its bag slot, locked (greyed), until the mail goes or
+-- the attachment is taken off. So the candidates are the locked slots of the carried bags, and
+-- each attachment claims one with the same item ID: first one with the same stack size, then any.
+-- The cursor's own stack is also locked; when C_Cursor.GetCursorItem names its bag and slot,
+-- that slot is left out, and when only the item ID is known, one slot of that item is held back
+-- in the second pass. Two equal stacks of one item with only one attached still give one ring,
+-- though it can sit on the twin. This is recomputed from scratch on every refresh, so it never
+-- goes stale; hooks on the pickup functions were the alternative and would miss whatever does
+-- not go through them.
+--
+-- Uncertain on this client, and handled either way:
+--   * ClickSendMailItemButton(index, true): the second argument (clearItem) returns the item to
+--     the bags on retail. Should it leave the item attached, the slot is clicked once more without
+--     it (that picks the item up) and ClearCursor() puts it back in its bag slot. Whatever way it
+--     goes, an item of ours left on the cursor is cleared. A locked attachment still there after
+--     3 scans in a row gets one chat line asking to take it off by hand, and no more tries.
+--   * GetSendMailItem returns name, itemID, texture, count on retail; the item ID is taken from
+--     the link first, so an older return order only loses the stack size (then 1).
+--   * There is no hook that could stop SendMail itself (a post-hook runs after the send), so none
+--     is added: the scan runs one frame after an attachment lands, before Send can be clicked.
+--
+-- Taint: no Blizzard function or script is replaced. SendMailFrame_Update is followed with
+-- hooksecurefunc, the events come to our own frame, ClickSendMailItemButton and ClearCursor are
+-- plain (unprotected) API calls from our own code, and the popup is an entry of our own in
+-- StaticPopupDialogs (preferredIndex 3, never shown in combat). The rings are frames of our own,
+-- children of the item buttons, created and shown out of combat only; in combat a ring can only
+-- be dimmed (animation stopped, alpha 0), and that is all that happens to it there.
+-- ---------------------------------------------------------------------------
+
+local Mail = {}
+
+-- Pure parts, kept on Mail so tools/test can run them without the client.
+
+-- The indexes (1..max, ascending) of the attachments whose item ID isLocked(id) says is locked.
+-- attachments: index -> { id = itemID, count = n }, with holes for empty slots.
+function Mail.LockedAttachments(attachments, max, isLocked)
+    local out = {}
+    for i = 1, max do
+        local a = attachments[i]
+        if a and a.id and isLocked(a.id) then out[#out + 1] = i end
+    end
+    return out
+end
+
+-- The bag slots that hold the attached items, as a set of "bag:slot" keys.
+--   attachments  list of { id, count }
+--   slots        list of { bag, slot, id, count, locked }, in bag order
+--   cursor       nil, or { id, bag, slot } for the item on the cursor (bag and slot may be nil)
+function Mail.MatchAttachedSlots(attachments, slots, cursor)
+    local byID = {}
+    for _, s in ipairs(slots) do
+        local isCursor = cursor and cursor.bag ~= nil and s.bag == cursor.bag and s.slot == cursor.slot
+        if s.locked and s.id and not isCursor then
+            local list = byID[s.id]
+            if not list then
+                list = {}
+                byID[s.id] = list
+            end
+            list[#list + 1] = s
+        end
+    end
+    local used, out, pending = {}, {}, {}
+    -- Same item, same stack size.
+    for _, a in ipairs(attachments) do
+        local hit
+        for _, s in ipairs(byID[a.id] or {}) do
+            if not used[s] and s.count == a.count then
+                hit = s
+                break
+            end
+        end
+        if hit then
+            used[hit] = true
+            out[hit.bag .. ":" .. hit.slot] = true
+        else
+            pending[#pending + 1] = a
+        end
+    end
+    -- Same item, any stack size; one slot is held back for the cursor's stack when its slot is unknown.
+    for _, a in ipairs(pending) do
+        local free = {}
+        for _, s in ipairs(byID[a.id] or {}) do
+            if not used[s] then free[#free + 1] = s end
+        end
+        local reserve = (cursor and cursor.bag == nil and cursor.id == a.id) and 1 or 0
+        if #free > reserve then
+            used[free[1]] = true
+            out[free[1].bag .. ":" .. free[1].slot] = true
+        end
+    end
+    return out
+end
+
+function Mail.Build()
+    local mailShown = false
+    local hooked = false
+    local scanPending, ringsPending = false, false
+    local tries = 0                 -- scans in a row that found a locked attachment
+    local takenOff = 0              -- locked attachments taken off this session, for /gbf status
+    local ringFrame = setmetatable({}, { __mode = "k" })   -- item button -> our ring frame
+    local ringOn = setmetatable({}, { __mode = "k" })      -- item button -> true while it pulses
+    local ringsShown = 0
+
+    local RING_RGB = { 0.25, 0.85, 1.0 }    -- cyan; GaarBarsForever's low-rank ring is orange
+    local RING_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border"
+    local RING_SCALE = 1.8
+    local RING_PULSE = 0.8          -- seconds from bright to dim; it bounces back
+    local RING_LOW_ALPHA = 0.35
+    local POPUP_KEY = "GAARBAGSFOREVER_MAIL_LOCKED"
+    local MAX_TRIES = 3
+
+    local function GlowOn()
+        return db ~= nil and db.mailGlow ~= false
+    end
+
+    local function MaxAttachments()
+        return PlainNumber(_G.ATTACHMENTS_MAX_SEND) or 12
+    end
+
+    -- One outgoing attachment: { id, count, link }, or nil for an empty slot.
+    local function ReadAttachment(i)
+        local link, id, count, present
+        if type(_G.GetSendMailItemLink) == "function" then
+            local ok, l = pcall(_G.GetSendMailItemLink, i)
+            link = ok and PlainString(l) or nil
+            id = link and tonumber(link:match("item:(%d+)"))
+            present = link ~= nil
+        end
+        if type(_G.GetSendMailItem) == "function" then
+            local ok, name, itemID, _, n = pcall(_G.GetSendMailItem, i)
+            if ok and Plain(name) then
+                present = true
+                id = id or PlainNumber(itemID)
+                count = PlainNumber(n)
+            end
+        end
+        if not present or not id then return nil end
+        return { id = id, count = count or 1, link = link }
+    end
+
+    -- The attachments as a list, and by slot index.
+    local function ReadAttachments()
+        local list, byIndex = {}, {}
+        for i = 1, MaxAttachments() do
+            local a = ReadAttachment(i)
+            if a then
+                list[#list + 1] = a
+                byIndex[i] = a
+            end
+        end
+        return list, byIndex
+    end
+
+    local function CursorInfo()
+        if type(_G.GetCursorInfo) ~= "function" then return nil end
+        local kind, id = _G.GetCursorInfo()
+        return kind, PlainNumber(id)
+    end
+
+    -- ---- no mailing ---------------------------------------------------------------
+
+    -- Takes attachment i (item id) off the mail and makes sure it ends up in its bag slot.
+    local function TakeOff(i, id)
+        local click = _G.ClickSendMailItemButton
+        if type(click) ~= "function" then return end
+        local beforeKind, beforeID = CursorInfo()
+        pcall(click, i, true)
+        local still = ReadAttachment(i)
+        if still and still.id == id and beforeKind == nil then
+            -- clearItem left it attached: pick it up instead; ClearCursor below puts it back.
+            pcall(click, i)
+        end
+        local kind, cid = CursorInfo()
+        if kind == "item" and cid == id and not (beforeKind == "item" and beforeID == id)
+            and type(_G.ClearCursor) == "function" then
+            _G.ClearCursor()
+        end
+        takenOff = takenOff + 1
+    end
+
+    local function ShowPopup(text)
+        local dialogs = _G.StaticPopupDialogs
+        if type(dialogs) ~= "table" or type(_G.StaticPopup_Show) ~= "function" then return end
+        if not dialogs[POPUP_KEY] then
+            dialogs[POPUP_KEY] = {
+                text = "%s",
+                button1 = _G.OKAY or "OK",
+                timeout = 0,
+                whileDead = true,
+                hideOnEscape = true,
+                preferredIndex = 3,
+            }
+        end
+        pcall(_G.StaticPopup_Show, POPUP_KEY, text)
+    end
+
+    local function Announce(labels)
+        local items = table.concat(labels, ", ")
+        local verb = #labels == 1 and " is" or " are"
+        Print(items .. verb .. " locked - it cannot be mailed. Alt-click to unlock.")
+        if not InCombat() then
+            ShowPopup(items .. verb .. " locked (do-not-sell) and cannot be mailed.\n\nAlt-click it in your bags to unlock.")
+        end
+    end
+
+    local function ScanAttachments()
+        scanPending = false
+        if not mailShown or not charDB then return end
+        local _, byIndex = ReadAttachments()
+        local hits = Mail.LockedAttachments(byIndex, MaxAttachments(), Lock.IsLocked)
+        if #hits == 0 then
+            tries = 0
+            return
+        end
+        tries = tries + 1
+        if tries > MAX_TRIES then
+            if tries == MAX_TRIES + 1 then
+                Print("could not take " .. Lock.ItemLabel(byIndex[hits[1]].id, byIndex[hits[1]].link)
+                    .. " off the mail. Take it off by hand before you send.")
+            end
+            return
+        end
+        -- Last slot first, in case the client closes the gaps.
+        for k = #hits, 1, -1 do
+            local i = hits[k]
+            TakeOff(i, byIndex[i].id)
+        end
+        if tries > 1 then return end    -- said once already for this attachment
+        local labels, seen = {}, {}
+        for _, i in ipairs(hits) do
+            local a = byIndex[i]
+            if not seen[a.id] then
+                seen[a.id] = true
+                labels[#labels + 1] = Lock.ItemLabel(a.id, a.link)
+            end
+        end
+        Announce(labels)
+    end
+
+    local function QueueScan()
+        if scanPending or not mailShown then return end
+        scanPending = true
+        local after = TimerAfter()
+        if not after then
+            local ok = pcall(ScanAttachments)
+            if not ok then scanPending = false end
+            return
+        end
+        after(0, function()
+            local ok = pcall(ScanAttachments)
+            if not ok then scanPending = false end
+        end)
+    end
+
+    -- ---- mail glow ------------------------------------------------------------------
+
+    -- Item ID, stack size and locked flag of one slot; nil for an empty slot.
+    local function SlotState(bag, slot)
+        local c = ContainerAPI()
+        if c and type(c.GetContainerItemInfo) == "function" then
+            local ok, info = pcall(c.GetContainerItemInfo, bag, slot)
+            if not ok or type(info) ~= "table" then return nil end
+            local id = PlainNumber(info.itemID)
+            if not id then
+                local link = PlainString(info.hyperlink)
+                id = link and tonumber(link:match("item:(%d+)"))
+            end
+            return id, PlainNumber(info.stackCount) or 1, Plain(info.isLocked) == true
+        elseif type(_G.GetContainerItemInfo) == "function" then
+            local ok, tex, count, locked, _, _, _, link, _, _, id = pcall(_G.GetContainerItemInfo, bag, slot)
+            if not ok or not Plain(tex) then return nil end
+            id = PlainNumber(id)
+            if not id then
+                link = PlainString(link)
+                id = link and tonumber(link:match("item:(%d+)"))
+            end
+            return id, PlainNumber(count) or 1, Plain(locked) and true or false
+        end
+        return nil
+    end
+
+    local function LockedCarriedSlots()
+        local list = {}
+        for _, bag in ipairs(CarriedContainers()) do
+            for slot = 1, ContainerSize(bag) do
+                local id, count, locked = SlotState(bag, slot)
+                if id and locked then
+                    list[#list + 1] = { bag = bag, slot = slot, id = id, count = count, locked = true }
+                end
+            end
+        end
+        return list
+    end
+
+    -- The item on the cursor: { id, bag, slot } (bag and slot when the client says), or nil.
+    local function CursorSource()
+        local kind, id = CursorInfo()
+        if kind ~= "item" then return nil end
+        local cur = { id = id }
+        local cc = _G.C_Cursor
+        if type(cc) == "table" and type(cc.GetCursorItem) == "function" then
+            local ok, loc = pcall(cc.GetCursorItem)
+            if ok and type(loc) == "table" and type(loc.GetBagAndSlot) == "function" then
+                local okSlot, bag, slot = pcall(loc.GetBagAndSlot, loc)
+                if okSlot and PlainNumber(bag) and PlainNumber(slot) then
+                    cur.bag, cur.slot = PlainNumber(bag), PlainNumber(slot)
+                end
+            end
+        end
+        return cur
+    end
+
+    -- Our pulsing ring, a child of the item button; created out of combat only.
+    local function BuildRing(button)
+        local w = type(button.GetWidth) == "function" and PlainNumber(button:GetWidth()) or nil
+        w = (w and w > 0) and w or 37
+        local f = CreateFrame("Frame", nil, button)
+        f:SetSize(w * RING_SCALE, w * RING_SCALE)
+        f:SetPoint("CENTER", button, "CENTER", 0, 0)
+        f:SetFrameLevel((PlainNumber(button:GetFrameLevel()) or 0) + 3)
+        local tex = f:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints(f)
+        tex:SetTexture(RING_TEXTURE)
+        tex:SetBlendMode("ADD")
+        tex:SetVertexColor(RING_RGB[1], RING_RGB[2], RING_RGB[3])
+        local ag = f:CreateAnimationGroup()
+        ag:SetLooping("BOUNCE")
+        local a = ag:CreateAnimation("Alpha")
+        a:SetFromAlpha(1)
+        a:SetToAlpha(RING_LOW_ALPHA)
+        a:SetDuration(RING_PULSE)
+        f.pulse = ag
+        f:SetAlpha(0)
+        f:Hide()
+        ringFrame[button] = f
+        return f
+    end
+
+    local function SetRing(button, on)
+        if on then
+            if ringOn[button] then return end
+            local f = ringFrame[button]
+            if not f then
+                if InCombat() then return end
+                f = BuildRing(button)
+            end
+            if Blocked(f) then return end
+            f:SetAlpha(1)
+            f:Show()
+            f.pulse:Play()
+            ringOn[button] = true
+        elseif ringOn[button] then
+            local f = ringFrame[button]
+            f.pulse:Stop()
+            f:SetAlpha(0)
+            if not Blocked(f) then f:Hide() end
+            ringOn[button] = nil
+        end
+    end
+
+    local function RefreshRings()
+        ringsPending = false
+        local keys
+        if mailShown and GlowOn() then
+            local list = ReadAttachments()
+            if #list > 0 then keys = Mail.MatchAttachedSlots(list, LockedCarriedSlots(), CursorSource()) end
+        end
+        if not keys and ringsShown == 0 then return end
+        local n = 0
+        for _, button in ipairs(Lock.Buttons()) do
+            local want = false
+            if keys and IsOnScreen(button) then
+                local bag, slot = Lock.ButtonSlot(button)
+                want = bag ~= nil and slot ~= nil and keys[bag .. ":" .. slot] == true
+            end
+            pcall(SetRing, button, want)
+            if ringOn[button] then n = n + 1 end
+        end
+        ringsShown = n
+    end
+
+    local function QueueRings()
+        if ringsPending then return end
+        if not mailShown and ringsShown == 0 then return end
+        ringsPending = true
+        local after = TimerAfter()
+        if not after then
+            local ok = pcall(RefreshRings)
+            if not ok then ringsPending = false end
+            return
+        end
+        after(0, function()
+            local ok = pcall(RefreshRings)
+            if not ok then ringsPending = false end
+        end)
+    end
+
+    -- ---- events and commands ----------------------------------------------------------
+
+    local function HookSendMail()
+        if hooked or type(_G.SendMailFrame_Update) ~= "function" then return end
+        hooked = true
+        pcall(hooksecurefunc, "SendMailFrame_Update", function()
+            QueueScan()
+            QueueRings()
+        end)
+    end
+
+    local REFRESH_EVENTS = { BAG_UPDATE_DELAYED = true, ITEM_LOCK_CHANGED = true, CURSOR_CHANGED = true,
+                             MAIL_SEND_SUCCESS = true, MAIL_FAILED = true }
+
+    function Mail.OnEvent(event)
+        if event == "MAIL_SHOW" then
+            mailShown = true
+            tries = 0
+            HookSendMail()
+            QueueScan()
+            QueueRings()
+        elseif event == "MAIL_CLOSED" then
+            mailShown = false
+            tries = 0
+            QueueRings()
+        elseif event == "MAIL_SEND_INFO_UPDATE" then
+            QueueScan()
+            QueueRings()
+        elseif REFRESH_EVENTS[event] then
+            QueueRings()
+        end
+    end
+
+    Lock.OnRefresh = function()
+        QueueScan()
+        QueueRings()
+    end
+
+    function Mail.SetGlow(on)
+        if not db then return end
+        if on == nil then on = not GlowOn() end
+        db.mailGlow = on and true or false
+        Print("cyan ring on bag items attached to the outgoing mail: " .. OnOff(db.mailGlow))
+        QueueRings()
+    end
+
+    Mail.GlowOn = GlowOn
+
+    function Mail.Status()
+        local api = type(_G.ClickSendMailItemButton) == "function" and type(_G.GetSendMailItem) == "function"
+        return string.format("mail: locked items kept off outgoing mail (%d taken off this session)%sClickSendMailItemButton + GetSendMailItem: %s%sSendMailFrame_Update hooked: %s%smail glow %s, %d ring%s shown",
+            takenOff, DOT, api and "yes" or "MISSING", DOT, hooked and "yes" or "no", DOT,
+            OnOff(GlowOn()), ringsShown, ringsShown == 1 and "" or "s")
+    end
+end
+Mail.Build()
 
 -- ---------------------------------------------------------------------------
 -- Following Blizzard
@@ -2497,7 +2989,7 @@ local function Yes(v) return v and "yes" or "MISSING" end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it. Clean-up does not run in combat."
+local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed. Clean-up does not run in combat."
 
 local function PrintHelp()
     Print(INTRO)
@@ -2515,6 +3007,8 @@ local function PrintHelp()
     Print("Alt-click an item in your bags: lock or unlock it (all copies). A locked item shows a padlock and cannot be sold to a merchant.")
     Print("/gbf locked - list the locked items (now: " .. Lock.Count() .. ")")
     Print("/gbf unlockall yes - unlock every locked item")
+    Print("A locked item cannot be mailed either: put on the Send Mail tab, it goes straight back to your bags.")
+    Print("/gbf mailglow on | off - cyan ring on bag items attached to the outgoing mail (now: " .. OnOff(Mail.GlowOn()) .. ")")
     Print("/gbf status - what this client offers and what the next clean-up will do")
 end
 
@@ -2541,6 +3035,7 @@ local function PrintStatus()
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
     Print(InventoryStatus())
     Print(Lock.Status())
+    Print(Mail.Status())
 end
 
 local function OnSlash(msg)
@@ -2582,6 +3077,10 @@ local function OnSlash(msg)
         Lock.PrintLocked()
     elseif msg == "unlockall" or msg == "unlockall yes" then
         Lock.UnlockAll(msg == "unlockall yes")
+    elseif msg == "mailglow" then
+        Mail.SetGlow(nil)
+    elseif msg == "mailglow on" or msg == "mailglow off" then
+        Mail.SetGlow(msg == "mailglow on")
     elseif msg == "status" then
         PrintStatus()
     else
@@ -2629,6 +3128,8 @@ local function MenuEntries()
           func = function() SetNativeHidden(not db.hideNativeButton) end },
         { text = "Item counts in tooltip", checkbox = true, checked = CountsOn,
           func = function() SetCounts(not CountsOn()) end },
+        { text = "Cyan ring on items attached to mail", checkbox = true, checked = Mail.GlowOn,
+          func = function() Mail.SetGlow(not Mail.GlowOn()) end },
     }
 end
 
@@ -2664,6 +3165,7 @@ local function BindSavedVariables()
     if type(db.reverse) ~= "boolean" then db.reverse = false end
     if type(db.showCounts) ~= "boolean" then db.showCounts = true end
     if type(db.autoSort) ~= "boolean" then db.autoSort = true end
+    if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then
@@ -2699,7 +3201,8 @@ events:RegisterEvent("ITEM_LOCK_CHANGED")
 -- The inventory events, each checked: a name this client does not know is skipped, not raised.
 for _, name in ipairs({ "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
                         "PLAYERBANKSLOTS_CHANGED", "MAIL_SHOW", "MAIL_INBOX_UPDATE", "MAIL_CLOSED",
-                        "MERCHANT_SHOW", "MERCHANT_CLOSED", "MERCHANT_UPDATE", "CURSOR_CHANGED" }) do
+                        "MERCHANT_SHOW", "MERCHANT_CLOSED", "MERCHANT_UPDATE", "CURSOR_CHANGED",
+                        "MAIL_SEND_INFO_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED" }) do
     pcall(events.RegisterEvent, events, name)
 end
 
@@ -2769,7 +3272,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if INVENTORY_EVENTS[event] and db and playerName then
         pcall(OnInventoryEvent, event)
     end
-    if charDB then pcall(OnLockEvent, event) end
+    if charDB then
+        pcall(OnLockEvent, event)
+        pcall(Mail.OnEvent, event)
+    end
     if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "ITEM_LOCK_CHANGED" then
         OnBagActivity()
     elseif event == "ADDON_LOADED" then

@@ -9,7 +9,7 @@
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
 improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
 shows how many of an item and how much gold your other characters on the same realm have.
-Since 1.9 you can lock items so a merchant can never get them. It needs GaarForever, the family hub, and no other addon or library.
+Since 1.9 you can lock items so a merchant can never get them, and since 1.11 they cannot be mailed either. It needs GaarForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -135,6 +135,37 @@ Since 1.9 you can lock items so a merchant can never get them. It needs GaarFore
   slot guard takes the left button too while a merchant is open: Alt-click still unlocks, a plain
   left-click only prints the message. `/gbf locked` lists the locked items as links and
   `/gbf unlockall yes` unlocks all of them. The addon has no junk selling of its own.
+- **Locked items cannot be mailed (since 1.11, always on).** While the mailbox is open, a locked
+  item that lands in a Send Mail attachment slot is taken off again and goes back to its bag
+  slot, however it got there: drag-and-drop, a right-click in the bags with the Send tab open,
+  or another addon. Chat says `<item> is locked - it cannot be mailed. Alt-click to unlock.` and
+  a popup with an OK button says the same (no popup in combat; the chat line still comes).
+
+  How: `MAIL_SEND_INFO_UPDATE`, `hooksecurefunc("SendMailFrame_Update")` and every padlock
+  refresh schedule a scan one frame later. It reads `GetSendMailItem` / `GetSendMailItemLink`
+  for every slot up to `ATTACHMENTS_MAX_SEND` (12 if missing), and each attachment whose item ID
+  is locked is taken off with `ClickSendMailItemButton(index, true)`. If that leaves it attached
+  on this client, the slot is clicked once more (which picks the item up) and `ClearCursor()`
+  puts it back in its bag slot; an item of ours is never left on the cursor. A locked attachment
+  still there after three scans in a row gets one chat line asking you to take it off by hand.
+  There is no check on `SendMail` itself: a post-hook runs only after the mail has gone, and the
+  scan has already run by the time you can click Send.
+- **Cyan ring on attached items (since 1.11, on by default).** While the Send tab has
+  attachments, every bag slot whose item is attached gets a pulsing cyan ring, the same kind of
+  ring as GaarBarsForever's orange low-rank ring (`Interface\Buttons\UI-ActionButton-Border`,
+  additive blend, 1.8x the button, alpha pulse). It goes away when the attachment is taken off,
+  the mail is sent (`MAIL_SEND_SUCCESS`) or the mailbox closes (`MAIL_CLOSED`). Turn it off with
+  `/gbf mailglow off`; saved in `GaarBagsForeverDB.mailGlow`.
+
+  Which slot: the client does not say which bag slot an attachment came from, so it is worked
+  out from the bags. An attached item stays in its slot, locked (greyed), until the mail goes.
+  Each attachment claims one locked slot of the carried bags with the same item ID: first one
+  with the same stack size, then any. The stack on the cursor is locked too; when
+  `C_Cursor.GetCursorItem` says which slot it came from, that slot is left out, otherwise one
+  slot of that item is held back. So two locked stacks of the same item with only one attached
+  give one ring, not two (with two identical stacks it may sit on the twin). It is worked out
+  from scratch on every refresh (`MAIL_SEND_INFO_UPDATE`, `BAG_UPDATE_DELAYED`,
+  `ITEM_LOCK_CHANGED`, `CURSOR_CHANGED`, a bag window opening), so it never goes stale.
 - **The sort direction is left alone.** The addon never calls `C_Container.SetSortBagsRightToLeft`
   and does not read it either. Version 1.2 could switch it; if you changed it there and want
   Forever's default back, run `/run C_Container.SetSortBagsRightToLeft(true)` once.
@@ -155,8 +186,9 @@ Since 1.9 you can lock items so a merchant can never get them. It needs GaarFore
 | Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold to a merchant |
 | `/gbf locked` | List the locked items as links |
 | `/gbf unlockall`, `/gbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
+| `/gbf mailglow`, `/gbf mailglow on`, `/gbf mailglow off` | Toggle or set the cyan ring on bag items attached to the outgoing mail (on by default) |
 | `/gbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
-| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there |
+| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there. Since 1.11 also one mail line: how many locked attachments were taken off this session, whether `ClickSendMailItemButton` and `GetSendMailItem` are there, whether `SendMailFrame_Update` is hooked, and mail glow on/off with how many rings are shown |
 
 ## With GaarForever (required)
 
@@ -168,8 +200,8 @@ lookups and the menu drawing) come from GaarForever's shared library (`GaarForev
 
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a **Bags** submenu with **Lock position**, **Reset position**, **Reverse**, **Auto clean-up when bags open**, **Hide
-Blizzard's own Clean Up button** and **Item counts in tooltip**, the same settings as
-`/gbf lock|unlock`, `/gbf reset`, `/gbf reverse`, `/gbf native hide|show` and `/gbf counts on|off`
+Blizzard's own Clean Up button**, **Item counts in tooltip** and **Cyan ring on items attached to mail**, the same settings as
+`/gbf lock|unlock`, `/gbf reset`, `/gbf reverse`, `/gbf native hide|show`, `/gbf counts on|off` and `/gbf mailglow on|off`
 (both go through the same functions). This addon has
 no minimap button or menu of its own, so nothing here changes with or without the hub: the
 settings stay in `GaarBagsForeverDB` and `/gbf` stays as it is.
@@ -209,11 +241,17 @@ The hub talks to this addon only through `GaarBagsForeverAPI` (since 1.6):
   Blizzard's handler. The padlock is a texture added to the item button; everything else is kept
   in weak tables of the addon's own. A guard is never shown or hidden while it is protected in
   combat.
+- The mail block (1.11) replaces nothing either: `SendMailFrame_Update` is followed with
+  `hooksecurefunc`, the scan runs one frame after Blizzard's update from the addon's own event
+  frame, and `ClickSendMailItemButton` and `ClearCursor` are plain, unprotected API calls. The
+  popup is an entry of the addon's own in `StaticPopupDialogs` (`GAARBAGSFOREVER_MAIL_LOCKED`,
+  `preferredIndex` 3) and is never shown in combat. The cyan rings are frames of the addon's own
+  on the item buttons, created and shown out of combat only; in combat a ring can only be dimmed.
 - Every name is checked before use. A missing frame or function switches the matching feature
   off instead of raising an error.
 - If the bag frame is protected and a move falls in combat, it waits for `PLAYER_REGEN_ENABLED`.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`,
-  `hideNativeButton`, `position`, `reverse`, `showCounts`, `autoSort` and `inventory` are kept; anything older
+  `hideNativeButton`, `position`, `reverse`, `showCounts`, `autoSort`, `mailGlow` and `inventory` are kept; anything older
   versions saved is cleared on load. The item locks (1.9) are per character, in
   `GaarBagsForeverCharDB.lockedItems`.
 
@@ -244,6 +282,12 @@ For the item lock (1.9): `ContainerFrame1`-`13` and their `UpdateItems` / `Enume
 `GetBuybackItemLink`, `GetBuybackItemInfo`, `BuybackItem`, the events `MERCHANT_SHOW`,
 `MERCHANT_CLOSED`, `MERCHANT_UPDATE` and `CURSOR_CHANGED`, and the frame methods
 `SetPassThroughButtons` and `SetPropagateMouseMotion`.
+
+For the mail block and ring (1.11): `GetSendMailItem`, `GetSendMailItemLink`,
+`ClickSendMailItemButton`, `ATTACHMENTS_MAX_SEND`, `SendMailFrame_Update`, `StaticPopupDialogs`,
+`StaticPopup_Show`, `OKAY`, `C_Cursor.GetCursorItem` (with `GetBagAndSlot`), the texture
+`Interface\Buttons\UI-ActionButton-Border`, and the events `MAIL_SHOW`, `MAIL_CLOSED`,
+`MAIL_SEND_INFO_UPDATE`, `MAIL_SEND_SUCCESS` and `MAIL_FAILED`.
 
 ## Support
 

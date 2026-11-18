@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.15"] = "notes for GaarFramesForever 1.4.4: steadier yellow HoT segment",
         ["3.2.14"] = "notes for GaarQuestsForever 1.13.0: new sort mode, zone",
         ["3.2.13"] = "notes for GaarXPForever 1.3.1: ready quests, their XP and the orange bar segment now update right when a quest completes, is turned in, abandoned or accepted (more quest events, a trailing scan after the throttle, and a follow-up scan about 1 s later)",
         ["3.2.12"] = "notes for GaarBarsForever 1.3.2: spellbook low-rank ring re-evaluated on every page/tab/search change from the spell actually bound to each pooled entry, hidden on entries that are not visible",
@@ -101,6 +102,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.4.4"] = "Steadier yellow HoT segment: each HoT keeps its amount (no more flipping between sources), a fallback amount when none is readable, your own HoTs shown in combat, ticks counted from the HoT's schedule and dropped on time, all frames of the same unit redrawn; /gff hotdebug [unit] says per HoT where each number came from and why it adds nothing",
         ["1.3.0"] = "Renamed to GaarFramesForever (new folders; settings move over automatically on first login; new /gff commands, old ones still work)",
         ["1.2.16"] = "the addon's own name in its menu errors",
         ["1.2.15"] = "the addon's own name in its chat lines and menu errors",

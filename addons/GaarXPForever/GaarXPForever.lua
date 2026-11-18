@@ -43,7 +43,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -224,6 +224,7 @@ local function SegmentGeometry(cur, max, questXP, barWidth)
     return offset, width
 end
 local readyDirty, lastScan, ignoreLogUntil = true, -10, 0
+local scanNoSelect, scanTimerDue, followDue = false, nil, nil
 local SCAN_INTERVAL = 0.5
 
 local function Call(f, ...)
@@ -295,7 +296,7 @@ local function ReadyQuestXP(questID, index)
         end
     end
     -- 3
-    if gFn and C and type(C.SetSelectedQuest) == "function" and not LogWindowOpen() then
+    if gFn and C and type(C.SetSelectedQuest) == "function" and not scanNoSelect and not LogWindowOpen() then
         local prev = type(C.GetSelectedQuest) == "function" and Num(Call(C.GetSelectedQuest)) or nil
         ignoreLogUntil = Now() + 0.5
         pcall(C.SetSelectedQuest, questID)
@@ -306,7 +307,7 @@ local function ReadyQuestXP(questID, index)
     end
     -- 4
     if index and gFn and type(_G.SelectQuestLogEntry) == "function" and type(_G.GetQuestLogSelection) == "function"
-        and not LogWindowOpen() then
+        and not scanNoSelect and not LogWindowOpen() then
         local prev = Num(Call(_G.GetQuestLogSelection))
         ignoreLogUntil = Now() + 0.5
         pcall(_G.SelectQuestLogEntry, index)
@@ -368,18 +369,56 @@ local function ScanReady()
     ready.count, ready.xp, ready.list = count, xp, list
 end
 
-local function MaybeScanReady()
-    if not readyDirty or not Enabled("questReady") then return end
-    local t = Now()
-    if t - lastScan < SCAN_INTERVAL then return end
-    readyDirty, lastScan = false, t
-    Safe("quest scan", ScanReady)
-    Safe("quest bar", RefreshQuestBar)
+-- Trailing-edge throttle: a scan asked for during the throttle or the own-selection ignore window is
+-- never dropped, one scan is scheduled for when the window ends.
+local function After(delay, fn)
+    if _G.C_Timer and type(_G.C_Timer.After) == "function" then pcall(_G.C_Timer.After, delay, fn) end
 end
 
+local MaybeScanReady, RefreshPanel, RefreshBarText
+local function ScheduleScan(delay)
+    local t = Now()
+    local due = t + delay
+    if scanTimerDue and scanTimerDue >= t and scanTimerDue <= due + 0.01 then return end   -- earlier one pending
+    scanTimerDue = due
+    After(delay, function()
+        if scanTimerDue == due then scanTimerDue = nil end
+        Safe("quest scan timer", function() MaybeScanReady() end)
+    end)
+end
+
+MaybeScanReady = function()
+    if not readyDirty or not Enabled("questReady") then return end
+    local t = Now()
+    if t < ignoreLogUntil then ScheduleScan(ignoreLogUntil - t + 0.05); return end
+    if t - lastScan < SCAN_INTERVAL then ScheduleScan(SCAN_INTERVAL - (t - lastScan) + 0.02); return end
+    readyDirty, lastScan = false, t
+    Safe("quest scan", ScanReady)
+    scanNoSelect = false
+    Safe("quest bar", RefreshQuestBar)
+    Safe("refresh", function() RefreshPanel(); RefreshBarText() end)
+end
+
+-- Own selection changes fire QUEST_LOG_UPDATE too. Those must not be dropped (a real completion can land
+-- in the same window), but the scan they cause must not select quests again (no loop).
 local function MarkReadyDirty()
-    if Now() < ignoreLogUntil then return end   -- our own selection change
     readyDirty = true
+    if Now() < ignoreLogUntil then scanNoSelect = true end
+    MaybeScanReady()
+end
+
+-- Any quest-related event: scan now (throttled, trailing) and once more ~1 s later (debounced), because
+-- the completion API can still return the old state at the moment of the event.
+local function QuestEvent()
+    MarkReadyDirty()
+    local due = Now() + 1
+    followDue = due
+    After(1, function()
+        if followDue ~= due then return end   -- a later event re-armed it
+        followDue = nil
+        readyDirty = true
+        Safe("quest followup", function() MaybeScanReady() end)
+    end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -486,7 +525,7 @@ local function CreatePanel()
     PlacePanel()
 end
 
-local function RefreshPanel()
+RefreshPanel = function()
     if not db then return end
     if not Enabled("panel") then
         if panel then panel:Hide() end
@@ -509,7 +548,7 @@ local function FindBar()
     if b and type(b.IsShown) == "function" then return b end
 end
 
-local function RefreshBarText()
+RefreshBarText = function()
     if not db then return end
     local want = Enabled("xpbarText") and not AtMax()
     if not want then
@@ -895,7 +934,10 @@ events:RegisterEvent("TIME_PLAYED_MSG")
 events:RegisterEvent("QUEST_TURNED_IN")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
-pcall(events.RegisterEvent, events, "QUEST_DATA_LOAD_RESULT")
+for _, e in ipairs({ "QUEST_DATA_LOAD_RESULT", "UNIT_QUEST_LOG_CHANGED", "QUEST_WATCH_UPDATE",
+    "QUEST_LOG_CRITERIA_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "UI_INFO_MESSAGE" }) do
+    pcall(events.RegisterEvent, events, e)
+end
 events:SetScript("OnEvent", function(_, event, arg1, arg2)
     Safe(event, function()
         if event == "ADDON_LOADED" then
@@ -917,11 +959,20 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
         elseif event == "QUEST_TURNED_IN" then
             flagQuest = true
             xpCache = {}
-            readyDirty = true
+            QuestEvent()
         elseif event == "QUEST_DATA_LOAD_RESULT" then
-            readyDirty = true   -- MaybeScanReady throttles
-        elseif event == "QUEST_LOG_UPDATE" then
-            MarkReadyDirty()
+            local id = Num(arg1)
+            if id then loadAsked[id] = nil end
+            QuestEvent()
+        elseif event == "UNIT_QUEST_LOG_CHANGED" then
+            if arg1 == "player" then QuestEvent() end
+        elseif event == "QUEST_ACCEPTED" or event == "QUEST_REMOVED" then
+            local id = Num(arg2) or Num(arg1)
+            if id then loadAsked[id] = nil end
+            QuestEvent()
+        elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_WATCH_UPDATE" or event == "QUEST_LOG_CRITERIA_UPDATE"
+            or event == "UI_INFO_MESSAGE" then
+            QuestEvent()
         elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
             flagKill = true
         end

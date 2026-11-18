@@ -1,7 +1,12 @@
 -- LuaJIT stub test: GaarXPForever ready-quest maths (remaining XP, kills, time) and the scan.
 -- Run: luajit tools/test/xp_quests_ready_test.lua   (from the repo root)
 local fh = assert(io.open("addons/GaarXPForever/GaarXPForever.lua")); local src = fh:read("*a"); fh:close()
-src = src .. "\n_G.__T = { Calc = Calc, ScanReady = ScanReady, SegmentGeometry = SegmentGeometry, ready = ready, ClearCache = function() xpCache = {} end }\n"
+src = src .. [==[
+_G.__T = { Calc = Calc, ScanReady = ScanReady, SegmentGeometry = SegmentGeometry, ready = ready, ClearCache = function() xpCache = {} end,
+  MarkReadyDirty = MarkReadyDirty, MaybeScanReady = MaybeScanReady, QuestEvent = QuestEvent,
+  SetDB = function(v) db = v end, GetCache = function() return xpCache end, Dirty = function() return readyDirty end,
+  SetIgnore = function(t) ignoreLogUntil = t end, ResetScan = function() lastScan = -10; ignoreLogUntil = 0; scanTimerDue = nil; followDue = nil; readyDirty = true end }
+]==]
 local noop = function() end
 local function widget()
     return setmetatable({}, { __index = function(t, k)
@@ -18,7 +23,17 @@ G.GaarForever = {
 G.CreateFrame = widget
 G.hooksecurefunc = noop
 G.SlashCmdList = {}
-G.GetTime = function() return 100 end
+local now = 100
+G.GetTime = function() return now end
+local timers = {}
+G.C_Timer = { After = function(d, fn) timers[#timers + 1] = { at = now + d, fn = fn } end }
+local function advance(dt)
+    now = now + dt
+    local i = 1
+    while i <= #timers do
+        if timers[i].at <= now then local t = table.remove(timers, i); t.fn() else i = i + 1 end
+    end
+end
 G.GaarXPForeverDB = nil
 local f = assert(loadstring(src, "xp")); setfenv(f, G); f("GaarXPForever")
 local T = G.__T
@@ -110,4 +125,52 @@ geo("covers", 500, 500, 2500, 5000, 9999, 1000)
 geo("none", nil, nil, 100, 5000, 0, 1000)
 geo("no width", nil, nil, 100, 5000, 50, 0)
 geo("full bar", nil, nil, 5000, 5000, 50, 1000)
+
+-- Trailing-edge throttle, no-zero-cache, follow-up scan
+do
+    local sc = 0
+    local real = T.ScanReady
+    -- count scans through the ready table identity: use count change as the signal
+    T.SetDB({ questReady = true, enabled = true })
+    G.GetNumQuestLogEntries = nil; G.GetQuestLogTitle = nil; G.GetQuestLogSelection = nil; G.SelectQuestLogEntry = nil
+    local dn = { [1] = false }
+    local qlog = { { questID = 1 } }
+    G.C_QuestLog = {
+        GetNumQuestLogEntries = function() return #qlog end,
+        GetInfo = function(i) return qlog[i] end,
+        ReadyForTurnIn = function(q) return dn[q] == true end,
+        IsComplete = function(q) return dn[q] == true end,
+        GetQuestLogRewardXP = function(q) return 700 end,
+    }
+    timers = {}; T.ClearCache(); T.ResetScan()
+    T.MaybeScanReady(); eq("tf initial", T.ready.count, 0)
+    -- completes inside the 0.5 s throttle: event must not be dropped
+    advance(0.1); dn[1] = true
+    T.MarkReadyDirty()
+    eq("tf not yet scanned (throttled)", T.ready.count, 0); eq("tf still dirty", T.Dirty(), true)
+    advance(0.6)
+    eq("tf trailing scan ran", T.ready.count, 1); eq("tf trailing xp", T.ready.xp, 700)
+    -- event inside own-selection ignore window: scheduled, not dropped
+    dn[1] = false; advance(1)
+    T.MarkReadyDirty(); eq("ign cleared", T.ready.count, 0)
+    dn[1] = true; T.SetIgnore(now + 0.5); T.MarkReadyDirty()
+    eq("ign not scanned in window", T.ready.count, 0)
+    advance(0.7); eq("ign trailing scan", T.ready.count, 1)
+    -- stale API at event time: the follow-up scan about 1 s later picks it up
+    dn[1] = false; advance(1); T.MarkReadyDirty(); eq("stale start", T.ready.count, 0)
+    advance(1); T.QuestEvent()       -- API still says not complete at the event
+    eq("stale at event", T.ready.count, 0)
+    dn[1] = true; advance(1.2)
+    eq("follow-up scan after ~1 s", T.ready.count, 1)
+    -- no zero/nil cache
+    T.ClearCache(); G.C_QuestLog.GetQuestLogRewardXP = function() return 0 end
+    advance(1); T.MarkReadyDirty(); advance(0.6)
+    eq("zero xp not cached", next(T.GetCache()), nil)
+    G.C_QuestLog.GetQuestLogRewardXP = function() return 450 end
+    advance(1); T.MarkReadyDirty(); advance(0.6)
+    eq("xp found after zero", T.ready.xp, 450); eq("positive cached", T.GetCache()[1] and T.GetCache()[1].xp, 450)
+    -- turn-in (quest leaves the log) drops it at once
+    qlog = {}; advance(1); T.MarkReadyDirty(); advance(0.6)
+    eq("turned in count", T.ready.count, 0); eq("turned in xp", T.ready.xp, 0)
+end
 print(fails == 0 and "ALL OK" or (fails .. " FAILED")); os.exit(fails == 0 and 0 or 1)

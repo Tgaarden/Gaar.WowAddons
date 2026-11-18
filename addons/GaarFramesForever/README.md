@@ -110,6 +110,17 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   when the aura's `points` hold none, and the yellow bar no longer hangs on the hidden green bar
   when no heal is incoming. `/gff status` lists each HoT on your target (or you) with its spell,
   amount, source and ticks left, or why nothing is drawn; `/gff hotdebug` prints the raw buff data.
+  1.4.4 makes it steady: each HoT's amount, once read, is kept with that aura and preferred over
+  a new tooltip read; with no amount readable the last reading of that rank, the spell's
+  description or the rank's base value (no +healing) stands in, and the aura tooltip is retried
+  every 2 s (it used to wait 10 s after a failed read, so a fresh Rejuvenation often had no
+  segment at all). In combat the HoTs read before stay until they run out, and a HoT you cast
+  yourself is added from the cast, so your own Rejuvenation, Regrowth and Renew show in combat
+  too. Ticks left are counted from the HoT's tick schedule, and the segment drops as each tick is
+  due, not only on the next event. An aura change redraws every frame showing that unit (you as
+  player and as target). `/gff hotdebug [unit]` lists, per HoT, the amount and its source
+  (points, tooltip, cached, stand-in or your cast), the interval, ticks left, total, what is
+  secret, and why a HoT adds nothing.
 - **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
   mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
   Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays

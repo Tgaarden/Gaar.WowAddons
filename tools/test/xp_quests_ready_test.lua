@@ -1,7 +1,7 @@
 -- LuaJIT stub test: GaarXPForever ready-quest maths (remaining XP, kills, time) and the scan.
 -- Run: luajit tools/test/xp_quests_ready_test.lua   (from the repo root)
 local fh = assert(io.open("addons/GaarXPForever/GaarXPForever.lua")); local src = fh:read("*a"); fh:close()
-src = src .. "\n_G.__T = { Calc = Calc, ScanReady = ScanReady, ready = ready, ClearCache = function() xpCache = {} end }\n"
+src = src .. "\n_G.__T = { Calc = Calc, ScanReady = ScanReady, SegmentGeometry = SegmentGeometry, ready = ready, ClearCache = function() xpCache = {} end }\n"
 local noop = function() end
 local function widget()
     return setmetatable({}, { __index = function(t, k)
@@ -102,4 +102,12 @@ G.GetQuestLogRewardXP = function(q) return q and xp[q] or 0 end
 T.ScanReady(); eq("not selected, no select api", T.ready.xp, 0)
 selQ = 1
 T.ClearCache(); T.ScanReady(); eq("selected quest uses global(id)", T.ready.xp, 1000)
+-- bar segment geometry: offset and width, clamped
+local function geo(name, o, w, ...) local a, b = T.SegmentGeometry(...); eq(name .. " offset", a, o); eq(name .. " width", b, w) end
+geo("middle", 200, 100, 1000, 5000, 500, 1000)            -- 20% in, 10% wide
+geo("clamped", 800, 200, 4000, 5000, 3000, 1000)          -- would pass the end
+geo("covers", 500, 500, 2500, 5000, 9999, 1000)
+geo("none", nil, nil, 100, 5000, 0, 1000)
+geo("no width", nil, nil, 100, 5000, 50, 0)
+geo("full bar", nil, nil, 5000, 5000, 50, 1000)
 print(fails == 0 and "ALL OK" or (fails .. " FAILED")); os.exit(fails == 0 and 0 or 1)

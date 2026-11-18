@@ -34,6 +34,12 @@ level on level-up, and quest XP in tooltips. Every part has its own switch. It n
   when at least one quest is ready. Rescanned on `QUEST_LOG_UPDATE` / `QUEST_TURNED_IN`, at most every
   0.5 s, each call in `pcall`. Quests under a collapsed zone header may not be listed by a legacy
   client's quest log API.
+- **Ready quest XP on the bar** (`questBar`, on): a semi-transparent segment on the XP bar from the
+  current fill to fill + ready quest XP, clamped at the end of the bar (a little brighter when the quests
+  cover the rest of the level). Own frame, a child of the bar's StatusBar (frame level +1, same height),
+  following its size (`OnSizeChanged`) and visibility; hidden at max level, with no ready quests, or when
+  `questBar` or `questReady` is off. Colour `orange` (default), `green` or `yellow`. The bar text
+  gets ` (+2,325)` appended when quests are ready.
 - **Session reset**: `/gxp reset` resets the session's XP, rate, kills and quests.
 
 How the change is counted: `PLAYER_XP_UPDATE` deltas (across a level-up, the rest of the old level
@@ -42,7 +48,7 @@ plus the new XP), classified a moment later: a `CHAT_MSG_COMBAT_XP_GAIN` = a kil
 The rate needs a minute of session.
 
 Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbarText`,
-`xpbarAlways`, `levelLog`, `questXP`, `questReady`, `locked` and `pos`.
+`xpbarAlways`, `levelLog`, `questXP`, `questReady`, `questBar`, `questBarColor`, `locked` and `pos`.
 
 ## Commands
 
@@ -58,6 +64,8 @@ Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbar
 | `/gxp levellog on\|off` | Time played on level-up |
 | `/gxp questxp on\|off` | Quest XP in tooltips |
 | `/gxp ready on\|off` | Ready quests and their XP in the panel (`questReady`) |
+| `/gxp readybar on\|off` | Ready quest XP segment on the XP bar (`questBar`) |
+| `/gxp readybar color orange\|green\|yellow` | Segment colour |
 | `/gxp ready debug` | Per ready quest: title, questID and which source gave its XP (or the raw returns) |
 | `/gxp unlock`, `/gxp lock` | Drag the panel without Alt / back to Alt-drag |
 | `/gxp resetpos` | Panel back to its default place |

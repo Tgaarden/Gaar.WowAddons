@@ -58,6 +58,7 @@ Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbar
 | `/gxp levellog on\|off` | Time played on level-up |
 | `/gxp questxp on\|off` | Quest XP in tooltips |
 | `/gxp ready on\|off` | Ready quests and their XP in the panel (`questReady`) |
+| `/gxp ready debug` | Per ready quest: title, questID and which source gave its XP (or the raw returns) |
 | `/gxp unlock`, `/gxp lock` | Drag the panel without Alt / back to Alt-drag |
 | `/gxp resetpos` | Panel back to its default place |
 | `/gxp reset` | Reset the session |

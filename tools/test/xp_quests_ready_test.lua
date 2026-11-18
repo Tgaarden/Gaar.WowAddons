@@ -1,7 +1,7 @@
 -- LuaJIT stub test: GaarXPForever ready-quest maths (remaining XP, kills, time) and the scan.
 -- Run: luajit tools/test/xp_quests_ready_test.lua   (from the repo root)
 local fh = assert(io.open("addons/GaarXPForever/GaarXPForever.lua")); local src = fh:read("*a"); fh:close()
-src = src .. "\n_G.__T = { Calc = Calc, ScanReady = ScanReady, ready = ready }\n"
+src = src .. "\n_G.__T = { Calc = Calc, ScanReady = ScanReady, ready = ready, ClearCache = function() xpCache = {} end }\n"
 local noop = function() end
 local function widget()
     return setmetatable({}, { __index = function(t, k)
@@ -68,4 +68,38 @@ G.GetQuestLogRewardXP = function() return xp[log[sel] and log[sel].questID] or 0
 T.ScanReady()
 eq("legacy selection restored", sel, 5)
 eq("legacy count", T.ready.count, 2); eq("legacy xp", T.ready.xp, 2450)
+
+-- Source fallback. Classic-like: global ignores its argument and reads the selected quest; C_QuestLog has
+-- no RewardXP (returns 0). Selection via C_QuestLog.SetSelectedQuest.
+local selQ = 3
+G.GetQuestLogSelection = nil; G.SelectQuestLogEntry = nil; G.GetQuestLogTitle = nil; G.GetNumQuestLogEntries = nil
+local asked = {}
+G.C_QuestLog = {
+    GetNumQuestLogEntries = function() return #log end,
+    GetInfo = function(i) return log[i] end,
+    ReadyForTurnIn = function(q) return done[q] == true end,
+    GetQuestLogRewardXP = function() return 0 end,
+    GetSelectedQuest = function() return selQ end,
+    SetSelectedQuest = function(q) selQ = q end,
+    RequestLoadQuestByID = function(q) asked[#asked + 1] = q end,
+}
+G.GetQuestLogRewardXP = function() return xp[selQ] or 0 end   -- argument ignored
+T.ClearCache()
+T.ScanReady()
+eq("select src count", T.ready.count, 2); eq("select src xp", T.ready.xp, 2450)
+eq("selection restored", selQ, 3)
+eq("source named", T.ready.list[1].src, "select+global")
+-- cached: break the sources, value stays
+G.GetQuestLogRewardXP = function() return 0 end
+T.ScanReady(); eq("cache xp", T.ready.xp, 2450); eq("cache src", T.ready.list[1].src, "select+global")
+-- nothing works: 0 xp, load requested once
+T.ClearCache(); xp[1], xp[3] = 0, 0
+T.ScanReady(); eq("none xp", T.ready.xp, 0); eq("none src", T.ready.list[1].src, nil); eq("load requested", #asked, 2)
+-- retail-like: global takes questID, quest not selected
+xp[1], xp[3] = 1000, 1450; selQ = 99; T.ClearCache()
+G.C_QuestLog.SetSelectedQuest = nil
+G.GetQuestLogRewardXP = function(q) return q and xp[q] or 0 end
+T.ScanReady(); eq("not selected, no select api", T.ready.xp, 0)
+selQ = 1
+T.ClearCache(); T.ScanReady(); eq("selected quest uses global(id)", T.ready.xp, 1000)
 print(fails == 0 and "ALL OK" or (fails .. " FAILED")); os.exit(fails == 0 and 0 or 1)

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.9"] = "notes for GaarXPForever 1.2.1",
         ["3.2.8"] = "notes for GaarGpsForever 1.4.0",
         ["3.2.7"] = "notes for GaarXPForever 1.2.0",
         ["3.2.6"] = "notes for GaarBagsForever 1.11.0",
@@ -136,6 +137,7 @@ local CHANGES = {
         ["1.0.2"] = "uses the GaarForever shared library",
     },
     GaarXPForever = {
+        ["1.2.1"] = "Ready quests: the XP is now read through several fallbacks (it was always 0 on WoW Forever); /gxp ready debug shows the source per quest",
         ["1.2.0"] = "Ready quests: the XP panel shows complete-but-not-turned-in quests with their XP, and time to level / kills count them (/gxp ready)",
         ["1.1.0"] = "Renamed to GaarXPForever (new folders; settings move over automatically on first login; new /gxp commands, old ones still work)",
         ["1.0.4"] = "the addon's own name in its menu errors",

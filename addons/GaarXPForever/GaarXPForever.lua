@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -212,46 +212,121 @@ local function Call(f, ...)
     if ok and not Secret(a) then return a, b, c, d, e, g, h, i end
 end
 
--- XP reward of one quest. 1) C_QuestLog.GetQuestLogRewardXP(questID) (retail-style engine).
--- 2) Legacy global GetQuestLogRewardXP() reads the SELECTED log entry, so select the entry and
---    put the old selection back. Not used while the quest log window is open (selection is the
---    player's), and the selection's own QUEST_LOG_UPDATE is ignored for a moment.
-local function ReadyQuestXP(questID, index)
-    local C = _G.C_QuestLog
-    if C and type(C.GetQuestLogRewardXP) == "function" then
-        local v = Num(Call(C.GetQuestLogRewardXP, questID))
-        if v then return v end
+-- XP reward of one quest, first source that gives > 0 wins (the old questXP tooltip line uses 1 + 2):
+--  1. C_QuestLog.GetQuestLogRewardXP(questID)
+--  2. global GetQuestLogRewardXP(questID): retail engine takes a questID, classic ignores it and reads
+--     the SELECTED entry, so it is only trusted when that quest is the selected one
+--  3. select the quest (C_QuestLog.SetSelectedQuest) and call GetQuestLogRewardXP(), then restore the
+--     selection; skipped while a quest log / map window may show the player's own selection
+--  4. legacy SelectQuestLogEntry(index) + GetQuestLogRewardXP(), same window rule
+-- A value is cached per questID (until QUEST_TURNED_IN or the quest leaves the log). If nothing gave
+-- XP, the quest data is requested (RequestLoadQuestByID) and QUEST_DATA_LOAD_RESULT rescans.
+-- Our own selection changes fire QUEST_LOG_UPDATE; those are ignored for 0.5 s (ignoreLogUntil).
+local xpCache = {}      -- [questID] = { xp, src }
+local loadAsked = {}    -- [questID] = time of the last data request
+local LOAD_RETRY = 30
+
+local function LogWindowOpen()
+    for _, name in ipairs({ "QuestLogFrame", "QuestMapFrame", "WorldMapFrame" }) do
+        local f = _G[name]
+        if f and type(f.IsShown) == "function" then
+            local ok, shown = pcall(f.IsShown, f)
+            if ok and shown then return true end
+        end
     end
-    if index and type(_G.GetQuestLogRewardXP) == "function" and type(_G.SelectQuestLogEntry) == "function"
-        and type(_G.GetQuestLogSelection) == "function"
-        and not (_G.QuestLogFrame and type(_G.QuestLogFrame.IsShown) == "function" and _G.QuestLogFrame:IsShown()) then
+    return false
+end
+
+local function Raw(v)
+    if v == nil then return "nil" end
+    if Secret(v) then return "secret" end
+    return tostring(v)
+end
+
+-- Returns xp (number, may be 0), source name or nil, and a list of raw returns for the debug output.
+local function ReadyQuestXP(questID, index)
+    local hit = xpCache[questID]
+    if hit then return hit.xp, hit.src, { "cached" } end
+    local C = _G.C_QuestLog
+    local raws = {}
+    local function try(src, f, ...)
+        local v = Call(f, ...)
+        raws[#raws + 1] = src .. "=" .. Raw(v)
+        v = Num(v)
+        if v and v > 0 then xpCache[questID] = { xp = v, src = src }; return v, src end
+    end
+    local gFn = type(_G.GetQuestLogRewardXP) == "function" and _G.GetQuestLogRewardXP or nil
+
+    -- 1
+    if C and type(C.GetQuestLogRewardXP) == "function" then
+        local v, src = try("C_QuestLog", C.GetQuestLogRewardXP, questID)
+        if v then return v, src, raws end
+    end
+    -- 2
+    if gFn then
+        local selected
+        if C and type(C.GetSelectedQuest) == "function" then selected = Num(Call(C.GetSelectedQuest)) end
+        local selIndex = type(_G.GetQuestLogSelection) == "function" and Num(Call(_G.GetQuestLogSelection)) or nil
+        if (selected and selected == questID) or (index and selIndex and selIndex == index) then
+            local v, src = try("global(selected)", gFn, questID)
+            if v then return v, src, raws end
+        else
+            raws[#raws + 1] = "global=skipped(not selected)"
+        end
+    end
+    -- 3
+    if gFn and C and type(C.SetSelectedQuest) == "function" and not LogWindowOpen() then
+        local prev = type(C.GetSelectedQuest) == "function" and Num(Call(C.GetSelectedQuest)) or nil
+        ignoreLogUntil = Now() + 0.5
+        pcall(C.SetSelectedQuest, questID)
+        local v, src = try("select+global", gFn)
+        if not v then v, src = try("select+global(id)", gFn, questID) end
+        if prev and prev > 0 then ignoreLogUntil = Now() + 0.5; pcall(C.SetSelectedQuest, prev) end
+        if v then return v, src, raws end
+    end
+    -- 4
+    if index and gFn and type(_G.SelectQuestLogEntry) == "function" and type(_G.GetQuestLogSelection) == "function"
+        and not LogWindowOpen() then
         local prev = Num(Call(_G.GetQuestLogSelection))
         ignoreLogUntil = Now() + 0.5
         pcall(_G.SelectQuestLogEntry, index)
-        local v = Num(Call(_G.GetQuestLogRewardXP))
+        local v, src = try("legacy-select", gFn)
         if prev then pcall(_G.SelectQuestLogEntry, prev) end
-        return v
+        if v then return v, src, raws end
     end
+    -- nothing: ask the client to load the quest data, at most once in a while per quest
+    if C and type(C.RequestLoadQuestByID) == "function" then
+        local t = Now()
+        if not loadAsked[questID] or t - loadAsked[questID] >= LOAD_RETRY then
+            loadAsked[questID] = t
+            pcall(C.RequestLoadQuestByID, questID)
+            raws[#raws + 1] = "requested-load"
+        end
+    end
+    return 0, nil, raws
 end
 
 local function ScanReady()
     local count, xp = 0, 0
+    local list, seen = {}, {}
     local C = _G.C_QuestLog
     local n
     if C and type(C.GetNumQuestLogEntries) == "function" then n = Num(Call(C.GetNumQuestLogEntries)) end
     if not n then n = Num(Call(_G.GetNumQuestLogEntries)) end
     for i = 1, n or 0 do
-        local qid, header, complete
+        local qid, header, complete, title
         if C and type(C.GetInfo) == "function" then
             local info = Call(C.GetInfo, i)
             if type(info) == "table" and not Secret(info) then
                 header, qid = info.isHeader, Num(info.questID)
+                if type(info.title) == "string" then title = info.title end
             end
         end
         if qid == nil and header == nil and type(_G.GetQuestLogTitle) == "function" then
             -- legacy: title, level, tag, isHeader, isCollapsed, isComplete, frequency, questID
-            local _, _, _, h, _, c, _, id = Call(_G.GetQuestLogTitle, i)
+            local t, _, _, h, _, c, _, id = Call(_G.GetQuestLogTitle, i)
             header, qid = h, Num(id)
+            if type(t) == "string" then title = t end
             if c == 1 then complete = true end
         end
         if not header and qid and qid > 0 then
@@ -260,13 +335,17 @@ local function ScanReady()
             elseif C and type(C.IsComplete) == "function" and Call(C.IsComplete, qid) == true then
                 complete = true
             end
+            seen[qid] = true
             if complete then
                 count = count + 1
-                xp = xp + (ReadyQuestXP(qid, i) or 0)
+                local v, src, raws = ReadyQuestXP(qid, i)
+                xp = xp + (v or 0)
+                list[#list + 1] = { id = qid, title = title or "?", xp = v or 0, src = src, raws = raws }
             end
         end
     end
-    ready.count, ready.xp = count, xp
+    for id in pairs(xpCache) do if not seen[id] then xpCache[id] = nil end end
+    ready.count, ready.xp, ready.list = count, xp, list
 end
 
 local function MaybeScanReady()
@@ -576,6 +655,7 @@ local function PrintHelp()
     Print("/gxp  " .. VERSION)
     Print("/gxp on|off - everything on or off")
     Print("/gxp panel|xpbar|always|levellog|questxp|ready on|off - one part (no value shows its state)")
+    Print("/gxp ready debug - per ready quest: id, XP and which source gave it")
     Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
     Print("/gxp resetpos - panel back to its default place; /gxp status")
 end
@@ -596,11 +676,27 @@ local function PrintStatus()
     Print("last error: " .. (lastError or "none"))
 end
 
+local function PrintReadyDebug()
+    readyDirty = true; lastScan = -10
+    Safe("quest scan", ScanReady)
+    local lst = ready.list or {}
+    Print("ready quests " .. ready.count .. " (+" .. Commas(ready.xp) .. " xp)" .. DOT
+        .. "C_QuestLog " .. (_G.C_QuestLog and type(_G.C_QuestLog.GetQuestLogRewardXP) == "function" and "yes" or "no")
+        .. DOT .. "global " .. (type(_G.GetQuestLogRewardXP) == "function" and "yes" or "no")
+        .. DOT .. "SetSelectedQuest " .. (_G.C_QuestLog and type(_G.C_QuestLog.SetSelectedQuest) == "function" and "yes" or "no")
+        .. DOT .. "log window " .. (LogWindowOpen() and "open" or "closed"))
+    for _, q in ipairs(lst) do
+        Print(q.title .. " [" .. q.id .. "] xp " .. q.xp .. " via " .. (q.src or "none")
+            .. (q.src and "" or (" (" .. table.concat(q.raws or {}, ", ") .. ")")))
+    end
+end
+
 local function OnSlash(msg)
     local ok, err = pcall(function()
         if not db then Print("not loaded yet"); return end
         local a, b = tostring(msg or ""):lower():match("^%s*(%S*)%s*(%S*)")
         local v = OnOff(b)
+        if a == "ready" and b == "debug" then PrintReadyDebug(); return end
         if a == "" or a == "help" then PrintHelp()
         elseif a == "on" or a == "off" then SetFlag("enabled", a == "on"); Print("master " .. a)
         elseif a == "status" then PrintStatus()
@@ -689,6 +785,7 @@ events:RegisterEvent("TIME_PLAYED_MSG")
 events:RegisterEvent("QUEST_TURNED_IN")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
+pcall(events.RegisterEvent, events, "QUEST_DATA_LOAD_RESULT")
 events:SetScript("OnEvent", function(_, event, arg1, arg2)
     Safe(event, function()
         if event == "ADDON_LOADED" then
@@ -709,7 +806,10 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             OnTimePlayed(arg1, arg2)
         elseif event == "QUEST_TURNED_IN" then
             flagQuest = true
+            xpCache = {}
             readyDirty = true
+        elseif event == "QUEST_DATA_LOAD_RESULT" then
+            readyDirty = true   -- MaybeScanReady throttles
         elseif event == "QUEST_LOG_UPDATE" then
             MarkReadyDirty()
         elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then

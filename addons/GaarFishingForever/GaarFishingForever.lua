@@ -181,7 +181,7 @@ ADDON_NAME = ADDON_NAME or "GaarFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.

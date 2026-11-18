@@ -63,7 +63,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.2"
+local VERSION = "1.4.3"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"

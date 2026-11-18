@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.8"] = "notes for GaarGpsForever 1.4.0",
         ["3.2.7"] = "notes for GaarXPForever 1.2.0",
         ["3.2.6"] = "notes for GaarBagsForever 1.11.0",
         ["3.2.4"] = "The minimap menu lists the addons alphabetically",
@@ -87,6 +88,7 @@ local CHANGES = {
         ["1.2.11"] = "secret-safe value checks",
     },
     GaarGpsForever = {
+        ["1.4.0"] = "Gathering spots: the herbs, ore and chests you gather are remembered; an alert near a known spot you track; /ggps gather (next, hover) points the arrow at the nearest, and the next one on arrival",
         ["1.3.0"] = "Renamed to GaarGpsForever (new folders; settings move over automatically on first login; new /ggps commands, old ones still work)",
         ["1.2.3"] = "the addon's own name in its menu errors",
         ["1.2.2"] = "shared helpers from the GaarForever library",

@@ -72,7 +72,7 @@ local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.1"
+local VERSION = "1.3.2"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -1067,17 +1067,20 @@ local function BookEntries()
     if type(paged) == "table" and type(FieldOf(paged, "EnumerateFrames")) == "function" then
         local ok = pcall(function()
             for _, el in paged:EnumerateFrames() do
-                if type(el) == "table" and CallOf(el, "IsShown") then
-                    local info = FieldOf(el, "spellBookItemInfo")
-                    local id
-                    if type(info) == "table" and not Secret(info) then
-                        id = Num(FieldOf(info, "spellID") or FieldOf(info, "actionID"))
-                    end
+                if type(el) == "table" and CallOf(el, "IsShown") and CallOf(el, "IsVisible") ~= false then
+                    -- Entries are pooled: read what is bound NOW, live getter first, cached
+                    -- fields last, so a recycled frame never keeps its previous spell.
+                    local id = Num(CallOf(el, "GetSpellID"))
                     if not id then
                         local slot = FieldOf(el, "slotIndex")
                         if slot then id = SlotSpellID(slot, FieldOf(el, "spellBank") == 1) end
                     end
-                    if not id then id = Num(CallOf(el, "GetSpellID")) end
+                    if not id then
+                        local info = FieldOf(el, "spellBookItemInfo")
+                        if type(info) == "table" and not Secret(info) then
+                            id = Num(FieldOf(info, "spellID") or FieldOf(info, "actionID"))
+                        end
+                    end
                     if id then out[#out + 1] = { btn = el, id = id } end
                 end
             end
@@ -1153,11 +1156,6 @@ local function RefreshBook(force)
     local entries, variant = BookEntries()
     bookInfo.variant = variant
     bookInfo.entries = #entries
-    local sig = {}
-    for i, e in ipairs(entries) do sig[i] = e.id end
-    sig = table.concat(sig, ",") .. "|" .. (next(bookLow or {}) and "L" or "-")
-    if sig == bookSig then return end
-    bookSig = sig
     local seen, rings = {}, 0
     for _, e in ipairs(entries) do
         local want = false
@@ -1167,6 +1165,7 @@ local function RefreshBook(force)
         end
         SetBookRing(e.btn, want)
         seen[e.btn] = true
+        if bookState[e.btn] then bookState[e.btn].id = want and e.id or nil end
         if want then rings = rings + 1 end
     end
     for btn, st in pairs(bookState) do
@@ -1190,7 +1189,29 @@ bookDriver:SetScript("OnUpdate", function(_, elapsed)
     SafeRefreshBook(false)
 end)
 
+-- Paged book: hook the Blizzard refresh path (hooksecurefunc only) so recycled entry frames are
+-- re-evaluated on page / tab / search changes. Poll stays as a backstop.
+local pagedHooked = {}
+local function HookPagedBook()
+    if type(_G.hooksecurefunc) ~= "function" then return end
+    local psf = _G.PlayerSpellsFrame
+    local sb = type(psf) == "table" and FieldOf(psf, "SpellBookFrame") or nil
+    local paged = type(sb) == "table" and FieldOf(sb, "PagedSpellsFrame") or nil
+    for _, obj in ipairs({ paged, sb }) do
+        if type(obj) == "table" and not pagedHooked[obj] then
+            pagedHooked[obj] = true
+            for _, m in ipairs({ "DisplayViewsForCurrentPage", "SetCurrentPage", "SetDataProvider",
+                    "UpdateDisplayedSpells", "UpdateAllSpellData", "OnShow", "Update" }) do
+                if type(obj[m]) == "function" then
+                    pcall(_G.hooksecurefunc, obj, m, function() bookElapsed = BOOK_POLL end)
+                end
+            end
+        end
+    end
+end
+
 local function RefreshRank()
+    HookPagedBook()
     if not db then return end
     local show = spellbookOpen and On("lowRankWarn")
     bookDirty = true

@@ -12,6 +12,11 @@
       C_QuestLog.GetDistanceSqToQuest; quests without a distance go last. The order is worked
       out again every few seconds out of combat, with hysteresis so near-equal quests do not
       jump around, and applied through the same hook-time code as the level order.
+    * Sort by zone (1.13, optional, /gqf sort zone): quests are grouped by the zone header they
+      sit under in the quest log. The zone you are in comes first, the other zones follow
+      alphabetically, quests whose header cannot be found ("Other") go last. Inside a zone the
+      order is the level order above (completed quests top/bottom/among the others per zone).
+      Changing zone re-sorts, through the same throttle as every other event.
     * Limit: only the first N quests of that order are shown (default 10).
     * Auto-watch (1.9, default on): the addon decides WHICH quests are watched. It watches the
       quests of the Quests section that come first in the order above and fit in the tracker's
@@ -99,7 +104,7 @@ local A = BF.NewAddon("GaarQuestsForever", { title = "GaarQuestsForever" })
 
 local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
-local SORT_MODES = { level = true, distance = true }
+local SORT_MODES = { level = true, distance = true, zone = true }
 -- Distance mode: re-evaluate the order this often (seconds), and only reorder two quests when the
 -- one behind is closer by at least this many yards AND this fraction of the other's distance.
 local DISTANCE_TICK = 3
@@ -559,6 +564,28 @@ local function IsComplete(questID, info)
     return info and info.isComplete and true or false
 end
 
+-- The title of the zone header above the quest at this quest-log index (the nearest header
+-- going up the log), or nil when there is none or it cannot be read.
+local function ZoneHeader(ql, index)
+    if not ql or type(ql.GetInfo) ~= "function" then
+        if type(_G.GetQuestLogTitle) ~= "function" then return nil end
+        for i = index - 1, 1, -1 do
+            local ok, t, _, _, isHeader = pcall(_G.GetQuestLogTitle, i)
+            if ok and isHeader and type(t) == "string" and not IsSecret(t) and t ~= "" then return t end
+        end
+        return nil
+    end
+    for i = index - 1, 1, -1 do
+        local ok, info = pcall(ql.GetInfo, i)
+        if ok and type(info) == "table" and info.isHeader then
+            local t = info.title
+            if type(t) == "string" and not IsSecret(t) and t ~= "" then return t end
+            return nil
+        end
+    end
+    return nil
+end
+
 -- Level, title, completion, whether it is in the quest log, and whether the Quests section
 -- shows it at all.
 local function QuestData(questID)
@@ -566,6 +593,7 @@ local function QuestData(questID)
     local okIndex, index = Try(ql and ql.GetLogIndexForQuestID, questID)
     if not okIndex then index = nil end
     local level, title, isTask, isBounty, info
+    local zone = index and ZoneHeader(ql, index) or nil
     if index and ql and type(ql.GetInfo) == "function" then
         local ok, i = pcall(ql.GetInfo, index)
         if ok and type(i) == "table" then
@@ -586,6 +614,8 @@ local function QuestData(questID)
         complete = IsComplete(questID, info),
     }
     d.titleKey = d.title:lower()
+    d.zone = zone
+    d.zoneKey = zone and zone:lower() or nil
 
     -- The same test as QuestObjectiveTrackerMixin:ShouldDisplayQuest: tasks, bounties, campaign
     -- quests (their own section) and quests disabled for the session are not in the Quests section.
@@ -615,7 +645,44 @@ local function Compare(a, b)
 end
 
 local function SortMode()
-    return db and db.sort == "distance" and "distance" or "level"
+    local m = db and db.sort
+    return (m == "distance" or m == "zone") and m or "level"
+end
+
+-- Zone mode. The lower-cased names of the zone the player is in (zone, real zone and the map's
+-- name often differ in wording; a header matching any of them counts), set once per sort pass.
+local currentZones = {}
+
+local function RefreshCurrentZone()
+    local names = {}
+    local function add(v)
+        if type(v) == "string" and not IsSecret(v) and v ~= "" then names[v:lower()] = true end
+    end
+    add(pcall1(_G.GetRealZoneText))
+    add(pcall1(_G.GetZoneText))
+    local cm, cmap = _G.C_Map, nil
+    if type(cm) == "table" and type(cm.GetBestMapForUnit) == "function" then
+        cmap = pcall1(cm.GetBestMapForUnit, "player")
+        if type(cmap) == "number" and not IsSecret(cmap) and type(cm.GetMapInfo) == "function" then
+            local mi = pcall1(cm.GetMapInfo, cmap)
+            if type(mi) == "table" then add(mi.name) end
+        end
+    end
+    currentZones = names
+end
+
+-- Zone rank: 0 the current zone, 1 another zone, 2 no zone ("Other").
+local function ZoneRank(d)
+    if not d.zoneKey then return 2 end
+    return currentZones[d.zoneKey] and 0 or 1
+end
+
+-- Current zone first, other zones alphabetically, "Other" last; inside a zone exactly Compare.
+local function ZoneCompare(a, b)
+    local ra, rb = ZoneRank(a), ZoneRank(b)
+    if ra ~= rb then return ra < rb end
+    if ra == 1 and a.zoneKey ~= b.zoneKey then return a.zoneKey < b.zoneKey end
+    return Compare(a, b)
 end
 
 -- Distance to the quest in yards, or nil when the client has none (missing API, no distance,
@@ -702,6 +769,9 @@ local function OrderQuests(items)
         SortByDistance(items, prevOrder)
         prevOrder = {}
         for i, d in ipairs(items) do prevOrder[i] = d.id end
+    elseif SortMode() == "zone" then
+        RefreshCurrentZone()
+        table.sort(items, ZoneCompare)
     else
         table.sort(items, Compare)
     end
@@ -1243,6 +1313,10 @@ function AutoWatch.Pool()
         SortByDistance(pool, AutoWatch.prevOrder)
         AutoWatch.prevOrder = {}
         for i, d in ipairs(pool) do AutoWatch.prevOrder[i] = d.id end
+    elseif SortMode() == "zone" then
+        -- Current zone first, then by level (the other zones keep ZoneCompare's order after it).
+        RefreshCurrentZone()
+        table.sort(pool, ZoneCompare)
     else
         table.sort(pool, Compare)
     end
@@ -2177,7 +2251,7 @@ local MINIMAP_ICONS = {
 local MENU_MAX = { 3, 5, 8, 10, 12, 15, 20, 25, MAX_MAX }
 local MENU_ALPHA = { 20, 35, 50, 65, 80 }
 local MENU_COMPLETED = { { "top", "Top" }, { "level", "By level" }, { "bottom", "Bottom" } }
-local MENU_SORT = { { "level", "Level" }, { "distance", "Distance" } }
+local MENU_SORT = { { "level", "Level" }, { "distance", "Distance" }, { "zone", "Zone" } }
 
 local function MinimapDB()
     local m = db.minimap
@@ -2877,7 +2951,7 @@ local INTRO = "Orders the Quests section of the objective tracker by level or di
 
 local function PrintHelp()
     Print(INTRO)
-    Print("/gqf sort level | distance - order by quest level or by how near the quest is (now: "
+    Print("/gqf sort level | distance | zone - order by quest level, by how near the quest is, or by zone (your zone first, then A-Z; now: "
         .. (db and db.sort or DEFAULTS.sort) .. ")")
     Print("/gqf max <n> | all - show at most n quests, 1-" .. (MAX_MAX - 1) .. ", or all (now: "
         .. MaxLabel(db and db.max or DEFAULTS.max) .. ")")
@@ -3005,7 +3079,7 @@ local function OnSlash(msg)
         SetCompleted(mode)
     elseif sortMode or msg == "sort" then
         if not SORT_MODES[sortMode] then
-            Print("use /gqf sort level or distance (now: " .. db.sort .. ").")
+            Print("use /gqf sort level, distance or zone (now: " .. db.sort .. ").")
             return
         end
         SetSort(sortMode)
@@ -3075,7 +3149,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.12.2"
+local VERSION = "1.13.0"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3129,7 +3203,7 @@ local events = CreateFrame("Frame")
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
     "QUEST_TURNED_IN", "PLAYER_LEVEL_UP", "EDIT_MODE_LAYOUTS_UPDATED", "SUPER_TRACKING_CHANGED",
-    "ZONE_CHANGED_NEW_AREA" }) do
+    "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED" }) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
@@ -3165,6 +3239,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if db then pcall(HookTrackerHeaders) end
         pcall(AutoWatch.HookEditMode)
         Schedule()
+    elseif event == "ZONE_CHANGED" then
+        -- Fires on every sub-zone change: only worth a pass when the order depends on the zone.
+        if db and db.sort == "zone" then Schedule() end
     else
         Schedule()
     end

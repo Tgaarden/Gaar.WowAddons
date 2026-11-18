@@ -20,7 +20,8 @@
     recipients   (default on)   A small button right of the "To:" box on the Send Mail tab opens a
                                 list of the last 15 recipients (account-wide) and your own
                                 characters on this realm and faction (every character that logs
-                                in is recorded). Click a name to fill in "To:".
+                                in is recorded, with the surname if it has one, e.g. "Lock Tics"; old first-name-only entries
+                                are replaced by the full name at login). Click a name to fill in "To:".
     sendMulti    (default on)   On the Send Mail tab, Alt-click an item in your bags attaches it.
                                 Ctrl+Alt-click attaches up to 12 stacks of the same item. Out of
                                 combat only.
@@ -39,7 +40,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -104,7 +105,36 @@ local function Feature(key) return Enabled() and db[key] and true or false end
 -- Recipients: recent names and own characters
 -- ---------------------------------------------------------------------------
 
-local function PlayerName() return Str(type(_G.UnitName) == "function" and _G.UnitName("player")) end
+-- On WoW Forever a character can have a surname with a space ("Lock Tics"). Not every name API
+-- returns it, so ask several and keep the longest plain answer (all are the same name, one may
+-- just drop the surname). The realm part is never included: UnitName/UnitFullName return it as
+-- a second value and GetUnitName is called with showServerName = false.
+local function PlayerName()
+    local best
+    local function try(v)
+        v = Str(v)
+        if v and v ~= "" and (not best or #v > #best) then best = v end
+    end
+    if type(_G.UnitName) == "function" then try((_G.UnitName("player"))) end
+    if type(_G.UnitFullName) == "function" then try((_G.UnitFullName("player"))) end
+    if type(_G.GetUnitName) == "function" then try(_G.GetUnitName("player", false)) end
+    return best
+end
+
+-- True when short is only the first name of full ("Lock" of "Lock Tics").
+local function IsFirstNameOf(short, full)
+    short, full = short:lower(), full:lower()
+    return #full > #short + 1 and full:sub(1, #short + 1) == short .. " "
+end
+
+-- Drop first-name-only entries that a full name in the same list starts with.
+local function DedupeAlts(list)
+    for i = #list, 1, -1 do
+        for j = 1, #list do
+            if j ~= i and IsFirstNameOf(list[i], list[j]) then table.remove(list, i); break end
+        end
+    end
+end
 
 local function RealmKey()
     local realm = type(_G.GetRealmName) == "function" and Str(_G.GetRealmName()) or "?"
@@ -133,8 +163,13 @@ local function RecordAlt()
     local key = RealmKey()
     local list = db.alts[key]
     if type(list) ~= "table" then list = {}; db.alts[key] = list end
+    -- Old entries hold only the first name: replace them with the full name.
+    for i = #list, 1, -1 do
+        if IsFirstNameOf(list[i], me) then table.remove(list, i) end
+    end
     for _, n in ipairs(list) do if n == me then return end end
     list[#list + 1] = me
+    DedupeAlts(list)
 end
 
 local function RecipientRows()
@@ -651,6 +686,7 @@ local function BindSavedVariables()
             if type(k) == "string" and type(list) == "table" then
                 local clean = {}
                 for _, n in ipairs(list) do if type(n) == "string" and n ~= "" then clean[#clean + 1] = n end end
+                DedupeAlts(clean)
                 alts[k] = clean
             end
         end

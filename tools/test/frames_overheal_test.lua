@@ -180,6 +180,26 @@ HP.OnCast("UNIT_SPELLCAST_SENT", "player", nil, "c9", 8936)
 HP.OnCast("UNIT_SPELLCAST_START", "player", "c9", 8936)
 eq("friendly target, no name: on the target (98)", (healing("target")), 98)
 HP.OnCast("UNIT_SPELLCAST_STOP", "player", "c9", 8936)
+-- 1.5.1: self-cast. By the player's own name; with an enemy targeted the name can be the
+-- enemy's (cannot be helped: it is you); with the self-cast modifier held.
+HP.OnCast("UNIT_SPELLCAST_SENT", "player", "Me", "s1", 8936)
+HP.OnCast("UNIT_SPELLCAST_START", "player", "s1", 8936)
+eq("self-cast by own name: on the player (98)", (healing("player")), 98)
+eq("  not on the target", (healing("target")), nil)
+HP.OnCast("UNIT_SPELLCAST_STOP", "player", "s1", 8936)
+canAssist = false
+HP.OnCast("UNIT_SPELLCAST_SENT", "player", "Tank", "s2", 8936)
+HP.OnCast("UNIT_SPELLCAST_START", "player", "s2", 8936)
+eq("enemy named in SENT: self-cast on the player (98)", (healing("player")), 98)
+eq("  not on the enemy", (healing("target")), nil)
+HP.OnCast("UNIT_SPELLCAST_STOP", "player", "s2", 8936)
+canAssist = true
+G.IsModifiedClick = function(k) return k == "SELFCAST" end
+HP.OnCast("UNIT_SPELLCAST_SENT", "player", "Tank", "s3", 8936)
+HP.OnCast("UNIT_SPELLCAST_START", "player", "s3", 8936)
+eq("self-cast modifier held: on the player (98)", (healing("player")), 98)
+HP.OnCast("UNIT_SPELLCAST_STOP", "player", "s3", 8936)
+G.IsModifiedClick = nil
 -- /gff hotcast off: not shown; a missed STOP is dropped after 10 s.
 db.hotCastPreview = false
 HP.OnCast("UNIT_SPELLCAST_SENT", "player", "Tank", "c10", 8936)

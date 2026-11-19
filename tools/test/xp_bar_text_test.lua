@@ -2,7 +2,7 @@
 -- Run: luajit tools/test/xp_bar_text_test.lua   (from the repo root)
 local fh = assert(io.open("addons/GaarXPForever/GaarXPForever.lua")); local src = fh:read("*a"); fh:close()
 src = src .. [==[
-_G.__T = { ComposeBarText = ComposeBarText, SupplementAnchor = SupplementAnchor, TextEndX = TextEndX, FindXPBar = FindXPBar }
+_G.__T = { ComposeBarText = ComposeBarText, SupplementAnchor = SupplementAnchor, TextEndX = TextEndX, FindXPBar = FindXPBar, Refresh = function() return RefreshBarText end, SetDB = function(v) db = v end }
 ]==]
 local noop = function() end
 local function widget()
@@ -119,5 +119,41 @@ local classic = bar(nil, nil, 0, 50800, 45394)
 G.MainStatusTrackingBarContainer = nil
 G.MainMenuExpBar = classic.StatusBar
 r = T.FindXPBar(); eq(r and r.sb, classic.StatusBar, "classic MainMenuExpBar fallback"); eq(r and r.via, "classic", "via classic")
+
+-- Hover: our text must not move or change, Blizzard's hover text is hidden (hover-only mode only).
+local function hoverCase(always)
+    local hover, alpha, shown = false, 1, always
+    local fs = { IsVisible = function() return shown or hover end, GetText = function() return "XP" end,
+        GetStringWidth = function() return (hover and 90 or 40) end, GetJustifyH = function() return "CENTER" end,
+        GetFont = noop, GetLeft = noop, GetRight = noop,
+        SetAlpha = function(_, a) alpha = a end }
+    local sb = { GetMinMaxValues = function() return 0, 50800 end, GetValue = function() return 45394 end,
+        IsVisible = function() return true end, IsMouseOver = function() return hover end,
+        GetWidth = function() return 400 end, GetRight = function() return 400 end, CreateTexture = noop,
+        GetName = function() return nil end, SetAlpha = noop }
+    local entry = { StatusBar = sb, barIndex = 4, GetName = function() return nil end, SetAlpha = noop,
+        OverlayFrame = { SetAlpha = noop, Text = fs } }
+    G.MainStatusTrackingBarContainer = cont({ [4] = entry }); G.SecondaryStatusTrackingBarContainer = nil
+    G.StatusTrackingBarManager = nil; G.MainMenuExpBar = nil
+    T.SetDB({ enabled = true, xpbarText = true, xpbarAlways = true })
+    local pts = {}
+    local ot = { SetText = function(self, t) self.t = t end, GetStringWidth = function() return 10 end,
+        SetFont = noop, ClearAllPoints = function() pts = {} end,
+        SetPoint = function(_, ...) local a = {}; for i, v in ipairs({ ... }) do a[i] = type(v) == "table" and "fs" or tostring(v) end; pts[#pts + 1] = table.concat(a, ",") end }
+    local ov = { SetFrameStrata = noop, EnableMouse = noop, SetSize = noop, ClearAllPoints = noop, SetPoint = noop,
+        Show = noop, Hide = noop, CreateFontString = function() return ot end }
+    G.CreateFrame = function() return ov end
+    G.UnitLevel = function() return 30 end
+    local R = T.Refresh()
+    R(); local t1, p1, a1 = ot.t, table.concat(pts, "|"), alpha
+    hover = true; R()
+    eq(ot.t, t1, "hover keeps text (always=" .. tostring(always) .. ")")
+    eq(table.concat(pts, "|"), p1, "hover keeps anchor (always=" .. tostring(always) .. ")")
+    eq(alpha, always and 1 or 0, "blizzard hover text alpha (always=" .. tostring(always) .. ")")
+    hover = false; R()
+    eq(alpha, 1, "alpha restored on leave (always=" .. tostring(always) .. ")")
+    eq(ot.t, t1, "leave keeps text"); eq(table.concat(pts, "|"), p1, "leave keeps anchor")
+end
+hoverCase(false); hoverCase(true)
 
 if fails == 0 then print("xp_bar_text_test: ok") else os.exit(1) end

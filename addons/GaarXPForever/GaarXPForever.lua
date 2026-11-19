@@ -23,6 +23,10 @@
                         fill to fill + quest XP (clamped at the end of the bar). Own frame, child of
                         the bar's StatusBar; follows its size and visibility. Needs questReady.
                         /gxp readybar on|off, /gxp readybar color orange|green|yellow.
+                        While that segment is shown, the rested XP is drawn after it (quest XP comes
+                        first on turn-in and does not use rested): Blizzard's rested overlay and tick
+                        are made invisible (SetAlpha 0, restored when the segment goes) and our own
+                        rested segment + tick are drawn from fill + quest XP. No extra setting.
     * /gxp reset        resets the session's numbers.
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
@@ -43,7 +47,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.1"
+local VERSION = "1.3.2"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -211,7 +215,7 @@ local function Calc(cur, max, questXP, rate, killAvg)
 end
 
 local ready = { count = 0, xp = 0 }     -- last scan
-local RefreshQuestBar                   -- defined with the XP bar code below
+local RefreshQuestBar                   -- defined with the XP bar code below (forward declared here)
 
 -- Pure geometry of the quest segment on a bar barWidth wide: offset from the left edge and width,
 -- clamped at the end of the bar. nil when there is nothing to draw.
@@ -222,6 +226,21 @@ local function SegmentGeometry(cur, max, questXP, barWidth)
     local width = math.min(barWidth * questXP / max, barWidth - offset)
     if width <= 0 then return nil end
     return offset, width
+end
+
+-- Pure geometry of the rested segment drawn AFTER the quest segment: offset, width and tickX (x of the
+-- rested marker), all clamped at the end of the bar. tickX is nil when the marker would be beyond the
+-- end. nil when there is nothing to draw (no rested, or quest XP already fills the bar).
+local function RestedGeometry(cur, questXP, rested, max, barWidth)
+    if not (cur and max and rested and barWidth) or max <= 0 or rested <= 0 or barWidth <= 0 then return nil end
+    cur = math.min(math.max(cur, 0), max)
+    questXP = math.max(questXP or 0, 0)
+    local start = math.min(cur + questXP, max)
+    local offset = barWidth * start / max
+    local width = math.min(barWidth * rested / max, barWidth - offset)
+    if width <= 0 then return nil end
+    local tickX = (start + rested <= max) and (offset + width) or nil
+    return offset, width, tickX
 end
 local readyDirty, lastScan, ignoreLogUntil = true, -10, 0
 local scanNoSelect, scanTimerDue, followDue = false, nil, nil
@@ -610,43 +629,187 @@ local function FindStatusBar(container)
 end
 
 local segFrame, segTex, segBar
-local function HideSegment() if segFrame then segFrame:Hide() end end
+local restTex, tickFrame, tickTex
+local restedState = "off"            -- off | on | blizzard-hidden | not-found (for /gxp status)
+
+-- Blizzard's rested visuals: the overlay (bar or texture) and the tick. Retail-engine bars carry
+-- ExhaustionLevelFillBar / ExhaustionTick (on the StatusBar, its parent or the bar entry), classic
+-- ones ExhaustionLevelBar / ExhaustionTick (+ ExhaustionTickNormal/Highlight, ExhaustionLevelBarTexture).
+local restedRegions = { over = {}, tick = {} }
+local restedHooked = {}
+local function Field(o, k)
+    if type(o) ~= "table" or Secret(o) then return nil end
+    local ok, v = pcall(function() return o[k] end)
+    if ok and type(v) == "table" and not Secret(v) and type(v.SetAlpha) == "function" then return v end
+end
+local function AddUnique(list, v) for _, x in ipairs(list) do if x == v then return end end list[#list + 1] = v end
+
+local function FindRestedVisuals(sb, container)
+    local over, tick = {}, {}
+    local owners = {}
+    local function own(o) if type(o) == "table" then AddUnique(owners, o) end end
+    own(sb); own(container)
+    if sb and type(sb.GetParent) == "function" then local ok, par = pcall(sb.GetParent, sb); if ok then own(par) end end
+    local bars = type(container) == "table" and container.bars
+    if type(bars) == "table" and not Secret(bars) then
+        for i = 1, #bars do own(bars[i]) end
+    end
+    for _, o in ipairs(owners) do
+        for _, k in ipairs({ "ExhaustionLevelFillBar", "ExhaustionLevelBar", "RestedBar", "ExhaustionBar" }) do
+            local v = Field(o, k); if v then AddUnique(over, v) end
+        end
+        for _, k in ipairs({ "ExhaustionTick", "RestedTick" }) do
+            local v = Field(o, k); if v then AddUnique(tick, v) end
+        end
+    end
+    for _, n in ipairs({ "ExhaustionLevelBar", "ExhaustionLevelFillBar" }) do
+        local v = Field(_G, n); if v then AddUnique(over, v) end
+    end
+    local v = Field(_G, "ExhaustionTick"); if v then AddUnique(tick, v) end
+    return over, tick, owners
+end
+
+-- Blizzard's rested colour from the (about to be hidden) overlay, else classic rested blue.
+local function RestedColor()
+    for _, r in ipairs(restedRegions.over) do
+        for _, m in ipairs({ "GetStatusBarColor", "GetVertexColor" }) do
+            if type(r[m]) == "function" then
+                local ok, a, b, c = pcall(r[m], r)
+                if ok and Num(a) and Num(b) and Num(c) and not (a == 1 and b == 1 and c == 1) then return a, b, c end
+            end
+        end
+    end
+    return 0.0, 0.39, 0.88
+end
+
+local function SetRestedAlpha(a)
+    for _, list in ipairs({ restedRegions.over, restedRegions.tick }) do
+        for _, r in ipairs(list) do pcall(r.SetAlpha, r, a) end
+    end
+end
+
+local function TickTexture()
+    for _, r in ipairs(restedRegions.tick) do
+        local cands = { r, Field(r, "Normal"), Field(r, "ExhaustionTickNormal"), Field(r, "Highlight") }
+        if type(r.GetRegions) == "function" then
+            local ok, a, b, c, d = pcall(r.GetRegions, r)
+            if ok then cands[#cands + 1] = a; cands[#cands + 1] = b; cands[#cands + 1] = c; cands[#cands + 1] = d end
+        end
+        for _, t in pairs(cands) do
+            if type(t) == "table" and type(t.GetTexture) == "function" then
+                local ok, tex = pcall(t.GetTexture, t)
+                if ok and (type(tex) == "string" or type(tex) == "number") and not Secret(tex) then return tex end
+            end
+        end
+    end
+end
+
+local function HideSegment()
+    if segFrame then segFrame:Hide() end
+    if restTex then restTex:Hide() end
+    if tickFrame then tickFrame:Hide() end
+end
+
+-- Give Blizzard's regions their normal look back and hide ours.
+local function RestoreRested()
+    SetRestedAlpha(1)
+    restedState = "off"
+    HideSegment()
+end
+
+local function HookRested(owners)
+    for _, o in ipairs(owners) do
+        for _, m in ipairs({ "UpdateExhaustion", "UpdateExhaustionTick", "UpdateTick", "Update", "UpdateBar" }) do
+            local key = tostring(o) .. m
+            if not restedHooked[key] and type(o[m]) == "function" and type(_G.hooksecurefunc) == "function" then
+                restedHooked[key] = true
+                pcall(_G.hooksecurefunc, o, m, function()
+                    if restedState == "blizzard-hidden" or restedState == "on" then SetRestedAlpha(0) end
+                end)
+            end
+        end
+    end
+end
 
 RefreshQuestBar = function()
     if not db then return end
     if not (Enabled("questBar") and Enabled("questReady")) or AtMax() or ready.xp <= 0 then
-        HideSegment(); return
+        RestoreRested(); return
     end
     barFrame = barFrame or FindBar()
     local sb = FindStatusBar(barFrame)
-    if not sb or type(sb.GetWidth) ~= "function" then HideSegment(); return end
+    if not sb or type(sb.GetWidth) ~= "function" then RestoreRested(); return end
     if sb ~= segBar then
+        RestoreRested()
         segBar = sb
-        if segFrame then segFrame:Hide() end
         segFrame = CreateFrame("Frame", "GaarXPForeverQuestBar", sb)
         segFrame:EnableMouse(false)
         segTex = segFrame:CreateTexture(nil, "ARTWORK")
         segTex:SetAllPoints(segFrame)
         segTex:SetTexture("Interface\\Buttons\\WHITE8X8")
-        -- Follow the bar: size and visibility (our frame is its child, so Hide/Show propagate).
+        restTex = segFrame:CreateTexture(nil, "ARTWORK")      -- positioned on segFrame's parent bar below
+        restTex:SetTexture("Interface\\Buttons\\WHITE8X8")
+        tickFrame = CreateFrame("Frame", "GaarXPForeverRestedTick", sb)
+        tickFrame:EnableMouse(false)
+        tickTex = tickFrame:CreateTexture(nil, "ARTWORK")
+        tickTex:SetAllPoints(tickFrame)
+        -- Follow the bar: size and visibility (our frames are its children, so Hide/Show propagate).
         if type(sb.HookScript) == "function" then
             pcall(sb.HookScript, sb, "OnSizeChanged", function() Safe("quest bar", RefreshQuestBar) end)
             pcall(sb.HookScript, sb, "OnShow", function() Safe("quest bar", RefreshQuestBar) end)
         end
     end
-    local cur, max = XPValues()
+    local cur, max, rested = XPValues()
     local w = Num(sb:GetWidth())
     local h = type(sb.GetHeight) == "function" and Num(sb:GetHeight()) or nil
     local offset, width = SegmentGeometry(cur, max, ready.xp, w)
-    if not offset or not h or h <= 0 or not sb:IsShown() then HideSegment(); return end
+    if not offset or not h or h <= 0 or not sb:IsShown() then RestoreRested(); return end
+    local lvl = (type(sb.GetFrameLevel) == "function" and Num(sb:GetFrameLevel()) or 0) + 1
     local c = BAR_COLORS[db.questBarColor] or BAR_COLORS.orange
     local covers = ready.xp >= max - cur   -- fills to the end: a little brighter
     segTex:SetColorTexture(c[1], c[2], c[3], covers and 0.75 or 0.5)
-    if type(sb.GetFrameLevel) == "function" then segFrame:SetFrameLevel((Num(sb:GetFrameLevel()) or 0) + 1) end
+    segFrame:SetFrameLevel(lvl)
     segFrame:ClearAllPoints()
     segFrame:SetPoint("TOPLEFT", sb, "TOPLEFT", offset, 0)
     segFrame:SetSize(width, h)
     segFrame:Show()
+
+    -- Rested after the quest segment.
+    local roff, rwid, tickX = RestedGeometry(cur, ready.xp, rested, max, w)
+    if not roff then
+        SetRestedAlpha(1)           -- nothing rested to move: leave Blizzard's visuals as stock
+        restedState = "off"
+        if restTex then restTex:Hide() end
+        if tickFrame then tickFrame:Hide() end
+        return
+    end
+    local over, tick, owners = FindRestedVisuals(sb, barFrame)
+    restedRegions.over, restedRegions.tick = over, tick
+    local found = #over + #tick > 0
+    local r, g, b = RestedColor()   -- read before hiding
+    if found then
+        SetRestedAlpha(0); HookRested(owners)
+        restedState = "blizzard-hidden"
+    else
+        restedState = "not-found"
+    end
+    restTex:SetColorTexture(r, g, b, 0.6)
+    restTex:ClearAllPoints()
+    restTex:SetPoint("TOPLEFT", sb, "TOPLEFT", roff, 0)
+    restTex:SetSize(rwid, h)
+    restTex:Show()
+    if tickX then
+        local tex = TickTexture()
+        if tex then tickTex:SetTexture(tex); tickTex:SetVertexColor(1, 1, 1, 1)
+        else tickTex:SetColorTexture(1, 1, 1, 0.9) end
+        tickFrame:SetFrameLevel(lvl)
+        tickFrame:ClearAllPoints()
+        tickFrame:SetPoint("CENTER", sb, "LEFT", tickX, 0)
+        tickFrame:SetSize(tex and 16 or 2, h)
+        tickFrame:Show()
+    else
+        tickFrame:Hide()
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -805,6 +968,7 @@ local function PrintStatus()
         .. (AtMax() and " (reached)" or ""))
     Print("session " .. Duration(Now() - session.start) .. DOT .. "gained " .. Commas(session.gained) .. " xp"
         .. DOT .. session.kills .. " kills" .. DOT .. session.quests .. " quests")
+    Print("rested shift: " .. (restedState == "off" and "off (stock bar)" or restedState))
     Print("last error: " .. (lastError or "none"))
 end
 

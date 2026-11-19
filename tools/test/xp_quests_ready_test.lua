@@ -2,7 +2,7 @@
 -- Run: luajit tools/test/xp_quests_ready_test.lua   (from the repo root)
 local fh = assert(io.open("addons/GaarXPForever/GaarXPForever.lua")); local src = fh:read("*a"); fh:close()
 src = src .. [==[
-_G.__T = { Calc = Calc, ScanReady = ScanReady, SegmentGeometry = SegmentGeometry, ready = ready, ClearCache = function() xpCache = {} end,
+_G.__T = { Calc = Calc, ScanReady = ScanReady, SegmentGeometry = SegmentGeometry, RestedGeometry = RestedGeometry, ready = ready, ClearCache = function() xpCache = {} end,
   MarkReadyDirty = MarkReadyDirty, MaybeScanReady = MaybeScanReady, QuestEvent = QuestEvent,
   SetDB = function(v) db = v end, GetCache = function() return xpCache end, Dirty = function() return readyDirty end,
   SetIgnore = function(t) ignoreLogUntil = t end, ResetScan = function() lastScan = -10; ignoreLogUntil = 0; scanTimerDue = nil; followDue = nil; readyDirty = true end }
@@ -127,6 +127,14 @@ geo("no width", nil, nil, 100, 5000, 50, 0)
 geo("full bar", nil, nil, 5000, 5000, 50, 1000)
 
 -- Trailing-edge throttle, no-zero-cache, follow-up scan
+local function rg(name, o, w, t, ...) local a, b, c = T.RestedGeometry(...); eq(name .. " offset", a, o); eq(name .. " width", b, w); eq(name .. " tick", c, t) end
+rg("rested after quest", 300, 100, 400, 1000, 500, 500, 5000, 1000)       -- 20%+10% in, 10% wide
+rg("rested clamped", 800, 200, nil, 3500, 500, 3000, 5000, 1000)          -- passes the end: no tick
+rg("rested exact end", 800, 200, 1000, 3500, 500, 1000, 5000, 1000)
+rg("rested no quest", 200, 100, 300, 1000, 0, 500, 5000, 1000)
+rg("rested none", nil, nil, nil, 1000, 500, 0, 5000, 1000)
+rg("quest fills bar", nil, nil, nil, 4000, 2000, 500, 5000, 1000)
+
 do
     local sc = 0
     local real = T.ScanReady

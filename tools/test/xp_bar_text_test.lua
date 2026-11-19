@@ -54,27 +54,70 @@ eq(T.TextEndX("CENTER", 0, 400, 100), 250, "end centre")
 eq(T.TextEndX("LEFT", 10, 400, 100), 110, "end left")
 eq(T.TextEndX("RIGHT", 10, 400, 100), 400, "end right")
 
--- XP bar identification: a reputation bar stacked above the XP bar must never be returned.
-local function bar(name, idx, mn, mx, val, withText)
+-- XP bar identification: two containers, sparse keyed bars (BarsEnum keys), a rep bar never chosen.
+local function bar(name, idx, mn, mx, val, withText, shown, tick)
     local sb = { GetMinMaxValues = function() return mn, mx end, GetValue = function() return val end,
-        CreateTexture = noop, GetName = function() return nil end, SetAlpha = noop }
+        CreateTexture = noop, GetName = function() return nil end, SetAlpha = noop,
+        IsVisible = function() return shown ~= false end }
     local e = { StatusBar = sb, barIndex = idx, GetName = function() return name end, SetAlpha = noop }
     if withText then e.OverlayFrame = { SetAlpha = noop, Text = { GetStringWidth = noop, GetFont = noop } } end
+    if tick then e.ExhaustionTick = { SetAlpha = noop } end
     return e
 end
-local rep, xp = bar("MainStatusTrackingBarContainer.ReputationBar", 1, 0, 3000, 1200, true), bar(nil, 4, 0, 50800, 45394, true)
-G.StatusTrackingBarInfo = { BarsEnum = { Reputation = 1, Experience = 4 } }
-G.MainStatusTrackingBarContainer = { bars = { rep, xp }, SetAlpha = noop }
+local function cont(bars) return { bars = bars, SetAlpha = noop } end
+local rep = bar("MainStatusTrackingBarContainer.ReputationBar", nil, 0, 3000, 1200, true)
+local xp = bar(nil, nil, 0, 50800, 45394, true)
+local xpMainHidden = bar(nil, nil, 0, 50800, 45394, true, false)
+G.StatusTrackingBarInfo = { BarsEnum = { Reputation = 1, Honor = 2, Artifact = 3, Experience = 4, Azerite = 5 } }
+G.MainStatusTrackingBarContainer = cont({ [1] = rep })
+G.SecondaryStatusTrackingBarContainer = cont({ [4] = xp })
 local r = T.FindXPBar()
-eq(r and r.entry, xp, "by barIndex, rep first")
-eq(r and r.text, xp.OverlayFrame.Text, "text region is the XP bar's")
-G.MainStatusTrackingBarContainer.bars = { xp, rep }
-r = T.FindXPBar(); eq(r and r.entry, xp, "order swapped")
-xp.barIndex = nil                                   -- no index: found by max/value
-r = T.FindXPBar(); eq(r and r.entry, xp, "by UnitXPMax")
-G.MainStatusTrackingBarContainer.bars = { rep }     -- only a reputation bar: no XP bar at all
+eq(r and r.entry, xp, "rep Main[1], xp Secondary[4]: xp chosen")
+eq(r and r.containerName, "SecondaryStatusTrackingBarContainer", "container name")
+eq(r and r.key, 4, "key"); eq(r and r.via, "key", "via key")
+eq(r and r.text, xp.OverlayFrame.Text, "text region is the XP bar's own")
+
+-- both containers hold an XP instance: the shown one wins
+G.MainStatusTrackingBarContainer = cont({ [1] = rep, [4] = xpMainHidden })
+r = T.FindXPBar(); eq(r and r.entry, xp, "shown instance preferred over hidden")
+G.MainStatusTrackingBarContainer = cont({ [4] = xp, [1] = rep })
+G.SecondaryStatusTrackingBarContainer = cont({ [4] = xpMainHidden })
+r = T.FindXPBar(); eq(r and r.entry, xp, "shown instance in Main")
+eq(r and r.containerName, "MainStatusTrackingBarContainer", "Main container name")
+
+-- barContainers list on the manager (containers not reachable by global name)
+G.MainStatusTrackingBarContainer, G.SecondaryStatusTrackingBarContainer = nil, nil
+G.StatusTrackingBarManager = { barContainers = { a = cont({ [1] = rep }), b = cont({ [4] = xp }) } }
+r = T.FindXPBar(); eq(r and r.entry, xp, "via manager.barContainers")
+G.StatusTrackingBarManager = nil
+
+-- by structure: no usable key (array-style, key 2 is not the XP enum), ExhaustionTick present
+local xpS = bar(nil, nil, 0, 1, 0, true, true, true)
+G.MainStatusTrackingBarContainer = cont({ rep, xpS })
+G.SecondaryStatusTrackingBarContainer = nil
+r = T.FindXPBar(); eq(r and r.entry, xpS, "by ExhaustionTick without key"); eq(r and r.via, "structure", "via structure")
+-- structure via UpdateExhaustion mixin method
+local xpM = bar(nil, nil, 0, 1, 0, true); xpM.UpdateExhaustion = noop
+G.MainStatusTrackingBarContainer = cont({ rep, xpM })
+r = T.FindXPBar(); eq(r and r.entry, xpM, "by UpdateExhaustion"); eq(r and r.via, "structure", "via structure 2")
+
+-- by max only
+G.MainStatusTrackingBarContainer = cont({ rep, xp })
+r = T.FindXPBar(); eq(r and r.entry, xp, "by UnitXPMax"); eq(r and r.via, "max", "via max")
+
+-- the rep bar is never chosen
+G.MainStatusTrackingBarContainer = cont({ [1] = rep })
+G.SecondaryStatusTrackingBarContainer = nil
 r = T.FindXPBar(); eq(r, nil, "rep only gives nil")
-G.MainStatusTrackingBarContainer.bars = { bar("X.ReputationStatusBar", 1, 0, 50800, 45394) }   -- even with matching numbers
-r = T.FindXPBar(); eq(r, nil, "name says reputation: never picked")
+G.MainStatusTrackingBarContainer = cont({ [1] = bar("X.ReputationStatusBar", 1, 0, 50800, 45394) })
+r = T.FindXPBar(); eq(r, nil, "name says reputation, even with matching numbers")
+G.MainStatusTrackingBarContainer = cont({ [1] = bar(nil, nil, 0, 3000, 1200) })
+r = T.FindXPBar(); eq(r, nil, "keyed as Reputation (1), no structure: never picked")
+
+-- classic fallback
+local classic = bar(nil, nil, 0, 50800, 45394)
+G.MainStatusTrackingBarContainer = nil
+G.MainMenuExpBar = classic.StatusBar
+r = T.FindXPBar(); eq(r and r.sb, classic.StatusBar, "classic MainMenuExpBar fallback"); eq(r and r.via, "classic", "via classic")
 
 if fails == 0 then print("xp_bar_text_test: ok") else os.exit(1) end

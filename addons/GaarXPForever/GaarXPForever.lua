@@ -8,7 +8,7 @@
                         "about N kills / N quests to level" from the session's average XP per kill
                         and per quest turn-in. Hidden at max level ("Max level").
     * xpbarText (on)    text on the XP bar, and only the XP bar (never the reputation bar stacked
-                        with it; FindXPBar picks it by barIndex / name / UnitXPMax). Blizzard's own XP
+                        with it; FindXPBar scans every status-bar container and picks it by key / structure / max). Blizzard's own XP
                         text stays and is supplemented: ours sits to the right of its actual text end
                         with the extras it lacks ("(89.4%) . rested 6,396 . +3,450 quest"); rested,
                         then quest, are dropped when it would not fit in the bar. Where Blizzard's
@@ -51,7 +51,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.4"
+local VERSION = "1.3.5"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -625,9 +625,9 @@ local function LowerName(o)
     return type(n) == "string" and n:lower() or ""
 end
 
--- Blizzard's text on the XP bar: OverlayFrame.Text / Text / TextString on the bar entry or its StatusBar,
--- else the classic global MainMenuBarExpText.
-local function FindXPText(entry, sb)
+-- Blizzard's text on the XP bar: OverlayFrame.Text / Text / TextString on THIS bar's entry or StatusBar,
+-- never a container-wide lookup. Only the classic bar falls back to the global MainMenuBarExpText.
+local function FindXPText(entry, sb, classic)
     local owners = {}
     for _, o in ipairs({ entry, sb }) do if type(o) == "table" then AddUnique(owners, o) end end
     for _, o in ipairs({ entry, sb }) do
@@ -640,53 +640,126 @@ local function FindXPText(entry, sb)
             if IsFontString(v) then return v end
         end
     end
-    local g = Get(_G, "MainMenuBarExpText")
-    if IsFontString(g) then return g end
+    if classic then
+        local g = Get(_G, "MainMenuBarExpText")
+        if IsFontString(g) then return g end
+    end
 end
 
--- The ONE place that decides which bar is the XP bar. Returns { entry, sb, text, container } or nil.
--- Newer UI: the bars in MainStatusTrackingBarContainer.bars (reputation, XP ... stacked); a bar is the XP
--- bar when its barIndex is BarsEnum.Experience, or its name says Exp, or its StatusBar's max (and value)
--- equals UnitXPMax (UnitXP). A bar whose name says reputation / honor / ... is never picked, and nothing
--- is picked by position ("first shown"), so the reputation bar can never be returned. Old UI:
--- MainMenuExpBar. Looked up again on every call (bars get reordered and swapped).
+-- Every status-tracking-bar container: the main and the secondary one, the manager itself and its
+-- barContainers list (deduplicated). Returns a list of { name, obj }.
+local function BarContainers()
+    local list = {}
+    local function add(name, o)
+        if type(o) ~= "table" or Secret(o) then return end
+        for _, c in ipairs(list) do if c.obj == o then return end end
+        list[#list + 1] = { name = name, obj = o }
+    end
+    add("MainStatusTrackingBarContainer", Get(_G, "MainStatusTrackingBarContainer"))
+    add("SecondaryStatusTrackingBarContainer", Get(_G, "SecondaryStatusTrackingBarContainer"))
+    local mgr = Get(_G, "StatusTrackingBarManager")
+    add("StatusTrackingBarManager", mgr)
+    local bc = Get(mgr, "barContainers")
+    if type(bc) == "table" and not Secret(bc) then
+        for k, c in pairs(bc) do
+            local n = type(c) == "table" and Call(c.GetName, c)
+            add((type(n) == "string" and n ~= "") and n or ("barContainers[" .. tostring(k) .. "]"), c)
+        end
+    end
+    return list
+end
+
+local lastScan = { containers = 0, bars = 0 }
+
+-- The ONE place that decides which bar is the XP bar. Returns { entry, sb, text, container, containerName,
+-- key, via, candidates } or nil. Every container is scanned with pairs (bars are keyed by
+-- StatusTrackingBarInfo.BarsEnum, sparse, not an array). A bar is the XP bar by, strongest first:
+--   key        its key (or its barIndex) is BarsEnum.Experience (4 when the enum is missing)
+--   structure  it has ExhaustionLevelFillBar / ExhaustionTick, or UpdateExhaustion / UpdateTick (ExpBarMixin)
+--   name       its name says Exp
+--   max        its StatusBar's max (and value) equals UnitXPMax (UnitXP); a weak signal, never needed
+-- A bar whose name says reputation / honor / ..., or whose key / barIndex is another BarsEnum value and
+-- has no XP structure, is never picked. A SHOWN XP bar beats a hidden one in another container. Nothing
+-- is picked by position. Last resort: the classic MainMenuExpBar. Looked up again on every call.
 local function FindXPBar()
-    local container = Field(_G, "MainStatusTrackingBarContainer") or Field(_G, "StatusTrackingBarManager")
     local xpCur, xpMax = XPValues()
     local info = Get(_G, "StatusTrackingBarInfo")
     local enum = type(info) == "table" and Get(info, "BarsEnum") or nil
     local expIdx = type(enum) == "table" and Num(Get(enum, "Experience")) or nil
-    local bars = Get(container, "bars")
+    expIdx = expIdx or 4
+    local otherIdx = {}
+    if type(enum) == "table" and not Secret(enum) then
+        for k, v in pairs(enum) do if k ~= "Experience" and Num(v) then otherIdx[v] = true end end
+    end
+    local containers = BarContainers()
+    local nBars = 0
     local best, bestScore
-    if type(bars) == "table" and not Secret(bars) then
-        for _, entry in pairs(bars) do
-            local sb = IsStatusBar(entry) and entry or Field(entry, "StatusBar")
-            if type(entry) == "table" and not Secret(entry) and IsStatusBar(sb) then
-                local name = LowerName(entry) .. " " .. LowerName(sb)
-                local bad = false
-                for _, w in ipairs(NOT_XP) do if name:find(w, 1, true) then bad = true end end
-                if not bad then
-                    local score = 0
-                    if expIdx and Num(Get(entry, "barIndex")) == expIdx then score = score + 100 end
-                    if name:find("exp", 1, true) then score = score + 50 end
-                    local ok, mn, mx = pcall(sb.GetMinMaxValues, sb)
-                    if ok and xpMax and Num(mx) == xpMax then
-                        score = score + 20
-                        local okv, v = pcall(sb.GetValue, sb)
-                        if okv and xpCur and Num(v) == xpCur then score = score + 10 end
+    local cands = {}
+    for _, c in ipairs(containers) do
+        local bars = Get(c.obj, "bars")
+        if type(bars) == "table" and not Secret(bars) then
+            for key, entry in pairs(bars) do
+                nBars = nBars + 1
+                local sb = IsStatusBar(entry) and entry or Field(entry, "StatusBar")
+                if type(entry) == "table" and not Secret(entry) and IsStatusBar(sb) then
+                    local name = LowerName(entry) .. " " .. LowerName(sb)
+                    local bad = false
+                    for _, w in ipairs(NOT_XP) do if name:find(w, 1, true) then bad = true end end
+                    local par = Get(sb, "GetParent") and Call(sb.GetParent, sb)
+                    local function has(o, k) return Field(o, k) ~= nil end
+                    local structure = false
+                    for _, o in ipairs({ entry, sb }) do
+                        if has(o, "ExhaustionLevelFillBar") or has(o, "ExhaustionTick")
+                            or type(Get(o, "UpdateExhaustion")) == "function"
+                            or type(Get(o, "UpdateTick")) == "function" then structure = true end
                     end
-                    if score >= 20 and (not bestScore or score > bestScore) then best, bestScore = { entry = entry, sb = sb }, score end
+                    if not structure and type(par) == "table" and not Secret(par) and type(Get(par, "bars")) ~= "table"
+                        and (has(par, "ExhaustionLevelFillBar") or has(par, "ExhaustionTick")) then structure = true end
+                    local idx = Num(Get(entry, "barIndex")) or Num(key)
+                    local keyed = idx == expIdx or Num(key) == expIdx
+                    local okm, mn, mx = pcall(sb.GetMinMaxValues, sb)
+                    local maxMatch = okm and xpMax and Num(mx) == xpMax
+                    -- keyed as another bar type: excluded unless it shows XP structure or the XP maximum
+                    -- (guards against an array-style list where the key is just a position)
+                    if not structure and not keyed and not maxMatch and idx and otherIdx[idx] then bad = true end
+                    if not bad then
+                        local via, score
+                        if keyed then via, score = "key", 100
+                        elseif structure then via, score = "structure", 90
+                        elseif name:find("exp", 1, true) then via, score = "name", 50 end
+                        if maxMatch then
+                            score = (score or 0) + 20
+                            via = via or "max"
+                            local okv, v = pcall(sb.GetValue, sb)
+                            if okv and xpCur and Num(v) == xpCur then score = score + 10 end
+                        end
+                        if score and score >= 20 then
+                            local shown = Call(sb.IsVisible, sb) == true
+                            if shown then score = score + 1000 end
+                            local cand = { entry = entry, sb = sb, container = c.obj, containerName = c.name,
+                                key = key, via = via }
+                            cands[#cands + 1] = cand
+                            if not bestScore or score > bestScore then best, bestScore = cand, score end
+                        end
+                    end
                 end
             end
         end
     end
+    lastScan = { containers = #containers, bars = nBars }
+    local classicBar
     if not best then
         local classic = Get(_G, "MainMenuExpBar")
-        if IsStatusBar(classic) then best = { entry = classic, sb = classic } end
+        if IsStatusBar(classic) then
+            best = { entry = classic, sb = classic, via = "classic", containerName = "MainMenuExpBar" }
+            classicBar = true
+        end
     end
     if not best then return nil end
-    best.container = container
-    best.text = FindXPText(best.entry, best.sb)
+    best.candidates = cands
+    best.containers = containers
+    best.text = FindXPText(best.entry, best.sb, classicBar)
+    best.classic = classicBar
     return best
 end
 
@@ -724,14 +797,23 @@ local function HookXPBar(xp)
     for _, m in ipairs({ "SetText", "Show", "Hide", "SetShown" }) do
         HookOnce(text, m, function() OnBarChanged(false) end)
     end
-    for _, o in ipairs({ xp.entry, xp.sb }) do
+    -- the resolved bar and every other XP-type instance (one per container): when another one is shown
+    -- the quest / rested / text frames move over to it
+    local bars = { xp.entry, xp.sb }
+    for _, c in ipairs(xp.candidates or {}) do bars[#bars + 1] = c.entry; bars[#bars + 1] = c.sb end
+    for _, o in ipairs(bars) do
         for _, s in ipairs({ "OnShow", "OnHide", "OnSizeChanged" }) do
             HookOnce(o, s, function() OnBarChanged(true) end, true)
         end
     end
-    for _, m in ipairs({ "UpdateBarsShown", "AddBarFromEnum", "RemoveBarFromBarContainer", "SetBarSize",
-        "LayoutBars", "Update", "UpdateBars" }) do
-        HookOnce(xp.container, m, function() OnBarChanged(true) end)
+    local owners = {}
+    for _, c in ipairs(xp.containers or {}) do owners[#owners + 1] = c.obj end
+    if xp.container then owners[#owners + 1] = xp.container end
+    for _, o in ipairs(owners) do
+        for _, m in ipairs({ "UpdateBarsShown", "AddBarFromEnum", "RemoveBarFromBarContainer", "SetBarSize",
+            "LayoutBars", "UpdateBarVisibility", "Update", "UpdateBars" }) do
+            HookOnce(o, m, function() OnBarChanged(true) end)
+        end
     end
 end
 
@@ -832,7 +914,7 @@ local restedState = "off"            -- off | on | blizzard-hidden | not-found (
 -- ones ExhaustionLevelBar / ExhaustionTick (+ ExhaustionTickNormal/Highlight, ExhaustionLevelBarTexture).
 local restedRegions = { over = {}, tick = {} }
 local restedHooked = {}
-local function FindRestedVisuals(sb, container)
+local function FindRestedVisuals(sb, container, classic)
     local over, tick = {}, {}
     local owners = {}
     local function own(o) if type(o) == "table" then AddUnique(owners, o) end end
@@ -849,10 +931,12 @@ local function FindRestedVisuals(sb, container)
             local v = Field(o, k); if v then AddUnique(tick, v) end
         end
     end
-    for _, n in ipairs({ "ExhaustionLevelBar", "ExhaustionLevelFillBar" }) do
-        local v = Field(_G, n); if v then AddUnique(over, v) end
+    if classic then   -- only the classic bar has container-wide globals; never for a resolved bar instance
+        for _, n in ipairs({ "ExhaustionLevelBar", "ExhaustionLevelFillBar" }) do
+            local v = Field(_G, n); if v then AddUnique(over, v) end
+        end
+        local v = Field(_G, "ExhaustionTick"); if v then AddUnique(tick, v) end
     end
-    local v = Field(_G, "ExhaustionTick"); if v then AddUnique(tick, v) end
     return over, tick, owners
 end
 
@@ -1020,7 +1104,7 @@ RefreshQuestBar = function()
         if tickFrame then tickFrame:Hide() end
         return
     end
-    local over, tick, owners = FindRestedVisuals(sb, xp.entry)
+    local over, tick, owners = FindRestedVisuals(sb, xp.entry, xp.classic)
     restedRegions.over, restedRegions.tick = over, tick
     local found = #over + #tick > 0
     local r, g, b = RestedColor()   -- read before hiding
@@ -1195,7 +1279,15 @@ local function PrintStatus()
         .. DOT .. "panel " .. (db.locked and "locked (Alt-drag)" or "unlocked"))
     local xp = FindXPBar()
     local function nm(o) return o and (Call(o.GetName, o) or "?") or "none" end
-    Print("xp bar: " .. (xp and (nm(xp.entry) .. " (statusbar " .. nm(xp.sb) .. ")") or "none found")
+    local function xpDesc()
+        if not xp then
+            return "none found (scanned " .. lastScan.containers .. " containers, " .. lastScan.bars .. " bars)"
+        end
+        local where = xp.containerName or "?"
+        if xp.key ~= nil then where = where .. "[" .. tostring(xp.key) .. "]" end
+        return where .. " via " .. (xp.via or "?") .. " (statusbar " .. (xp.sb and "ok" or "missing") .. ")"
+    end
+    Print("xp bar: " .. xpDesc()
         .. DOT .. "blizzard text region: " .. (xp and xp.text and (Call(xp.text.GetName, xp.text) or "yes") or "none")
         .. DOT .. "overlay " .. ((overlay and overlay:IsShown()) and "shown" or "hidden") .. DOT .. "max level " .. MaxLevel()
         .. (AtMax() and " (reached)" or ""))

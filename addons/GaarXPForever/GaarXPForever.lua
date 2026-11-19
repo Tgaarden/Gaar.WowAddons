@@ -47,7 +47,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.2"
+local VERSION = "1.3.3"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -688,7 +688,9 @@ local function SetRestedAlpha(a)
     end
 end
 
-local function TickTexture()
+-- Copy of Blizzard's tick look: atlas when it has one, else file + its 8 tex coords, plus its size.
+-- Returns nil when nothing reliable (or anything secret) is found: the caller draws a simple line.
+local function TickSource()
     for _, r in ipairs(restedRegions.tick) do
         local cands = { r, Field(r, "Normal"), Field(r, "ExhaustionTickNormal"), Field(r, "Highlight") }
         if type(r.GetRegions) == "function" then
@@ -696,12 +698,58 @@ local function TickTexture()
             if ok then cands[#cands + 1] = a; cands[#cands + 1] = b; cands[#cands + 1] = c; cands[#cands + 1] = d end
         end
         for _, t in pairs(cands) do
-            if type(t) == "table" and type(t.GetTexture) == "function" then
-                local ok, tex = pcall(t.GetTexture, t)
-                if ok and (type(tex) == "string" or type(tex) == "number") and not Secret(tex) then return tex end
+            if type(t) == "table" and not Secret(t) then
+                local src
+                if type(t.GetAtlas) == "function" then
+                    local ok, atlas = pcall(t.GetAtlas, t)
+                    if ok and type(atlas) == "string" and atlas ~= "" and not Secret(atlas) then src = { atlas = atlas } end
+                end
+                if not src and type(t.GetTexture) == "function" and type(t.GetTexCoord) == "function" then
+                    local ok, tex = pcall(t.GetTexture, t)
+                    if ok and (type(tex) == "string" or type(tex) == "number") and not Secret(tex) then
+                        local ok2, c1, c2, c3, c4, c5, c6, c7, c8 = pcall(t.GetTexCoord, t)
+                        if ok2 and Num(c1) and Num(c2) and Num(c3) and Num(c4) and Num(c5) and Num(c6) and Num(c7) and Num(c8) then
+                            src = { tex = tex, coords = { c1, c2, c3, c4, c5, c6, c7, c8 } }
+                        end
+                    end
+                end
+                if src then
+                    if type(t.GetSize) == "function" then
+                        local ok, w, h = pcall(t.GetSize, t)
+                        if ok and Num(w) and Num(h) and w > 0 and h > 0 then src.w, src.h = w, h end
+                    end
+                    return src
+                end
             end
         end
     end
+end
+
+-- Draw the tick centred on tickX (inside the bar): Blizzard's look when copyable, else a 2px light line.
+local function DrawTick(src, sb, tickX, w, h, lvl)
+    local tw, th = 2, h
+    local ok = false
+    if src and src.w and src.h then
+        if src.atlas then
+            ok = pcall(tickTex.SetAtlas, tickTex, src.atlas, false)
+        elseif src.tex then
+            ok = pcall(tickTex.SetTexture, tickTex, src.tex) and pcall(tickTex.SetTexCoord, tickTex, unpack(src.coords))
+        end
+        if ok then tw, th = src.w, math.min(src.h, h) end
+    end
+    if ok then
+        tickTex:SetVertexColor(1, 1, 1, 1)
+    else
+        pcall(tickTex.SetTexCoord, tickTex, 0, 1, 0, 1)
+        tickTex:SetColorTexture(1, 1, 1, 0.8)
+    end
+    tw = math.min(tw, w)
+    local cx = math.max(tw / 2, math.min(tickX, w - tw / 2))
+    tickFrame:SetFrameLevel(lvl)
+    tickFrame:ClearAllPoints()
+    tickFrame:SetPoint("CENTER", sb, "LEFT", cx, 0)
+    tickFrame:SetSize(tw, th)
+    tickFrame:Show()
 end
 
 local function HideSegment()
@@ -799,14 +847,7 @@ RefreshQuestBar = function()
     restTex:SetSize(rwid, h)
     restTex:Show()
     if tickX then
-        local tex = TickTexture()
-        if tex then tickTex:SetTexture(tex); tickTex:SetVertexColor(1, 1, 1, 1)
-        else tickTex:SetColorTexture(1, 1, 1, 0.9) end
-        tickFrame:SetFrameLevel(lvl)
-        tickFrame:ClearAllPoints()
-        tickFrame:SetPoint("CENTER", sb, "LEFT", tickX, 0)
-        tickFrame:SetSize(tex and 16 or 2, h)
-        tickFrame:Show()
+        DrawTick(TickSource(), sb, tickX, w, h, lvl)
     else
         tickFrame:Hide()
     end

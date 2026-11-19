@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -1755,20 +1755,36 @@ local function GuidByName(name)
         local ok, n, realm = pcall(UnitName, u)
         n, realm = ok and PlainString(n) or nil, ok and PlainString(realm) or nil
         if n and (n == name or (realm and n .. "-" .. realm == name)) then
-            return type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) or nil
+            return type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) or nil, u
         end
     end
     return nil
+end
+
+-- 1.5.1: the self-cast modifier is held, so the spell lands on you whatever the name says.
+local function SelfCastHeld()
+    if type(_G.IsModifiedClick) ~= "function" then return false end
+    local ok, v = pcall(_G.IsModifiedClick, "SELFCAST")
+    return ok and Plain(v) == true
 end
 
 -- The GUID a cast of yours lands on, and how that was decided (1.5.0). The name
 -- UNIT_SPELLCAST_SENT gives is looked up on the units above; without a name, your target when
 -- you can help it, else you (classic self-cast: an enemy or no target means the spell lands on
 -- you). Nil GUID when the named unit is on none of those units.
-local function CastTarget(name)
+-- 1.5.1: a self-cast landed on the wrong unit: with an enemy targeted (or the self-cast
+-- modifier held) the name can be the enemy's, which was looked up on "target" and the preview
+-- drawn on the enemy. A named unit you cannot help is now you, as the game does the cast.
+local function CastTarget(name, sent)
     name = PlainString(name)
+    local self = PlainString(_G.UnitGUID("player"))
+    if sent and SelfCastHeld() then return self, "you (self-cast modifier)" end
     if name then
-        local guid = GuidByName(name)
+        local guid, unit = GuidByName(name)
+        if guid and unit ~= "player" then
+            local okA, help = pcall(_G.UnitCanAssist, "player", unit)
+            if okA and Plain(help) == false then return self, "you (self-cast, " .. name .. " cannot be helped)" end
+        end
         return guid, guid and (name .. ", by the cast's target name") or (name .. ", on no frame")
     end
     local okE, ex = pcall(UnitExists, "target")
@@ -1776,7 +1792,7 @@ local function CastTarget(name)
     if okE and Plain(ex) == true and okA and Plain(help) == true then
         return PlainString(_G.UnitGUID("target")), "your friendly target"
     end
-    return PlainString(_G.UnitGUID("player")), "you (self-cast)"
+    return self, "you (self-cast)"
 end
 
 -- Same cast: by castGUID where both are plain, else by spell ID.
@@ -1841,7 +1857,7 @@ function HealPred.OnCast(event, unit, a2, a3, a4)
         local id = Num(a4)
         lastSent = nil
         if not id or not HotOf({ spellId = id, name = SpellNameOf(id) }) then return nil end
-        local guid, how = CastTarget(a2)
+        local guid, how = CastTarget(a2, true)
         lastSent = { id = id, guid = guid, how = how, at = now, cast = PlainString(a3) }
         return nil
     end

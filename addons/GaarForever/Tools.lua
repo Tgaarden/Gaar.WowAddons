@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.22"] = "notes for GaarXPForever 1.3.6: our XP text no longer jumps right when the mouse hovers the XP bar; it keeps the position it has when Blizzard shows the short non-hover text",
         ["3.2.21"] = "notes for GaarXPForever 1.3.5: the XP bar is found again when a reputation bar is tracked too: both bar containers are scanned, bars are matched by their key or XP structure (rested fill / tick), and the visible XP bar gets the text, orange quest segment and rested shift; /gxp status shows which container and key matched",
         ["3.2.20"] = "notes for GaarFramesForever 1.5.0: overheal past the health bar, HoT shown while casting",
         ["3.2.19"] = "notes for GaarXPForever 1.3.4: the text on the XP bar is now only on the XP bar, never on the reputation bar above it; Blizzard's own XP text is kept and ours (percent, rested, ready-quest XP) is added to the right of it, dropping rested then quest if it would not fit; the orange quest segment and rested shift are locked to the XP bar too",

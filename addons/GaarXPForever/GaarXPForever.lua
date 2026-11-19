@@ -51,7 +51,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.6"
+local VERSION = "1.3.7"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -555,7 +555,9 @@ end
 -- ---------------------------------------------------------------------------
 
 local overlay, overlayText, barFrame
-local baseSw, baseSwFS   -- width of Blizzard's non-hover XP text
+local baseSw, baseSwFS   -- width of Blizzard's XP text when not hovered (always-show mode)
+local modeFS, modeAlways -- Blizzard's text shown while NOT hovered? (decided off-hover only)
+local hiddenFS           -- Blizzard text we set to alpha 0 while hovered (hover-only mode)
 local TEXT_GAP = 16      -- px between Blizzard's XP text and ours
 
 -- Pure: our bar text. withTotals adds "cur/max " in front (used when Blizzard's own text is hidden, else
@@ -802,6 +804,12 @@ local function HookXPBar(xp)
     -- the quest / rested / text frames move over to it
     local bars = { xp.entry, xp.sb }
     for _, c in ipairs(xp.candidates or {}) do bars[#bars + 1] = c.entry; bars[#bars + 1] = c.sb end
+    -- hover: keep our text put and hide Blizzard's hover text (posthooks only)
+    for _, o in ipairs({ xp.entry, xp.sb }) do
+        for _, s in ipairs({ "OnEnter", "OnLeave" }) do
+            HookOnce(o, s, function() OnBarChanged(false) end, true)
+        end
+    end
     for _, o in ipairs(bars) do
         for _, s in ipairs({ "OnShow", "OnHide", "OnSizeChanged" }) do
             HookOnce(o, s, function() OnBarChanged(true) end, true)
@@ -821,7 +829,10 @@ end
 local lastAnchor
 RefreshBarText = function()
     if not db then return end
-    local function off() if overlay then overlay:Hide() end end
+    local function restore()
+        if hiddenFS then pcall(hiddenFS.SetAlpha, hiddenFS, 1); hiddenFS = nil end
+    end
+    local function off() restore(); if overlay then overlay:Hide() end end
     if not (Enabled("xpbarText") and not AtMax()) then off(); return end
     local xp = FindXPBar()
     if not xp then barFrame = nil; off(); return end
@@ -857,16 +868,22 @@ RefreshBarText = function()
         sw = Num(Call(fs.GetStringWidth, fs))
         bliz = vis == true and not (type(t) == "string" and t == "") and sw ~= nil and sw > 0
         justify = Call(fs.GetJustifyH, fs)
-        -- Blizzard swaps its text to a wider "XP: cur/max" on hover. Measure only while not hovered and reuse
-        -- that width on hover, so our text never moves when the mouse enters or leaves the bar.
-        if bliz then
-            if Call(sb.IsMouseOver, sb) == true then
+        -- Layout comes from the NON-hover state only, so hovering changes nothing. Always-show mode: ours sits
+        -- right of Blizzard's text at its non-hover width. Hover-only mode (its text is never up off-hover):
+        -- ours is the standalone line, and Blizzard's hover text is hidden (alpha 0) so it neither jumps nor overlaps.
+        if Call(sb.IsMouseOver, sb) == true then
+            bliz = modeFS == fs and modeAlways == true
+            if bliz then
                 if baseSw and baseSwFS == fs then sw = baseSw end
             else
-                baseSw, baseSwFS = sw, fs
+                if pcall(fs.SetAlpha, fs, 0) then hiddenFS = fs end
             end
+        else
+            modeFS, modeAlways = fs, bliz
+            if bliz then baseSw, baseSwFS = sw, fs end
         end
     end
+    if hiddenFS and (not fs or fs ~= hiddenFS or bliz or Call(sb.IsMouseOver, sb) ~= true) then restore() end
     local txt, relPoint, x
     local function fitter(avail)
         return function(s)

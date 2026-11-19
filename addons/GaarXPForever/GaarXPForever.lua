@@ -7,9 +7,13 @@
                         the level), XP per hour this session, time to level at that rate, and
                         "about N kills / N quests to level" from the session's average XP per kill
                         and per quest turn-in. Hidden at max level ("Max level").
-    * xpbarText (on)    text on Blizzard's XP bar (MainMenuExpBar, or the container of the newer
-                        status tracking bars): cur/max, pct and rested. On hover, or always with
-                        xpbarAlways (off).
+    * xpbarText (on)    text on the XP bar, and only the XP bar (never the reputation bar stacked
+                        with it; FindXPBar picks it by barIndex / name / UnitXPMax). Blizzard's own XP
+                        text stays and is supplemented: ours sits to the right of its actual text end
+                        with the extras it lacks ("(89.4%) . rested 6,396 . +3,450 quest"); rested,
+                        then quest, are dropped when it would not fit in the bar. Where Blizzard's
+                        text is hidden, ours (with cur/max, centred) shows always with xpbarAlways
+                        (off), else on hover.
     * levelLog (on)     on level-up, the time played this level and in total (RequestTimePlayed /
                         TIME_PLAYED_MSG). Blizzard's own time-played print is held back for that
                         one request, so chat gets one line, not two.
@@ -35,7 +39,7 @@
   (exploring, gathering) counts only toward the XP/hour. Chat text is never parsed.
 
   Taint: Blizzard code is only followed, never replaced. The only hooks are hooksecurefunc on tooltip
-  helpers and a HookScript on GameTooltip; the XP bar is only polled (IsMouseOver). Every client API is checked
+  helpers and a HookScript on GameTooltip; the XP text and bar changes are followed with posthooks (hooksecurefunc / HookScript) and a poll (IsMouseOver). Every client API is checked
   with type(...) == "function", every handler runs in pcall (the last error is kept for
   /gxp status), and a secret value is never compared or tested: it is treated as no value.
 
@@ -47,7 +51,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.3"
+local VERSION = "1.3.4"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -444,17 +448,6 @@ end
 -- Text
 -- ---------------------------------------------------------------------------
 
-local function BarText()
-    local cur, max, rested = XPValues()
-    if not cur then return nil end
-    local s = Commas(cur) .. "/" .. Commas(max) .. string.format(" (%.1f%%)", cur / max * 100)
-    if ready.xp > 0 and Enabled("questReady") then s = s .. " (+" .. Commas(ready.xp) .. ")" end
-    if rested and rested > 0 then
-        s = s .. DOT .. "rested " .. Commas(rested) .. string.format(" (%.0f%%)", rested / max * 100)
-    end
-    return s
-end
-
 local function Rate()
     local el = Now() - session.start
     if el < MIN_RATE_SECONDS or session.gained <= 0 then return nil end
@@ -562,71 +555,273 @@ end
 -- ---------------------------------------------------------------------------
 
 local overlay, overlayText, barFrame
-local function FindBar()
-    local b = _G.MainMenuExpBar or _G.MainStatusTrackingBarContainer or _G.StatusTrackingBarManager
-    if b and type(b.IsShown) == "function" then return b end
+local TEXT_GAP = 16      -- px between Blizzard's XP text and ours
+
+-- Pure: our bar text. withTotals adds "cur/max " in front (used when Blizzard's own text is hidden, else
+-- Blizzard already shows cur/max). fits(s) -> true when s is short enough; parts are dropped in the order
+-- rested, then quest. The percent (and the totals) always stay. nil when there is no XP.
+local function ComposeBarText(cur, max, rested, questXP, withTotals, fits)
+    if not (cur and max) or max <= 0 then return nil end
+    local head = string.format("(%.1f%%)", cur / max * 100)
+    if withTotals then head = Commas(cur) .. "/" .. Commas(max) .. " " .. head end
+    local hasR = rested and rested > 0
+    local hasQ = questXP and questXP > 0
+    local function build(r, q)
+        local s = head
+        if r and hasR then s = s .. DOT .. "rested " .. Commas(rested) end
+        if q and hasQ then s = s .. DOT .. "+" .. Commas(questXP) .. " quest" end
+        return s
+    end
+    local last
+    for _, t in ipairs({ { true, true }, { false, true }, { false, false } }) do
+        local s = build(t[1], t[2])
+        if s ~= last then
+            last = s
+            if not fits or fits(s) then return s end
+        end
+    end
+    return last
 end
 
-RefreshBarText = function()
-    if not db then return end
-    local want = Enabled("xpbarText") and not AtMax()
-    if not want then
-        if overlay then overlay:Hide() end
+-- Pure: where our text starts, as an anchor on Blizzard's text region: its LEFT/RIGHT/CENTER point and
+-- the x offset, from the region's justify and the string width, so it follows the actual text end.
+local function SupplementAnchor(justify, sw, gap)
+    if justify == "LEFT" then return "LEFT", sw + gap end
+    if justify == "RIGHT" then return "RIGHT", gap end
+    return "CENTER", sw / 2 + gap
+end
+
+-- Pure: x (same space as left/right) where the string of Blizzard's region ends.
+local function TextEndX(justify, left, right, sw)
+    if justify == "LEFT" then return left + sw end
+    if justify == "RIGHT" then return right end
+    return (left + right) / 2 + sw / 2
+end
+
+-- Safe field read: nil for errors and secret values.
+local function Get(o, k)
+    if type(o) ~= "table" or Secret(o) then return nil end
+    local ok, v = pcall(function() return o[k] end)
+    if ok and not Secret(v) then return v end
+end
+local function Field(o, k)
+    local v = Get(o, k)
+    if type(v) == "table" and not Secret(v) and type(v.SetAlpha) == "function" then return v end
+end
+local function AddUnique(list, v) for _, x in ipairs(list) do if x == v then return end end list[#list + 1] = v end
+
+local function IsStatusBar(f)
+    return type(f) == "table" and not Secret(f) and type(f.GetMinMaxValues) == "function"
+        and type(f.CreateTexture) == "function"
+end
+local function IsFontString(f)
+    return type(f) == "table" and not Secret(f) and type(f.GetStringWidth) == "function"
+        and type(f.GetFont) == "function"
+end
+
+local NOT_XP = { "reput", "honor", "artifact", "azerite", "renown", "faction", "paragon" }
+local function LowerName(o)
+    local n = type(o) == "table" and Call(o.GetName, o)
+    return type(n) == "string" and n:lower() or ""
+end
+
+-- Blizzard's text on the XP bar: OverlayFrame.Text / Text / TextString on the bar entry or its StatusBar,
+-- else the classic global MainMenuBarExpText.
+local function FindXPText(entry, sb)
+    local owners = {}
+    for _, o in ipairs({ entry, sb }) do if type(o) == "table" then AddUnique(owners, o) end end
+    for _, o in ipairs({ entry, sb }) do
+        local ov = Field(o, "OverlayFrame")
+        if ov then AddUnique(owners, ov) end
+    end
+    for _, o in ipairs(owners) do
+        for _, k in ipairs({ "Text", "TextString" }) do
+            local v = Get(o, k)
+            if IsFontString(v) then return v end
+        end
+    end
+    local g = Get(_G, "MainMenuBarExpText")
+    if IsFontString(g) then return g end
+end
+
+-- The ONE place that decides which bar is the XP bar. Returns { entry, sb, text, container } or nil.
+-- Newer UI: the bars in MainStatusTrackingBarContainer.bars (reputation, XP ... stacked); a bar is the XP
+-- bar when its barIndex is BarsEnum.Experience, or its name says Exp, or its StatusBar's max (and value)
+-- equals UnitXPMax (UnitXP). A bar whose name says reputation / honor / ... is never picked, and nothing
+-- is picked by position ("first shown"), so the reputation bar can never be returned. Old UI:
+-- MainMenuExpBar. Looked up again on every call (bars get reordered and swapped).
+local function FindXPBar()
+    local container = Field(_G, "MainStatusTrackingBarContainer") or Field(_G, "StatusTrackingBarManager")
+    local xpCur, xpMax = XPValues()
+    local info = Get(_G, "StatusTrackingBarInfo")
+    local enum = type(info) == "table" and Get(info, "BarsEnum") or nil
+    local expIdx = type(enum) == "table" and Num(Get(enum, "Experience")) or nil
+    local bars = Get(container, "bars")
+    local best, bestScore
+    if type(bars) == "table" and not Secret(bars) then
+        for _, entry in pairs(bars) do
+            local sb = IsStatusBar(entry) and entry or Field(entry, "StatusBar")
+            if type(entry) == "table" and not Secret(entry) and IsStatusBar(sb) then
+                local name = LowerName(entry) .. " " .. LowerName(sb)
+                local bad = false
+                for _, w in ipairs(NOT_XP) do if name:find(w, 1, true) then bad = true end end
+                if not bad then
+                    local score = 0
+                    if expIdx and Num(Get(entry, "barIndex")) == expIdx then score = score + 100 end
+                    if name:find("exp", 1, true) then score = score + 50 end
+                    local ok, mn, mx = pcall(sb.GetMinMaxValues, sb)
+                    if ok and xpMax and Num(mx) == xpMax then
+                        score = score + 20
+                        local okv, v = pcall(sb.GetValue, sb)
+                        if okv and xpCur and Num(v) == xpCur then score = score + 10 end
+                    end
+                    if score >= 20 and (not bestScore or score > bestScore) then best, bestScore = { entry = entry, sb = sb }, score end
+                end
+            end
+        end
+    end
+    if not best then
+        local classic = Get(_G, "MainMenuExpBar")
+        if IsStatusBar(classic) then best = { entry = classic, sb = classic } end
+    end
+    if not best then return nil end
+    best.container = container
+    best.text = FindXPText(best.entry, best.sb)
+    return best
+end
+
+local hookedFns = {}
+local function HookOnce(obj, method, fn, script)
+    if type(obj) ~= "table" or Secret(obj) then return end
+    local f = script and "HookScript" or "hooksecurefunc"
+    if script then
+        if type(obj.HookScript) ~= "function" then return end
+    elseif type(_G.hooksecurefunc) ~= "function" or type(Get(obj, method)) ~= "function" then
         return
     end
-    barFrame = barFrame or FindBar()
-    if not barFrame then if overlay then overlay:Hide() end return end
+    local h = hookedFns[obj]
+    if not h then h = {}; hookedFns[obj] = h end
+    local key = (script and "s:" or "f:") .. method
+    if h[key] then return end
+    h[key] = true
+    if script then pcall(obj.HookScript, obj, method, fn) else pcall(_G.hooksecurefunc, obj, method, fn) end
+end
+
+-- Follow Blizzard: its text changing / showing / hiding, the bar being shown, hidden or resized, and the
+-- container laying its bars out again. Posthooks only, nothing of Blizzard's is replaced.
+local inHook = false
+local function OnBarChanged(both)
+    if inHook then return end
+    inHook = true
+    Safe("xp bar hook", function()
+        RefreshBarText()
+        if both then RefreshQuestBar() end
+    end)
+    inHook = false
+end
+local function HookXPBar(xp)
+    local text = xp.text
+    for _, m in ipairs({ "SetText", "Show", "Hide", "SetShown" }) do
+        HookOnce(text, m, function() OnBarChanged(false) end)
+    end
+    for _, o in ipairs({ xp.entry, xp.sb }) do
+        for _, s in ipairs({ "OnShow", "OnHide", "OnSizeChanged" }) do
+            HookOnce(o, s, function() OnBarChanged(true) end, true)
+        end
+    end
+    for _, m in ipairs({ "UpdateBarsShown", "AddBarFromEnum", "RemoveBarFromBarContainer", "SetBarSize",
+        "LayoutBars", "Update", "UpdateBars" }) do
+        HookOnce(xp.container, m, function() OnBarChanged(true) end)
+    end
+end
+
+local lastAnchor
+RefreshBarText = function()
+    if not db then return end
+    local function off() if overlay then overlay:Hide() end end
+    if not (Enabled("xpbarText") and not AtMax()) then off(); return end
+    local xp = FindXPBar()
+    if not xp then barFrame = nil; off(); return end
+    barFrame = xp.entry
+    HookXPBar(xp)
+    local sb = xp.sb
+    local visible = Call(sb.IsVisible, sb)
+    if visible ~= true then off(); return end
+    local cur, max, rested = XPValues()
+    if not cur then off(); return end
     if not overlay then
         overlay = CreateFrame("Frame", "GaarXPForeverBarText", UIParent)
         overlay:SetFrameStrata("HIGH")
         overlay:EnableMouse(false)
-        overlayText = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        overlayText:SetPoint("CENTER")
-        overlay:SetPoint("CENTER", barFrame, "CENTER", 0, 0)
         overlay:SetSize(10, 10)
+        overlayText = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     end
-    local hover = false
-    if type(barFrame.IsMouseOver) == "function" then
-        local ok, r = pcall(barFrame.IsMouseOver, barFrame)
-        hover = ok and r == true
+    local fs = xp.text
+    if fs then
+        local font, size, flags = Call(fs.GetFont, fs)
+        if type(font) == "string" and Num(size) and Num(size) > 0 then
+            pcall(overlayText.SetFont, overlayText, font, size, type(flags) == "string" and flags or "")
+        end
     end
-    local txt = BarText()
-    if barFrame:IsShown() and txt and (db.xpbarAlways or hover) then
-        overlayText:SetText(txt)
-        overlay:Show()
+    local qx = Enabled("questReady") and ready.xp or 0
+    -- Is Blizzard's XP text on screen (cvar xpBarText = always, or hover)?
+    local bliz = false
+    local sw, justify
+    if fs then
+        local vis = Call(fs.IsVisible, fs)
+        if vis == nil then vis = Call(fs.IsShown, fs) end
+        local t = Call(fs.GetText, fs)
+        sw = Num(Call(fs.GetStringWidth, fs))
+        bliz = vis == true and not (type(t) == "string" and t == "") and sw ~= nil and sw > 0
+        justify = Call(fs.GetJustifyH, fs)
+    end
+    local txt, relPoint, x
+    local function fitter(avail)
+        return function(s)
+            overlayText:SetText(s)
+            local w = Num(overlayText:GetStringWidth())
+            return not w or w <= avail
+        end
+    end
+    local barW = Num(Call(sb.GetWidth, sb)) or 0
+    if bliz then
+        -- Blizzard's text is up: add only what it lacks, to the right of its actual text end.
+        relPoint, x = SupplementAnchor(justify, sw, TEXT_GAP)
+        local l, r = Num(Call(fs.GetLeft, fs)), Num(Call(fs.GetRight, fs))
+        local sbRight = Num(Call(sb.GetRight, sb))
+        local avail
+        if l and r and sbRight then
+            avail = sbRight - TextEndX(justify, l, r, sw) - TEXT_GAP
+        else
+            avail = barW / 2 - sw / 2 - TEXT_GAP
+        end
+        txt = ComposeBarText(cur, max, rested, qx, false, fitter(avail))
     else
-        overlay:Hide()
+        local hover = Call(sb.IsMouseOver, sb) == true
+        if db.xpbarAlways or hover then
+            txt = ComposeBarText(cur, max, rested, qx, true, fitter(math.max(barW - 8, 0)))
+        end
     end
+    if not txt then off(); return end
+    overlayText:SetText(txt)
+    local key = (bliz and (tostring(fs) .. relPoint .. string.format("%.1f", x)) or tostring(sb)) .. tostring(overlayText)
+    if key ~= lastAnchor then
+        lastAnchor = key
+        overlayText:ClearAllPoints()
+        if bliz then
+            overlayText:SetPoint("LEFT", fs, relPoint, x, 0)
+        else
+            overlayText:SetPoint("CENTER", sb, "CENTER", 0, 0)
+        end
+    end
+    overlay:ClearAllPoints()
+    overlay:SetPoint("CENTER", sb, "CENTER", 0, 0)
+    overlay:Show()
 end
 
 -- ---------------------------------------------------------------------------
 -- Quest XP segment on the XP bar
 -- ---------------------------------------------------------------------------
-
--- The StatusBar that is the XP bar. Old UI: MainMenuExpBar itself. Newer UI: a bar in the container's
--- .bars (each with .StatusBar); the one whose max matches UnitXPMax, else the first shown one.
-local function FindStatusBar(container)
-    if not container then return nil end
-    if type(container.GetMinMaxValues) == "function" and type(container.SetStatusBarColor) == "function" then
-        return container
-    end
-    local _, xpMax = XPValues()
-    local first
-    local bars = container.bars
-    if type(bars) == "table" and not Secret(bars) then
-        for i = 1, #bars do
-            local b = bars[i]
-            local sb = type(b) == "table" and (b.StatusBar or b) or nil
-            if sb and type(sb.GetMinMaxValues) == "function" and type(sb.CreateTexture) == "function" then
-                local ok, _, mx = pcall(sb.GetMinMaxValues, sb)
-                if ok and xpMax and Num(mx) == xpMax then return sb end
-                local shown = type(sb.IsShown) == "function" and sb:IsShown()
-                if not first and shown then first = sb end
-            end
-        end
-    end
-    return first or (type(container.StatusBar) == "table" and container.StatusBar) or nil
-end
 
 local segFrame, segTex, segBar
 local restTex, tickFrame, tickTex
@@ -637,22 +832,14 @@ local restedState = "off"            -- off | on | blizzard-hidden | not-found (
 -- ones ExhaustionLevelBar / ExhaustionTick (+ ExhaustionTickNormal/Highlight, ExhaustionLevelBarTexture).
 local restedRegions = { over = {}, tick = {} }
 local restedHooked = {}
-local function Field(o, k)
-    if type(o) ~= "table" or Secret(o) then return nil end
-    local ok, v = pcall(function() return o[k] end)
-    if ok and type(v) == "table" and not Secret(v) and type(v.SetAlpha) == "function" then return v end
-end
-local function AddUnique(list, v) for _, x in ipairs(list) do if x == v then return end end list[#list + 1] = v end
-
 local function FindRestedVisuals(sb, container)
     local over, tick = {}, {}
     local owners = {}
     local function own(o) if type(o) == "table" then AddUnique(owners, o) end end
-    own(sb); own(container)
-    if sb and type(sb.GetParent) == "function" then local ok, par = pcall(sb.GetParent, sb); if ok then own(par) end end
-    local bars = type(container) == "table" and container.bars
-    if type(bars) == "table" and not Secret(bars) then
-        for i = 1, #bars do own(bars[i]) end
+    own(sb); own(container)   -- container = the XP bar's own entry (FindXPBar), never the manager of all bars
+    if sb and type(sb.GetParent) == "function" then
+        local ok, par = pcall(sb.GetParent, sb)
+        if ok and type(par) == "table" and not Secret(par) and type(Get(par, "bars")) ~= "table" then own(par) end
     end
     for _, o in ipairs(owners) do
         for _, k in ipairs({ "ExhaustionLevelFillBar", "ExhaustionLevelBar", "RestedBar", "ExhaustionBar" }) do
@@ -784,27 +971,29 @@ RefreshQuestBar = function()
     if not (Enabled("questBar") and Enabled("questReady")) or AtMax() or ready.xp <= 0 then
         RestoreRested(); return
     end
-    barFrame = barFrame or FindBar()
-    local sb = FindStatusBar(barFrame)
+    local xp = FindXPBar()      -- the XP bar only, never the reputation bar
+    local sb = xp and xp.sb
+    barFrame = xp and xp.entry or nil
     if not sb or type(sb.GetWidth) ~= "function" then RestoreRested(); return end
+    HookXPBar(xp)               -- follows the bar's size / visibility (hooks are made once per bar)
     if sb ~= segBar then
         RestoreRested()
         segBar = sb
-        segFrame = CreateFrame("Frame", "GaarXPForeverQuestBar", sb)
-        segFrame:EnableMouse(false)
-        segTex = segFrame:CreateTexture(nil, "ARTWORK")
-        segTex:SetAllPoints(segFrame)
-        segTex:SetTexture("Interface\\Buttons\\WHITE8X8")
-        restTex = segFrame:CreateTexture(nil, "ARTWORK")      -- positioned on segFrame's parent bar below
-        restTex:SetTexture("Interface\\Buttons\\WHITE8X8")
-        tickFrame = CreateFrame("Frame", "GaarXPForeverRestedTick", sb)
-        tickFrame:EnableMouse(false)
-        tickTex = tickFrame:CreateTexture(nil, "ARTWORK")
-        tickTex:SetAllPoints(tickFrame)
-        -- Follow the bar: size and visibility (our frames are its children, so Hide/Show propagate).
-        if type(sb.HookScript) == "function" then
-            pcall(sb.HookScript, sb, "OnSizeChanged", function() Safe("quest bar", RefreshQuestBar) end)
-            pcall(sb.HookScript, sb, "OnShow", function() Safe("quest bar", RefreshQuestBar) end)
+        if not segFrame then
+            segFrame = CreateFrame("Frame", "GaarXPForeverQuestBar", sb)
+            segFrame:EnableMouse(false)
+            segTex = segFrame:CreateTexture(nil, "ARTWORK")
+            segTex:SetAllPoints(segFrame)
+            segTex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            restTex = segFrame:CreateTexture(nil, "ARTWORK")      -- positioned on segFrame's parent bar below
+            restTex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            tickFrame = CreateFrame("Frame", "GaarXPForeverRestedTick", sb)
+            tickFrame:EnableMouse(false)
+            tickTex = tickFrame:CreateTexture(nil, "ARTWORK")
+            tickTex:SetAllPoints(tickFrame)
+        else
+            -- the XP bar moved to another StatusBar (bars swapped): our frames follow it
+            segFrame:SetParent(sb); tickFrame:SetParent(sb)
         end
     end
     local cur, max, rested = XPValues()
@@ -831,7 +1020,7 @@ RefreshQuestBar = function()
         if tickFrame then tickFrame:Hide() end
         return
     end
-    local over, tick, owners = FindRestedVisuals(sb, barFrame)
+    local over, tick, owners = FindRestedVisuals(sb, xp.entry)
     restedRegions.over, restedRegions.tick = over, tick
     local found = #over + #tick > 0
     local r, g, b = RestedColor()   -- read before hiding
@@ -1004,8 +1193,11 @@ local function PrintStatus()
         .. " (" .. (db.questBarColor or "orange") .. ")" .. DOT .. "ready quests " .. ready.count
         .. " (+" .. Commas(ready.xp) .. " xp)"
         .. DOT .. "panel " .. (db.locked and "locked (Alt-drag)" or "unlocked"))
-    local bar = FindBar()
-    Print("xp bar frame: " .. (bar and (bar:GetName() or "?") or "none found") .. DOT .. "max level " .. MaxLevel()
+    local xp = FindXPBar()
+    local function nm(o) return o and (Call(o.GetName, o) or "?") or "none" end
+    Print("xp bar: " .. (xp and (nm(xp.entry) .. " (statusbar " .. nm(xp.sb) .. ")") or "none found")
+        .. DOT .. "blizzard text region: " .. (xp and xp.text and (Call(xp.text.GetName, xp.text) or "yes") or "none")
+        .. DOT .. "overlay " .. ((overlay and overlay:IsShown()) and "shown" or "hidden") .. DOT .. "max level " .. MaxLevel()
         .. (AtMax() and " (reached)" or ""))
     Print("session " .. Duration(Now() - session.start) .. DOT .. "gained " .. Commas(session.gained) .. " xp"
         .. DOT .. session.kills .. " kills" .. DOT .. session.quests .. " quests")
@@ -1140,7 +1332,8 @@ events:RegisterEvent("QUEST_TURNED_IN")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 for _, e in ipairs({ "QUEST_DATA_LOAD_RESULT", "UNIT_QUEST_LOG_CHANGED", "QUEST_WATCH_UPDATE",
-    "QUEST_LOG_CRITERIA_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "UI_INFO_MESSAGE" }) do
+    "QUEST_LOG_CRITERIA_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "UI_INFO_MESSAGE",
+    "UPDATE_FACTION", "CVAR_UPDATE" }) do
     pcall(events.RegisterEvent, events, e)
 end
 events:SetScript("OnEvent", function(_, event, arg1, arg2)
@@ -1152,7 +1345,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             readyDirty = true
             HookTooltips()
             Refresh()
-        elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_EXHAUSTION" then
+        elseif event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_EXHAUSTION"
+            or event == "UPDATE_FACTION" or event == "CVAR_UPDATE" then   -- watched faction / text cvar: bars get swapped
             Refresh()
         elseif event == "PLAYER_XP_UPDATE" then
             OnXPUpdate(); Refresh()

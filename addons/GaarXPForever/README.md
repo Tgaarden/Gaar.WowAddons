@@ -16,9 +16,13 @@ level on level-up, and quest XP in tooltips. Every part has its own switch. It n
   and % of the level), XP per hour this session, time to level at that rate and "~N kills / ~N
   quests" to level (the session's average XP per kill and per quest turn-in). At max level it says
   "Max level". Alt-drag moves it (or plain drag after `/gxp unlock`); the position is saved.
-- **Text on the XP bar** (`xpbarText`, on): cur/max, pct and rested on Blizzard's XP bar
-  (`MainMenuExpBar`, or `MainStatusTrackingBarContainer` / `StatusTrackingBarManager` on newer
-  UIs), shown on hover, or always with `xpbarAlways` (off). `/gxp status` names the frame found.
+- **Text on the XP bar** (`xpbarText`, on): only on the XP bar, never on the reputation bar stacked
+  with it (the bar is found by `barIndex` / name / `UnitXPMax`, and looked up again when bars change).
+  Blizzard's own XP text is kept and supplemented: ours sits to the right of its text, about 16 px
+  clear, with what it lacks, e.g. `(89.4%) . rested 6,396 . +3,450 quest`. If it would not fit in the
+  bar, rested is dropped first, then quest. Follows Blizzard's text (the `xpBarText` cvar / hover).
+  Where Blizzard's text is hidden, ours shows in full (`45,394/50,800 (89.4%) ...`, centred) with
+  `xpbarAlways` (off), else on hover. `/gxp status` names the bar and text region found.
 - **Level log** (`levelLog`, on): on level-up, one chat line with the time played on that level and
   in total. Blizzard's own time-played print is held back for that one request.
 - **Quest XP** (`questXP`, off): the quest's XP reward as a line in the quest log / quest link
@@ -39,7 +43,8 @@ level on level-up, and quest XP in tooltips. Every part has its own switch. It n
   cover the rest of the level). Own frame, a child of the bar's StatusBar (frame level +1, same height),
   following its size (`OnSizeChanged`) and visibility; hidden at max level, with no ready quests, or when
   `questBar` or `questReady` is off. Colour `orange` (default), `green` or `yellow`. The bar text
-  gets ` (+2,325)` appended when quests are ready.
+  gets ` . +2,325 quest` added when quests are ready. The segment, rested shift and tick are only
+  ever on the XP bar.
 - **Session reset**: `/gxp reset` resets the session's XP, rate, kills and quests.
 
 How the change is counted: `PLAYER_XP_UPDATE` deltas (across a level-up, the rest of the old level

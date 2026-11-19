@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.25"] = "notes for GaarFramesForever 1.5.2: /gff hotdebug is short enough for one screenshot and ends with the cast summary; new /gff hotdebug cast traces your next cast",
         ["3.2.24"] = "notes for GaarFramesForever 1.5.1: HoT preview while casting Regrowth on yourself now shows",
         ["3.2.23"] = "notes for GaarXPForever 1.3.7: hovering the XP bar changes nothing now; Blizzard's hover text is hidden and our text stays exactly where it was",
         ["3.2.22"] = "notes for GaarXPForever 1.3.6: our XP text no longer jumps right when the mouse hovers the XP bar; it keeps the position it has when Blizzard shows the short non-hover text",
@@ -112,6 +113,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.5.2"] = "/gff hotdebug now prints one short line per buff and ends with a compact summary of the HoT cast being made (spell, HoT amount, target and how it was found, which frames draw it and why the yellow or overheal part is or is not shown). New: /gff hotdebug cast arms a trace of your next cast: type it, cast Regrowth, take a screenshot",
         ["1.5.1"] = "Fix: casting a HoT spell (Regrowth) on yourself now shows its HoT preview on your own frame, also with an enemy targeted or the self-cast key held (the preview could land on the enemy instead)",
         ["1.5.0"] = "Overheal: heals past the maximum (incoming heals in red, HoTs in orange-red after them) now hang past the right edge of the health bar on every frame, up to 30% of its width (/gff overheal on|off, /gff overheal cap 0.1-1). HoT while casting: casting Regrowth (or any HoT spell with a cast time) shows its HoT in yellow on the target's frames from the start of the cast, gone on stop or interrupt, handed over to your cast and then the aura without counting twice (/gff hotcast on|off); /gff hotdebug shows the pending cast",
         ["1.4.4"] = "Steadier yellow HoT segment: each HoT keeps its amount (no more flipping between sources), a fallback amount when none is readable, your own HoTs shown in combat, ticks counted from the HoT's schedule and dropped on time, all frames of the same unit redrawn; /gff hotdebug [unit] says per HoT where each number came from and why it adds nothing",

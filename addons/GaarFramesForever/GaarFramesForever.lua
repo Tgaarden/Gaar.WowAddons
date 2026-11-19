@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -1115,7 +1115,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
-local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug, OnCast, CastPreview; TicksLeft, StableAmount, ClampHot, HealLayout (pure)
+local HealPred = { dbg = {} }   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug, OnCast, CastPreview; TicksLeft, StableAmount, ClampHot, HealLayout (pure)
 do
 -- 1.2.11: Blizzard's colours (CompactUnitFrame / unit frame heal prediction); no global holds them.
 local MY = { 0.0, 0.827, 0.765, 0.85 }   -- your heals: Blizzard's teal-green
@@ -1817,26 +1817,27 @@ end
 -- target's GUID for the redraw.
 local function StartPreview(id, cast, now)
     castPv = nil
-    if not id then return nil end
+    if not id then HealPred.dbg.startWhy = "spell ID hidden or missing"; return nil end
     local name = SpellNameOf(id)
     local hot = HotOf({ spellId = id, name = name })
-    if not hot then return nil end
+    if not hot then HealPred.dbg.startWhy = "spell " .. id .. " " .. tostring(name) .. ": not a known HoT spell"; return nil end
     local s, guid, how = lastSent, nil, nil
     if s and s.id == id and now - s.at <= 5 and (not s.cast or not cast or s.cast == cast) then
         guid, how = s.guid, s.how
     else
         guid, how = CastTarget(nil)
     end
-    if not guid then return nil end
+    if not guid then HealPred.dbg.startWhy = "no target GUID (" .. tostring(how) .. ")"; return nil end
     local per, interval, dur, source = SpellAmount(id, hot)
     dur = dur or hot[3]
-    if not per or not interval or interval <= 0 or not dur then return nil end
+    if not per or not interval or interval <= 0 or not dur then HealPred.dbg.startWhy = "no HoT amount for spell " .. id; return nil end
     local ticks = math.floor(dur / interval + 0.01)
-    if ticks <= 0 then return nil end
+    if ticks <= 0 then HealPred.dbg.startWhy = "no ticks"; return nil end
     local direct, directSrc = DirectAmount(id, hot)
     castPv = { id = id, name = name or tostring(id), guid = guid, how = how, cast = cast, at = now,
         per = per, interval = interval, ticks = ticks, total = per * ticks, source = source,
         direct = direct, directSrc = directSrc }
+    HealPred.dbg.startWhy = "preview set on " .. tostring(how)
     return guid
 end
 
@@ -2057,66 +2058,113 @@ function HealPred.HotLines(unit)
     return lines
 end
 
+-- /gff hotdebug cast (1.5.2): prints what your next cast does, on SENT, START and its end.
+function HealPred.Trace(event, a2, a3, a4, ok, guid)
+    local now = type(_G.GetTime) == "function" and Num(_G.GetTime()) or nil
+    if not HealPred.dbg.traceUntil or not now or now > HealPred.dbg.traceUntil then HealPred.dbg.traceUntil = nil; return end
+    local id = (event == "UNIT_SPELLCAST_SENT") and Num(a4) or Num(a3)
+    if event == "UNIT_SPELLCAST_SENT" then
+        if HealPred.dbg.traceId then return end
+        HealPred.dbg.traceId = id
+        Print("trace SENT: spell " .. tostring(id) .. " " .. tostring(SpellNameOf(id)) .. DOT .. "target name arg: "
+            .. (PlainString(a2) or "(none/hidden)") .. DOT .. (ok and "" or "ERROR ") .. "known HoT: "
+            .. tostring(id and HotOf({ spellId = id, name = SpellNameOf(id) }) ~= nil))
+        if lastSent then Print("  resolved: " .. tostring(lastSent.how) .. DOT .. "GUID " .. tostring(lastSent.guid)) end
+        return
+    end
+    if HealPred.dbg.traceId and id ~= HealPred.dbg.traceId then return end
+    if event == "UNIT_SPELLCAST_START" then
+        Print("trace START: " .. tostring(HealPred.dbg.startWhy) .. (ok and "" or (DOT .. "ERROR " .. tostring(guid))))
+        for _, line in ipairs(HealPred.CastSummary()) do Print(line) end
+    else
+        Print("trace " .. event:gsub("UNIT_SPELLCAST_", "") .. ": cast ended")
+        for _, line in ipairs(HealPred.CastSummary()) do Print(line) end
+        HealPred.dbg.traceUntil, HealPred.dbg.traceId = nil, nil
+    end
+end
+
+-- 1.5.2: the compact cast summary for /gff hotdebug and /gff hotdebug cast: spell, HoT amount,
+-- the target and how it was decided, the frames drawing it, and each frame's yellow / overheal.
+function HealPred.CastSummary()
+    local now = Num(type(_G.GetTime) == "function" and _G.GetTime() or nil)
+    local pv = HealPred.CastPreview(now)
+    if not pv then
+        return { "CAST: none pending" .. DOT .. "hotcast " .. OnOff(db.hotCastPreview) .. DOT .. "last START: " .. tostring(HealPred.dbg.startWhy or "none yet") }
+    end
+    local sub
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellSubtext) == "function" then
+        local ok, t = pcall(C.GetSpellSubtext, pv.id)
+        sub = ok and PlainString(t) or nil
+    end
+    local out = { string.format("CAST: %s %s (id %s)%sHoT %d (%d x %d, %s)%sdirect %s%starget: %s", tostring(pv.name),
+        sub or "", tostring(pv.id), DOT, math.floor(pv.total + 0.5), math.floor(pv.per + 0.5), pv.ticks, tostring(pv.source), DOT,
+        pv.direct and math.floor(pv.direct + 0.5) or "?", DOT, tostring(pv.how)) }
+    local any = false
+    for u, f in pairs(real) do
+        if f and not f.preview and f:IsVisible() and type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) == pv.guid then
+            any = true
+            out[#out + 1] = "  frame " .. u .. ": yellow " .. tostring(hotWhy[u] or "not drawn yet")
+                .. DOT .. "over " .. tostring(overWhy[u] or "not drawn yet")
+        end
+    end
+    if not any then out[#out + 1] = "  NO visible frame shows the target's GUID (" .. tostring(pv.how) .. ")" end
+    return out
+end
+
 -- /gff hotdebug [unit]: what the HoT code makes of every HoT on the unit (default the target,
--- else the player), then every helpful aura as the client gives it and its tooltip - to be
--- pasted back when the yellow is missing or wrong.
+-- else the player), then one short line per helpful aura, and last the cast summary (1.5.2:
+-- readable on one screenshot). /gff hotdebug cast arms a trace of the next cast.
 function HealPred.HotDebug(arg)
+    if type(arg) == "string" and arg:lower() == "cast" then
+        HealPred.dbg.traceUntil = (type(_G.GetTime) == "function" and Num(_G.GetTime()) or 0) + 60
+        HealPred.dbg.traceId = nil
+        Print("hotdebug cast: armed for 60 s - cast your heal now, I print what happens; then screenshot")
+        return
+    end
     local u = HotUnit()
     if type(arg) == "string" and arg ~= "" then
         local ok, ex = pcall(UnitExists, arg)
         if not ok or Plain(ex) ~= true then
-            Print("hotdebug: no unit \"" .. arg .. "\" (player, target, focus, pet, party1-4 ...)")
+            Print("hotdebug: no unit \"" .. arg .. "\" (player, target, focus, pet, party1-4 ..., or cast)")
             return
         end
         u = arg
     end
     local C = _G.C_UnitAuras
-    Print("hotdebug " .. u .. DOT .. "in combat " .. tostring(InCombat()) .. DOT .. "GetTime "
-        .. Raw(type(_G.GetTime) == "function" and _G.GetTime() or nil)
-        .. DOT .. "health " .. Raw(UnitHealth(u)) .. "/" .. Raw(UnitHealthMax(u)))
-    for _, line in ipairs(HealPred.HotLines(u)) do Print(line) end
-    local pv = HealPred.CastPreview(Num(type(_G.GetTime) == "function" and _G.GetTime() or nil))
-    Print("hot cast preview " .. OnOff(db.hotCastPreview) .. DOT .. (pv and HealPred.PreviewText(pv)
-        or "no HoT spell of yours being cast now"))
+    Print("hotdebug " .. u .. DOT .. "in combat " .. tostring(InCombat()) .. DOT .. "health "
+        .. Raw(UnitHealth(u)) .. "/" .. Raw(UnitHealthMax(u)))
+    for _, line in ipairs(HealPred.HotLines(u)) do
+        if not line:find("other buffs (not a known HoT)", 1, true) and not line:find("amount: aura points", 1, true) then Print(line) end
+    end
     if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then
         Print("no C_UnitAuras.GetAuraDataByIndex on this client")
-        return
-    end
-    Print("raw helpful auras:")
-    local S = _G.C_Secrets
-    local count = 0
-    for i = 1, MAX_AURAS do
-        local sec = "n/a"
-        if type(S) == "table" and type(S.ShouldUnitAuraIndexBeSecret) == "function" then
-            local ok, s = pcall(S.ShouldUnitAuraIndexBeSecret, u, i, "HELPFUL")
-            sec = ok and Raw(s) or "error"
-        end
-        local ok, a = pcall(C.GetAuraDataByIndex, u, i, "HELPFUL")
-        if not ok then Print(i .. ": read refused (" .. tostring(a) .. ")"); break end
-        if IsSecret(a) then Print(i .. ": aura table secret") end
-        if type(a) == "nil" then break end
-        if type(a) == "table" and not IsSecret(a) then
-            count = count + 1
-            Print(i .. ": spellId=" .. Raw(a.spellId) .. " name=" .. Raw(a.name) .. " points=" .. Raw(a.points)
-                .. " duration=" .. Raw(a.duration) .. " expirationTime=" .. Raw(a.expirationTime)
-                .. " timeMod=" .. Raw(a.timeMod) .. " isHelpful=" .. Raw(a.isHelpful)
-                .. " sourceUnit=" .. Raw(a.sourceUnit) .. " auraInstanceID=" .. Raw(a.auraInstanceID)
-                .. " secretIndex=" .. sec)
-            local hot, how = HotOf(a)
-            if hot then
-                local text, by = AuraTooltip(u, a, i)
-                local p, every, total, over
-                if text then p, every, total, over = ParseHeal(text) end
-                Print("   HoT by " .. how .. DOT .. "tooltip via " .. tostring(by) .. ": "
-                    .. (text and ('"' .. text:sub(1, 160) .. '"') or "none")
-                    .. DOT .. "parsed: " .. (p and (p .. " every " .. Raw(every) .. "s")
-                        or (total and (total .. " over " .. Raw(over) .. "s")) or "nothing"))
+    else
+        local count = 0
+        for i = 1, MAX_AURAS do
+            local ok, a = pcall(C.GetAuraDataByIndex, u, i, "HELPFUL")
+            if not ok then Print(i .. ": read refused"); break end
+            if type(a) == "nil" then break end
+            if IsSecret(a) or type(a) ~= "table" then
+                Print(i .. ": secret")
             else
-                Print("   not a known HoT (neither its spell ID nor its name is in the HoT list)")
+                count = count + 1
+                local hot, how = HotOf(a)
+                if hot then
+                    local text, by = AuraTooltip(u, a, i)
+                    local p, every, total, over
+                    if text then p, every, total, over = ParseHeal(text) end
+                    Print(i .. ": " .. Raw(a.spellId) .. " " .. Raw(a.name) .. " - HoT by " .. how .. ", points " .. Raw(a.points)
+                        .. ", exp " .. Raw(a.expirationTime) .. ", src " .. Raw(a.sourceUnit) .. ", tip " .. tostring(by) .. ": "
+                        .. (p and (p .. " every " .. Raw(every) .. "s") or (total and (total .. " over " .. Raw(over) .. "s")) or "nothing"))
+                else
+                    Print(i .. ": " .. Raw(a.spellId) .. " " .. Raw(a.name) .. " - not HoT")
+                end
             end
         end
+        if count == 0 then Print("no helpful auras read on " .. u) end
     end
-    if count == 0 then Print("no helpful auras read on " .. u) end
+    for _, line in ipairs(HealPred.CastSummary()) do Print(line) end
 end
 
 local function Overlay(health, level, c, reverse)
@@ -4474,7 +4522,7 @@ local function PrintHelp()
         .. OnOff(db and db.overheal) .. ")")
     Print(string.format("/gff overheal cap <%.1f-%.0f> - its longest length, a share of the bar's width (now: %s)",
         OVER_CAP[1], OVER_CAP[2], db and tostring(db.overhealCap) or "?"))
-    Print("/gff hotdebug [unit] - each HoT on the unit (default your target, else you): amount, source, ticks left, what is secret and why it adds nothing; then the raw buff data, to paste back")
+    Print("/gff hotdebug [unit] - each HoT on the unit (default your target, else you), one line per buff, the cast summary last; /gff hotdebug cast - traces your next cast (cast, then screenshot)")
     Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
     Print("/gff pethappiness on | off - hunter pet happiness icon next to the pet frame (tooltip on hover) and pet health bar coloured by happiness (now: "
@@ -5003,12 +5051,14 @@ end
 -- A HoT you cast: redraw the yellow segment on every frame showing its target.
 local function OnHotCast(event, unit, a2, a3, a4)
     local ok, guid = pcall(HealPred.OnCast, event, unit, a2, a3, a4)
-    if not ok or not guid then return end
-    for u, f in pairs(real) do
-        if Visible(f) and type(_G.UnitGUID) == "function" and Plain(_G.UnitGUID(u)) == guid then
-            Run("healpred", HealPred.Update, f)
+    if ok and guid then
+        for u, f in pairs(real) do
+            if Visible(f) and type(_G.UnitGUID) == "function" and Plain(_G.UnitGUID(u)) == guid then
+                Run("healpred", HealPred.Update, f)
+            end
         end
     end
+    if HealPred.dbg.traceUntil then pcall(HealPred.Trace, event, a2, a3, a4, ok, guid) end
 end
 
 events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)

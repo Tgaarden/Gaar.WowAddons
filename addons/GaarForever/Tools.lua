@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.20"] = "notes for GaarFramesForever 1.5.0: overheal past the health bar, HoT shown while casting",
         ["3.2.19"] = "notes for GaarXPForever 1.3.4: the text on the XP bar is now only on the XP bar, never on the reputation bar above it; Blizzard's own XP text is kept and ours (percent, rested, ready-quest XP) is added to the right of it, dropping rested then quest if it would not fit; the orange quest segment and rested shift are locked to the XP bar too",
         ["3.2.18"] = "notes for GaarBagsForever 1.12.0",
         ["3.2.17"] = "notes for GaarXPForever 1.3.3: the rested tick on the XP bar no longer shows a striped block; it now copies the Blizzard tick atlas or tex coords, else draws a thin light line, centred on the end of the rested segment",
@@ -107,6 +108,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.5.0"] = "Overheal: heals past the maximum (incoming heals in red, HoTs in orange-red after them) now hang past the right edge of the health bar on every frame, up to 30% of its width (/gff overheal on|off, /gff overheal cap 0.1-1). HoT while casting: casting Regrowth (or any HoT spell with a cast time) shows its HoT in yellow on the target's frames from the start of the cast, gone on stop or interrupt, handed over to your cast and then the aura without counting twice (/gff hotcast on|off); /gff hotdebug shows the pending cast",
         ["1.4.4"] = "Steadier yellow HoT segment: each HoT keeps its amount (no more flipping between sources), a fallback amount when none is readable, your own HoTs shown in combat, ticks counted from the HoT's schedule and dropped on time, all frames of the same unit redrawn; /gff hotdebug [unit] says per HoT where each number came from and why it adds nothing",
         ["1.3.0"] = "Renamed to GaarFramesForever (new folders; settings move over automatically on first login; new /gff commands, old ones still work)",
         ["1.2.16"] = "the addon's own name in its menu errors",

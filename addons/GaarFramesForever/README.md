@@ -47,6 +47,7 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   |---|---|
   | Your heals / all heals | 0.0, 0.827, 0.765, 0.85 / 0.0, 0.631, 0.557, 0.55 (Blizzard's teal) |
   | HoTs (Blizzard has none) | 0.95, 0.85, 0.30, 0.55 |
+  | Overheal past the bar: heals / HoTs (1.5.0) | 1.0, 0.25, 0.25, 0.5 / 1.0, 0.55, 0.20, 0.5 |
   | Absorb / heal absorb | white 0.55 / red 1.0, 0.0, 0.0, 0.75 |
 - **Target.** Combo points above the frame for rogues and druids. A row of buffs and a row of
   debuffs under it, up to 16 each, with stacks and a cooldown swipe; your own debuffs are larger
@@ -121,6 +122,40 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   player and as target). `/gff hotdebug [unit]` lists, per HoT, the amount and its source
   (points, tooltip, cached, stand-in or your cast), the interval, ticks left, total, what is
   secret, and why a HoT adds nothing.
+- **Overheal past the bar** (1.5.0, on by default: `/gff overheal off` to hide). When health +
+  incoming heals + HoTs come to more than the maximum, the excess hangs past the right edge of
+  the health bar on every frame with heal prediction (player, target, target of target, focus,
+  pet, party), at the same pixels per health point as the bar, up to 30% of the bar's width
+  (`/gff overheal cap 0.1-1`). Inside the bar nothing changes: health, green, yellow, cut at the
+  end; what does not fit carries on outside as one reddish, half see-through segment in two
+  tints - the overflowing part of the incoming (cast) heals in red `1.0, 0.25, 0.25, 0.5`, the
+  HoT part after it in orange-red `1.0, 0.55, 0.20, 0.5`. It sits on its own frame anchored to
+  the health bar's right edge, at its height and frame level, so a full-health druid casting
+  Regrowth now sees the heal as overheal instead of nothing; it may overlap whatever sits right
+  of a frame (target of target, a cast bar), being see-through. The layout is one pure function,
+  `HealLayout(cur, max, incoming, hot, overCap)`, used whenever health, maximum and incoming
+  heals are plain (the incoming heals unclamped, from `UnitGetIncomingHeals`). When one of them
+  is hidden (secret, in combat) nothing can be added or compared, so two bars are laid out like
+  the green and yellow - the client's raw incoming heals from the health edge, the HoTs after
+  them, on the bar's own scale - and the overheal frame clips them to what reaches past the end;
+  there the heal part can reach past the end by at most the current health's share of the bar.
+- **HoT while casting** (1.5.0, on by default: `/gff hotcast off` to hide). While you cast a HoT
+  spell with a cast time (Regrowth; Rejuvenation and Renew are instant and show from the cast's
+  success as before), its full HoT (per tick x ticks) is drawn in yellow from the start of the
+  cast on every frame showing its target: the target frame, the player frame on a self-cast, the
+  party frame. The target is the name `UNIT_SPELLCAST_SENT` gives, matched by GUID to every
+  frame; without a name your target if you can help it, else you (classic self-cast). The
+  amount is that rank's last reading, else the spell's description, else the rank's base value.
+  It goes on `UNIT_SPELLCAST_STOP`, `_FAILED` and `_INTERRUPTED` of that cast (a failed attempt
+  at another spell mid-cast leaves it), and on `_SUCCEEDED` it hands over to the own-cast entry
+  of 1.4.4 and then to the aura, never counted twice; a recast replaces your own HoT of that name
+  in the sum. It needs no aura read, so it works in combat. Regrowth's direct heal is the
+  client's to show (green); if the client's prediction of your own heals on the target
+  (`UnitGetIncomingHeals(unit, "player")`, unclamped) is a plain 0 during the cast, the addon
+  adds the direct part itself (the description's range middle, else the rank base), and stops
+  doing so as soon as the client shows your cast; hidden or missing, the client is trusted.
+  `/gff hotdebug` prints the pending cast: spell, target and how it was found, amount, source,
+  the direct part and whether the client's prediction includes your cast.
 - **Druid mana** (1.2.2). While a form shows another power (bear rage, cat energy) and you have
   mana, a thin blue mana bar with `cur/max  NN%` sits under the power bar of the player frame, as
   Blizzard's alternate mana bar; the health bar gives up the room. The form's own power bar stays
@@ -179,6 +214,9 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/gff playerbuffs on\|off` | Your buffs under the player frame (on by default) |
 | `/gff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 | `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
+| `/gff hotcast on\|off` | While you cast a HoT spell (Regrowth), its HoT in yellow on the target's frames from the start of the cast (on by default; needs `hotpred`) |
+| `/gff overheal on\|off` | Heals past the maximum as a red / orange-red segment past the health bar's right edge (on by default) |
+| `/gff overheal cap <0.1-1>` | The overheal segment's longest length, as a share of the bar's width (default 0.3; `30` works too) |
 | `/gff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |
 | `/gff marks on\|off` | Raid target marks (skull, cross, star ...) on the frames (on by default) |
 | `/gff pethappiness on\|off` | Hunter pet happiness icon next to the pet frame and pet health bar coloured by happiness (on by default) |

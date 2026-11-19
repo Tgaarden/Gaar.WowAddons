@@ -31,6 +31,13 @@
       again and goes back to its bag slot, with a chat line and an OK popup. Always on. And while
       the Send tab has attachments, each bag slot whose item is attached gets a pulsing cyan ring
       (/gbf mailglow on|off, on by default, GaarBagsForeverDB.mailGlow).
+    * Locked items cannot be destroyed, auctioned or traded either (since 1.12, always on). Dropping
+      one on the world to delete it puts it back in its bag slot and closes Blizzard's delete
+      popup before it can be confirmed; one that lands in the auction house sell slot (classic
+      AuctionFrame or the retail-engine AuctionHouseFrame) or in a trade slot is taken off again.
+      Every block, mail included, ends in one chat line and one OK popup
+      (StaticPopupDialogs.GAARBAGSFOREVER_LOCKED: "<item> is locked (do-not-sell) and cannot be
+      destroyed|auctioned|traded|mailed."); the popup is skipped in combat.
     * /gbf for help, reset, lock, unlock, native, reverse, autosort, counts, gold, forget, locked,
       unlockall, mailglow, stop and status.
     * GaarBagsForeverAPI, a small global table for GaarForever's hub menu (version,
@@ -48,7 +55,9 @@
   separate guard frames of its own laid over the item button or the merchant window, never by
   replacing or wrapping a Blizzard click handler; see the item lock section. The mail block takes a
   locked attachment off with the plain ClickSendMailItemButton API, one frame after Blizzard's
-  update; see the mail section. Hooks go through hooksecurefunc
+  update; see the mail section. The destroy, auction and trade blocks (1.12) follow
+  StaticPopup_Show and the sell frames' SetItem with hooksecurefunc and use only plain API calls;
+  see their section. Hooks go through hooksecurefunc
   and HookScript, no Blizzard button is clicked, and nothing protected is touched; the reversal
   moves items only with C_Container.PickupContainerItem, outside combat. If the
   bag frame ever turns out to be protected, a move that lands in combat waits for
@@ -57,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.11.0"
+local VERSION = "1.12.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -2244,13 +2253,59 @@ local function BuildItemLock()
         end)
     end
 
+    -- ---- the block message (since 1.12) ---------------------------------------------
+
+    -- One popup for every blocked action (mail, destroy, auction, trade): an entry of our own in
+    -- StaticPopupDialogs with an OK button only. Never shown in combat; the chat line always is.
+    local POPUP_KEY = "GAARBAGSFOREVER_LOCKED"
+    local BLOCK_DEDUPE = 1.5        -- seconds one attempt may take to arrive by more than one path
+    local lastBlocked = {}          -- dedupe key -> Now() of its last message
+
+    local function ShowLockedPopup(text)
+        local dialogs = _G.StaticPopupDialogs
+        if type(dialogs) ~= "table" or type(_G.StaticPopup_Show) ~= "function" then return end
+        if not dialogs[POPUP_KEY] then
+            dialogs[POPUP_KEY] = {
+                text = "%s",
+                button1 = _G.OKAY or "OK",
+                timeout = 0,
+                whileDead = true,
+                hideOnEscape = true,
+                preferredIndex = 3,
+            }
+        end
+        pcall(_G.StaticPopup_Show, POPUP_KEY, text)
+    end
+
+    -- Says that labels (an item link or label, or a list of them) cannot be <action> ("mailed",
+    -- "destroyed", "auctioned", "traded"): one chat line, and the popup out of combat. key names
+    -- the attempt; the same key again within BLOCK_DEDUPE seconds says nothing, so an attempt seen
+    -- by an event and a hook gives one message. Returns true when it said something.
+    local function BlockLocked(labels, action, key)
+        if type(labels) ~= "table" then labels = { labels } end
+        if #labels == 0 then return false end
+        local items = table.concat(labels, ", ")
+        key = key or (action .. ":" .. items)
+        local now = Now()
+        local last = lastBlocked[key]
+        if last and now - last < BLOCK_DEDUPE then return false end
+        lastBlocked[key] = now
+        local verb = #labels == 1 and " is" or " are"
+        Print(items .. verb .. " locked - it cannot be " .. action .. ". Alt-click to unlock.")
+        if not InCombat() then
+            ShowLockedPopup(items .. verb .. " locked (do-not-sell) and cannot be " .. action
+                .. ".\n\nAlt-click it in your bags to unlock.")
+        end
+        return true
+    end
+
     -- ---- the merchant drop guard -----------------------------------------------
 
     -- The locked item on the cursor: its id and link, or nil.
     local function CursorLockedItem()
         if type(_G.GetCursorInfo) ~= "function" then return nil end
-        local kind, id, link = _G.GetCursorInfo()
-        if kind ~= "item" then return nil end
+        local ok, kind, id, link = pcall(_G.GetCursorInfo)
+        if not ok or Plain(kind) ~= "item" then return nil end
         id = PlainNumber(id)
         if id and IsItemLocked(id) then return id, PlainString(link) end
         return nil
@@ -2334,7 +2389,7 @@ local function BuildItemLock()
             return
         end
         table.sort(ids)
-        Print(#ids .. " locked item" .. (#ids == 1 and "" or "s") .. " (never sold to a merchant; Alt-click to unlock):")
+        Print(#ids .. " locked item" .. (#ids == 1 and "" or "s") .. " (never sold, mailed, auctioned, traded or destroyed; Alt-click to unlock):")
         for _, id in ipairs(ids) do Print("  " .. ItemLabel(id)) end
     end
 
@@ -2377,6 +2432,10 @@ local function BuildItemLock()
     Lock.ItemLabel = ItemLabel
     Lock.Buttons = LockButtons
     Lock.ButtonSlot = LockButtonSlot
+    -- For the mail section and the destroy / auction / trade blocks (since 1.12).
+    Lock.Block = BlockLocked
+    Lock.CursorLocked = CursorLockedItem
+    Lock.PopupKey = POPUP_KEY
 end
 BuildItemLock()
 
@@ -2395,7 +2454,8 @@ BuildItemLock()
 --                whose item ID is locked is taken off with ClickSendMailItemButton(index, true),
 --                which sends it back to its bag slot. Chat prints "<link> is locked - it cannot
 --                be mailed. Alt-click to unlock." and a StaticPopup with an OK button
---                (StaticPopupDialogs.GAARBAGSFOREVER_MAIL_LOCKED) says the same; the popup is
+--                (StaticPopupDialogs.GAARBAGSFOREVER_LOCKED since 1.12, shared with the destroy,
+--                auction and trade blocks; GAARBAGSFOREVER_MAIL_LOCKED before) says the same; the popup is
 --                skipped in combat, the chat line is not. Always on, like the merchant block.
 --   mail glow    every bag slot whose item sits in an outgoing attachment gets a pulsing cyan
 --                ring: GaarBarsForever's low-rank ring (UI-ActionButton-Border, ADD blend, 1.8x
@@ -2511,7 +2571,6 @@ function Mail.Build()
     local RING_SCALE = 1.8
     local RING_PULSE = 0.8          -- seconds from bright to dim; it bounces back
     local RING_LOW_ALPHA = 0.35
-    local POPUP_KEY = "GAARBAGSFOREVER_MAIL_LOCKED"
     local MAX_TRIES = 3
 
     local function GlowOn()
@@ -2583,29 +2642,9 @@ function Mail.Build()
         takenOff = takenOff + 1
     end
 
-    local function ShowPopup(text)
-        local dialogs = _G.StaticPopupDialogs
-        if type(dialogs) ~= "table" or type(_G.StaticPopup_Show) ~= "function" then return end
-        if not dialogs[POPUP_KEY] then
-            dialogs[POPUP_KEY] = {
-                text = "%s",
-                button1 = _G.OKAY or "OK",
-                timeout = 0,
-                whileDead = true,
-                hideOnEscape = true,
-                preferredIndex = 3,
-            }
-        end
-        pcall(_G.StaticPopup_Show, POPUP_KEY, text)
-    end
-
+    -- The chat line and the popup come from the item lock's shared block message (since 1.12).
     local function Announce(labels)
-        local items = table.concat(labels, ", ")
-        local verb = #labels == 1 and " is" or " are"
-        Print(items .. verb .. " locked - it cannot be mailed. Alt-click to unlock.")
-        if not InCombat() then
-            ShowPopup(items .. verb .. " locked (do-not-sell) and cannot be mailed.\n\nAlt-click it in your bags to unlock.")
-        end
+        Lock.Block(labels, "mailed")
     end
 
     local function ScanAttachments()
@@ -2858,6 +2897,418 @@ end
 Mail.Build()
 
 -- ---------------------------------------------------------------------------
+-- Locked items kept from destroy, the auction house and trade (since 1.12)
+--
+-- Like the mail block, always on, and every block ends in the same message: the item lock's
+-- Lock.Block(label, action) prints "<link> is locked - it cannot be <action>. Alt-click to
+-- unlock." and, out of combat, shows the one OK popup StaticPopupDialogs.GAARBAGSFOREVER_LOCKED
+-- ("<link> is locked (do-not-sell) and cannot be destroyed|auctioned|traded|mailed."). One
+-- attempt that reaches us by two paths (an event and a hook) gives one message: the same action
+-- and item within 1.5 s is said once.
+--
+--   destroy    Dropping an item from the bags onto the world makes the client fire
+--              DELETE_ITEM_CONFIRM, and Blizzard's UIParent answers with the StaticPopup
+--              DELETE_ITEM, DELETE_GOOD_ITEM, DELETE_QUEST_ITEM or DELETE_GOOD_QUEST_ITEM, whose
+--              Delete / OK button calls DeleteCursorItem(). The item stays on the cursor while
+--              the popup is up. Both DELETE_ITEM_CONFIRM (on our own frame) and
+--              hooksecurefunc("StaticPopup_Show") look at the cursor (GetCursorInfo: "item",
+--              itemID, link); a locked item is put back with ClearCursor() and the delete popup
+--              is closed with StaticPopup_Hide(which) (all four names when only the event saw it,
+--              again one frame later in case the popup came after the event).
+--              What is guaranteed: once the cursor is empty, DeleteCursorItem() has nothing to
+--              delete, so the Delete / OK button can no longer destroy the locked item, even if
+--              the popup could not be hidden (Blizzard's delete popups also hide themselves when
+--              the cursor is empty). Not covered: code that calls DeleteCursorItem() directly
+--              with no popup (a macro, another addon). DeleteCursorItem itself cannot be stopped,
+--              and a post-hook runs after the item is gone with the cursor already empty, so it
+--              could not even say which item it was; none is added.
+--   auction    Classic AuctionFrame: NEW_AUCTION_UPDATE (and CURSOR_CHANGED while the auction
+--              house is open) schedules a check one frame later. GetAuctionSellItemInfo() names
+--              the item in the sell slot (its itemID, or else its name matched against the locked
+--              items' links); a locked one is picked up with ClickAuctionSellItemButton() - only
+--              with an empty cursor, else it waits for the next CURSOR_CHANGED - and put back in
+--              its bag slot with ClearCursor().
+--              Retail-engine AuctionHouseFrame: each sell frame (ItemSellFrame,
+--              CommoditiesSellFrame) has its SetItem followed with hooksecurefunc; one frame
+--              later the frame's GetItem() location is read with C_Item.GetItemID /
+--              C_Item.GetItemLink, and a locked item is cleared with the frame's own ClearItem,
+--              or SetItem(nil) when there is none. The bag item never left its slot there.
+--              Both UIs are supported; whichever this client has is used, and the hooks are made
+--              at AUCTION_HOUSE_SHOW and when Blizzard_AuctionHouseUI / Blizzard_AuctionUI load.
+--              Post: the check runs one frame after the item lands, before the Create Auction /
+--              Post button can be clicked, and with the slot empty the button is disabled. The
+--              post functions themselves (PostAuction, C_AuctionHouse.PostItem/PostCommodity)
+--              cannot be stopped without replacing them, so another addon that posts directly is
+--              not blocked.
+--   trade      TRADE_SHOW, TRADE_PLAYER_ITEM_CHANGED and CURSOR_CHANGED (while trading) schedule
+--              a scan one frame later of GetTradePlayerItemLink(i) for slots 1..MAX_TRADE_ITEMS,
+--              except TRADE_ENCHANT_SLOT (7, "Will not be traded": an item there stays yours, so
+--              an enchanter can still enchant a locked item). A locked item is picked up with
+--              ClickTradeButton(i) - only with an empty cursor - and put back with ClearCursor();
+--              the slot is read again to see that it is empty. AcceptTrade needs a click on the
+--              Trade button, and changing a slot clears both sides' accept, so the item is off
+--              before a trade with it can be agreed.
+--   no loops   Our own clearing fires the same events again, but then there is nothing locked
+--              to find. A locked item still in place after 3 checks in a row gets one chat line
+--              asking to take it off by hand, and no more tries, until the window closes.
+--
+-- Not blocked (not cheap or not needed): guild bank deposits (no guild bank in 1-60 content),
+-- splitting, equipping, the bank, disenchanting or prospecting (not in 1-60), and anything that
+-- calls the destroy / post / trade functions directly.
+--
+-- Taint: no Blizzard function or script is replaced. StaticPopup_Show and the sell frames'
+-- SetItem are followed with hooksecurefunc, and our work runs after Blizzard's (the popup
+-- check at once, so the item never stays deletable; the rest one frame later). ClearCursor,
+-- StaticPopup_Hide, ClickAuctionSellItemButton and ClickTradeButton are plain (unprotected) API
+-- calls; the retail sell frame is not a protected frame. Every call is pcall-guarded, values
+-- the client hides (secret values) are read through Plain / PlainString and never compared.
+-- ---------------------------------------------------------------------------
+
+local Block = {}
+
+-- Pure parts, kept on Block so tools/test can run them without the client.
+
+Block.DELETE_POPUPS = { DELETE_ITEM = true, DELETE_GOOD_ITEM = true, DELETE_QUEST_ITEM = true,
+                        DELETE_GOOD_QUEST_ITEM = true }
+
+function Block.IsDeletePopup(which)
+    return type(which) == "string" and Block.DELETE_POPUPS[which] == true
+end
+
+-- The trade slots (1..max, ascending, skip left out) whose item ID isLocked(id) says is locked.
+-- ids: slot -> itemID, with holes for empty slots.
+function Block.LockedTradeSlots(ids, max, skip, isLocked)
+    local out = {}
+    for i = 1, max do
+        local id = ids[i]
+        if i ~= skip and id and isLocked(id) then out[#out + 1] = i end
+    end
+    return out
+end
+
+-- The item name inside a link's brackets, or nil.
+function Block.LinkName(link)
+    return type(link) == "string" and link:match("%[(.-)%]") or nil
+end
+
+function Block.Build()
+    local popupHooked = false
+    local sellHooked = setmetatable({}, { __mode = "k" })   -- retail sell frames whose SetItem we follow
+    local tradeOpen, auctionOpen = false, false
+    local tradePending, auctionPending = false, false
+    local tradeTries, auctionTries = 0, 0
+    local destroyClearedAt          -- Now() of the last locked delete we cleared
+    local counts = { destroy = 0, auction = 0, trade = 0 }   -- blocked this session, for /gbf status
+
+    local MAX_TRIES = 3
+    local LATE_POPUP = 1            -- seconds a delete popup may arrive after we cleared its item
+
+    local function Now()
+        return type(_G.GetTime) == "function" and _G.GetTime() or time()
+    end
+
+    -- fn one frame later (pcall-guarded), or now when there is no C_Timer.
+    local function Later(fn)
+        local after = TimerAfter()
+        if not after then
+            pcall(fn)
+            return
+        end
+        after(0, function() pcall(fn) end)
+    end
+
+    local function CursorEmpty()
+        if type(_G.GetCursorInfo) ~= "function" then return false end
+        local ok, kind = pcall(_G.GetCursorInfo)
+        return ok and kind == nil
+    end
+
+    local function CursorItemID()
+        if type(_G.GetCursorInfo) ~= "function" then return nil end
+        local ok, kind, id = pcall(_G.GetCursorInfo)
+        if not ok or Plain(kind) ~= "item" then return nil end
+        return PlainNumber(id)
+    end
+
+    local function ClearCursorNow()
+        if type(_G.ClearCursor) == "function" then pcall(_G.ClearCursor) end
+    end
+
+    -- Gives up after MAX_TRIES checks in a row that found the same locked item still in place.
+    local function GiveUp(tries, label, where)
+        if tries == MAX_TRIES + 1 then
+            Print("could not take " .. label .. " off the " .. where .. ". Take it off by hand.")
+        end
+    end
+
+    -- ---- destroy ---------------------------------------------------------------------
+
+    local function HideDeletePopups(which)
+        if type(_G.StaticPopup_Hide) ~= "function" then return end
+        if which then
+            pcall(_G.StaticPopup_Hide, which)
+            return
+        end
+        for name in pairs(Block.DELETE_POPUPS) do pcall(_G.StaticPopup_Hide, name) end
+    end
+
+    -- A delete confirmation is up (which), or about to be (DELETE_ITEM_CONFIRM, which nil), for
+    -- the item on the cursor. A locked one goes back to its bag slot and the popup is closed.
+    local function CheckDelete(which)
+        local id, link = Lock.CursorLocked()
+        if not id then
+            -- The event got here first and cleared the cursor; the popup came anyway.
+            if which and destroyClearedAt and Now() - destroyClearedAt < LATE_POPUP then
+                HideDeletePopups(which)
+            end
+            return
+        end
+        ClearCursorNow()
+        destroyClearedAt = Now()
+        HideDeletePopups(which)
+        counts.destroy = counts.destroy + 1
+        local label = Lock.ItemLabel(id, link)
+        -- The rest one frame later, not from inside Blizzard's StaticPopup_Show: a popup that
+        -- arrives after the event is closed, and our own popup is shown.
+        Later(function()
+            HideDeletePopups(nil)
+            Lock.Block(label, "destroyed", "destroy:" .. id)
+        end)
+    end
+
+    local function HookDeletePopup()
+        if popupHooked or type(_G.StaticPopup_Show) ~= "function" then return end
+        popupHooked = true
+        pcall(hooksecurefunc, "StaticPopup_Show", function(which)
+            if Block.IsDeletePopup(which) then pcall(CheckDelete, which) end
+        end)
+    end
+
+    -- ---- auction house -------------------------------------------------------------------
+
+    -- The locked item ID whose link carries this name, or nil.
+    local function LockedIDByName(name)
+        local items = charDB and charDB.lockedItems
+        if not name or type(items) ~= "table" then return nil end
+        for id in pairs(items) do
+            if Block.LinkName(Lock.ItemLabel(id)) == name then return id end
+        end
+        return nil
+    end
+
+    -- Classic AuctionFrame: the item in the sell slot, as its id and name, or nil.
+    local function ClassicSellItem()
+        local f = _G.GetAuctionSellItemInfo
+        if type(f) ~= "function" then return nil end
+        local ok, name, _, _, _, _, _, _, _, _, itemID = pcall(f)
+        if not ok then return nil end
+        name = PlainString(name)
+        if not name then return nil end
+        return PlainNumber(itemID) or LockedIDByName(name), name
+    end
+
+    -- Retail-engine AuctionHouseFrame: the sell frames that can hold an item.
+    local function RetailSellFrames()
+        local ah = _G.AuctionHouseFrame
+        local out = {}
+        if type(ah) ~= "table" then return out end
+        for _, key in ipairs({ "ItemSellFrame", "CommoditiesSellFrame" }) do
+            local f = ah[key]
+            if type(f) == "table" and type(f.SetItem) == "function" and type(f.GetItem) == "function" then
+                out[#out + 1] = f
+            end
+        end
+        return out
+    end
+
+    -- The item a retail sell frame holds: its id and link, or nil.
+    local function RetailSellItem(frame)
+        local ok, loc = pcall(frame.GetItem, frame)
+        if not ok or type(loc) ~= "table" then return nil end
+        local ci = _G.C_Item
+        if type(ci) ~= "table" then return nil end
+        if type(ci.DoesItemExist) == "function" then
+            local okE, exists = pcall(ci.DoesItemExist, loc)
+            if not okE or Plain(exists) ~= true then return nil end
+        end
+        local id, link
+        if type(ci.GetItemLink) == "function" then
+            local okL, l = pcall(ci.GetItemLink, loc)
+            link = okL and PlainString(l) or nil
+        end
+        if type(ci.GetItemID) == "function" then
+            local okI, v = pcall(ci.GetItemID, loc)
+            id = okI and PlainNumber(v) or nil
+        end
+        id = id or (link and tonumber(link:match("item:(%d+)")))
+        if not id then return nil end
+        return id, link
+    end
+
+    local function ClearRetailSellFrame(frame)
+        if type(frame.ClearItem) == "function" then
+            pcall(frame.ClearItem, frame)
+        else
+            pcall(frame.SetItem, frame, nil)
+        end
+        -- An item of ours left on the cursor goes back too.
+        local cid = CursorItemID()
+        if cid and Lock.IsLocked(cid) then ClearCursorNow() end
+    end
+
+    local function CheckAuction()
+        auctionPending = false
+        if not charDB then return end
+        local found, label, cleared
+        -- Classic sell slot.
+        local id, name = ClassicSellItem()
+        if id and Lock.IsLocked(id) then
+            found, label = id, Lock.ItemLabel(id)
+            if label == "item " .. tostring(id) then label = "[" .. name .. "]" end
+            if CursorEmpty() and type(_G.ClickAuctionSellItemButton) == "function" then
+                pcall(_G.ClickAuctionSellItemButton)
+                if CursorItemID() == id then ClearCursorNow() end
+                cleared = ClassicSellItem() ~= id
+            end
+        end
+        -- Retail sell frames.
+        for _, frame in ipairs(RetailSellFrames()) do
+            local rid, link = RetailSellItem(frame)
+            if rid and Lock.IsLocked(rid) then
+                found, label = rid, Lock.ItemLabel(rid, link)
+                ClearRetailSellFrame(frame)
+                cleared = RetailSellItem(frame) ~= rid
+            end
+        end
+        if not found then
+            auctionTries = 0
+            return
+        end
+        auctionTries = auctionTries + 1
+        if auctionTries > MAX_TRIES then
+            GiveUp(auctionTries, label, "auction house")
+            return
+        end
+        if cleared then counts.auction = counts.auction + 1 end
+        Lock.Block(label, "auctioned", "auction:" .. found)
+    end
+
+    local function QueueAuction()
+        if auctionPending then return end
+        auctionPending = true
+        Later(CheckAuction)
+    end
+
+    local function HookSellFrames()
+        for _, frame in ipairs(RetailSellFrames()) do
+            if not sellHooked[frame] then
+                sellHooked[frame] = true
+                pcall(hooksecurefunc, frame, "SetItem", function() QueueAuction() end)
+            end
+        end
+    end
+
+    -- ---- trade -------------------------------------------------------------------------------
+
+    local function TradeLink(i)
+        if type(_G.GetTradePlayerItemLink) ~= "function" then return nil end
+        local ok, l = pcall(_G.GetTradePlayerItemLink, i)
+        return ok and PlainString(l) or nil
+    end
+
+    local function TradeID(i)
+        local link = TradeLink(i)
+        return link and tonumber(link:match("item:(%d+)")), link
+    end
+
+    local function CheckTrade()
+        tradePending = false
+        if not tradeOpen or not charDB then return end
+        local max = PlainNumber(_G.MAX_TRADE_ITEMS) or 7
+        local skip = PlainNumber(_G.TRADE_ENCHANT_SLOT) or max
+        local ids, links = {}, {}
+        for i = 1, max do ids[i], links[i] = TradeID(i) end
+        local hits = Block.LockedTradeSlots(ids, max, skip, Lock.IsLocked)
+        if #hits == 0 then
+            tradeTries = 0
+            return
+        end
+        tradeTries = tradeTries + 1
+        local first = Lock.ItemLabel(ids[hits[1]], links[hits[1]])
+        if tradeTries > MAX_TRIES then
+            GiveUp(tradeTries, first, "trade")
+            return
+        end
+        local labels, seen = {}, {}
+        for _, i in ipairs(hits) do
+            local id = ids[i]
+            -- Only with an empty cursor: a click would otherwise swap in what the cursor holds.
+            if CursorEmpty() and type(_G.ClickTradeButton) == "function" then
+                pcall(_G.ClickTradeButton, i)
+                if CursorItemID() == id then ClearCursorNow() end
+                if TradeID(i) ~= id then counts.trade = counts.trade + 1 end
+            end
+            if not seen[id] then
+                seen[id] = true
+                labels[#labels + 1] = Lock.ItemLabel(id, links[i])
+            end
+        end
+        Lock.Block(labels, "traded", "trade:" .. table.concat(labels, ","))
+    end
+
+    local function QueueTrade()
+        if tradePending or not tradeOpen then return end
+        tradePending = true
+        Later(CheckTrade)
+    end
+
+    -- ---- events --------------------------------------------------------------------------------
+
+    function Block.OnEvent(event, arg1)
+        if event == "DELETE_ITEM_CONFIRM" then
+            CheckDelete(nil)
+        elseif event == "TRADE_SHOW" then
+            tradeOpen, tradeTries = true, 0
+            QueueTrade()
+        elseif event == "TRADE_CLOSED" then
+            tradeOpen, tradeTries = false, 0
+        elseif event == "TRADE_PLAYER_ITEM_CHANGED" then
+            tradeOpen = true
+            QueueTrade()
+        elseif event == "AUCTION_HOUSE_SHOW" then
+            auctionOpen, auctionTries = true, 0
+            HookSellFrames()
+            QueueAuction()
+        elseif event == "AUCTION_HOUSE_CLOSED" then
+            auctionOpen, auctionTries = false, 0
+        elseif event == "NEW_AUCTION_UPDATE" then
+            QueueAuction()
+        elseif event == "CURSOR_CHANGED" then
+            if tradeOpen and tradeTries > 0 then QueueTrade() end
+            if auctionOpen and auctionTries > 0 then QueueAuction() end
+        elseif event == "ADDON_LOADED" then
+            HookDeletePopup()
+            if arg1 == "Blizzard_AuctionHouseUI" or arg1 == "Blizzard_AuctionUI" then HookSellFrames() end
+        elseif event == "PLAYER_LOGIN" then
+            HookDeletePopup()
+        end
+    end
+
+    function Block.Status()
+        local classic = type(_G.GetAuctionSellItemInfo) == "function" and type(_G.ClickAuctionSellItemButton) == "function"
+        local retail = #RetailSellFrames() > 0
+        return string.format("blocks: %d destroy, %d auction, %d trade this session%sStaticPopup_Show hooked: %s%sauction UI: %s%sClickTradeButton: %s",
+            counts.destroy, counts.auction, counts.trade, DOT, popupHooked and "yes" or "no", DOT,
+            (classic and retail) and "classic + retail" or classic and "classic AuctionFrame"
+                or retail and "retail AuctionHouseFrame" or "not loaded yet", DOT,
+            type(_G.ClickTradeButton) == "function" and "yes" or "MISSING")
+    end
+
+    HookDeletePopup()
+end
+Block.Build()
+
+-- ---------------------------------------------------------------------------
 -- Following Blizzard
 -- ---------------------------------------------------------------------------
 
@@ -2989,7 +3440,7 @@ local function Yes(v) return v and "yes" or "MISSING" end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed. Clean-up does not run in combat."
+local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed, auctioned, traded or destroyed. Clean-up does not run in combat."
 
 local function PrintHelp()
     Print(INTRO)
@@ -3008,6 +3459,7 @@ local function PrintHelp()
     Print("/gbf locked - list the locked items (now: " .. Lock.Count() .. ")")
     Print("/gbf unlockall yes - unlock every locked item")
     Print("A locked item cannot be mailed either: put on the Send Mail tab, it goes straight back to your bags.")
+    Print("Nor destroyed, auctioned or traded: dropped on the world, put in the auction sell slot or in a trade slot, it goes back to your bags with a popup.")
     Print("/gbf mailglow on | off - cyan ring on bag items attached to the outgoing mail (now: " .. OnOff(Mail.GlowOn()) .. ")")
     Print("/gbf status - what this client offers and what the next clean-up will do")
 end
@@ -3036,6 +3488,7 @@ local function PrintStatus()
     Print(InventoryStatus())
     Print(Lock.Status())
     Print(Mail.Status())
+    Print(Block.Status())
 end
 
 local function OnSlash(msg)
@@ -3202,7 +3655,10 @@ events:RegisterEvent("ITEM_LOCK_CHANGED")
 for _, name in ipairs({ "PLAYER_MONEY", "PLAYER_EQUIPMENT_CHANGED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
                         "PLAYERBANKSLOTS_CHANGED", "MAIL_SHOW", "MAIL_INBOX_UPDATE", "MAIL_CLOSED",
                         "MERCHANT_SHOW", "MERCHANT_CLOSED", "MERCHANT_UPDATE", "CURSOR_CHANGED",
-                        "MAIL_SEND_INFO_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED" }) do
+                        "MAIL_SEND_INFO_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED",
+                        -- the destroy / auction / trade blocks (since 1.12)
+                        "DELETE_ITEM_CONFIRM", "TRADE_SHOW", "TRADE_CLOSED", "TRADE_PLAYER_ITEM_CHANGED",
+                        "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED", "NEW_AUCTION_UPDATE" }) do
     pcall(events.RegisterEvent, events, name)
 end
 
@@ -3275,6 +3731,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
     if charDB then
         pcall(OnLockEvent, event)
         pcall(Mail.OnEvent, event)
+        pcall(Block.OnEvent, event, arg1)
     end
     if event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED" or event == "ITEM_LOCK_CHANGED" then
         OnBagActivity()

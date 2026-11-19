@@ -9,7 +9,7 @@
 A small standalone addon for the WoW Forever client (`_classic_beta_`, interface 16001). It
 improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and, since 1.7,
 shows how many of an item and how much gold your other characters on the same realm have.
-Since 1.9 you can lock items so a merchant can never get them, and since 1.11 they cannot be mailed either. It needs GaarForever, the family hub, and no other addon or library.
+Since 1.9 you can lock items so a merchant can never get them, since 1.11 they cannot be mailed either, and since 1.12 they cannot be destroyed, auctioned or traded. It needs GaarForever, the family hub, and no other addon or library.
 
 ## What it does
 
@@ -150,6 +150,24 @@ Since 1.9 you can lock items so a merchant can never get them, and since 1.11 th
   still there after three scans in a row gets one chat line asking you to take it off by hand.
   There is no check on `SendMail` itself: a post-hook runs only after the mail has gone, and the
   scan has already run by the time you can click Send.
+- **Locked items cannot be destroyed, auctioned or traded (since 1.12, always on).** Each block
+  ends like the mail block: one chat line, `<item> is locked - it cannot be <action>. Alt-click
+  to unlock.`, and one OK popup, `<item> is locked (do-not-sell) and cannot be
+  destroyed|auctioned|traded|mailed. Alt-click it in your bags to unlock.` (one shared
+  `StaticPopupDialogs.GAARBAGSFOREVER_LOCKED`, mail included; no popup in combat, the chat line
+  still comes). One attempt seen by two paths gives one message (same action and item within
+  1.5 s).
+
+  | Way out | What happens | Guaranteed / best effort |
+  | --- | --- | --- |
+  | Destroy: drop it from the bags on the world | `DELETE_ITEM_CONFIRM` and `hooksecurefunc("StaticPopup_Show")` see Blizzard's `DELETE_ITEM` / `DELETE_GOOD_ITEM` / `DELETE_QUEST_ITEM` / `DELETE_GOOD_QUEST_ITEM` popup while the item is still on the cursor (`GetCursorInfo`). A locked item goes back to its bag slot with `ClearCursor()`, and the delete popup is closed with `StaticPopup_Hide` (again one frame later, in case the popup came after the event) | Guaranteed once the cursor is empty: the popup's Delete / OK button calls `DeleteCursorItem()`, which then has nothing to delete, even if the popup could not be hidden. Not covered: a macro or addon that calls `DeleteCursorItem()` directly, with no popup. `DeleteCursorItem` cannot be stopped, and a post-hook would only run after the item is gone, so there is none |
+  | Auction house sell slot | Classic `AuctionFrame`: `NEW_AUCTION_UPDATE` (and `CURSOR_CHANGED`) checks `GetAuctionSellItemInfo()` one frame later; a locked item is picked up with `ClickAuctionSellItemButton()` (only with an empty cursor) and put back with `ClearCursor()`. Retail-engine `AuctionHouseFrame`: `hooksecurefunc` on `ItemSellFrame` / `CommoditiesSellFrame` `SetItem`; one frame later the frame's `GetItem()` location is read (`C_Item.GetItemID` / `GetItemLink`), and a locked item is cleared with the frame's `ClearItem`, or `SetItem(nil)`. Whichever UI the client has is used | Best effort, one frame after the item lands, before Post / Create Auction can be clicked (an empty slot disables it). The post functions themselves are not hooked, so another addon that posts directly is not stopped |
+  | Trade window | `TRADE_SHOW`, `TRADE_PLAYER_ITEM_CHANGED` and `CURSOR_CHANGED` scan `GetTradePlayerItemLink(i)` for slots 1..`MAX_TRADE_ITEMS` one frame later, except the "Will not be traded" slot (`TRADE_ENCHANT_SLOT`, 7: the item stays yours, so a locked item can still be enchanted). A locked item is picked up with `ClickTradeButton(i)` (only with an empty cursor), put back with `ClearCursor()`, and the slot is read again | Best effort, one frame after the item lands; changing a slot clears both sides' accept, and `AcceptTrade` needs your click |
+
+  No loops: clearing an item fires the same events again, but then nothing locked is left. A
+  locked item still in place after three checks in a row gets one chat line asking you to take
+  it off by hand. Not blocked: guild bank deposits (no guild bank in 1-60 content), splitting,
+  equipping, the bank, disenchanting and prospecting (not in 1-60).
 - **Cyan ring on attached items (since 1.11, on by default).** While the Send tab has
   attachments, every bag slot whose item is attached gets a pulsing cyan ring, the same kind of
   ring as GaarBarsForever's orange low-rank ring (`Interface\Buttons\UI-ActionButton-Border`,
@@ -183,12 +201,12 @@ Since 1.9 you can lock items so a merchant can never get them, and since 1.11 th
 | `/gbf stop` | Stop a running reversal |
 | `/gbf counts`, `/gbf counts on`, `/gbf counts off` | Toggle or set the item counts in tooltips (on by default) |
 | `/gbf gold` | Print every character's gold on this realm, and the total |
-| Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold to a merchant |
+| Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold, mailed, auctioned, traded or destroyed |
 | `/gbf locked` | List the locked items as links |
 | `/gbf unlockall`, `/gbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
 | `/gbf mailglow`, `/gbf mailglow on`, `/gbf mailglow off` | Toggle or set the cyan ring on bag items attached to the outgoing mail (on by default) |
 | `/gbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
-| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there. Since 1.11 also one mail line: how many locked attachments were taken off this session, whether `ClickSendMailItemButton` and `GetSendMailItem` are there, whether `SendMailFrame_Update` is hooked, and mail glow on/off with how many rings are shown |
+| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there. Since 1.11 also one mail line: how many locked attachments were taken off this session, whether `ClickSendMailItemButton` and `GetSendMailItem` are there, whether `SendMailFrame_Update` is hooked, and mail glow on/off with how many rings are shown. Since 1.12 also one blocks line: how many destroys, auctions and trades were blocked this session, whether `StaticPopup_Show` is hooked, which auction UI this client has, and whether `ClickTradeButton` is there |
 
 ## With GaarForever (required)
 
@@ -244,9 +262,13 @@ The hub talks to this addon only through `GaarBagsForeverAPI` (since 1.6):
 - The mail block (1.11) replaces nothing either: `SendMailFrame_Update` is followed with
   `hooksecurefunc`, the scan runs one frame after Blizzard's update from the addon's own event
   frame, and `ClickSendMailItemButton` and `ClearCursor` are plain, unprotected API calls. The
-  popup is an entry of the addon's own in `StaticPopupDialogs` (`GAARBAGSFOREVER_MAIL_LOCKED`,
+  popup is an entry of the addon's own in `StaticPopupDialogs` (`GAARBAGSFOREVER_LOCKED` since 1.12, `GAARBAGSFOREVER_MAIL_LOCKED` before,
   `preferredIndex` 3) and is never shown in combat. The cyan rings are frames of the addon's own
   on the item buttons, created and shown out of combat only; in combat a ring can only be dimmed.
+- The destroy, auction and trade blocks (1.12) replace nothing either: `StaticPopup_Show` and the
+  retail sell frames' `SetItem` are followed with `hooksecurefunc`, and `ClearCursor`,
+  `StaticPopup_Hide`, `ClickAuctionSellItemButton` and `ClickTradeButton` are plain, unprotected
+  API calls, each behind `pcall`. Values the client hides are never compared.
 - Every name is checked before use. A missing frame or function switches the matching feature
   off instead of raising an error.
 - If the bag frame is protected and a move falls in combat, it waits for `PLAYER_REGEN_ENABLED`.
@@ -288,6 +310,15 @@ For the mail block and ring (1.11): `GetSendMailItem`, `GetSendMailItemLink`,
 `StaticPopup_Show`, `OKAY`, `C_Cursor.GetCursorItem` (with `GetBagAndSlot`), the texture
 `Interface\Buttons\UI-ActionButton-Border`, and the events `MAIL_SHOW`, `MAIL_CLOSED`,
 `MAIL_SEND_INFO_UPDATE`, `MAIL_SEND_SUCCESS` and `MAIL_FAILED`.
+
+For the destroy, auction and trade blocks (1.12): `StaticPopup_Show`, `StaticPopup_Hide`, the
+popups `DELETE_ITEM`, `DELETE_GOOD_ITEM`, `DELETE_QUEST_ITEM`, `DELETE_GOOD_QUEST_ITEM`,
+`GetAuctionSellItemInfo`, `ClickAuctionSellItemButton`, `AuctionHouseFrame.ItemSellFrame` /
+`CommoditiesSellFrame` (`SetItem`, `GetItem`, `ClearItem`), `C_Item.DoesItemExist`,
+`C_Item.GetItemID`, `C_Item.GetItemLink`, `GetTradePlayerItemLink`, `ClickTradeButton`,
+`MAX_TRADE_ITEMS`, `TRADE_ENCHANT_SLOT`, and the events `DELETE_ITEM_CONFIRM`, `TRADE_SHOW`,
+`TRADE_CLOSED`, `TRADE_PLAYER_ITEM_CHANGED`, `AUCTION_HOUSE_SHOW`, `AUCTION_HOUSE_CLOSED` and
+`NEW_AUCTION_UPDATE`.
 
 ## Support
 

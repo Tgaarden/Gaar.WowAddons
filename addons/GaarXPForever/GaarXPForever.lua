@@ -51,7 +51,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.5"
+local VERSION = "1.3.6"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -555,6 +555,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local overlay, overlayText, barFrame
+local baseSw, baseSwFS   -- width of Blizzard's non-hover XP text
 local TEXT_GAP = 16      -- px between Blizzard's XP text and ours
 
 -- Pure: our bar text. withTotals adds "cur/max " in front (used when Blizzard's own text is hidden, else
@@ -856,6 +857,15 @@ RefreshBarText = function()
         sw = Num(Call(fs.GetStringWidth, fs))
         bliz = vis == true and not (type(t) == "string" and t == "") and sw ~= nil and sw > 0
         justify = Call(fs.GetJustifyH, fs)
+        -- Blizzard swaps its text to a wider "XP: cur/max" on hover. Measure only while not hovered and reuse
+        -- that width on hover, so our text never moves when the mouse enters or leaves the bar.
+        if bliz then
+            if Call(sb.IsMouseOver, sb) == true then
+                if baseSw and baseSwFS == fs then sw = baseSw end
+            else
+                baseSw, baseSwFS = sw, fs
+            end
+        end
     end
     local txt, relPoint, x
     local function fitter(avail)

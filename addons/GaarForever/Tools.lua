@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.17"] = "notes for GaarXPForever 1.3.3: the rested tick on the XP bar no longer shows a striped block; it now copies the Blizzard tick atlas or tex coords, else draws a thin light line, centred on the end of the rested segment",
         ["3.2.16"] = "notes for GaarXPForever 1.3.2: with ready quests on the XP bar, the rested bar and its tick now sit after the orange quest segment instead of under it",
         ["3.2.15"] = "notes for GaarFramesForever 1.4.4: steadier yellow HoT segment",
         ["3.2.14"] = "notes for GaarQuestsForever 1.13.0: new sort mode, zone",

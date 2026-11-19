@@ -59,7 +59,7 @@
 ]]
 
 local _G = _G
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -107,7 +107,10 @@ local function After(sec, fn)
 end
 
 local function Me()
-    return Str((Call(API("UnitName"), "player"))) or "You"
+    -- 1.2.3: the whole name ("Dru Tics"): chat and loot history give it with the surname, so
+    -- your own rolls must be keyed the same way as the lines that name you.
+    local full = BF.PlayerFullName and BF.PlayerFullName() or nil
+    return full or Str((Call(API("UnitName"), "player"))) or "You"
 end
 
 -- "Name-Realm" -> "Name": the key a player is counted under (chat and loot history agree on it).

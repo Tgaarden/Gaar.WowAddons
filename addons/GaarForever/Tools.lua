@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.27"] = "surname fixes: shared name helpers (PlayerFullName, NamesMatch, UnitByName); notes for GaarChatForever 1.2.2 and GaarLootForever 1.2.3",
         ["3.2.26"] = "notes for GaarFramesForever 1.5.3: HoT preview while casting now finds the target for characters with a surname",
         ["3.2.25"] = "notes for GaarFramesForever 1.5.2: /gff hotdebug is short enough for one screenshot and ends with the cast summary; new /gff hotdebug cast traces your next cast",
         ["3.2.24"] = "notes for GaarFramesForever 1.5.1: HoT preview while casting Regrowth on yourself now shows",
@@ -168,6 +169,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarChatForever = {
+        ["1.2.2"] = "your own messages are recognised for characters with a surname",
         ["1.1.0"] = "Renamed to GaarChatForever (new folders; settings move over automatically on first login; new /gchat commands, old ones still work)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",
@@ -178,6 +180,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarLootForever = {
+        ["1.2.3"] = "your own rolls are counted under your full name, so characters with a surname are no longer split in two",
         ["1.2.0"] = "Renamed to GaarLootForever (new folders; settings move over automatically on first login; new /glf commands, old ones still work)",
         ["1.1.0"] = "roll result summary panel",
         ["1.0.0"] = "Need / Greed / Pass counts on group loot rolls",

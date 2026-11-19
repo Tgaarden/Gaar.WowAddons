@@ -96,7 +96,7 @@ local lines = {}            -- shown lines, oldest first
 local pool = {}             -- hidden lines for reuse
 local slide = 0             -- pixels the newest line is still below its place
 local lineH = 16            -- the height of one text line at the current font size
-local playerName, playerNameLower, playerGUID
+local playerName, playerNameLower, playerGUID, playerFull
 
 local function Print(msg) if ns.Print then ns.Print(msg) end end
 local function Safe(where, fn, ...)
@@ -120,6 +120,7 @@ local function LoadPlayer()
     if not Secret(n) and type(n) == "string" and n ~= "" then
         playerName, playerNameLower = n, n:lower()
     end
+    playerFull = BF.PlayerFullName and BF.PlayerFullName() or playerFull
     local g = type(_G.UnitGUID) == "function" and _G.UnitGUID("player") or nil
     if not Secret(g) and type(g) == "string" then playerGUID = g end
 end
@@ -149,7 +150,9 @@ local function IsOwn(guid, sender)
     if not Secret(guid) and type(guid) == "string" and guid ~= "" then
         return playerGUID ~= nil and guid == playerGUID
     end
-    if not Secret(sender) and type(sender) == "string" and playerName then
+    -- 1.2.2: a sender is "First Surname" where UnitName may give only the first name.
+    if not Secret(sender) and type(sender) == "string" and (playerFull or playerName) then
+        if BF.NamesMatch then return BF.NamesMatch(sender, playerFull or playerName) end
         return (sender:match("^([^%-]+)") or sender) == playerName
     end
     return false

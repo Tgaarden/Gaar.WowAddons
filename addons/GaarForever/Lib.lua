@@ -18,6 +18,11 @@
     GaarForever.Str(v)           a plain, non-empty string, else nil
     GaarForever.Bool(v)          true / false, or nil when it is secret
 
+  Names (3.2.27, characters have surnames - never compare names with == across sources):
+    GaarForever.PlayerFullName() your whole name, "Dru Tics" where UnitName says "Dru"
+    GaarForever.NamesMatch(a, b) same character: case/realm-insensitive, or first name vs full
+    GaarForever.NameVariants(unit), GaarForever.UnitByName(name), GaarForever.StripRealm(name)
+
   Calls:
     GaarForever.API(ns, name)    the function _G[ns][name] (or _G[ns] when name is nil), else nil
     GaarForever.Call(fn, ...)    fn(...) in pcall; its results, or nothing when fn is missing or errors
@@ -66,7 +71,7 @@ end
 -- The name before the folder rename, for anything that still looks the library up by it. The
 -- BetterForever folder is only a settings bridge now and defines nothing.
 _G.BetterForever = Lib
-Lib.version = "3.2.26"
+Lib.version = "3.2.27"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -134,6 +139,107 @@ end
 function Lib.Call(fn, ...)
     if type(fn) ~= "function" then return end
     return Pass(pcall(fn, ...))
+end
+
+-- ---------------------------------------------------------------------------
+-- Names (3.2.27)
+-- WoW Forever characters have surnames ("Dru Tics", with a space). UnitName may give only the
+-- first name where chat senders, cast targets, the combat log and rosters give the whole thing,
+-- so a name is never compared with == across sources: use these. Secret values are skipped.
+-- ---------------------------------------------------------------------------
+
+-- "Name-Realm" -> "Name" (a plain string only; anything else comes back nil).
+function Lib.StripRealm(name)
+    name = Str(name)
+    if not name then return nil end
+    return (name:gsub("%-[^%- ]+$", ""))
+end
+local StripRealm = Lib.StripRealm
+
+-- Every plain spelling of a unit's name: UnitName, UnitFullName, GetUnitName(u, false / true),
+-- each also without its realm. Empty when the unit has no readable name.
+function Lib.NameVariants(unit)
+    local out, seen = {}, {}
+    local function add(n)
+        n = Str(n)
+        if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+    end
+    local function try(fn, ...)
+        if type(fn) ~= "function" then return end
+        local r = { pcall(fn, ...) }
+        if not r[1] then return end
+        local n, realm = Str(r[2]), Str(r[3])
+        add(n)
+        if n and realm then add(n .. "-" .. realm) end
+    end
+    try(_G.UnitName, unit)
+    try(_G.UnitFullName, unit)
+    try(_G.GetUnitName, unit, false)
+    try(_G.GetUnitName, unit, true)
+    for i = 1, #out do add(StripRealm(out[i])) end
+    return out
+end
+
+-- The longest realm-less name the client gives for you ("Dru Tics" where UnitName says "Dru"),
+-- or nil before it knows.
+function Lib.PlayerFullName()
+    local best
+    for _, n in ipairs(Lib.NameVariants("player")) do
+        n = StripRealm(n)
+        if n and (not best or #n > #best) then best = n end
+    end
+    return best
+end
+
+-- True when two names are the same character: equal ignoring case and realm, or one is only the
+-- first name of the other ("Dru" and "Dru Tics"). Secret or non-string values never match.
+function Lib.NamesMatch(a, b)
+    a, b = StripRealm(a), StripRealm(b)
+    if not a or not b then return false end
+    a, b = a:lower(), b:lower()
+    if a == b then return true end
+    if #a > #b then a, b = b, a end
+    return b:sub(1, #a + 1) == a .. " "
+end
+
+local NAME_UNITS = { "player", "target", "focus", "mouseover", "pet", "targettarget" }
+for i = 1, 4 do NAME_UNITS[#NAME_UNITS + 1] = "party" .. i end
+for i = 1, 40 do NAME_UNITS[#NAME_UNITS + 1] = "raid" .. i end
+
+-- The unit token (player, target, party1, raid7, ...) whose name is name: an exact spelling
+-- first, then a unique "First Surname" prefix match, you winning a tie. Nil when none.
+function Lib.UnitByName(name)
+    name = Str(name)
+    if not name then return nil end
+    local cands, seenGuid = {}, {}
+    for _, u in ipairs(NAME_UNITS) do
+        local ok, ex = pcall(_G.UnitExists, u)
+        if ok and ex == true and not IsSecret(ex) then
+            local ok2, guid = pcall(_G.UnitGUID, u)
+            guid = ok2 and Str(guid) or nil
+            local key = guid or u
+            if not seenGuid[key] then
+                seenGuid[key] = true
+                cands[#cands + 1] = { u = u, v = Lib.NameVariants(u) }
+            end
+        end
+    end
+    for _, c in ipairs(cands) do
+        for _, n in ipairs(c.v) do
+            if n == name then return c.u end
+        end
+    end
+    local hits = {}
+    for _, c in ipairs(cands) do
+        for _, n in ipairs(c.v) do
+            if name:sub(1, #n + 1) == n .. " " then hits[#hits + 1] = c; break end
+        end
+    end
+    if #hits == 1 then return hits[1].u end
+    for _, c in ipairs(hits) do
+        if c.u == "player" then return "player" end
+    end
+    return nil
 end
 
 function Lib.Method(obj, name, ...)

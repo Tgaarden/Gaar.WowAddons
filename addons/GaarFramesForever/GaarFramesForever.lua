@@ -23,6 +23,11 @@
     * Party: small buffs and debuffs, faded to 50% when out of range.
     * Every aura icon: a small time-left number at its top and a swipe that starts bright and
       darkens as the aura runs out (1.2.1).
+    * Heal prediction on every health bar: incoming heals (green), what active HoTs will still
+      heal (yellow), absorbs (white). 1.5.0: heals past the maximum show as a red / orange
+      overheal segment hanging past the bar's right edge (/gff overheal, capped at 30% of the
+      bar), and the HoT of a HoT spell you are casting (Regrowth) is shown in yellow from the
+      start of the cast on its target's frames (/gff hotcast).
     * Icons: raid target (own frame above the bars, centred on the top edge; secret-safe; option
       /gff marks, 1.2.9), group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
@@ -33,7 +38,8 @@
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /gff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      editmode, portrait, text, classcolor and playerbuffs.
+      editmode, portrait, text, classcolor, playerbuffs, healpred, hotpred, hotcast, overheal and
+      hotdebug.
     * GaarFramesForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
 
@@ -63,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.4"
+local VERSION = "1.5.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -77,6 +83,7 @@ local PARTY_GAP = 52         -- room under each party frame for its aura rows an
 local OUT_OF_RANGE = 0.5     -- party alpha out of range
 local TICK = 0.2             -- seconds between target-of-target and range updates
 local MIN_SCALE, MAX_SCALE = 0.6, 1.5
+local OVER_CAP = { 0.1, 1 }   -- /gff overheal cap, lowest and highest: a share of the health bar's width (1.5.0)
 
 -- The frames, in the order of the menu, the status and the help.
 local KEYS = { "player", "target", "tot", "focus", "pet", "party" }
@@ -167,6 +174,9 @@ local DEFAULTS = {
     playerBuffs = true,
     healPrediction = true,
     hotPred = true,
+    hotCastPreview = true,   -- 1.5.0: the HoT of a HoT spell you are casting, from the cast's start
+    overheal = true,         -- 1.5.0: heals past the maximum drawn past the bar's right edge
+    overhealCap = 0.3,       -- 1.5.0: the overheal segment's longest length, a share of the bar's width
     raidMark = true,
     petHappiness = true,
 }
@@ -175,7 +185,8 @@ local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true,
 -- Every key GaarFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, classColor = true, followEditMode = true,
-    playerBuffs = true, healPrediction = true, hotPred = true, raidMark = true, petHappiness = true, frames = true, scales = true, positions = true,
+    playerBuffs = true, healPrediction = true, hotPred = true, hotCastPreview = true, overheal = true,
+    overhealCap = true, raidMark = true, petHappiness = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- GaarFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -1104,12 +1115,16 @@ end
 -- ---------------------------------------------------------------------------
 
 local Mana = { H = 8 }   -- the player's extra mana bar (druid forms): H, Heights, Update
-local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug, OnCast; TicksLeft, StableAmount, ClampHot (pure)
+local HealPred = {}   -- Build, Update, Hide, Fake, Method, HotLines, HotDebug, OnCast, CastPreview; TicksLeft, StableAmount, ClampHot, HealLayout (pure)
 do
 -- 1.2.11: Blizzard's colours (CompactUnitFrame / unit frame heal prediction); no global holds them.
 local MY = { 0.0, 0.827, 0.765, 0.85 }   -- your heals: Blizzard's teal-green
 local ALL = { 0.0, 0.631, 0.557, 0.55 }  -- everyone's heals: Blizzard's darker teal
 local HOT = { 0.95, 0.85, 0.30, 0.55 }   -- what active HoTs will still heal (1.2.7): Blizzard has none, so our yellow
+-- 1.5.0: overheal, past the bar's right edge. One reddish segment in two tints: the part of the
+-- incoming (cast) heals that overflows in red, the HoT part after it in orange-red.
+local OVER_INC = { 1.0, 0.25, 0.25, 0.5 }
+local OVER_HOT = { 1.0, 0.55, 0.20, 0.5 }
 local ABSORB = { 1.0, 1.0, 1.0, 0.55 }   -- totalAbsorb: white, with Blizzard's stripes where found
 local HEAL_ABSORB = { 1.0, 0.0, 0.0, 0.75 }   -- healAbsorb: red
 local SHIELD_OVERLAY = "Interface\\RaidFrame\\Shield-Overlay"
@@ -1205,6 +1220,7 @@ local HOT_ENGLISH = { Renew = 139, Rejuvenation = 774, Regrowth = 8936, Lifebloo
 
 local MAX_AURAS = 40
 local hotWhy = {}       -- [unit] = what its yellow segment did at the last update, for /gff status
+local overWhy = {}      -- [unit] = what its overheal segment did at the last update (1.5.0)
 local hotNames          -- [localized name] = HOTS entry, built on first use
 local HOT_SLACK = 0.1   -- s: a tick due this soon counts as landed (server tick vs our clock)
 local HOT_RETRY = 2     -- s before an aura tooltip that gave no amount is read again
@@ -1212,7 +1228,9 @@ local MAX_GUIDS = 40    -- units whose HoTs are remembered before that memory is
 local hotMem = {}       -- [unit GUID] = { [aura key] = HoT entry }: the last good reading (1.4.4)
 local hotMemCount = 0
 local spellMem = {}     -- [spellId] = { per, interval }: the amount last read for that rank
-local lastSent          -- { id, guid, at }: your last UNIT_SPELLCAST_SENT of a known HoT
+local lastSent          -- { id, guid, at, cast, how }: your last UNIT_SPELLCAST_SENT of a known HoT
+local castPv            -- the HoT spell you are casting now (1.5.0, HealPred.OnCast): its target and amounts
+local PREVIEW_MAX = 10  -- s: a cast preview older than this is dropped (a missed STOP event)
 local scanTip           -- our hidden GameTooltip, the last way to read an aura's tooltip
 local SCAN_TIP = "GaarFramesForeverHotTip"
 
@@ -1410,6 +1428,31 @@ function HealPred.ClampHot(total, mx, cur, inc)
     return total, false
 end
 
+-- The whole heal layout of a health bar as shares of its width (1.5.0): health, then the
+-- incoming heals (green) and the HoTs (yellow), each cut at the bar's end in that order, and
+-- whatever does not fit past the end (overFrac, at most overCap), split into the part that is
+-- incoming heals (overIncFrac, drawn first) and the HoT part (overHotFrac). The yellow inside the
+-- bar is the same cut as ClampHot. Nil when health, maximum, incoming heals or HoTs are not plain
+-- (secret); an absent incoming heal or HoT counts as 0. Pure.
+function HealPred.HealLayout(cur, mx, incoming, hot, overCap)
+    local m, c = Num(mx), Num(cur)
+    local i = incoming == nil and 0 or Num(incoming)
+    local h = hot == nil and 0 or Num(hot)
+    if not m or m <= 0 or not c or not i or not h then return nil end
+    if i < 0 then i = 0 end
+    if h < 0 then h = 0 end
+    local cap = Num(overCap) or 0
+    if cap < 0 then cap = 0 end
+    local missing = m - Clamp(c, 0, m)
+    local incIn = math.min(i, missing)
+    local hotIn = math.min(h, missing - incIn)
+    local incOver, hotOver = (i - incIn) / m, (h - hotIn) / m
+    local over = math.min(incOver + hotOver, cap)
+    local overInc = math.min(incOver, over)
+    return { incomingWidthFrac = incIn / m, hotWidthFrac = hotIn / m, overFrac = over,
+        overIncFrac = overInc, overHotFrac = over - overInc }
+end
+
 -- A stand-in amount for a HoT spell rank when its aura gives none (1.4.4): what was last read
 -- for that rank, else the spell's own description, else the rank's base value. Per tick,
 -- interval, duration (or nil) and the source; nil when there is none.
@@ -1435,6 +1478,37 @@ local function SpellAmount(id, hot)
         end
     end
     if hot[4] then return hot[4], hot[1], hot[3], "rank base (no +healing)" end
+    return nil
+end
+
+-- The direct heal of a spell that heals and then leaves a HoT (Regrowth: effect 1 is the direct
+-- heal), per rank: low and high, base values (no +healing). Pure HoTs have none.
+local DIRECT = {}
+do
+    local ids = { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 }
+    local lo = { 93, 176, 255, 336, 425, 534, 672, 839, 1003 }
+    local hi = { 107, 201, 290, 378, 479, 600, 750, 935, 1119 }
+    for k, id in ipairs(ids) do DIRECT[id] = (lo[k] + hi[k]) / 2 end
+end
+
+-- The direct part of a heal + HoT cast (1.5.0), for the green when the client's own heal
+-- prediction leaves your cast out: the spell's description ("Heals a friendly target for 93 to
+-- 107 and another 98 over 21 sec.", the middle of the range), else the rank's base value. The
+-- amount and its source, or nil for a pure HoT.
+local function DirectAmount(id, hot)
+    if not id or not hot or hot[2] == 1 then return nil end
+    local desc
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellDescription) == "function" then
+        local ok, d = pcall(C.GetSpellDescription, id)
+        desc = ok and PlainString(d) or nil
+    end
+    if desc then
+        local lo, hi = desc:lower():gsub("(%d),(%d)", "%1%2"):match("for (%d+) to (%d+)")
+        lo, hi = tonumber(lo), tonumber(hi)
+        if lo and hi and hi >= lo and lo > 0 then return (lo + hi) / 2, "spell description" end
+    end
+    if DIRECT[id] then return DIRECT[id], "rank base (no +healing)" end
     return nil
 end
 
@@ -1630,22 +1704,34 @@ local function HotScan(unit, detail)
         end
     end
     if guid then SetMem(guid, cur) end
+    -- 1.5.0: the HoT spell you are casting on this unit counts from the cast's start, and your
+    -- own HoT of that name already on it does not (the cast replaces it).
+    local pv = HealPred.CastPreview(now)
+    if pv and (not guid or pv.guid ~= guid) then pv = nil end
     local total, hots, missing, nextAt = 0, 0, false, nil
+    if pv then
+        total, hots = pv.total, 1
+        if list then list.preview = pv end
+    end
     for _, e in pairs(cur) do
-        hots = hots + 1
-        local ticks, at = 0, nil
-        if e.per and e.exp and e.exp > 0 then
-            ticks, at = HealPred.TicksLeft(now, e.exp, e.dur, e.interval, e.tm)
-            total = total + e.per * ticks
+        if pv and e.mine and e.name == pv.name then
+            if list then list.replaced = (list.replaced or 0) + 1 end
         else
-            missing = true
+            hots = hots + 1
+            local ticks, at = 0, nil
+            if e.per and e.exp and e.exp > 0 then
+                ticks, at = HealPred.TicksLeft(now, e.exp, e.dur, e.interval, e.tm)
+                total = total + e.per * ticks
+            else
+                missing = true
+            end
+            if (e.weak or not e.per) and e.seen == now and e.failAt then   -- the aura tooltip is read again
+                local retry = e.failAt + HOT_RETRY
+                if not at or retry < at then at = retry end
+            end
+            if at and (not nextAt or at < nextAt) then nextAt = at end
+            if list then list[#list + 1] = { e = e, ticks = ticks, left = e.exp and e.exp - now, kept = e.seen ~= now } end
         end
-        if (e.weak or not e.per) and e.seen == now and e.failAt then   -- the aura tooltip is read again
-            local retry = e.failAt + HOT_RETRY
-            if not at or retry < at then at = retry end
-        end
-        if at and (not nextAt or at < nextAt) then nextAt = at end
-        if list then list[#list + 1] = { e = e, ticks = ticks, left = e.exp and e.exp - now, kept = e.seen ~= now } end
     end
     if list then
         table.sort(list, function(x, y) return tostring(x.e.name) < tostring(y.e.name) end)
@@ -1675,35 +1761,112 @@ local function GuidByName(name)
     return nil
 end
 
+-- The GUID a cast of yours lands on, and how that was decided (1.5.0). The name
+-- UNIT_SPELLCAST_SENT gives is looked up on the units above; without a name, your target when
+-- you can help it, else you (classic self-cast: an enemy or no target means the spell lands on
+-- you). Nil GUID when the named unit is on none of those units.
+local function CastTarget(name)
+    name = PlainString(name)
+    if name then
+        local guid = GuidByName(name)
+        return guid, guid and (name .. ", by the cast's target name") or (name .. ", on no frame")
+    end
+    local okE, ex = pcall(UnitExists, "target")
+    local okA, help = pcall(_G.UnitCanAssist, "player", "target")
+    if okE and Plain(ex) == true and okA and Plain(help) == true then
+        return PlainString(_G.UnitGUID("target")), "your friendly target"
+    end
+    return PlainString(_G.UnitGUID("player")), "you (self-cast)"
+end
+
+-- Same cast: by castGUID where both are plain, else by spell ID.
+local function SameCast(pv, cast, id)
+    if pv.cast and cast then return pv.cast == cast end
+    return pv.id == id
+end
+
+-- The HoT spell you are casting now (1.5.0), or nil: dropped once it is older than PREVIEW_MAX
+-- (a STOP that never came) and not shown with /gff hotcast off.
+function HealPred.CastPreview(now)
+    local pv = castPv
+    if not pv then return nil end
+    if type(now) == "number" and now - pv.at > PREVIEW_MAX then castPv = nil; return nil end
+    if not db.hotCastPreview then return nil end
+    return pv
+end
+
+-- UNIT_SPELLCAST_START of a HoT spell with a cast time (Regrowth): the preview of its HoT, on
+-- the target UNIT_SPELLCAST_SENT named (else CastTarget), with the full HoT (per tick x ticks)
+-- from SpellAmount and, for a heal + HoT spell, the direct part from DirectAmount. Returns the
+-- target's GUID for the redraw.
+local function StartPreview(id, cast, now)
+    castPv = nil
+    if not id then return nil end
+    local name = SpellNameOf(id)
+    local hot = HotOf({ spellId = id, name = name })
+    if not hot then return nil end
+    local s, guid, how = lastSent, nil, nil
+    if s and s.id == id and now - s.at <= 5 and (not s.cast or not cast or s.cast == cast) then
+        guid, how = s.guid, s.how
+    else
+        guid, how = CastTarget(nil)
+    end
+    if not guid then return nil end
+    local per, interval, dur, source = SpellAmount(id, hot)
+    dur = dur or hot[3]
+    if not per or not interval or interval <= 0 or not dur then return nil end
+    local ticks = math.floor(dur / interval + 0.01)
+    if ticks <= 0 then return nil end
+    local direct, directSrc = DirectAmount(id, hot)
+    castPv = { id = id, name = name or tostring(id), guid = guid, how = how, cast = cast, at = now,
+        per = per, interval = interval, ticks = ticks, total = per * ticks, source = source,
+        direct = direct, directSrc = directSrc }
+    return guid
+end
+
 -- Your own HoT casts (1.4.4), for combat, where auras are secret on this client:
 -- UNIT_SPELLCAST_SENT names the target, _SUCCEEDED confirms the spell. The HoT is put in the
 -- target's memory as if read (key "cast:<name>", so a recast replaces it), amount and duration
 -- from SpellAmount, and stands in until its aura is read. Returns the target's GUID, so the
 -- caller can redraw the frames showing it.
+-- 1.5.0: a HoT spell with a cast time is shown from UNIT_SPELLCAST_START (StartPreview) and
+-- cleared on _STOP, _FAILED and _INTERRUPTED of that cast; on _SUCCEEDED the preview hands over
+-- to the memory entry above (and that, in turn, to the aura once it is readable), never both.
 function HealPred.OnCast(event, unit, a2, a3, a4)
-    if unit ~= "player" or not db.hotPred or not db.healPrediction then return nil end
+    if unit ~= "player" then return nil end
+    if not db.hotPred or not db.healPrediction then castPv, lastSent = nil, nil; return nil end
     local now = Num(type(_G.GetTime) == "function" and _G.GetTime() or nil)
     if not now then return nil end
     if event == "UNIT_SPELLCAST_SENT" then   -- unit, target name, castGUID, spellID
         local id = Num(a4)
         lastSent = nil
         if not id or not HotOf({ spellId = id, name = SpellNameOf(id) }) then return nil end
-        local target = PlainString(a2)
-        local guid
-        if target then guid = GuidByName(target)
-        elseif type(_G.UnitGUID) == "function" then guid = PlainString(_G.UnitGUID("player")) end
-        if guid then lastSent = { id = id, guid = guid, at = now } end
+        local guid, how = CastTarget(a2)
+        lastSent = { id = id, guid = guid, how = how, at = now, cast = PlainString(a3) }
         return nil
     end
-    local id, s = Num(a3), lastSent   -- UNIT_SPELLCAST_SUCCEEDED: unit, castGUID, spellID
-    if not id or not s or s.id ~= id or now - s.at > 5 then return nil end
+    -- _START, _STOP, _FAILED, _INTERRUPTED and _SUCCEEDED: unit, castGUID, spellID
+    local cast, id = PlainString(a2), Num(a3)
+    if event == "UNIT_SPELLCAST_START" then return StartPreview(id, cast, now) end
+    local pv = castPv
+    if pv and not SameCast(pv, cast, id) then pv = nil end
+    if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
+        if pv then castPv = nil; return pv.guid end
+        return nil
+    end
+    if pv then castPv = nil end
+    -- The cast's own target (from its START) wins over a later SENT of another spell.
+    local s = lastSent
+    if pv then s = { id = pv.id, guid = pv.guid, at = pv.at }
+    elseif not s or s.id ~= id or now - s.at > 5 or (s.cast and cast and s.cast ~= cast) then s = nil end
     lastSent = nil
+    if not id or not s or not s.guid then return pv and pv.guid or nil end
     local name = SpellNameOf(id)
     local hot = HotOf({ spellId = id, name = name })
-    if not hot then return nil end
+    if not hot then return s.guid end
     local per, interval, dur, source = SpellAmount(id, hot)
     dur = dur or hot[3]
-    if not per or not dur then return nil end
+    if not per or not dur then return s.guid end
     name = name or tostring(id)
     local mem = hotMem[s.guid] or {}
     -- A recast replaces your earlier one of that kind, also one only remembered from its aura.
@@ -1715,6 +1878,27 @@ function HealPred.OnCast(event, unit, a2, a3, a4)
         mine = true, cast = true, at = now, seen = now }
     SetMem(s.guid, mem)
     return s.guid
+end
+
+-- The direct part of your cast to add to the green on unit u (1.5.0), or 0. Only while a heal +
+-- HoT spell of yours is being cast on u, and only when the client's own prediction of your
+-- heals on u (UnitGetIncomingHeals(u, "player"), unclamped) is a plain 0: once it has shown
+-- your cast (pv.client "yes") it is never added, so it is not counted twice. Secret or no API:
+-- not added (the client is trusted).
+local function OwnDirect(u)
+    local pv = HealPred.CastPreview(Num(type(_G.GetTime) == "function" and _G.GetTime() or nil))
+    if not pv or not pv.direct then return 0 end
+    local guid = type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) or nil
+    if not guid or guid ~= pv.guid then return 0 end
+    if pv.client == "yes" then return 0 end
+    local fn = _G.UnitGetIncomingHeals
+    if type(fn) ~= "function" then pv.client = "unknown (no UnitGetIncomingHeals)"; return 0 end
+    local ok, v = pcall(fn, u, "player")
+    if not ok or IsSecret(v) then pv.client = "unknown (secret)"; return 0 end
+    v = Num(v)
+    if v and v > 0 then pv.client = "yes"; return 0 end
+    pv.client = "no (0): direct part added from " .. tostring(pv.directSrc)
+    return pv.direct
 end
 
 -- Calculator methods whose name says HoT or periodic: none on retail 12.x, so the aura sum.
@@ -1792,6 +1976,19 @@ local function HotLine(x)
     return s
 end
 
+-- A cast preview as text: spell, target, HoT amount and its source, the direct part and whether
+-- the client's own prediction has your cast.
+function HealPred.PreviewText(pv)
+    local s = string.format("cast preview: %s (spell %s) on %s: HoT %d (%d x %d ticks every %ss) from %s",
+        tostring(pv.name), tostring(pv.id), tostring(pv.how), math.floor(pv.total + 0.5),
+        math.floor(pv.per + 0.5), pv.ticks, Raw(pv.interval), tostring(pv.source))
+    if pv.direct then
+        s = s .. string.format("; direct heal %d from %s, in the client's prediction of your heals: %s",
+            math.floor(pv.direct + 0.5), tostring(pv.directSrc), tostring(pv.client or "not checked yet"))
+    end
+    return s
+end
+
 -- For /gff status and /gff hotdebug: lines on the yellow segment for unit (default the target,
 -- else the player) right now, each HoT found with where its numbers came from, and why nothing
 -- is drawn when it is not.
@@ -1813,7 +2010,8 @@ function HealPred.HotLines(unit)
         else
             local m, cur = Num(UnitHealthMax(u)), Num(UnitHealth(u))
             if m and cur and cur >= m then
-                state = string.format("not drawn: full health (HoTs would heal %d)", math.floor(total + 0.5))
+                state = string.format(db.overheal and "full health: all of it overheal, past the bar (HoTs would heal %d)"
+                    or "not drawn: full health (HoTs would heal %d)", math.floor(total + 0.5))
             else
                 state = string.format("HoTs will heal %d", math.floor(total + 0.5))
             end
@@ -1828,7 +2026,13 @@ function HealPred.HotLines(unit)
             info.refused and ", read refused" or "", info.dropped)
     end
     if info and not info.guid then lines[#lines + 1] = "  unit GUID not readable: nothing is remembered for this unit" end
+    if list and list.preview then lines[#lines + 1] = "  " .. HealPred.PreviewText(list.preview) end
+    if list and list.replaced then
+        lines[#lines + 1] = "  " .. list.replaced .. " HoT(s) of yours with that name not counted: the cast replaces them"
+    end
     for _, x in ipairs(list or {}) do lines[#lines + 1] = HotLine(x) end
+    lines[#lines + 1] = "  overheal " .. OnOff(db.overheal) .. string.format(" (cap %d%% of the bar)",
+        math.floor((Num(db.overhealCap) or 0) * 100 + 0.5)) .. DOT .. "last drawn: " .. (overWhy[u] or "not drawn yet")
     if list and #list.unmatched > 0 then
         lines[#lines + 1] = "  other buffs (not a known HoT): " .. table.concat(list.unmatched, ", ")
     end
@@ -1855,6 +2059,9 @@ function HealPred.HotDebug(arg)
         .. Raw(type(_G.GetTime) == "function" and _G.GetTime() or nil)
         .. DOT .. "health " .. Raw(UnitHealth(u)) .. "/" .. Raw(UnitHealthMax(u)))
     for _, line in ipairs(HealPred.HotLines(u)) do Print(line) end
+    local pv = HealPred.CastPreview(Num(type(_G.GetTime) == "function" and _G.GetTime() or nil))
+    Print("hot cast preview " .. OnOff(db.hotCastPreview) .. DOT .. (pv and HealPred.PreviewText(pv)
+        or "no HoT spell of yours being cast now"))
     if type(C) ~= "table" or type(C.GetAuraDataByIndex) ~= "function" then
         Print("no C_UnitAuras.GetAuraDataByIndex on this client")
         return
@@ -1948,6 +2155,18 @@ function HealPred.Build(f)
         if ov.SetVertTile then ov:SetVertTile(true) end
         ov:SetAlpha(0.6)
     end
+    -- 1.5.0: overheal, on a frame of its own hung on the health bar's right edge, at its height
+    -- and frame level (the health bar clips its children, so it cannot sit in there). It clips
+    -- its own children at the cap; two bars in it: the incoming-heal part, then the HoT part.
+    local o = CreateFrame("Frame", nil, f)
+    o:SetPoint("TOPLEFT", h, "TOPRIGHT", 0, 0)
+    o:SetPoint("BOTTOMLEFT", h, "BOTTOMRIGHT", 0, 0)
+    o:SetWidth(f.healthW * DEFAULTS.overhealCap)
+    o:SetFrameLevel(h:GetFrameLevel())
+    if o.SetClipsChildren then pcall(o.SetClipsChildren, o, true) end
+    f.overFrame = o
+    hp.overInc = Overlay(o, 1, OVER_INC)
+    hp.overHot = Overlay(o, 1, OVER_HOT)
     -- The health text above the overlays.
     local tf = CreateFrame("Frame", nil, h)
     tf:SetAllPoints(h)
@@ -1991,12 +2210,124 @@ local function Chain(f)
     if f.absorbAt ~= absorbAt then f.absorbAt = absorbAt; Place(hp.absorb, absorbAt, f.healthW) end
 end
 
+-- Hangs bar on the right (or left) edge of region at width, re-anchored only when that changes.
+local function Hang(bar, region, side, width)
+    if bar.hangAt ~= region or bar.hangSide ~= side then
+        bar.hangAt, bar.hangSide = region, side
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", region, "TOP" .. side, 0, 0)
+        bar:SetPoint("BOTTOMLEFT", region, "BOTTOM" .. side, 0, 0)
+    end
+    if bar.hangW ~= width then bar.hangW = width; bar:SetWidth(width) end
+end
+
+local function OverCap()
+    local c = Num(db.overhealCap) or DEFAULTS.overhealCap
+    return Clamp(c, OVER_CAP[1], OVER_CAP[2])
+end
+
+-- Overheal from plain values (1.5.0): HealLayout gives the two parts past the bar's end as
+-- shares of its width; each is a full bar of that width, the HoT part after the incoming part.
+-- Nil when a value is not plain.
+local function OverPlain(f, cur, mx, inc, hot)
+    local hp, o = f.healPred, f.overFrame
+    local L = HealPred.HealLayout(cur, mx, inc, hot, OverCap())
+    if not L then return nil end
+    local W = f.healthW
+    local incW, hotW = L.overIncFrac * W, L.overHotFrac * W
+    local at, side = o, "LEFT"
+    if incW >= 0.5 then
+        Hang(hp.overInc, o, "LEFT", incW)
+        hp.overInc:SetMinMaxValues(0, 1)
+        hp.overInc:SetValue(1)
+        hp.overInc:Show()
+        at, side = hp.overInc, "RIGHT"
+    else
+        hp.overInc:Hide()
+    end
+    if hotW >= 0.5 then
+        Hang(hp.overHot, at, side, hotW)
+        hp.overHot:SetMinMaxValues(0, 1)
+        hp.overHot:SetValue(1)
+        hp.overHot:Show()
+    else
+        hp.overHot:Hide()
+    end
+    return L
+end
+
+-- Overheal with a hidden (secret) value (1.5.0): nothing can be added or compared, so the two
+-- bars are laid out as the green and yellow are, full width and on the bar's scale - the
+-- incoming heals (unclamped, straight from the client) from the health fill's edge, the HoTs
+-- after them - and the overheal frame shows only what reaches past the bar's end, up to the cap.
+-- The incoming part can reach past the end by at most the current health's share of the bar.
+local function OverSecret(f, mx, inc, hot)
+    local hp = f.healPred
+    local fill, W = f.health:GetStatusBarTexture(), f.healthW
+    local at = fill
+    if type(inc) == "number" and Num(inc) ~= 0 then   -- type() is allowed on a secret; Num is nil for one
+        Hang(hp.overInc, fill, "RIGHT", W)
+        hp.overInc:SetMinMaxValues(0, mx)
+        hp.overInc:SetValue(inc)
+        hp.overInc:Show()
+        at = hp.overInc:GetStatusBarTexture()
+    else
+        hp.overInc:Hide()
+    end
+    if type(hot) == "number" and hot > 0 then   -- hot is ours: plain
+        Hang(hp.overHot, at, "RIGHT", W)
+        hp.overHot:SetMinMaxValues(0, mx)
+        hp.overHot:SetValue(hot)
+        hp.overHot:Show()
+    else
+        hp.overHot:Hide()
+    end
+end
+
+local function HideOver(f, u, why)
+    local hp = f.healPred
+    hp.overInc:Hide()
+    hp.overHot:Hide()
+    if u then overWhy[u] = why end
+end
+
+-- The overheal segment of frame f (1.5.0): health + incoming heals (unclamped, plus extra, the
+-- direct part of your cast where the client leaves it out) + HoTs past the maximum.
+local function DrawOver(f, u, mx, extra)
+    local o = f.overFrame
+    if not o then return end
+    if not db.overheal then HideOver(f, u, "off"); return end
+    local w = OverCap() * f.healthW
+    if o.capW ~= w then o.capW = w; o:SetWidth(w) end
+    local inc
+    local fn = _G.UnitGetIncomingHeals
+    if type(fn) == "function" then
+        local ok, v = pcall(fn, u)
+        if ok then inc = v end
+    end
+    local hot = f.hotTotal or 0
+    local cur = UnitHealth(u)
+    local incPlain = (inc == nil) and 0 or Num(inc)
+    if incPlain then incPlain = incPlain + (extra or 0) end
+    local L = incPlain and OverPlain(f, cur, mx, incPlain, hot)
+    if L then
+        overWhy[u] = L.overFrac > 0 and string.format("shown (%d%% of the bar: %d%% heals, %d%% HoTs)",
+            math.floor(L.overFrac * 100 + 0.5), math.floor(L.overIncFrac * 100 + 0.5), math.floor(L.overHotFrac * 100 + 0.5))
+            or "nothing past the maximum"
+        return
+    end
+    OverSecret(f, mx, inc, hot)
+    overWhy[u] = "values hidden: drawn by the bars themselves, clipped at the bar's end"
+end
+
 -- The HoT sum for frame f's unit, cut by ClampHot (1.4.4: the one clamp). Notes the time the
 -- sum next drops on f (f.hotNext, for the ticker) and the outcome for /gff status.
 local function HotValue(f, u, mx, all)
+    f.hotTotal = nil
     if not db.hotPred then hotWhy[u] = "off"; return nil end
     local total, why, _, nextAt = HotScan(u)
     f.hotNext = nextAt
+    if total and not why then f.hotTotal = total end   -- uncut, for the overheal (1.5.0)
     if not total then hotWhy[u] = "unavailable (" .. why .. ")"; return nil end
     if why then hotWhy[u] = "nothing to show (" .. why .. ")"; return nil end
     -- No "all or 0": a boolean test on a secret is refused. Absent incoming heals count as 0.
@@ -2037,12 +2368,26 @@ function HealPred.Update(f)
         if type(tot) == "function" then absorb = tot(u) end
         if type(habs) == "function" then healAbsorb = habs(u) end
     end
+    -- 1.5.0: the direct part of your heal + HoT cast where the client's prediction leaves it out.
+    local extra = OwnDirect(u)
+    if extra > 0 then
+        local a, m = (all == nil) and 0 or Num(all), (mine == nil) and 0 or Num(mine)
+        if a and m then
+            local c, mn = Num(UnitHealth(u)), Num(mx)
+            local add = extra
+            if c and mn then add = math.min(extra, math.max(0, mn - c - a)) end
+            all, mine = a + add, m + add
+        else
+            extra = 0   -- hidden values: nothing to add to
+        end
+    end
     Set(hp.all, mx, all)
     Set(hp.mine, mx, mine)
     SetHot(hp, mx, HotValue(f, u, mx, all))
     Set(hp.absorb, mx, absorb)
     Set(hp.healAbsorb, mx, healAbsorb)
     Chain(f)
+    DrawOver(f, u, mx, extra)
 end
 
 -- Test mode: plain made-up values { mine, others, absorb } against the made-up maximum.
@@ -2057,6 +2402,13 @@ function HealPred.Fake(f, d, mx)
     Set(hp.absorb, mx, h[3])
     hp.healAbsorb:Hide()
     Chain(f)
+    if db.overheal and f.overFrame then
+        local w = OverCap() * f.healthW
+        if f.overFrame.capW ~= w then f.overFrame.capW = w; f.overFrame:SetWidth(w) end
+        OverPlain(f, d.hp[1], mx, h[1] + h[2], db.hotPred and h[4] or 0)
+    else
+        HideOver(f)
+    end
 end
 end
 
@@ -3583,7 +3935,8 @@ local FAKE = {
         heal = { 500, 400, 600, 700 },   -- your heal, others' heals, absorb shield, HoTs (heal prediction)
         debuffs = { { "Interface\\Icons\\Spell_Shadow_CurseOfTounges", nil, { 10, 120 } } } },
     party3 = { name = "Uther", level = 60, class = "PALADIN", hp = { 600, 4800 }, power = { 1800, 4300, "MANA" }, far = true },
-    party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" } },
+    party4 = { name = "Tyrande", level = 60, class = "PRIEST", hp = { 3500, 3500 }, power = { 4700, 5000, "MANA" },
+        heal = { 400, 0, 0, 300 } },   -- full health: all of it overheal, past the bar (1.5.0)
 }
 
 -- Made-up aura icons from d.buffs and d.debuffs, in the frame's rows, wrapping at its width.
@@ -4040,9 +4393,17 @@ local SETTING_TOGGLES = {
     { key = "playerBuffs", cmd = "playerbuffs", label = "Player buffs" },
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
     { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
+    { key = "hotCastPreview", cmd = "hotcast", label = "HoT preview while casting" },
+    { key = "overheal", cmd = "overheal", label = "Overheal past the bar" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks" },
     { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon and health colour" },
 }
+
+function HealPred.SetCap(c)
+    db.overhealCap = Clamp(c, OVER_CAP[1], OVER_CAP[2])
+    RefreshLooks()
+    Print(string.format("overheal cap: %d%% of the health bar's width.", math.floor(db.overhealCap * 100 + 0.5)))
+end
 
 local function SetToggle(t, on)
     db[t.key] = on and true or false
@@ -4091,6 +4452,12 @@ local function PrintHelp()
         .. OnOff(db and db.healPrediction) .. ")")
     Print("/gff hotpred on | off - what active HoTs will still heal, in yellow after the incoming heals (now: "
         .. OnOff(db and db.hotPred) .. ")")
+    Print("/gff hotcast on | off - while you cast a HoT spell (Regrowth), its HoT in yellow on the target's frames from the cast's start (now: "
+        .. OnOff(db and db.hotCastPreview) .. ")")
+    Print("/gff overheal on | off - heals past the maximum as a red segment past the bar's right edge (now: "
+        .. OnOff(db and db.overheal) .. ")")
+    Print(string.format("/gff overheal cap <%.1f-%.0f> - its longest length, a share of the bar's width (now: %s)",
+        OVER_CAP[1], OVER_CAP[2], db and tostring(db.overhealCap) or "?"))
     Print("/gff hotdebug [unit] - each HoT on the unit (default your target, else you): amount, source, ticks left, what is secret and why it adds nothing; then the raw buff data, to paste back")
     Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
@@ -4295,6 +4662,9 @@ local function PrintStatus()
     Print("bar text " .. OnOff(db.text) .. DOT .. "class colour " .. OnOff(db.classColor) .. DOT .. "player buffs " .. OnOff(db.playerBuffs))
     Print("heal prediction " .. OnOff(db.healPrediction) .. DOT .. HealPred.Method()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
+    Print("overheal " .. OnOff(db.overheal) .. string.format(" (cap %d%% of the bar)", math.floor(db.overhealCap * 100 + 0.5))
+        .. DOT .. "hot cast preview " .. OnOff(db.hotCastPreview)
+        .. DOT .. "UnitGetIncomingHeals " .. Yes(type(_G.UnitGetIncomingHeals) == "function"))
     Print("raid marks " .. OnOff(db.raidMark))
     local okH, happyLine = pcall(Happy.Status, real.pet)
     Print(okH and happyLine or ("pet happiness: status failed (" .. tostring(happyLine) .. ")"))
@@ -4373,6 +4743,14 @@ local function OnSlash(msg)
         else Print("/gff editmode on | off (now: " .. OnOff(db.followEditMode) .. ")") end
     elseif cmd == "hotdebug" then
         HealPred.HotDebug(rest)
+    elseif cmd == "overheal" and rest:match("^cap") then
+        local c = tonumber(rest:match("^cap%s*(%S*)$") or "")
+        if c and c > 1 then c = c / 100 end   -- "30" for 30%
+        if c and c >= OVER_CAP[1] and c <= OVER_CAP[2] then
+            HealPred.SetCap(c)
+        else
+            Print(string.format("/gff overheal cap <%.1f-%.0f> (now: %s)", OVER_CAP[1], OVER_CAP[2], tostring(db.overhealCap)))
+        end
     elseif cmd == "portrait" then
         if rest == "2d" or rest == "3d" then SetPortraitMode(rest)
         else Print("/gff portrait 2d | 3d (now: " .. db.portrait .. ")") end
@@ -4446,6 +4824,13 @@ local function MenuEntries()
             checked = function() return db[t.key] end,
             func = function() SetToggle(t, not db[t.key]) end }
     end
+    local caps = {}
+    for _, c in ipairs({ 0.1, 0.2, 0.3, 0.5, 1 }) do
+        caps[#caps + 1] = { text = string.format("%d%% of the bar", c * 100), radio = true,
+            checked = function() return math.abs((Num(db.overhealCap) or 0) - c) < 0.001 end,
+            func = function() HealPred.SetCap(c) end }
+    end
+    list[#list + 1] = { text = "Overheal cap", submenu = caps }
     list[#list + 1] = { divider = true }
     list[#list + 1] = { text = "Reset positions & scales", func = ResetLayout }
     return list
@@ -4476,6 +4861,7 @@ local function BindSavedVariables()
         if type(db[k]) ~= type(v) then db[k] = v end
     end
     if db.portrait ~= "2d" and db.portrait ~= "3d" then db.portrait = DEFAULTS.portrait end
+    db.overhealCap = Clamp(Num(db.overhealCap) or DEFAULTS.overhealCap, OVER_CAP[1], OVER_CAP[2])
 
     if type(db.frames) ~= "table" then db.frames = {} end
     for k, v in pairs(db.frames) do
@@ -4588,8 +4974,11 @@ for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_R
 end
 if HAS_FOCUS then pcall(events.RegisterEvent, events, "PLAYER_FOCUS_CHANGED") end
 for e in pairs(UNIT_EVENTS) do pcall(events.RegisterEvent, events, e) end
--- Your own HoT casts, for the yellow segment in combat (1.4.4, HealPred.OnCast).
-for _, e in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_SUCCEEDED" }) do
+-- Your own HoT casts, for the yellow segment in combat (1.4.4, HealPred.OnCast), and from the
+-- start of a cast to its end (1.5.0).
+HealPred.CAST_EVENTS = { UNIT_SPELLCAST_SENT = true, UNIT_SPELLCAST_SUCCEEDED = true, UNIT_SPELLCAST_START = true,
+    UNIT_SPELLCAST_STOP = true, UNIT_SPELLCAST_FAILED = true, UNIT_SPELLCAST_INTERRUPTED = true }
+for e in pairs(HealPred.CAST_EVENTS) do
     if not (events.RegisterUnitEvent and pcall(events.RegisterUnitEvent, events, e, "player")) then
         pcall(events.RegisterEvent, events, e)
     end
@@ -4674,7 +5063,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)
         if Visible(p) then Run("icons", UpdateIcons, p) end
     elseif event == "PARTY_LEADER_CHANGED" or event == "RAID_TARGET_UPDATE" then
         UpdateEach("icons", UpdateIcons)
-    elseif event == "UNIT_SPELLCAST_SENT" or event == "UNIT_SPELLCAST_SUCCEEDED" then
+    elseif HealPred.CAST_EVENTS[event] then
         OnHotCast(event, arg1, arg2, arg3, arg4)
     else
         OnUnitEvent(event, arg1, arg2)

@@ -69,7 +69,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.5.2"
+local VERSION = "1.5.3"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -1748,15 +1748,65 @@ local function HotScan(unit, detail)
 end
 
 -- Units a cast target's name is looked up on.
-local CAST_UNITS = { "player", "target", "focus", "mouseover", "party1", "party2", "party3", "party4", "pet", "targettarget" }
+local CAST_UNITS = { "player", "target", "focus", "mouseover", "pet", "targettarget" }
+for i = 1, 4 do CAST_UNITS[#CAST_UNITS + 1] = "party" .. i end
+for i = 1, 40 do CAST_UNITS[#CAST_UNITS + 1] = "raid" .. i end
 
+-- Every plain spelling of unit u's name (1.5.3): WoW Forever characters have surnames, and
+-- UNIT_SPELLCAST_SENT gives "First Surname" where UnitName may give only the first name.
+local function NameVariants(u)
+    local out, seen = {}, {}
+    local function add(n)
+        n = PlainString(n)
+        if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+    end
+    local function try(fn, ...)
+        if type(fn) ~= "function" then return end
+        local r = { pcall(fn, ...) }
+        if not r[1] then return end
+        local n, realm = PlainString(r[2]), PlainString(r[3])
+        add(n)
+        if n and realm then add(n .. "-" .. realm) end
+    end
+    try(_G.UnitName, u)
+    try(_G.UnitFullName, u)
+    try(_G.GetUnitName, u, false)
+    try(_G.GetUnitName, u, true)
+    -- "Name-Realm" without its realm.
+    for i = 1, #out do add((out[i]:gsub("%-[^%- ]+$", ""))) end
+    return out
+end
+
+-- The GUID (and unit token) a cast's target name belongs to. Exact name first, then
+-- "variant Surname" (the name starts with the unit's name and a space), only when that is one
+-- unit; if several share the prefix, you win when you are one of them.
 local function GuidByName(name)
+    local cands, byGuid = {}, {}
     for _, u in ipairs(CAST_UNITS) do
-        local ok, n, realm = pcall(UnitName, u)
-        n, realm = ok and PlainString(n) or nil, ok and PlainString(realm) or nil
-        if n and (n == name or (realm and n .. "-" .. realm == name)) then
-            return type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) or nil, u
+        local ok, ex = pcall(UnitExists, u)
+        if ok and Plain(ex) == true then
+            local guid = type(_G.UnitGUID) == "function" and PlainString(_G.UnitGUID(u)) or nil
+            local key = guid or u
+            if not byGuid[key] then
+                byGuid[key] = true
+                cands[#cands + 1] = { u = u, guid = guid, v = NameVariants(u) }
+            end
         end
+    end
+    for _, c in ipairs(cands) do
+        for _, n in ipairs(c.v) do
+            if n == name then return c.guid, c.u end
+        end
+    end
+    local hits = {}
+    for _, c in ipairs(cands) do
+        for _, n in ipairs(c.v) do
+            if name:sub(1, #n + 1) == n .. " " then hits[#hits + 1] = c; break end
+        end
+    end
+    if #hits == 1 then return hits[1].guid, hits[1].u end
+    for _, c in ipairs(hits) do
+        if c.u == "player" then return c.guid, c.u end
     end
     return nil
 end

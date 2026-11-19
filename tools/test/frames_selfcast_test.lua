@@ -137,4 +137,27 @@ OUT = {}
 G.__T.OnHotCast("UNIT_SPELLCAST_SENT", "player", "Me", "z3", 8936)
 eq("trace: disarmed after one cast", #OUT, 0)
 
+-- 1.5.3: surnames. SENT gives "First Surname"; UnitName gives only the first name.
+local names = { player = "Dru", target = "Tank", party1 = "Bob" }
+local fulls = { player = "Dru Tics", party1 = "Bob Smith" }
+local realms = { party2 = "Realm" }
+names.party2 = "Carl"
+G.UnitExists = function(u) return names[u] ~= nil end
+G.UnitName = function(u) return names[u], realms[u] end
+G.UnitFullName = function(u) return fulls[u] or names[u], realms[u] end
+G.GetUnitName = function(u, withRealm) if withRealm and realms[u] then return names[u] .. "-" .. realms[u] end return fulls[u] or names[u] end
+G.UnitCanAssist = function() return true end
+local function who(name)
+    HP.OnCast("UNIT_SPELLCAST_SENT", "player", name, "n1", 8936)
+    local g = HP.OnCast("UNIT_SPELLCAST_START", "player", "n1", 8936)
+    HP.OnCast("UNIT_SPELLCAST_STOP", "player", "n1", 8936)
+    return g
+end
+eq("surname self: 'Dru Tics' -> player", who("Dru Tics"), "GUID-player")
+eq("surname party member: 'Bob Smith' -> party1", who("Bob Smith"), "GUID-party1")
+eq("realm suffix: 'Carl-Realm' -> party2", who("Carl-Realm"), "GUID-party2")
+eq("exact first name still works", who("Tank"), "GUID-target")
+fulls.player = nil   -- the client only gives the first name: prefix match, unique
+eq("prefix only: 'Dru Tics' -> player", who("Dru Tics"), "GUID-player")
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED")); os.exit(fails == 0 and 0 or 1)

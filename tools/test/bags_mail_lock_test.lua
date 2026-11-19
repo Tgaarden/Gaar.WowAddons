@@ -1,4 +1,4 @@
--- LuaJIT stub test: GaarBagsForever 1.11 - locked items kept off outgoing mail, and the
+-- LuaJIT stub test: GaarBagsForever 1.11 (popup shared since 1.12) - locked items kept off outgoing mail, and the
 -- attachment -> bag slot matching behind the cyan mail ring.
 -- Run: luajit tools/test/bags_mail_lock_test.lua   (from the repo root)
 local path = "addons/GaarBagsForever/GaarBagsForever.lua"
@@ -30,6 +30,8 @@ G.UIParent = widget()
 G.GameTooltip = widget()
 G.hooksecurefunc = noop
 G.ATTACHMENTS_MAX_SEND = 12
+local clock = 100
+G.GetTime = function() return clock end   -- the shared block message dedupes within 1.5 s
 
 -- The Send Mail attachments: index -> { id, count }
 local attached = {}
@@ -112,10 +114,11 @@ attached = { [2] = { id = 100, count = 1 }, [4] = { id = 5, count = 3 } }
 Mail.OnEvent("MAIL_SHOW")
 check("locked attachment taken off with clearItem", attached[2] == nil and clicks[1] and clicks[1].i == 2 and clicks[1].clear == true)
 check("other attachment left alone", attached[4] ~= nil and #clicks == 1)
-check("one popup, with the item link", #popups == 1 and popups[1].which == "GAARBAGSFOREVER_MAIL_LOCKED"
+check("one popup, with the item link", #popups == 1 and popups[1].which == "GAARBAGSFOREVER_LOCKED"
     and popups[1].text:find("[Item 100]", 1, true) ~= nil)
-check("popup dialog defined with OK only", G.StaticPopupDialogs.GAARBAGSFOREVER_MAIL_LOCKED ~= nil
-    and G.StaticPopupDialogs.GAARBAGSFOREVER_MAIL_LOCKED.button2 == nil)
+check("shared popup defined with OK only", G.StaticPopupDialogs.GAARBAGSFOREVER_LOCKED ~= nil
+    and G.StaticPopupDialogs.GAARBAGSFOREVER_LOCKED.button2 == nil)
+check("popup text names the action", popups[1].text:find("cannot be mailed", 1, true) ~= nil)
 local said = false
 for _, m in ipairs(G.__printed) do if m:find("cannot be mailed", 1, true) then said = true end end
 check("chat line printed", said)
@@ -131,6 +134,7 @@ G.ClickSendMailItemButton = function(i, clear)
     if not clear and attached[i] then cursor = attached[i].id end
 end
 clicks, popups = {}, {}
+clock = clock + 5
 attached = { [1] = { id = 100, count = 1 } }
 Mail.OnEvent("MAIL_SEND_INFO_UPDATE")
 check("fallback: second click without clearItem", #clicks == 2 and clicks[2].clear == nil)

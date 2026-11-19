@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.18"] = "notes for GaarBagsForever 1.12.0",
         ["3.2.17"] = "notes for GaarXPForever 1.3.3: the rested tick on the XP bar no longer shows a striped block; it now copies the Blizzard tick atlas or tex coords, else draws a thin light line, centred on the end of the rested segment",
         ["3.2.16"] = "notes for GaarXPForever 1.3.2: with ready quests on the XP bar, the rested bar and its tick now sit after the orange quest segment instead of under it",
         ["3.2.15"] = "notes for GaarFramesForever 1.4.4: steadier yellow HoT segment",
@@ -70,6 +71,7 @@ local CHANGES = {
         ["3.0.2"] = "a Loot row for GaarLootForever",
     },
     GaarBagsForever = {
+        ["1.12.0"] = "Locked items cannot be destroyed, auctioned or traded either: put back in the bags with a popup (dropping on the world, the auction sell slot, a trade slot); one shared popup for every block, mail included",
         ["1.11.0"] = "Locked items cannot be mailed (taken off the Send Mail tab, with a popup); cyan ring on bag items attached to the outgoing mail (/gbf mailglow)",
         ["1.10.1"] = "API: IsItemLocked(itemID), so GaarMerchantForever can ask for locks",
         ["1.10.0"] = "Renamed to GaarBagsForever (new folders; settings move over automatically on first login; new /gbf commands, old ones still work)",

@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: GaarBagsForever
-## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm, and Alt-click item locks that a merchant cannot sell and mail cannot send. /gbf
+## Notes: Makes Forever's Combined Backpack movable and adds a Clean Up Bags button left of the search box (right-click: Reverse), plus item counts and gold across your characters on the realm, and Alt-click item locks: a locked item cannot be sold, mailed, auctioned, traded or destroyed. /gbf
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.11.0
+## Version: 1.12.0
 ## X-Curse-Project-ID: 1766812
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\INV_Misc_Bag_08

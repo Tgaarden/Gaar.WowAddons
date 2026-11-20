@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.41"] = "notes for GaarLootForever 1.3.1: the Options page text about the Need/Greed/Pass counts and the right-click menu reads correctly again",
         ["3.2.40"] = "notes for GaarFramesForever 1.6.0: spell cost on the player power bar while casting",
         ["3.2.39"] = "the Options > AddOns subpages are now listed A-Z (Bags, Bars, Buffs, Castbars, ...) instead of in load order",
         ["3.2.37"] = "notes for the right-click menus: GaarForever.AttachMenu(target, opts) and FindPortrait; right-click the bag, mailbox and merchant portraits, and the XP, loot, fishing, chat feed, buff and cast bar windows to open that addon's menu",

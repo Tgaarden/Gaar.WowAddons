@@ -140,6 +140,16 @@ end
 
 local function Dist(ax, ay, bx, by) return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2) end
 
+-- A client taxi node or graveyard the game keeps as dead or test data (zzOLD..., [DNT], DEPRECATED,
+-- UNUSED, TEST): not drawn, not learned, not listed. A secret or missing name counts as dead too.
+local function IsDeadName(name)
+    if BF.IsSecret(name) or type(name) ~= "string" then return true end
+    local lower = name:lower()
+    return lower:find("^zz") ~= nil or lower:find("^%[dnt%]") ~= nil
+        or name:find("DEPRECATED", 1, true) ~= nil or name:find("UNUSED", 1, true) ~= nil
+        or name:find("TEST", 1, true) ~= nil
+end
+
 -- The client's flight nodes merged into the table's on one map. static: { {e, x, y} }; runtime:
 -- { {id, name, x, y, faction, known} }. Returns the merged list (the static ones, then the client
 -- nodes the table lacks as rows of their own) and the pairs { p = merged row, r = client node }.
@@ -216,7 +226,7 @@ local function MergeGraves(static, runtime)
 end
 
 places.pure = { Norm = Norm, MatchName = MatchName, FactionShows = FactionShows, PinStyle = PinStyle,
-    MergeFlights = MergeFlights, MergeGraves = MergeGraves }
+    MergeFlights = MergeFlights, MergeGraves = MergeGraves, IsDeadName = IsDeadName }
 
 -- ---------------------------------------------------------------------------
 -- Learned flight paths, saved per character
@@ -337,7 +347,7 @@ local function NodesFromTaxiMap()
                 for _, info in ipairs(list) do
                     if not BF.IsSecret(info) and type(info) == "table" then
                         local nm = Str(info.name)
-                        if nm and KnownState(info.state) then
+                        if nm and not IsDeadName(nm) and KnownState(info.state) then
                             names[#names + 1] = nm; ids[#names] = Num(info.nodeID) or false
                         elseif nm then
                             stats.skipped = stats.skipped + 1
@@ -358,7 +368,7 @@ local function NodeNamesLegacy()
     for i = 1, n do
         local kind = Str(Call(_G.TaxiNodeGetType, i))
         local nm = Str(Call(_G.TaxiNodeName, i))
-        if nm and (kind == "CURRENT" or kind == "REACHABLE") then names[#names + 1] = nm
+        if nm and not IsDeadName(nm) and (kind == "CURRENT" or kind == "REACHABLE") then names[#names + 1] = nm
         elseif nm then stats.skipped = stats.skipped + 1 end
     end
     return names
@@ -401,7 +411,7 @@ local function RuntimeFlights(mapID)
             local x, y = core.XY(info.position)
             local layer = info.isMapLayerTransition
             local skip = not BF.IsSecret(layer) and layer == true
-            if nm and x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not skip then
+            if nm and not IsDeadName(nm) and x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not skip then
                 local und, known = info.isUndiscovered, nil
                 if BF.IsSecret(und) or und == nil then
                     undisc.seenNil = undisc.seenNil + 1
@@ -430,8 +440,9 @@ local function RuntimeGraves(mapID)
     for _, info in ipairs(list) do
         if not BF.IsSecret(info) and type(info) == "table" then
             local x, y = core.XY(info.position)
-            if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-                out[#out + 1] = { x = x, y = y, name = Str(info.name) }
+            local gname = Str(info.name)
+            if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not IsDeadName(gname) then
+                out[#out + 1] = { x = x, y = y, name = gname }
             end
         end
     end

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.45"] = "notes for GaarMailForever 1.5.0: our Open All Mail button takes the place of Blizzard's Open All button in the Inbox (option: /gmail blizzopenall on|off)",
         ["3.2.44"] = "notes for GaarMailForever 1.4.0: an option hides Blizzard's own Open All button in the Inbox (on by default; /gmail blizzopenall on|off)",
         ["3.2.43"] = "notes for GaarMailForever 1.3.1: the Open All button sits a little higher in the Inbox frame",
         ["3.2.42"] = "notes for GaarChatForever 1.5.0: /gchat test and a Show test lines (chat) button put sample chat lines in the main chat frame, to show the tweaks",

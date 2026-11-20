@@ -18,8 +18,8 @@ Right-click the mailbox window's round portrait (top-left) to open this addon's 
 
 | Feature | Command word | Default | What it does |
 |---|---|---|---|
-| Open All | `openall` | on | An **Open All** button at the top of the inbox. Takes money, then items, from one mail at a time and waits for `MAIL_INBOX_UPDATE` / `MAIL_SUCCESS` between actions (0.3 s apart at the fastest). **Shift-click: money only.** Click again (the button reads *Stop*) to stop. Prints a summary: gold taken, item count. |
-| Hide Blizzard's Open All | `blizzopenall` | on | Hides Blizzard's own **Open All** button on the inbox (`OpenAllMail`) so only ours shows. It is hidden with `Hide()` and an `OnShow` hook that hides it again when Blizzard shows it; none of its scripts are replaced. Turn it off (or the master switch) and the button comes back. Does nothing if the client has no such button. |
+| Open All | `openall` | on | An **Open All Mail** button at the spot of Blizzard's own Open All button (its anchors and size are copied when the mailbox opens; bottom-centre of the inbox, above the page buttons, if the client has none). Takes money, then items, from one mail at a time and waits for `MAIL_INBOX_UPDATE` / `MAIL_SUCCESS` between actions (0.3 s apart at the fastest). **Shift-click: money only.** Click again (the button reads *Stop*, then *Open All Mail* again) to stop. Prints a summary: gold taken, item count. |
+| Use GaarMail's Open All instead of Blizzard's | `blizzopenall` | on | Exactly one **Open All** button shows. On: ours (**Open All Mail**) sits where Blizzard's button is and Blizzard's `OpenAllMail` is hidden with `Hide()` plus an `OnShow` hook that hides it again; none of its scripts are replaced and only our own frame is positioned. Off (or the master switch or Open All off): Blizzard's button shows and ours is hidden. `/gmail open` works either way. |
 | Delete empty | `deleteempty` | off | With Open All: deletes mails that are empty after taking. See the safety rules. |
 | Recipient list | `recipients` | on | A `v` button right of the **To:** box on the Send Mail tab: your own characters on this realm and faction (every character that logs in is recorded) and the last 15 recipients (account-wide, recorded when a letter is sent). Click a name to fill in **To:**. |
 | Alt-click to attach | `sendmulti` | on | On the Send Mail tab, **Alt-click** an item in your bags to attach it. **Ctrl+Alt-click** attaches up to 12 stacks of the same item. Out of combat only. |
@@ -72,7 +72,7 @@ The hub talks to this addon only through `GaarMailForeverAPI`:
   `ContainerFrameItemButton_OnModifiedClick`, `HookScript` on `SendMailFrame`), never replaced.
 - Every handler runs in `pcall` (the last error is kept for `/gmail status`), every client API is
   checked with `type(...) == "function"`, and a secret value is treated as no value.
-- The Open All button sits at the top left of the inbox and the recipient button right of the
+- The Open All Mail button copies the anchors and size of Blizzard's Open All button (fallback: bottom-centre of the inbox) and the recipient button sits right of the
   **To:** box. Neither can be checked here without the client, so move them if they collide with
   another addon.
 

@@ -73,7 +73,7 @@ end
 -- The name before the folder rename, for anything that still looks the library up by it. The
 -- BetterForever folder is only a settings bridge now and defines nothing.
 _G.BetterForever = Lib
-Lib.version = "3.2.40"
+Lib.version = "3.2.41"
 
 local PREFIX_COLOR = "|cff33ff99"
 

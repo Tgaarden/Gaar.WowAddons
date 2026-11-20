@@ -59,18 +59,18 @@
 ]]
 
 local _G = _G
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
 local IsSecret, Num, Str, Bool, API, Call = BF.IsSecret, BF.Num, BF.Str, BF.Bool, BF.API, BF.Call
 local OnOff = BF.OnOff
 
-local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a group loot roll: how many in  Right-click the recent-rolls panel for this addon's menu."
+local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a group loot roll: how many in "
     .. "the group chose that option for that roll. Hover a button to see who. Nice to know: the counts "
     .. "come from the loot chat lines (and the loot history where the client has it), so they fill in as "
     .. "people choose. Once you have chosen, a small summary panel lists the last rolls: who chose "
-    .. "what, the numbers rolled and who won. Drag it to move it; /glf test shows a preview."
+    .. "what, the numbers rolled and who won. Drag it to move it; right-click it for this addon's menu; /glf test shows a preview."
 
 local A = BF.NewAddon("GaarLootForever", { title = "GaarLootForever", version = VERSION, intro = INTRO })
 

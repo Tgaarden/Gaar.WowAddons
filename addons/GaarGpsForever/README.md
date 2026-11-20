@@ -132,11 +132,36 @@ module off.
 
 Not in 1.1: more than one waypoint, a queue, routes, importing, and the arrow inside instances.
 
+## Graveyards and flight paths on the map (1.5)
+
+Every graveyard (spirit healer) and flight path (flight master) of the vanilla world is drawn on
+the world map and the zone map (`Places.lua`), also those you have not found. Not on the minimap,
+and nothing is clickable: hover for the tooltip. On by default.
+
+- **Flight paths.** Your own faction's and the neutral ones (Booty Bay, Gadgetzan, Everlook,
+  Cenarion Hold, Light's Hope Chapel, Thorium Point, Marshal's Refuge, Ratchet). A learned one has
+  the normal flight master icon, one you have not learned is grey and faded. The tooltip says the
+  name, the zone and `Learned` or `Not learned`. On a continent map they are placed through the
+  world position, as the waypoint pin is.
+- **Graveyards.** All of them in the zone, on the zone map only (the data does not say which
+  faction a graveyard serves, so none is hidden). Tooltip: `Graveyard` and the zone.
+- **Learned.** Whenever a flight master's map opens (`TAXIMAP_OPENED`) the nodes the client lists
+  (`C_TaxiMap.GetAllTaxiNodes`, else `GetTaxiNodesForMap`, else the old `NumTaxiNodes` /
+  `TaxiNodeName`) are matched to the table by name (the part before the comma, so `Stormwind,
+  Elwynn` is Stormwind) and saved per character in `GaarGpsForeverDB.placesLearned`. Until your
+  first flight master visit on a character every flight path is grey.
+- **Data.** `Data/FlightPaths.lua` (55 flight paths: 24 Alliance, 23 Horde, 8 neutral) and
+  `Data/Graveyards.lua` (86 graveyards): per zone uiMapID and 0-1 position, compiled by hand from
+  public Wowhead Classic NPC pages; sources are in the file headers. Positions are NPC spawns, a
+  little off the exact spot.
+- `/ggps flights on|off`, `/ggps graves on|off`, and two checkboxes in the hub menu / Options page.
+
 ## Commands
 
 | Command | Does |
 |---|---|
 | `/ggps` | Help |
+| `/ggps flights on\|off`, `/ggps graves on\|off` | Show all flight paths (grey until learned) / graveyards on the world and zone map |
 | `/way x y`, `/way x,y`, `/way <zone> x y` | Set the waypoint (0-100, x first) |
 | `/way`, `/way clear` | Show the waypoint and the usage; clear it |
 | `/ggps way ...` | The same as `/way ...`, always there (the one to use with TomTom) |

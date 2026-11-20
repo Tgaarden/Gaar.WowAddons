@@ -19,6 +19,7 @@ Right-click the mailbox window's round portrait (top-left) to open this addon's 
 | Feature | Command word | Default | What it does |
 |---|---|---|---|
 | Open All | `openall` | on | An **Open All** button at the top of the inbox. Takes money, then items, from one mail at a time and waits for `MAIL_INBOX_UPDATE` / `MAIL_SUCCESS` between actions (0.3 s apart at the fastest). **Shift-click: money only.** Click again (the button reads *Stop*) to stop. Prints a summary: gold taken, item count. |
+| Hide Blizzard's Open All | `blizzopenall` | on | Hides Blizzard's own **Open All** button on the inbox (`OpenAllMail`) so only ours shows. It is hidden with `Hide()` and an `OnShow` hook that hides it again when Blizzard shows it; none of its scripts are replaced. Turn it off (or the master switch) and the button comes back. Does nothing if the client has no such button. |
 | Delete empty | `deleteempty` | off | With Open All: deletes mails that are empty after taking. See the safety rules. |
 | Recipient list | `recipients` | on | A `v` button right of the **To:** box on the Send Mail tab: your own characters on this realm and faction (every character that logs in is recorded) and the last 15 recipients (account-wide, recorded when a letter is sent). Click a name to fill in **To:**. |
 | Alt-click to attach | `sendmulti` | on | On the Send Mail tab, **Alt-click** an item in your bags to attach it. **Ctrl+Alt-click** attaches up to 12 stacks of the same item. Out of combat only. |
@@ -44,7 +45,7 @@ Right-click the mailbox window's round portrait (top-left) to open this addon's 
 |---|---|
 | `/gmail` or `/gmail help` | Help |
 | `/gmail on`, `/gmail off` | Master switch |
-| `/gmail openall\|deleteempty\|recipients\|sendmulti\|notice\|subject on\|off` | One feature on or off (without `on`/`off` it prints the state) |
+| `/gmail openall\|blizzopenall\|deleteempty\|recipients\|sendmulti\|notice\|subject on\|off` | One feature on or off (without `on`/`off` it prints the state) |
 | `/gmail open` | Run Open All, the same as the button (mailbox must be open) |
 | `/gmail status` | Version, master and every feature, mailbox open or closed, Open All running or idle, remembered names, the last error caught |
 

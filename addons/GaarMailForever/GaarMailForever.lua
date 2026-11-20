@@ -5,6 +5,7 @@
   master switch on top. Nothing here replaces a Blizzard function: the addon adds its own frames
   and follows Blizzard code with hooksecurefunc.
 
+    hideBlizzOpenAll (default on) hides Blizzard's own Open All button (hide + OnShow hook, no script replaced).
     openAll      (default on)   "Open All" button on the inbox. Takes money and then items from
                                 one mail at a time and waits for MAIL_INBOX_UPDATE / MAIL_SUCCESS
                                 between actions (0.3 s apart at the fastest). Shift-click on the
@@ -46,7 +47,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -63,6 +64,7 @@ local MAX_STACKS = 12         -- ATTACHMENTS_MAX_SEND
 -- The features: saved key, slash word, label, default.
 local FEATURES = {
     { key = "openAll", cmd = "openall", label = "Open All button", def = true },
+    { key = "hideBlizzOpenAll", cmd = "blizzopenall", label = "Hide Blizzard's Open All button", def = true },
     { key = "deleteEmpty", cmd = "deleteempty", label = "Delete empty system mail", def = false },
     { key = "recipients", cmd = "recipients", label = "Recipient list", def = true },
     { key = "sendMulti", cmd = "sendmulti", label = "Alt-click to attach", def = true },
@@ -368,6 +370,33 @@ local function UpdateOpenButton()
     openBtn:SetText(run and "Stop" or "Open All")
 end
 
+-- Blizzard's own Open All button (OpenAllMail from Blizzard_MailFrame; the other names are
+-- fallbacks). Hidden without touching its scripts: Hide() plus an OnShow hook that re-hides it
+-- while the option is on. Nothing happens if this client has no such button.
+local blizzBtn, blizzHooked
+local function FindBlizzOpenAll()
+    local inbox = _G.InboxFrame
+    local b = _G.OpenAllMail or _G.OpenAllMailButton or (type(inbox) == "table" and inbox.OpenAllMail) or nil
+    if type(b) == "table" and type(b.Hide) == "function" and type(b.Show) == "function" then return b end
+end
+
+local function UpdateBlizzOpenAll()
+    local b = blizzBtn or FindBlizzOpenAll()
+    if not b then return end
+    blizzBtn = b
+    if not blizzHooked and type(b.HookScript) == "function" then
+        blizzHooked = true
+        b:HookScript("OnShow", function(self)
+            if Feature("hideBlizzOpenAll") then self:Hide() end
+        end)
+    end
+    if Feature("hideBlizzOpenAll") then
+        b:Hide()
+    elseif mailOpen then
+        b:Show()
+    end
+end
+
 local function Finish(reason)
     if not run then return end
     local r = run
@@ -636,6 +665,7 @@ end
 
 local function Refresh()
     UpdateOpenButton()
+    Safe("blizzard open all", UpdateBlizzOpenAll)
     RefreshRecipientButton()
     if run and not Feature("openAll") then Finish("stopped") end
 end
@@ -664,7 +694,7 @@ local function PrintHelp()
     Print("Right-click the mailbox window's round portrait (top-left): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gmail on|off - master switch")
-    Print("/gmail openall|deleteempty|recipients|sendmulti|notice|subject on|off - one feature")
+    Print("/gmail openall|blizzopenall|deleteempty|recipients|sendmulti|notice|subject on|off - one feature")
     Print("/gmail open - run Open All (mailbox open); /gmail status")
 end
 

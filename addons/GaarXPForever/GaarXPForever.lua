@@ -35,8 +35,11 @@
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
   the old level plus the new XP). The change is classified a short moment later: a
-  CHAT_MSG_COMBAT_XP_GAIN since the last one = a kill, a QUEST_TURNED_IN = a quest, anything else
-  (exploring, gathering) counts only toward the XP/hour. Chat text is never parsed.
+  CHAT_MSG_COMBAT_XP_GAIN whose text matches the "dies, you gain" format (built from the global
+  COMBATLOG_XPGAIN_* strings) = a kill; a QUEST_TURNED_IN (its xp argument) = a quest; anything else
+  (exploring, gathering) counts only toward the XP/hour. Kill XP is the base amount without the rested
+  bonus, averaged over the last 20 kills, and quest XP never enters it. Unusable text falls back to
+  "a kill unless a quest was just turned in".
 
   Taint: Blizzard code is only followed, never replaced. The only hooks are hooksecurefunc on tooltip
   helpers and a HookScript on GameTooltip; the XP text and bar changes are followed with posthooks (hooksecurefunc / HookScript) and a poll (IsMouseOver). Every client API is checked
@@ -51,7 +54,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.7"
+local VERSION = "1.3.8"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -156,25 +159,95 @@ end
 local session
 local function ResetSession()
     local cur, max = XPValues()
-    session = { start = Now(), gained = 0, kills = 0, killXP = 0, quests = 0, questXP = 0,
+    session = { start = Now(), gained = 0, kills = 0, killXP = 0, quests = 0, questXP = 0, mobXP = 0, recent = {},
         lastXP = cur, lastMax = max }
 end
 ResetSession()
 
-local flagKill, flagQuest, pendingDelta, pendingTimer
+local flagQuest, pendingDelta, pendingTimer
+local pendingKills, pendingKillBase, pendingQuestXP = 0, 0, 0
+local RECENT_KILLS = 20   -- the kill average uses the last N kills
+
+-- Turns a global format string (COMBATLOG_XPGAIN_*) into a prefix pattern; the first %d is captured.
+local function FormatToPattern(fmt)
+    local pat = fmt:gsub("[%^%$%(%)%.%[%]%*%+%-%?]", "%%%0")
+    pat = pat:gsub("%%%d%$", "%%"):gsub("%%s", "\1"):gsub("%%d", "\2")
+    pat = pat:gsub("\1", "(.+)"):gsub("\2", "(%%d+)")
+    return "^" .. pat
+end
+
+local KILL_FORMATS = { "COMBATLOG_XPGAIN_FIRSTPERSON", "COMBATLOG_XPGAIN_FIRSTPERSON_GROUP",
+    "COMBATLOG_XPGAIN_FIRSTPERSON_RAID", "COMBATLOG_XPGAIN_FIRSTPERSON_RESTED",
+    "COMBATLOG_XPGAIN_FIRSTPERSON_GROUP_RESTED", "COMBATLOG_XPGAIN_FIRSTPERSON_RAID_RESTED" }
+
+-- Pure: classify a CHAT_MSG_COMBAT_XP_GAIN text. Returns "kill", base XP (the part without the rested
+-- bonus, may be nil) for a "X dies, you gain N experience" message; "other" for the unnamed form
+-- (quest, exploring); nil when the text is unusable (nil / secret) so the caller falls back.
+local function ClassifyXPMessage(msg, G)
+    G = G or _G
+    if type(msg) ~= "string" then return nil end
+    local ok, issecret = pcall(function() return BF.IsSecret and BF.IsSecret(msg) end)
+    if not ok or issecret then return nil end
+    local known = false
+    for _, name in ipairs(KILL_FORMATS) do
+        local fmt = G[name]
+        if type(fmt) == "string" then
+            known = true
+            local pat = FormatToPattern(fmt)
+            -- the amount is the last capture of the pattern (the name comes first)
+            local c = { msg:match(pat) }
+            if #c > 0 then
+                local n = tonumber(c[#c])
+                -- group formats may carry a second number (bonus); the first %d is the amount
+                for i = 1, #c do if tonumber(c[i]) then n = tonumber(c[i]); break end end
+                return "kill", n
+            end
+        end
+    end
+    if known then return "other" end
+    return nil
+end
 
 local function Resolve()
     pendingTimer = nil
     local d = pendingDelta
-    pendingDelta = nil
-    if not d or d <= 0 then flagKill, flagQuest = nil, nil; return end
+    local kills, killBase, qxp = pendingKills, pendingKillBase, pendingQuestXP
+    pendingDelta, pendingKills, pendingKillBase, pendingQuestXP = nil, 0, 0, 0
+    local hadQuest = flagQuest
+    flagQuest = nil
+    if not d or d <= 0 then return end
     session.gained = session.gained + d
-    if flagKill then
-        session.kills = session.kills + 1; session.killXP = session.killXP + d
-    elseif flagQuest then
-        session.quests = session.quests + 1; session.questXP = session.questXP + d
+    local mobPart, questPart = 0, 0
+    if kills > 0 and hadQuest then
+        questPart = math.min(d, qxp)
+        mobPart = d - questPart
+    elseif kills > 0 then
+        mobPart = d
+    elseif hadQuest then
+        questPart = d
     end
-    flagKill, flagQuest = nil, nil
+    session.mobXP = (session.mobXP or 0) + mobPart
+    if questPart > 0 then
+        session.quests = session.quests + 1; session.questXP = session.questXP + questPart
+    end
+    if kills > 0 and mobPart > 0 then
+        local base = killBase > 0 and killBase / kills or mobPart / kills
+        session.kills = session.kills + kills
+        session.killXP = session.killXP + base * kills
+        for _ = 1, kills do
+            session.recent[#session.recent + 1] = base
+            if #session.recent > RECENT_KILLS then table.remove(session.recent, 1) end
+        end
+    end
+end
+
+-- Pure: average base XP per kill over the recent kills (nil when none).
+local function KillAvg(sess)
+    local n = #sess.recent
+    if n == 0 then return nil end
+    local sum = 0
+    for i = 1, n do sum = sum + sess.recent[i] end
+    return sum > 0 and sum / n or nil
 end
 
 local function OnXPUpdate()
@@ -460,14 +533,22 @@ local function PanelText()
     if not cur then return "XP: no data" end
     local qx = Enabled("questReady") and ready.count > 0 and ready.xp or 0
     local rate = Rate()
-    local killAvg = session.kills > 0 and session.killXP > 0 and session.killXP / session.kills or nil
+    local killAvg = KillAvg(session)
     local calc = Calc(cur, max, qx, rate, killAvg)
     local remaining = calc.remaining
     local lines = { string.format("XP: %s/%s (%.1f%%)", Commas(cur), Commas(max), cur / max * 100) }
     lines[#lines + 1] = (rested and rested > 0)
         and string.format("Rested: %s (%.0f%% of level)", Commas(rested), rested / max * 100)
         or "Rested: 0"
-    lines[#lines + 1] = "XP/hour: " .. (rate and Commas(rate) or "--")
+    local rateLine = "XP/hour: " .. (rate and Commas(rate) or "--")
+    if rate and session.gained > 0 then
+        local el = Now() - session.start
+        local function per(x) return Commas((x or 0) / el * 3600) end
+        local other = math.max(0, session.gained - (session.mobXP or 0) - session.questXP)
+        rateLine = rateLine .. " (mobs " .. per(session.mobXP) .. DOT .. "quests " .. per(session.questXP)
+            .. (other > 0 and (DOT .. "other " .. per(other)) or "") .. ")"
+    end
+    lines[#lines + 1] = rateLine
     if Enabled("questReady") and ready.count > 0 then
         lines[#lines + 1] = "Quests ready: " .. ready.count .. " (+" .. Commas(ready.xp) .. " XP)"
         if calc.levelUp then
@@ -479,8 +560,8 @@ local function PanelText()
     end
     lines[#lines + 1] = "To level: " .. (calc.levelUp and "turn in quests" or (calc.secs and Duration(calc.secs) or "--"))
     local parts = {}
-    if session.kills > 0 and session.killXP > 0 then
-        parts[#parts + 1] = "~" .. math.ceil(remaining / (session.killXP / session.kills)) .. " kills"
+    if killAvg then
+        parts[#parts + 1] = "~" .. math.ceil(remaining / killAvg) .. " kills (avg " .. Commas(killAvg) .. " XP)"
     end
     if session.quests > 0 and session.questXP > 0 then
         parts[#parts + 1] = "~" .. math.ceil(remaining / (session.questXP / session.quests)) .. " quests"
@@ -1476,6 +1557,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             OnTimePlayed(arg1, arg2)
         elseif event == "QUEST_TURNED_IN" then
             flagQuest = true
+            local qx = Num(arg2)
+            if qx and qx > 0 then pendingQuestXP = pendingQuestXP + qx end
             xpCache = {}
             QuestEvent()
         elseif event == "QUEST_DATA_LOAD_RESULT" then
@@ -1492,7 +1575,13 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             or event == "UI_INFO_MESSAGE" then
             QuestEvent()
         elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
-            flagKill = true
+            local kind, base = ClassifyXPMessage(arg1)
+            if kind == "kill" then
+                pendingKills = pendingKills + 1
+                pendingKillBase = pendingKillBase + (base or 0)
+            elseif kind == nil and not flagQuest then   -- unusable text: assume a kill unless a quest was just turned in
+                pendingKills = pendingKills + 1
+            end
         end
     end)
 end)

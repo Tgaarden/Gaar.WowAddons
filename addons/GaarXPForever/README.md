@@ -10,6 +10,10 @@ A small standalone addon for the WoW Forever client (`_forever_`, interface 1600
 content, level cap 60). XP at a glance: a movable text panel, text on the XP bar, time played per
 level on level-up, and quest XP in tooltips. Every part has its own switch. It needs GaarForever, the family hub, and no other addon or library and is not part of the Gaar suite.
 
+## Right-click menu
+
+Right-click the XP panel (when unlocked or locked, anywhere on it) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **XP panel** (`panel`, on): a small movable text panel with XP `cur/max (pct%)`, rested XP (amount

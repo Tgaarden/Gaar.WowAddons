@@ -482,6 +482,9 @@ local function Build()
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
     frame:RegisterForDrag("LeftButton")
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(frame, { title = "GaarChatForever", api = "GaarChatForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
     frame:SetScript("OnDragStart", function(self) if not opts.locked then self:StartMoving() end end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()

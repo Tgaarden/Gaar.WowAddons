@@ -40,6 +40,8 @@
     GaarForever.RenderMenu(root, entries, title)  draws MenuEntries() data into a MenuUtil description
     GaarForever.Report(err, title)  a click's error: one chat line and the error handler, once each
     GaarForever.IntroOf(api)     an addon API table's intro text (Intro() or intro), or nil
+    GaarForever.AttachMenu(target, opts)  right-click a window or portrait opens the addon's menu (3.2.37)
+    GaarForever.FindPortrait(frame, names)  the round portrait region of a Blizzard frame, or nil (3.2.37)
 
   Addons:
     GaarForever.DisplayName(name) "BetterBagsForever" -> "GaarBagsForever", the name users see (3.2)
@@ -71,7 +73,7 @@ end
 -- The name before the folder rename, for anything that still looks the library up by it. The
 -- BetterForever folder is only a settings bridge now and defines nothing.
 _G.BetterForever = Lib
-Lib.version = "3.2.36"
+Lib.version = "3.2.37"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -445,6 +447,210 @@ function Lib.RenderMenu(root, entries, title)
             root:CreateButton(tostring(e.text), function() Click(e, title) end)
         end
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Right-click a window: the addon's menu (3.2.37)
+--
+-- Lib.AttachMenu(target, opts) makes a right-click on target open the addon's menu, drawn by
+-- MenuUtil.CreateContextMenu from the addon's MenuEntries (the same data the hub shows).
+--   target  the frame to click. With opts.portrait it is the frame that OWNS the portrait.
+--   opts.title    the addon's title, for the menu and its error line (required)
+--   opts.entries  function returning the MenuEntries data (default: _G[opts.api].MenuEntries)
+--   opts.api      the global API table name, e.g. "GaarBagsForeverAPI" (for the default entries)
+--   opts.hook     true: our own frame, or a Blizzard frame that already takes the mouse: only a
+--                 HookScript("OnMouseUp") that reacts to the RIGHT button. Nothing is replaced,
+--                 left-click and dragging are untouched. No tooltip is added.
+--   opts.portrait true: target's round portrait is not mouse-enabled, so a transparent 60x60
+--                 Button of ours sits over it (strata of the frame, level +20, re-anchored on every
+--                 OnShow), right-click only. Tooltip "Right-click: <title> menu".
+--   opts.propagate true: a left-click also reaches a Blizzard button under the portrait
+--   opts.names    extra global names for the portrait (see Lib.FindPortrait)
+--   opts.name     global name of the overlay button (optional)
+--   opts.hit      hook mode: a region the cursor must be over for the click to count
+-- Created out of combat only (a pending one is finished when combat ends). A menu error is
+-- printed once. Without MenuUtil a right-click prints a hint. Returns a handle:
+--   h.Open(owner), h.Place(), h.button (overlay button or nil), h.Status() -> text
+-- Calling it again for the same target returns the first handle.
+-- ---------------------------------------------------------------------------
+
+-- The round portrait of a Blizzard window, if one of the usual names has a sensible size (a
+-- ButtonFrame's PortraitContainer can be a 1x1 holder). names: extra globals to try. Returns
+-- region, path - or nil.
+local function RegionSize(r)
+    if type(r) ~= "table" or type(r.GetWidth) ~= "function" then return 0, 0 end
+    local ok, w, h = pcall(function() return Num(r:GetWidth()) or 0, Num(r:GetHeight()) or 0 end)
+    if ok then return w, h end
+    return 0, 0
+end
+
+function Lib.FindPortrait(frame, names)
+    if type(frame) ~= "table" then return nil end
+    local cands = {}
+    local function add(path, r) cands[#cands + 1] = { path, r } end
+    local border = frame.BorderFrame
+    for _, holder in ipairs({ { "BorderFrame", border }, { "frame", frame } }) do
+        local h = holder[2]
+        if type(h) == "table" then
+            local pc = h.PortraitContainer
+            add(holder[1] .. ".PortraitContainer", pc)
+            add(holder[1] .. ".PortraitContainer.portrait", type(pc) == "table" and pc.portrait or nil)
+            add(holder[1] .. ".portrait", h.portrait)
+            add(holder[1] .. ".Portrait", h.Portrait)
+            add(holder[1] .. ".PortraitFrame", h.PortraitFrame)
+        end
+    end
+    for _, n in ipairs(names or {}) do add(n, _G[n]) end
+    for _, c in ipairs(cands) do
+        local r = c[2]
+        if type(r) == "table" and type(r.GetObjectType) == "function" then
+            local w, h = RegionSize(r)
+            if w >= 30 and h >= 30 and w <= 120 and h <= 120 then return r, c[1] end
+        end
+    end
+    return nil
+end
+
+local menuHandles = setmetatable({}, { __mode = "k" })
+local menuPending = {}
+local menuEvents
+
+local function MenuPendingRun()
+    local list = menuPending
+    menuPending = {}
+    for _, fn in ipairs(list) do pcall(fn) end
+end
+
+local function MenuPendingAdd(fn)
+    menuPending[#menuPending + 1] = fn
+    if not menuEvents and type(_G.CreateFrame) == "function" then
+        local ok, f = pcall(_G.CreateFrame, "Frame")
+        if ok and type(f) == "table" then
+            menuEvents = f
+            pcall(f.RegisterEvent, f, "PLAYER_REGEN_ENABLED")
+            pcall(f.SetScript, f, "OnEvent", MenuPendingRun)
+        end
+    end
+end
+
+function Lib.AttachMenu(target, opts)
+    if type(target) ~= "table" or type(opts) ~= "table" then return nil end
+    if menuHandles[target] then return menuHandles[target] end
+    local title = Str(opts.title) or "GaarForever"
+    local h = { button = nil }
+    local errShown = false
+
+    local function Entries()
+        if type(opts.entries) == "function" then return opts.entries() end
+        local api = opts.api and _G[opts.api]
+        if type(api) == "table" and type(api.MenuEntries) == "function" then return api.MenuEntries() end
+    end
+
+    function h.Open(owner)
+        local MU = _G.MenuUtil
+        if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
+            local ok, err = pcall(MU.CreateContextMenu, owner or target, function(_, root)
+                Lib.RenderMenu(root, Entries(), title)
+            end)
+            if not ok and not errShown then
+                errShown = true
+                local chat = _G.DEFAULT_CHAT_FRAME
+                if chat and type(chat.AddMessage) == "function" then
+                    chat:AddMessage(PREFIX_COLOR .. title .. "|r: the menu failed: " .. tostring(err))
+                end
+            end
+            return
+        end
+        local chat = _G.DEFAULT_CHAT_FRAME
+        if chat and type(chat.AddMessage) == "function" then
+            chat:AddMessage(PREFIX_COLOR .. title .. "|r: the menu is not available on this client; use the slash command.")
+        end
+    end
+
+    local function Place()
+        local b = h.button
+        if not b then return end
+        local parent = target
+        local region, path = nil, nil
+        if opts.portrait then region, path = Lib.FindPortrait(target, opts.names) end
+        h.foundAs = path
+        b:ClearAllPoints()
+        b:SetSize(60, 60)
+        if region then
+            b:SetPoint("CENTER", region, "CENTER", 0, 0)
+        else
+            local border = type(target.BorderFrame) == "table" and target.BorderFrame or target
+            b:SetPoint("TOPLEFT", border, "TOPLEFT", -5, 7)
+            parent = border
+        end
+        if type(parent.GetFrameStrata) == "function" and type(b.SetFrameStrata) == "function" then
+            b:SetFrameStrata(parent:GetFrameStrata())
+        end
+        if type(parent.GetFrameLevel) == "function" then b:SetFrameLevel((Num(parent:GetFrameLevel()) or 0) + 20) end
+        b:EnableMouse(true)
+        -- A Blizzard button under the portrait (a bag window's) must keep its left-click.
+        if opts.propagate and type(b.SetPropagateMouseClicks) == "function" then
+            pcall(b.SetPropagateMouseClicks, b, true)
+        end
+    end
+    h.Place = function()
+        if h.button and not Lib.InCombat() then pcall(Place) end
+    end
+
+    local function Create()
+        if h.button or h.hooked then h.Place() return end
+        if Lib.InCombat() then
+            if not h.queued then h.queued = true; MenuPendingAdd(function() h.queued = false; Create() end) end
+            return
+        end
+        if opts.hook then
+            if type(target.HookScript) ~= "function" then return end
+            h.hooked = true
+            pcall(target.HookScript, target, "OnMouseUp", function(_, button)
+                if button ~= "RightButton" then return end
+                if opts.hit and type(opts.hit) == "table" and type(opts.hit.IsMouseOver) == "function" then
+                    local ok, over = pcall(opts.hit.IsMouseOver, opts.hit)
+                    if ok and not over then return end
+                end
+                h.Open(target)
+            end)
+            return
+        end
+        local b = _G.CreateFrame("Button", opts.name, target)
+        b:RegisterForClicks("RightButtonUp", "RightButtonDown")
+        b:SetScript("OnClick", function(self, button, down)
+            if button == "RightButton" and not down then h.Open(self) end
+        end)
+        b:SetScript("OnEnter", function(self)
+            local tip = _G.GameTooltip
+            if not tip then return end
+            tip:SetOwner(self, "ANCHOR_RIGHT")
+            tip:SetText("Right-click: " .. title:gsub("Forever$", "") .. " menu")
+            tip:Show()
+        end)
+        b:SetScript("OnLeave", function()
+            if _G.GameTooltip then _G.GameTooltip:Hide() end
+        end)
+        h.button = b
+        Place()
+    end
+
+    function h.Status()
+        if h.hooked then return "right-click: hooked on the window" end
+        local b = h.button
+        if not b then return "right-click button: not created" .. (h.queued and " (waiting for combat to end)" or "") end
+        local w, hh = RegionSize(b)
+        return string.format("right-click button: portrait region %s, size %dx%d, shown=%s",
+            tostring(h.foundAs or "none (offset)"), w, hh, tostring(b.IsShown and b:IsShown() or false))
+    end
+
+    menuHandles[target] = h
+    -- Re-anchor and re-raise on every show: Blizzard may re-level the portrait.
+    if type(target.HookScript) == "function" then
+        pcall(target.HookScript, target, "OnShow", function() Create() end)
+    end
+    Create()
+    return h
 end
 
 -- An addon API table's intro: Intro() (a function returning a string) or intro (a string).

@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMerchantForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.4"
+local VERSION = "1.2.0"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps
@@ -319,8 +319,17 @@ end
 -- Merchant events
 -- ---------------------------------------------------------------------------
 
+-- Right-click the merchant window's round portrait: the addon's menu (hub helper, once).
+local portraitMenu
+local function AttachPortraitMenu()
+    if portraitMenu or type(BF.AttachMenu) ~= "function" or type(_G.MerchantFrame) ~= "table" then return end
+    portraitMenu = BF.AttachMenu(_G.MerchantFrame, { title = "GaarMerchantForever", api = "GaarMerchantForeverAPI",
+        portrait = true, propagate = true, names = { "MerchantFramePortrait" }, name = "GaarMerchantForeverPortraitButton" })
+end
+
 local function OnMerchantShow()
     merchantOpen = true
+    pcall(AttachPortraitMenu)
     if not Enabled() then return end
     pendingRepair = nil
     local repairText = DoRepair()
@@ -384,6 +393,7 @@ end
 local INTRO = "At a merchant it sells your grey items and repairs your gear, optionally with guild funds, and sums it up in one chat line. Nice to know: items you locked in GaarBagsForever (Alt-click) are never sold; selling stops in combat or when the merchant closes; /gmerch sell sells the junk on demand."
 
 local function PrintHelp()
+    Print("Right-click the merchant window's round portrait (top-left): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gmerch on | off - master switch (now " .. OnOff(Enabled()) .. ")")
     Print("/gmerch sell - sell the junk now (merchant must be open)")

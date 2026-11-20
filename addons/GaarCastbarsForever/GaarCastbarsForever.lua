@@ -58,7 +58,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarCastbarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.2.2"
+local VERSION = "1.3.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -557,6 +557,9 @@ local function MakeBar(u)
     f:SetResizable(true)
     SetSizeBounds(f, MIN_W, MIN_H, MAX_W, MAX_H)
     f:RegisterForDrag("LeftButton")
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(f, { title = "GaarCastbarsForever", api = "GaarCastbarsForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
     f:SetScript("OnDragStart", function(self)
         if db and not db.locked then self.moving = true; self:StartMoving() end
     end)
@@ -1585,6 +1588,7 @@ end
 local INTRO = "Its own cast bars for player, target, focus and pet, with icon, timer, spark and a latency safe-zone, plus a swing timer under the player bar. Place them yourself or let them follow Blizzard's bars from Edit Mode. Nice to know: unlock, then drag a bar to move it and its corner grip to resize it; /gcf test shows looping test casts; a grey bar with a shield cannot be interrupted."
 
 local function PrintHelp()
+    Print("Right-click a cast bar while the bars are unlocked (/gcb unlock): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("drag a bar to move it, drag its bottom-right grip to resize it. /gcf test shows them out of combat.")
     Print("/gcf status - what this client offers and the current settings")

@@ -54,7 +54,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.8"
+local VERSION = "1.4.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -599,6 +599,9 @@ local function CreatePanel()
     panel:SetMovable(true)
     panel:EnableMouse(true)
     panel:RegisterForDrag("LeftButton")
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(panel, { title = "GaarXPForever", api = "GaarXPForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
     local bg = panel:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0, 0, 0, 0.5)
@@ -1366,6 +1369,7 @@ end
 local INTRO = "XP at a glance: a movable panel with XP per hour, time to level and kills or quests to level, text on the XP bar, time played per level on level-up, quest XP in tooltips, and the XP of quests ready to turn in (taken off the XP left). Nice to know: Alt-drag moves the panel (or /gxp unlock); /gxp reset starts a new session."
 
 local function PrintHelp()
+    Print("Right-click the XP panel (when unlocked or locked, anywhere on it): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gxp  " .. VERSION)
     Print("/gxp on|off - everything on or off")

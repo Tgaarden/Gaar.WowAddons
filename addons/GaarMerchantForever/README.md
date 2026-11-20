@@ -9,6 +9,10 @@
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). When you open a
 merchant it sells your grey items and repairs your gear. Every feature has its own switch. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
+## Right-click menu
+
+Right-click the merchant window's round portrait (top-left) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **Sell junk** (on by default). At a merchant, sells every grey (quality 0) item in your bags,

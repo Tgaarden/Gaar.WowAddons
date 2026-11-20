@@ -100,7 +100,7 @@ ADDON_NAME = ADDON_NAME or "GaarBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.8.1"
+local VERSION = "1.9.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -718,6 +718,9 @@ local function CreateBox()
     end
     box:EnableMouse(true)
     box:RegisterForDrag("LeftButton")
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(box, { title = "GaarBuffsForever", api = "GaarBuffsForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
     box:SetScript("OnDragStart", function()
         if InCombat() then return end
         if db and db.locked ~= false and not AltDown() then return end
@@ -1209,6 +1212,7 @@ end
 local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/gbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /gbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
 
 local function PrintHelp()
+    Print("Right-click the empty background of the buff box (not the spell rows): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     if module then
         Print(module.blurb)

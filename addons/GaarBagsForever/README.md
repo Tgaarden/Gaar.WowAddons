@@ -11,6 +11,10 @@ improves Blizzard's own **Combined Backpack** (`ContainerFrameCombinedBags`) and
 shows how many of an item and how much gold your other characters on the same realm have.
 Since 1.9 you can lock items so a merchant can never get them, since 1.11 they cannot be mailed either, and since 1.12 they cannot be destroyed, auctioned or traded. It needs GaarForever, the family hub, and no other addon or library.
 
+## Right-click menu
+
+Right-click the Combined Backpack's round bag portrait (top-left) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **Movable bags.** Drag the title bar, or Alt-drag any empty part of the frame (item slots keep

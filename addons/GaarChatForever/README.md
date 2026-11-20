@@ -52,6 +52,7 @@ kinds, locked, font size, scale, width, seconds on screen, test lines and reset.
 
 | Command | Does |
 |---|---|
+| Right-click a chat tab | A `GaarChat` submenu at the bottom of Blizzard's tab menu (menu tag `MENU_FCF_TAB`) with the same options as the GaarForever hub menu |
 | `/gchat` or `/gaarchatforever` | Help |
 | `/gchat on`, `/gchat off` | Master switch |
 | `/gchat <feature> on`, `/gchat <feature> off` | Switch one feature (`shortChannels`, `classColors`, `timestamps`, `urlCopy`, `copyChat`, `whisperSound`, `stickyChannels`, `arrowKeys`) |

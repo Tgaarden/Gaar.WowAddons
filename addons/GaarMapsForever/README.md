@@ -40,6 +40,7 @@ does nothing else. It needs GaarForever, the family hub, and no other addon or l
   `/gmf reset`) waits for `PLAYER_REGEN_ENABLED`. Opening the map in combat is Blizzard's own
   path and keeps working; it opens at Blizzard's anchor and moves to your position once combat
   ends.
+- **Portrait menu** (1.4.0). Right-click the round book portrait in the world map's top-left corner to open this addon's menu (lock, reset, scale, fade, zone map): the same entries as in the GaarForever hub menu. It is a small transparent button of our own over the portrait; left click does nothing, and the map's drag area is untouched.
 - **Zone map (Shift+M)** (1.3.0). Blizzard's zone map (`BattlefieldMapFrame`, from the load-on-demand
   `Blizzard_BattlefieldMap`) can be moved and scaled too. Drag the frame itself or Blizzard's tab to move it; drag the grip in its
   bottom-right corner to scale it, from 50% to 200%. Position and scale are saved in their own keys (`zoneMapPoint`, `zoneMapScale`)
@@ -54,7 +55,7 @@ At 100% and the default position the addon does not touch the map at all.
 
 | Command | Does |
 |---|---|
-| `/gmf` | Help |
+| `/gmf` | Help (also: right-click the world map's round portrait for the menu) |
 | `/gmf lock`, `/gmf unlock` | Stop or allow moving and resizing (hides or shows the grip and the handle) |
 | `/gmf reset` | Back to Blizzard's default position and 100% scale |
 | `/gmf scale <50-150>` | Set the scale in percent. On the open, windowed map the top-left corner stays put (and is saved) |

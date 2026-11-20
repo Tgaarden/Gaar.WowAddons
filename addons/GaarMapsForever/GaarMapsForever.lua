@@ -15,6 +15,7 @@
     * Reset: Blizzard's default position and 100% scale.
     * The maximized map is left to Blizzard: no handle, no grip, 100% scale. Going back to the
       windowed map puts the saved position and scale back.
+    * Right-click the map's round portrait (top-left) for the addon's menu.
     * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off and fade <percent>.
     * GaarMapsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -45,7 +46,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -575,6 +576,64 @@ local function OnPanelPositions()
     if map and map:IsShown() then ApplyLayout() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Right-click the portrait: the addon's menu
+--
+-- The round book portrait in the map's top-left corner is not mouse-enabled, so a small
+-- transparent Button of our own sits over it. Right-click opens the same menu the hub shows
+-- (MenuEntries, below). Our own frame only; no Blizzard handler is replaced. Created lazily,
+-- out of combat.
+-- ---------------------------------------------------------------------------
+
+local portraitButton
+local portraitPending -- creation had to wait for combat to end
+local ShowPortraitMenu -- defined with the API, below
+
+local function PortraitRegion()
+    local border = map and map.BorderFrame
+    local cands = {
+        type(border) == "table" and border.PortraitContainer or nil,
+        type(border) == "table" and border.Portrait or nil,
+        map and map.PortraitContainer or nil,
+    }
+    for _, r in ipairs(cands) do
+        if type(r) == "table" and r.GetObjectType then return r end
+    end
+end
+
+local function CreatePortraitButton()
+    if portraitButton or not map then return end
+    if InCombat() then portraitPending = true return end
+    portraitPending = false
+    local border = map.BorderFrame
+    local b = CreateFrame("Button", "GaarMapsForeverPortraitButton", map)
+    local region = PortraitRegion()
+    b:ClearAllPoints()
+    if region then
+        b:SetAllPoints(region)
+    else
+        b:SetSize(56, 56)
+        b:SetPoint("TOPLEFT", map, "TOPLEFT", -5, 7)
+    end
+    local base = (type(border) == "table" and Num(border:GetFrameLevel())) or Num(map:GetFrameLevel()) or 0
+    b:SetFrameLevel(base + 20)
+    b:RegisterForClicks("RightButtonUp")
+    b:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then ShowPortraitMenu(self) end
+    end)
+    b:SetScript("OnEnter", function(self)
+        local tip = _G.GameTooltip
+        if not tip then return end
+        tip:SetOwner(self, "ANCHOR_RIGHT")
+        tip:SetText("Right-click: GaarMaps menu")
+        tip:Show()
+    end)
+    b:SetScript("OnLeave", function()
+        if _G.GameTooltip then _G.GameTooltip:Hide() end
+    end)
+    portraitButton = b
+end
+
 local function HookBlizzard()
     if not panelHooked and type(_G.UpdateUIPanelPositions) == "function" then
         hooksecurefunc("UpdateUIPanelPositions", OnPanelPositions)
@@ -593,6 +652,7 @@ local function HookBlizzard()
 
     CreateDragHandle()
     CreateGrip()
+    CreatePortraitButton()
     UpdateWidgets()
     if map:IsShown() then OnMapShown() end
     return true
@@ -1022,6 +1082,7 @@ local function PrintHelp()
     Print("Zone map (Shift+M): drag the frame or Blizzard's tab to move it, the bottom-right grip to scale it (50-200%).")
     Print(string.format("/gmf zone scale <%d-%d> - zone map scale in percent (now: %d%%)", ZMIN * 100, ZMAX * 100, Percent(db and db.zoneMapScale or 1)))
     Print("/gmf zone reset - zone map back to its default position and 100%")
+    Print("Right-click the round portrait in the world map's top-left corner for this addon's menu (lock, reset, scale, fade).")
     Print("/gmf status - what this client offers and the current settings")
 end
 
@@ -1135,6 +1196,18 @@ local function MenuEntries()
     }
 end
 
+-- Right-click on the map's portrait: the same entries as the hub's menu, drawn by MenuUtil.
+ShowPortraitMenu = function(owner)
+    local MU = _G.MenuUtil
+    if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
+        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+            BF.RenderMenu(root, MenuEntries(), A.title)
+        end)
+        if ok then return end
+    end
+    Print("the menu is not available on this client; type /gmf for the options.")
+end
+
 _G.GaarMapsForeverAPI = {
     version = VERSION,
     Intro = function() return INTRO end,
@@ -1202,6 +1275,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if zMoving then ZoneStopDrag() end
         if zSizing then ZoneStopSizing() end
     elseif event == "PLAYER_REGEN_ENABLED" then
+        if portraitPending then CreatePortraitButton() end
         if pendingApply or (map and map:IsShown()) then
             pendingApply = false
             ApplyLayout()

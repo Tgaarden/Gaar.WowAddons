@@ -35,6 +35,9 @@
       kind you track; /ggps gather (next, hover) points the arrow at the nearest one, the next
       one, or a node hovered on the minimap, and moves on to the next one on arrival. See the
       header of Gather.lua.
+    * Graveyards and flight paths (1.5, Places.lua, /ggps flights|graves on|off): every spirit healer and
+      flight master of the vanilla world on the world map and zone map, found or not; flight paths
+      you have not learned are grey. See the header of Places.lua.
     * GaarGpsForeverAPI, a small global table for GaarForever's hub menu and for other
       addons that set the waypoint (GaarQuestsForever's "Set GPS target"): SetWaypoint,
       ClearWaypoint, GetWaypoint.
@@ -67,7 +70,7 @@ ADDON_NAME = ADDON_NAME or "GaarGpsForever"
 ns = type(ns) == "table" and ns or {} -- shared with Gather.lua (ns.gather)
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -109,7 +112,8 @@ local DEFAULTS = {
 -- here so the spots survive even a session where that file failed to load.
 local SAVED_KEYS = { waypoint = true, arrow = true, locked = true, arrowPos = true, corpse = true,
     corpseRun = true, gather = true, gatherAlert = true, gatherRadius = true, gatherSound = true,
-    gatherHover = true, gatherAutoNext = true, gatherNodes = true }
+    gatherHover = true, gatherAutoNext = true, gatherNodes = true, places_flights = true,
+    places_graves = true, placesLearned = true }
 
 local db                -- GaarGpsForeverDB, bound at ADDON_LOADED (never at file scope)
 local started           -- PLAYER_LOGIN work done
@@ -213,6 +217,7 @@ local FEATURE_TEXT = {
     native = "Blizzard's own waypoint",
     click = "Alt + left-click (Option on Mac) on the world map",
     corpse = "the corpse route",
+    places = "graveyards and flight paths on the map",
     gatherRecord = "recording gathering spots",
     gatherAlert = "the gathering spot alert",
     gatherHover = "the minimap hover hint",
@@ -947,6 +952,7 @@ local function MapTick(_, elapsed)
     if mapAcc < MAP_TICK then return end
     mapAcc = 0
     Safe("worldPin", DrawWorldPin)
+    if ns.places then Safe("places", ns.places.Draw) end
 end
 
 local function HookMap()
@@ -960,7 +966,10 @@ local function HookMap()
         sc:HookScript("OnMouseUp", function(self, button) Safe("click", OnMapMouseUp, self, button) end)
     end
     if type(map.OnMapChanged) == "function" then
-        hooksecurefunc(map, "OnMapChanged", function() Safe("worldPin", DrawWorldPin) end)
+        hooksecurefunc(map, "OnMapChanged", function()
+            Safe("worldPin", DrawWorldPin)
+            if ns.places then Safe("places", ns.places.Draw) end
+        end)
     end
     -- Our own frame inside the map: it only runs while the map is open.
     mapDriver = CreateFrame("Frame", nil, map)
@@ -1039,6 +1048,8 @@ OnFeatureBroken = function(feature)
         if minimapPin then minimapPin:Hide() end
     elseif feature == "worldPin" then
         if worldPin then worldPin:Hide() end
+    elseif feature == "places" then
+        if ns.places then ns.places.HideAll() end
     end
 end
 
@@ -1239,7 +1250,7 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "One TomTom-style waypoint with an arrow showing distance and time to get there, plus world map and minimap pins; while you are a ghost it routes you to your corpse. It remembers the herbs, ore and chests you gather, says when you are near one, and /ggps gather points the arrow at the nearest. Nice to know: /way x y or /way <zone> x y sets it; Alt-click (Option-click on a Mac) the world map to set it there; right-click the arrow to clear it; /way is left to TomTom when TomTom is loaded."
+local INTRO = "One TomTom-style waypoint with an arrow showing distance and time to get there, plus world map and minimap pins; while you are a ghost it routes you to your corpse. It remembers the herbs, ore and chests you gather, says when you are near one, and /ggps gather points the arrow at the nearest. It also shows every graveyard and flight path (grey until you have learned it) on the world and zone map. Nice to know: /way x y or /way <zone> x y sets it; Alt-click (Option-click on a Mac) the world map to set it there; right-click the arrow to clear it; /way is left to TomTom when TomTom is loaded."
 
 local function PrintHelp()
     Print(INTRO)
@@ -1251,6 +1262,9 @@ local function PrintHelp()
         .. ((db and db.locked) and "locked" or "unlocked") .. "); /ggps reset - arrow back to its default place")
     Print("/ggps corpse on | /ggps corpse off - waypoint to your corpse while you are a ghost, the old one back after"
         .. " resurrection (now: " .. OnOff(db and db.corpse) .. ")")
+    if ns.places then
+        for _, line in ipairs(ns.places.HelpLines()) do Print(line) end
+    end
     Print("/ggps clear - clear the waypoint (or right-click the arrow); /ggps status - what this client offers")
     if ns.gather then
         for _, line in ipairs(ns.gather.HelpLines()) do Print(line) end
@@ -1288,6 +1302,9 @@ local function PrintStatus()
     if ns.gather then
         for _, line in ipairs(ns.gather.StatusLines()) do Print(line) end
     end
+    if ns.places then
+        for _, line in ipairs(ns.places.StatusLines()) do Print(line) end
+    end
     local off = {}
     for k in pairs(broken) do off[#off + 1] = FEATURE_TEXT[k] or k end
     if #off > 0 then
@@ -1323,6 +1340,8 @@ local function OnSlash(msg)
         SetCorpse(lower == "corpse on")
     elseif lower == "corpse" then
         SetCorpse(not db.corpse)
+    elseif ns.places and ns.places.Slash(lower:match("^(%S+)") or "", lower:match("^%S+%s*(.-)$") or "") then
+        return
     elseif (lower == "gather" or lower:sub(1, 7) == "gather ") and ns.gather then
         ns.gather.Slash(lower:sub(8))
     else
@@ -1410,6 +1429,9 @@ local function MenuEntries()
     else
         entries[#entries + 1] = { label = "Clear waypoint (none set)" }
     end
+    if ns.places then -- 1.5: all graveyards and flight paths on the map
+        for _, e in ipairs(ns.places.MenuEntries()) do entries[#entries + 1] = e end
+    end
     local g = ns.gather and ns.gather.MenuEntry() -- 1.4: a submenu
     if g then entries[#entries + 1] = g end
     return entries
@@ -1462,6 +1484,11 @@ ns.core = {
     Waypoint = function() return db and db.waypoint end,
     MinimapRadius = MinimapRadius,
     RotatingMinimap = RotatingMinimap,
+    Map = GetMap,
+    Canvas = Canvas,
+    DisplayedMapID = DisplayedMapID,
+    Vec = Vec,
+    XY = XY,
 }
 
 -- ---------------------------------------------------------------------------
@@ -1499,6 +1526,7 @@ local function BindSavedVariables()
     db.waypoint = ValidWaypoint(db.waypoint)
     db.corpseRun = ValidCorpseRun(db.corpseRun)
     if ns.gather then ns.gather.Bind(db, ns.core) end
+    if ns.places then ns.places.Bind(db, ns.core) end
     local pos = db.arrowPos
     if pos ~= nil and (type(pos) ~= "table" or type(pos.point) ~= "string" or not Num(pos.x) or not Num(pos.y)) then
         db.arrowPos = nil
@@ -1513,6 +1541,7 @@ local function Start()
     UpdateNow()
     UpdateCorpse()
     if ns.gather then ns.gather.Start() end
+    if ns.places then ns.places.Start() end
 end
 
 local events = CreateFrame("Frame")

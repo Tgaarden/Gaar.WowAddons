@@ -123,3 +123,25 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Feed**
+
+<img src="../../docs/screenshots/GaarChatForever/1-feed.jpg" alt="Feed" width="600">
+
+**Main chat**
+
+<img src="../../docs/screenshots/GaarChatForever/2-main-chat.jpg" alt="Main chat" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarChatForever/3-menu.jpg" alt="Menu" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarChatForever/4-options-1.jpg" alt="Options 1" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarChatForever/5-options-2.jpg" alt="Options 2" width="600">

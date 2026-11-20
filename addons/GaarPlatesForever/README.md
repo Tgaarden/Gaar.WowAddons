@@ -232,3 +232,25 @@ and without the old `nameSubtext`), `C_UnitAuras.GetAuraDataByIndex` (or `UnitAu
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Plate combat**
+
+<img src="../../docs/screenshots/GaarPlatesForever/1-plate-combat.jpg" alt="Plate combat" width="600">
+
+**Plate**
+
+<img src="../../docs/screenshots/GaarPlatesForever/2-plate.jpg" alt="Plate" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarPlatesForever/3-menu.jpg" alt="Menu" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarPlatesForever/4-options-1.jpg" alt="Options 1" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarPlatesForever/5-options-2.jpg" alt="Options 2" width="600">

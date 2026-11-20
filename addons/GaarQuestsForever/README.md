@@ -421,3 +421,17 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Tracker**
+
+<img src="../../docs/screenshots/GaarQuestsForever/1-tracker.jpg" alt="Tracker" width="600">
+
+**Header menu**
+
+<img src="../../docs/screenshots/GaarQuestsForever/2-header-menu.jpg" alt="Header menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarQuestsForever/3-options.jpg" alt="Options" width="600">

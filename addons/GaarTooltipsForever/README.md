@@ -73,3 +73,29 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Item**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/1-item.jpg" alt="Item" width="600">
+
+**Unit**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/2-unit.jpg" alt="Unit" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/3-menu.jpg" alt="Menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/4-options.jpg" alt="Options" width="600">
+
+**Compare**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/5-compare.jpg" alt="Compare" width="600">
+
+**Unit self**
+
+<img src="../../docs/screenshots/GaarTooltipsForever/6-unit-self.jpg" alt="Unit self" width="600">

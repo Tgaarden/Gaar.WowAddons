@@ -112,3 +112,17 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Panel menu**
+
+<img src="../../docs/screenshots/GaarXPForever/1-panel-menu.jpg" alt="Panel menu" width="600">
+
+**Xp bar**
+
+<img src="../../docs/screenshots/GaarXPForever/2-xp-bar.jpg" alt="Xp bar" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarXPForever/3-options.jpg" alt="Options" width="600">

@@ -427,3 +427,13 @@ MIT, see [LICENSE](LICENSE). The credits above cover where the route's facts com
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarFishingForever/3-menu.jpg" alt="Menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarFishingForever/4-options.jpg" alt="Options" width="600">

@@ -608,3 +608,21 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Minimap menu**
+
+<img src="../../docs/screenshots/GaarForever/1-minimap-menu.jpg" alt="Minimap menu" width="600">
+
+**Update notes**
+
+<img src="../../docs/screenshots/GaarForever/2-update-notes.jpg" alt="Update notes" width="600">
+
+**Options tree**
+
+<img src="../../docs/screenshots/GaarForever/3-options-tree.jpg" alt="Options tree" width="600">
+
+**Options page**
+
+<img src="../../docs/screenshots/GaarForever/4-options-page.jpg" alt="Options page" width="600">

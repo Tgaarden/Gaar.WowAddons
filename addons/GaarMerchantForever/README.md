@@ -77,3 +77,21 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Ask sell junk**
+
+<img src="../../docs/screenshots/GaarMerchantForever/1-ask-sell-junk.jpg" alt="Ask sell junk" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarMerchantForever/2-menu.jpg" alt="Menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarMerchantForever/3-options.jpg" alt="Options" width="600">
+
+**Summary**
+
+<img src="../../docs/screenshots/GaarMerchantForever/4-summary.jpg" alt="Summary" width="600">

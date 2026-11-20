@@ -180,3 +180,25 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Windows moved**
+
+<img src="../../docs/screenshots/GaarWindowsForever/1-windows-moved.jpg" alt="Windows moved" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarWindowsForever/2-options-1.jpg" alt="Options 1" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarWindowsForever/3-options-2.jpg" alt="Options 2" width="600">
+
+**Options 3**
+
+<img src="../../docs/screenshots/GaarWindowsForever/4-options-3.jpg" alt="Options 3" width="600">
+
+**Options reset**
+
+<img src="../../docs/screenshots/GaarWindowsForever/5-options-reset.jpg" alt="Options reset" width="600">

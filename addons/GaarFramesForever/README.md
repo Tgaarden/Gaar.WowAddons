@@ -470,3 +470,33 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Player target**
+
+<img src="../../docs/screenshots/GaarFramesForever/1-player-target.jpg" alt="Player target" width="600">
+
+**Testmode all**
+
+<img src="../../docs/screenshots/GaarFramesForever/2-testmode-all.jpg" alt="Testmode all" width="600">
+
+**Heal hot preview**
+
+<img src="../../docs/screenshots/GaarFramesForever/3-heal-hot-preview.jpg" alt="Heal hot preview" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarFramesForever/4-menu.jpg" alt="Menu" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarFramesForever/5-options-1.jpg" alt="Options 1" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarFramesForever/6-options-2.jpg" alt="Options 2" width="600">
+
+**Cost overheal**
+
+<img src="../../docs/screenshots/GaarFramesForever/7-cost-overheal.jpg" alt="Cost overheal" width="600">

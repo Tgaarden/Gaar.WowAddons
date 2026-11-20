@@ -149,3 +149,25 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Bars**
+
+<img src="../../docs/screenshots/GaarBarsForever/1-bars.jpg" alt="Bars" width="600">
+
+**Bars nomana**
+
+<img src="../../docs/screenshots/GaarBarsForever/2-bars-nomana.jpg" alt="Bars nomana" width="600">
+
+**Bars cooldown**
+
+<img src="../../docs/screenshots/GaarBarsForever/3-bars-cooldown.jpg" alt="Bars cooldown" width="600">
+
+**Spellbook ring**
+
+<img src="../../docs/screenshots/GaarBarsForever/4-spellbook-ring.jpg" alt="Spellbook ring" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarBarsForever/5-options.jpg" alt="Options" width="600">

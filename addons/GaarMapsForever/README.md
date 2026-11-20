@@ -136,3 +136,29 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Map questlog**
+
+<img src="../../docs/screenshots/GaarMapsForever/1-map-questlog.jpg" alt="Map questlog" width="600">
+
+**Map faded**
+
+<img src="../../docs/screenshots/GaarMapsForever/2-map-faded.jpg" alt="Map faded" width="600">
+
+**Zonemap menu**
+
+<img src="../../docs/screenshots/GaarMapsForever/3-zonemap-menu.jpg" alt="Zonemap menu" width="600">
+
+**Portrait**
+
+<img src="../../docs/screenshots/GaarMapsForever/4-portrait.jpg" alt="Portrait" width="600">
+
+**Portrait menu**
+
+<img src="../../docs/screenshots/GaarMapsForever/5-portrait-menu.jpg" alt="Portrait menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarMapsForever/6-options.jpg" alt="Options" width="600">

@@ -245,6 +245,7 @@ rtNodes[1413] = {
     { name = "Camp Taurajo", position = { x = 0.446, y = 0.590 }, faction = 1 },
     { nodeID = 9001, name = "New Camp, The Barrens", position = { x = 0.30, y = 0.30 }, faction = 1, isUndiscovered = false },
     { nodeID = 9002, name = "Far Hold, The Barrens", position = { x = 0.70, y = 0.70 }, faction = 2 },
+    { nodeID = 9003, name = "zzOLDPowderfuse Port (Neutral)", position = { x = 0.25, y = 0.25 }, faction = 0, isUndiscovered = false },
 }
 rtGraves[1413] = { { position = { x = 0.509, y = 0.327 }, name = "Crossroads" }, { position = { x = 0.5, y = 0.9 }, name = "South" } }
 played = "Taur En"
@@ -262,6 +263,11 @@ check(P.LearnedSource(names["Crossroads"].e) == "api", "source tag api")
 check(not names["Camp Taurajo"].learned, "client node with isUndiscovered nil: not learned")
 check(names["Ratchet"] and not names["Ratchet"].learned, "client says undiscovered: grey")
 check(not names["Far Hold"], "client-only Alliance node hidden from the Horde")
+check(not names["zzOLDPowderfuse Port"], "client zzOLD node (deprecated) is neither drawn nor listed")
+check(P.IsDeadName("zzOLDPowderfuse Port (Neutral)") and P.IsDeadName("ZZtest") and P.IsDeadName("[DNT] Old Hold")
+    and P.IsDeadName("Foo DEPRECATED") and P.IsDeadName("Bar UNUSED") and P.IsDeadName("TEST Hub") and P.IsDeadName(nil),
+    "dead client names filtered")
+check(not P.IsDeadName("Crossroads, The Barrens") and not P.IsDeadName("Testament Rise"), "real names kept")
 local pc = P.Positions(1413)
 check(pc.n.rtFlights == 5 and pc.n.stFlights == 3 and pc.n.flights == 5 and pc.n.rtGraves == 2 and pc.n.gravesAdded == 1,
     "status counts per map")

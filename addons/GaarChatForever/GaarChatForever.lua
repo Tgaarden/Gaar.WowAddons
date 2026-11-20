@@ -46,7 +46,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
 ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.2.2"
+local VERSION = "1.3.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -578,6 +578,7 @@ local function PrintHelp()
     ns.Feed.PrintHelp()
     Print("/gchat copy [n] - copy the last " .. COPY_LINES .. " lines of chat frame n (default: the selected one)")
     Print("/gchat status - the current state")
+    Print("Right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu holds the same options.")
 end
 
 local function PrintStatus()
@@ -661,6 +662,37 @@ local function MenuEntries()
     return list
 end
 
+
+-- ---------------------------------------------------------------------------
+-- "GaarChat" submenu in the chat tab's right-click menu
+--
+-- Blizzard builds that menu in FloatingChatFrame (FCF_Tab_OnClick) with the tag MENU_FCF_TAB.
+-- Menu.ModifyMenu is Blizzard's public way to add to a tagged menu: our callback runs after
+-- Blizzard's generator and only appends a divider and a submenu of our own, the same options as
+-- the hub menu (MenuEntries). Nothing of Blizzard's is replaced. A tag that does not exist, or a
+-- client without Menu.ModifyMenu, just means no entry.
+-- ---------------------------------------------------------------------------
+
+local TAB_MENU_TAG = "MENU_FCF_TAB"
+local tabMenuBroken
+
+local function AddTabMenu(root)
+    if tabMenuBroken or type(root) ~= "table" then return end
+    local ok, err = pcall(function()
+        if type(root.CreateDivider) == "function" then root:CreateDivider() end
+        if type(root.CreateButton) ~= "function" then return end
+        local sub = root:CreateButton("GaarChat")
+        if type(sub) == "table" then BF.RenderMenu(sub, MenuEntries(), A.title) end
+    end)
+    if not ok then tabMenuBroken = true; Fail("tab menu", err) end
+end
+
+local function RegisterTabMenu()
+    local menu = _G.Menu
+    if type(menu) ~= "table" or type(menu.ModifyMenu) ~= "function" then return false end
+    return (pcall(menu.ModifyMenu, TAB_MENU_TAG, function(_, root) AddTabMenu(root) end))
+end
+RegisterTabMenu()
 
 _G.GaarChatForeverAPI = {
     version = VERSION,

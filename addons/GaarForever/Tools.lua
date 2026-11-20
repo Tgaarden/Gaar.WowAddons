@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.36"] = "notes for GaarChatForever 1.3.0: right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu with the same options as the hub menu",
         ["3.2.35"] = "notes for GaarMapsForever 1.4.1: the portrait right-click button is placed and raised more robustly (re-placed on every map show, own size, above the border) and shows menu errors; /gmf portrait for its state",
         ["3.2.34"] = "notes for GaarMapsForever 1.4.0: right-click the round portrait in the world map's top-left corner to open the GaarMaps menu",
         ["3.2.33"] = "notes for GaarGpsForever 1.5.3: client flight paths and graveyards named zzOLD..., [DNT], DEPRECATED, UNUSED or TEST (dead or test data) are no longer drawn, learned or listed",

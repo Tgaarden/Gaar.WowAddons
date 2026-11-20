@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.28"] = "notes for GaarXPForever 1.3.8: XP from mobs and quests are kept apart: the kills estimate uses only mob kills (average base XP of the last 20 kills, quest XP no longer inflates it), and XP/hour shows the split (mobs, quests, other)",
         ["3.2.27"] = "surname fixes: shared name helpers (PlayerFullName, NamesMatch, UnitByName); notes for GaarChatForever 1.2.2 and GaarLootForever 1.2.3",
         ["3.2.26"] = "notes for GaarFramesForever 1.5.3: HoT preview while casting now finds the target for characters with a surname",
         ["3.2.25"] = "notes for GaarFramesForever 1.5.2: /gff hotdebug is short enough for one screenshot and ends with the cast summary; new /gff hotdebug cast traces your next cast",

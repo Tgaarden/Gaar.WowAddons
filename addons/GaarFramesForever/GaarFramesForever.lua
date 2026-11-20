@@ -28,6 +28,9 @@
       overheal segment hanging past the bar's right edge (/gff overheal, capped at 30% of the
       bar), and the HoT of a HoT spell you are casting (Regrowth) is shown in yellow from the
       start of the cast on its target's frames (/gff hotcast).
+    * Spell cost on your power bar (1.6.0): while you cast a spell with a cast time, the part of
+      the bar the cost will take is drawn bright and pulsing with a small "-340", red when you
+      do not have enough; gone the moment the cast ends (/gff cost).
     * Icons: raid target (own frame above the bars, centred on the top edge; secret-safe; option
       /gff marks, 1.2.9), group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
@@ -38,7 +41,7 @@
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /gff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      editmode, portrait, text, classcolor, playerbuffs, healpred, hotpred, hotcast, overheal and
+      editmode, portrait, text, classcolor, playerbuffs, healpred, hotpred, hotcast, cost, overheal and
       hotdebug.
     * GaarFramesForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
@@ -69,7 +72,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.5.3"
+local VERSION = "1.6.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -175,6 +178,7 @@ local DEFAULTS = {
     healPrediction = true,
     hotPred = true,
     hotCastPreview = true,   -- 1.5.0: the HoT of a HoT spell you are casting, from the cast's start
+    powerCost = true,        -- 1.6.0: the cost of the spell you are casting, marked on the player's power bar
     overheal = true,         -- 1.5.0: heals past the maximum drawn past the bar's right edge
     overhealCap = 0.3,       -- 1.5.0: the overheal segment's longest length, a share of the bar's width
     raidMark = true,
@@ -185,7 +189,7 @@ local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true,
 -- Every key GaarFramesForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, classColor = true, followEditMode = true,
-    playerBuffs = true, healPrediction = true, hotPred = true, hotCastPreview = true, overheal = true,
+    playerBuffs = true, healPrediction = true, hotPred = true, hotCastPreview = true, overheal = true, powerCost = true,
     overhealCap = true, raidMark = true, petHappiness = true, frames = true, scales = true, positions = true,
 }
 
@@ -681,6 +685,7 @@ local FEATURE_LABELS = {
     secrettext = "write hidden health and power values as text",
     powerhide = "hide an empty power line from hidden values",
     healpred = "draw heal prediction and absorbs",
+    powercost = "mark a spell's cost on the player's power bar",
     mana = "show the player's mana under a form's power",
     happiness = "read the hunter pet's happiness",
     blizzard = "switch Blizzard's unit frames off",
@@ -698,6 +703,7 @@ local CLEAR = {
     combo = function(f) for _, p in ipairs(f.combo or {}) do p:Hide() end end,
     powerhide = function(f) if f.power then f.power:SetAlpha(1) end end,
     healpred = function(f) for _, b in pairs(f.healPred or {}) do b:Hide() end end,
+    powercost = function(f) if f.costFrame then f.costFrame:Hide() end end,
     mana = function(f)
         if not f.mana then return end
         f.mana:Hide()
@@ -2295,6 +2301,136 @@ function HealPred.Hide(f)
     for _, b in pairs(hp) do b:Hide() end
 end
 
+-- ---------------------------------------------------------------------------
+-- Spell cost on the player's power bar (1.6.0). While you cast a spell with a cast time
+-- (UNIT_SPELLCAST_START, until _STOP, _FAILED, _INTERRUPTED or _SUCCEEDED) the part of the power
+-- bar the cost will take - from the current power back by the cost, the right end of the filled
+-- part - is drawn bright and pulsing with a small "-340"; red when there is not enough power.
+-- The segment is a reversed-fill StatusBar as wide as the power bar, hung on the right edge of
+-- the power bar's fill, with SetMinMaxValues(0, max) and SetValue(cost): the client does the
+-- width, so a secret current power, maximum or cost needs no arithmetic here. Only the red
+-- "not enough" test and the number need plain values and are left out when one is secret.
+-- Channels are not marked: their cost is paid at the start.
+-- ---------------------------------------------------------------------------
+
+HealPred.Cost = { MAX = 60, LIGHT = { 1, 1, 1, 0.55 }, RED = { 1, 0.15, 0.15, 0.8 } }
+-- .cast is { id, cast, pType, cost, at } of the spell being cast now, or nil; MAX: seconds after
+-- which a cast is dropped (a STOP that never came). (A field, not a local: 200-locals limit.)
+
+-- The cost of spell id in the power type pType, or nil (no such cost, none known, type is
+-- another). The cost may be secret: it is only passed on. C_Spell.GetSpellPowerCost first, the
+-- older global as a fallback. Pure apart from those calls.
+function HealPred.Cost.CostOf(id, pType)
+    if type(id) ~= "number" then return nil end
+    local list
+    local C = _G.C_Spell
+    if type(C) == "table" and type(C.GetSpellPowerCost) == "function" then
+        local ok, r = pcall(C.GetSpellPowerCost, id)
+        if ok then list = r end
+    end
+    if type(list) ~= "table" and type(_G.GetSpellPowerCost) == "function" then
+        local ok, r = pcall(_G.GetSpellPowerCost, id)
+        if ok then list = r end
+    end
+    if type(list) ~= "table" then return nil end
+    for _, e in ipairs(list) do
+        if type(e) == "table" and not IsSecret(e.type) and e.type == pType then
+            local c = e.cost
+            if IsSecret(c) then return c end
+            if type(c) == "number" and c > 0 then return c end
+            return nil
+        end
+    end
+    return nil
+end
+
+-- Whether the cost is more than the power there is: true or false, or nil when either is secret
+-- or missing. Pure.
+function HealPred.Cost.Short(cur, cost)
+    local c, k = Num(cur), Num(cost)
+    if not c or not k then return nil end
+    return k > c
+end
+
+function HealPred.Cost.Build(f)
+    local cf = CreateFrame("Frame", nil, f.power)
+    cf:SetAllPoints(f.power)
+    cf:SetFrameLevel(f.power:GetFrameLevel() + 3)
+    if cf.SetClipsChildren then pcall(cf.SetClipsChildren, cf, true) end
+    local bar = CreateFrame("StatusBar", nil, cf)
+    bar:SetStatusBarTexture(FLAT)
+    Look.SetBarColor(bar, HealPred.Cost.LIGHT[1], HealPred.Cost.LIGHT[2], HealPred.Cost.LIGHT[3], HealPred.Cost.LIGHT[4])
+    if bar.SetReverseFill then bar:SetReverseFill(true) end
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0)
+    bar:SetWidth(f.healthW)
+    bar:SetPoint("TOPRIGHT", f.power:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    bar:SetPoint("BOTTOMRIGHT", f.power:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    local tf = CreateFrame("Frame", nil, cf)
+    tf:SetAllPoints(cf)
+    tf:SetFrameLevel(cf:GetFrameLevel() + 2)
+    local fs = NewFont(tf, math.max(7, f.layout.mp - 3))
+    fs:SetPoint("RIGHT", bar:GetStatusBarTexture(), "LEFT", 0, 0)
+    fs:SetPoint("RIGHT", f.power:GetStatusBarTexture(), "RIGHT", -2, 0)
+    cf:Hide()
+    cf:SetScript("OnUpdate", function(self)
+        local t = type(_G.GetTime) == "function" and Num(_G.GetTime()) or 0
+        bar:SetAlpha(0.65 + 0.35 * math.sin(t * 5))
+    end)
+    f.costFrame, f.costBar, f.costText, f.costColor = cf, bar, fs, "light"
+end
+
+-- Draws (or hides) the segment on the player frame f from the cast being made.
+function HealPred.Cost.Update(f)
+    local cf = f.costFrame
+    if not cf then return end
+    local c = HealPred.Cost.cast
+    if c and type(_G.GetTime) == "function" then
+        local now = Num(_G.GetTime())
+        if now and now - c.at > HealPred.Cost.MAX then HealPred.Cost.cast, c = nil, nil end
+    end
+    if not c or not db.powerCost or f.powerShown == false then cf:Hide(); return end
+    local pType = UnitPowerType("player")
+    if IsSecret(pType) or pType ~= c.pType then cf:Hide(); return end
+    local mx, cur = UnitPowerMax("player"), UnitPower("player")
+    f.costBar:SetMinMaxValues(0, mx)
+    f.costBar:SetValue(c.cost)
+    local short = HealPred.Cost.Short(cur, c.cost) == true
+    local want = short and "red" or "light"
+    if f.costColor ~= want then
+        local k = short and HealPred.Cost.RED or HealPred.Cost.LIGHT
+        f.costColor = want
+        Look.SetBarColor(f.costBar, k[1], k[2], k[3], k[4])
+    end
+    local n = Num(c.cost)
+    if n then f.costText:SetText("-" .. math.floor(n + 0.5)); f.costText:Show() else f.costText:SetText(""); f.costText:Hide() end
+    cf:Show()
+end
+
+-- _START, _STOP, _FAILED, _INTERRUPTED and _SUCCEEDED of your own casts: unit, castGUID, spellID.
+-- Returns true when the segment changed.
+function HealPred.Cost.OnCast(event, unit, castGUID, spellID)
+    if unit ~= "player" then return false end
+    if event == "UNIT_SPELLCAST_START" then
+        HealPred.Cost.cast = nil
+        if not db.powerCost then return true end
+        local id = Num(spellID)
+        local pType = UnitPowerType("player")
+        if not id or IsSecret(pType) then return true end
+        local cost = HealPred.Cost.CostOf(id, pType)
+        if cost == nil then return true end
+        local now = type(_G.GetTime) == "function" and Num(_G.GetTime()) or 0
+        HealPred.Cost.cast = { id = id, cast = PlainString(castGUID), pType = pType, cost = cost, at = now }
+        return true
+    end
+    local c = HealPred.Cost.cast
+    if not c then return false end
+    local cast, id = PlainString(castGUID), Num(spellID)
+    if (c.cast and cast and c.cast ~= cast) or (not (c.cast and cast) and id and c.id ~= id) then return false end
+    HealPred.Cost.cast = nil
+    return true
+end
+
 local function Set(bar, mx, v)
     if type(v) ~= "number" then bar:Hide(); return end   -- type() is allowed on a secret
     bar:SetMinMaxValues(0, mx)
@@ -2634,6 +2770,7 @@ local function Build(key, unit, preview)
     Look.Edge(f, f.health, lvl + 1)
     f.healthW = L.w - barsX - PAD
     HealPred.Build(f)
+    if unit == "player" and not preview then HealPred.Cost.Build(f) end
 
     -- The player's mana while a form shows another power (druid in bear or cat form): a thin
     -- blue bar under the power bar, as Blizzard's alternate mana bar. Hidden until needed; it
@@ -3017,7 +3154,9 @@ function PowerHide.Text(fs, u, compact)
 end
 end
 
-local function UpdatePower(f)
+local UpdatePower   -- (a do block: the main chunk is at its limit of 200 locals)
+do
+local function Bar(f)
     local u, bar = f.unit, f.power
     local pType, token = UnitPowerType(u)
     local r, g, b = PowerRGB(Plain(token))
@@ -3085,6 +3224,13 @@ local function UpdatePower(f)
         if db.text and Plain(UnitIsDeadOrGhost(u)) ~= true then PlainText(f, bar, cur, mx)
         else fs:SetText("") end
     end
+end
+
+-- 1.6.0: the power bar, then the spell-cost segment on it (it turns red as your power falls short).
+UpdatePower = function(f)
+    Bar(f)
+    if f.costFrame then Run("powercost", HealPred.Cost.Update, f) end
+end
 end
 
 local function UpdateName(f)
@@ -4508,6 +4654,7 @@ local SETTING_TOGGLES = {
     { key = "healPrediction", cmd = "healpred", label = "Heal prediction" },
     { key = "hotPred", cmd = "hotpred", label = "HoT prediction" },
     { key = "hotCastPreview", cmd = "hotcast", label = "HoT preview while casting" },
+    { key = "powerCost", cmd = "cost", label = "Spell cost on the power bar" },
     { key = "overheal", cmd = "overheal", label = "Overheal past the bar" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks" },
     { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon and health colour" },
@@ -4568,6 +4715,8 @@ local function PrintHelp()
         .. OnOff(db and db.hotPred) .. ")")
     Print("/gff hotcast on | off - while you cast a HoT spell (Regrowth), its HoT in yellow on the target's frames from the cast's start (now: "
         .. OnOff(db and db.hotCastPreview) .. ")")
+    Print("/gff cost on | off - while you cast a spell with a cast time, its cost marked on your power bar: the part that will go, bright and pulsing with a -number, red when you do not have enough (now: "
+        .. OnOff(db and db.powerCost) .. ")")
     Print("/gff overheal on | off - heals past the maximum as a red segment past the bar's right edge (now: "
         .. OnOff(db and db.overheal) .. ")")
     Print(string.format("/gff overheal cap <%.1f-%.0f> - its longest length, a share of the bar's width (now: %s)",
@@ -4778,6 +4927,7 @@ local function PrintStatus()
         .. (blocked.healpred and (" (off: " .. blocked.healpred .. ")") or ""))
     Print("overheal " .. OnOff(db.overheal) .. string.format(" (cap %d%% of the bar)", math.floor(db.overhealCap * 100 + 0.5))
         .. DOT .. "hot cast preview " .. OnOff(db.hotCastPreview)
+        .. DOT .. "spell cost on the power bar " .. OnOff(db.powerCost)
         .. DOT .. "UnitGetIncomingHeals " .. Yes(type(_G.UnitGetIncomingHeals) == "function"))
     Print("raid marks " .. OnOff(db.raidMark))
     local okH, happyLine = pcall(Happy.Status, real.pet)
@@ -5100,6 +5250,11 @@ end
 
 -- A HoT you cast: redraw the yellow segment on every frame showing its target.
 local function OnHotCast(event, unit, a2, a3, a4)
+    if unit == "player" and event ~= "UNIT_SPELLCAST_SENT" then
+        local okC, changed = pcall(HealPred.Cost.OnCast, event, unit, a2, a3)
+        local p = real.player
+        if okC and changed and p and Visible(p) then Run("powercost", HealPred.Cost.Update, p) end
+    end
     local ok, guid = pcall(HealPred.OnCast, event, unit, a2, a3, a4)
     if ok and guid then
         for u, f in pairs(real) do

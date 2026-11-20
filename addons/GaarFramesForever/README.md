@@ -139,6 +139,15 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   the green and yellow - the client's raw incoming heals from the health edge, the HoTs after
   them, on the bar's own scale - and the overheal frame clips them to what reaches past the end;
   there the heal part can reach past the end by at most the current health's share of the bar.
+- **Spell cost on the power bar** (1.6.0, on by default: `/gff cost off` to hide). On the player
+  frame only, from `UNIT_SPELLCAST_START` of a spell with a cast time until `_STOP`, `_FAILED`,
+  `_INTERRUPTED` or `_SUCCEEDED`, the right end of the filled power bar, as wide as the cost, is
+  drawn bright and gently pulsing with a small `-340`; red when the power is less than the cost.
+  The cost is the entry of `C_Spell.GetSpellPowerCost(spellID)` (older `GetSpellPowerCost` as a
+  fallback) for your current power type (a cost in another power type is ignored). The segment is
+  a reversed-fill StatusBar hung on the power bar's fill, set with `SetMinMaxValues`/`SetValue`,
+  so a secret power, maximum or cost needs no arithmetic; only the red test and the number are
+  left out when a value is secret. Channels are not marked (paid at the start).
 - **HoT while casting** (1.5.0, on by default: `/gff hotcast off` to hide). While you cast a HoT
   spell with a cast time (Regrowth; Rejuvenation and Renew are instant and show from the cast's
   success as before), its full HoT (per tick x ticks) is drawn in yellow from the start of the
@@ -215,6 +224,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/gff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 | `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
 | `/gff hotcast on\|off` | While you cast a HoT spell (Regrowth), its HoT in yellow on the target's frames from the start of the cast (on by default; needs `hotpred`) |
+| `/gff cost on\|off` | While you cast a spell with a cast time, its cost marked on your power bar: the part that will go, bright and pulsing with a `-number`, red when you lack the power (on by default) |
 | `/gff overheal on\|off` | Heals past the maximum as a red / orange-red segment past the health bar's right edge (on by default) |
 | `/gff overheal cap <0.1-1>` | The overheal segment's longest length, as a share of the bar's width (default 0.3; `30` works too) |
 | `/gff hotdebug` | The raw helpful-aura fields behind the HoT prediction on your target (or you): `spellId`, `name`, `points`, `duration`, `expirationTime`, `timeMod`, `isHelpful`, `sourceUnit`, `auraInstanceID`, the secret check, and for a HoT its tooltip text and what was parsed from it |

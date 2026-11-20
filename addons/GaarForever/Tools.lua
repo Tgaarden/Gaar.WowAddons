@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.40"] = "notes for GaarFramesForever 1.6.0: spell cost on the player power bar while casting",
         ["3.2.39"] = "the Options > AddOns subpages are now listed A-Z (Bags, Bars, Buffs, Castbars, ...) instead of in load order",
         ["3.2.37"] = "notes for the right-click menus: GaarForever.AttachMenu(target, opts) and FindPortrait; right-click the bag, mailbox and merchant portraits, and the XP, loot, fishing, chat feed, buff and cast bar windows to open that addon's menu",
         ["3.2.36"] = "notes for GaarChatForever 1.3.0: right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu with the same options as the hub menu",
@@ -133,6 +134,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.6.0"] = "Spell cost on your power bar: while you cast a spell with a cast time, the part of the player frame's power bar (mana, energy, rage ...) the cost will take is drawn bright and gently pulsing with a small -number, red when you do not have enough; gone the moment the cast ends, fails or is interrupted (/gff cost on|off)",
         ["1.5.3"] = "Fix: the HoT preview while casting (Regrowth) found no target for WoW Forever characters with a surname (the cast gives \"First Surname\", the client unit name only the first name); names now match with surname and realm, for you, party and raid",
         ["1.5.2"] = "/gff hotdebug now prints one short line per buff and ends with a compact summary of the HoT cast being made (spell, HoT amount, target and how it was found, which frames draw it and why the yellow or overheal part is or is not shown). New: /gff hotdebug cast arms a trace of your next cast: type it, cast Regrowth, take a screenshot",
         ["1.5.1"] = "Fix: casting a HoT spell (Regrowth) on yourself now shows its HoT preview on your own frame, also with an enemy targeted or the self-cast key held (the preview could land on the enemy instead)",

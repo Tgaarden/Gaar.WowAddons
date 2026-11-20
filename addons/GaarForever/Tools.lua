@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.35"] = "notes for GaarMapsForever 1.4.1: the portrait right-click button is placed and raised more robustly (re-placed on every map show, own size, above the border) and shows menu errors; /gmf portrait for its state",
         ["3.2.34"] = "notes for GaarMapsForever 1.4.0: right-click the round portrait in the world map's top-left corner to open the GaarMaps menu",
         ["3.2.33"] = "notes for GaarGpsForever 1.5.3: client flight paths and graveyards named zzOLD..., [DNT], DEPRECATED, UNUSED or TEST (dead or test data) are no longer drawn, learned or listed",
         ["3.2.32"] = "notes for GaarGpsForever 1.5.2: learned flight paths only from real evidence; the learned list is reset once - all flight paths are grey until you next open a flight master's map",
@@ -101,6 +102,7 @@ local CHANGES = {
         ["1.10.2"] = "uses the GaarForever shared library",
     },
     GaarMapsForever = {
+        ["1.4.1"] = "Portrait right-click button fixed: fixed 60x60 size, re-placed and raised above the border every time the map opens, menu errors are shown; /gmf portrait shows its state",
         ["1.4.0"] = "Right-click the round portrait in the world map's top-left corner to open the GaarMaps menu (lock, reset, scale, fade, zone map)",
         ["1.2.0"] = "Renamed to GaarMapsForever (new folders; settings move over automatically on first login; new /gmf commands, old ones still work)",
         ["1.1.3"] = "the addon's own name in its chat lines and menu errors",

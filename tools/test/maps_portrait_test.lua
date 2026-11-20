@@ -41,12 +41,16 @@ end
 local b = created.GaarMapsForeverPortraitButton
 eq("button created", b ~= nil, true)
 if b then
-    eq("right click only", clicks and clicks[1], "RightButtonUp")
-    eq("one click type", clicks and #clicks, 1)
+    eq("right click registered", clicks and clicks[1], "RightButtonUp")
     b.onOnClick(b, "LeftButton")
     eq("left click ignored", menuOwner, nil)
-    b.onOnClick(b, "RightButton")
+    b.onOnClick(b, "RightButton", true)
+    eq("button down ignored", menuOwner, nil)
+    b.onOnClick(b, "RightButton", false)
     eq("menu owner", menuOwner, b)
     eq("shared menu builder used", rendered, 1)
 end
+G.SlashCmdList.GAARMAPSFOREVER("portrait")
+G.MenuUtil.CreateContextMenu = function() error("boom") end
+b.onOnClick(b, "RightButton", false)
 if fails == 0 then print("maps_portrait_test: ok") else os.exit(1) end

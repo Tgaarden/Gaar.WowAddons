@@ -46,7 +46,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -587,39 +587,92 @@ end
 
 local portraitButton
 local portraitPending -- creation had to wait for combat to end
+local portraitFoundAs     -- path of the portrait region we anchored to, for /gmf status
+local portraitErrShown    -- the menu error is printed once
 local ShowPortraitMenu -- defined with the API, below
 
+local PORTRAIT_SIZE = 60
+
+local function Size(r)
+    if type(r) ~= "table" or not r.GetWidth then return 0, 0 end
+    local ok, w, h = pcall(function() return Num(r:GetWidth()) or 0, Num(r:GetHeight()) or 0 end)
+    if ok then return w, h end
+    return 0, 0
+end
+
+-- The portrait's region, if one of Blizzard's usual names has a sensible size (a ButtonFrame's
+-- PortraitContainer can be a 1x1 holder, so size counts). Otherwise nil and the button is
+-- placed by offset.
 local function PortraitRegion()
     local border = map and map.BorderFrame
-    local cands = {
-        type(border) == "table" and border.PortraitContainer or nil,
-        type(border) == "table" and border.Portrait or nil,
-        map and map.PortraitContainer or nil,
-    }
-    for _, r in ipairs(cands) do
-        if type(r) == "table" and r.GetObjectType then return r end
+    local cands = {}
+    local function add(path, r) cands[#cands + 1] = { path, r } end
+    if type(border) == "table" then
+        add("BorderFrame.PortraitContainer", border.PortraitContainer)
+        add("BorderFrame.PortraitContainer.portrait", type(border.PortraitContainer) == "table" and border.PortraitContainer.portrait or nil)
+        add("BorderFrame.portrait", border.portrait)
+        add("BorderFrame.Portrait", border.Portrait)
+        add("BorderFrame.PortraitFrame", border.PortraitFrame)
     end
+    if map then
+        add("WorldMapFrame.PortraitContainer", map.PortraitContainer)
+        add("WorldMapFrame.portrait", map.portrait)
+    end
+    add("WorldMapFramePortrait", _G.WorldMapFramePortrait)
+    for _, c in ipairs(cands) do
+        local r = c[2]
+        if type(r) == "table" and r.GetObjectType then
+            local w, h = Size(r)
+            if w >= 30 and h >= 30 and w <= 120 and h <= 120 then return r, c[1] end
+        end
+    end
+    -- Scan the border's own textures and children for one that looks like the portrait.
+    if type(border) == "table" and border.GetRegions then
+        local ok, list = pcall(function() return { border:GetRegions() } end)
+        if ok then
+            for i, r in ipairs(list) do
+                local name = tostring(r.GetName and r:GetName() or "")
+                local atlas = tostring(r.GetAtlas and r:GetAtlas() or "")
+                local w, h = Size(r)
+                if (name:lower():find("portrait") or atlas:lower():find("portrait")) and w >= 30 and w <= 120 then
+                    return r, "BorderFrame region " .. i
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function PlacePortraitButton()
+    local b = portraitButton
+    if not b or not map then return end
+    local border = type(map.BorderFrame) == "table" and map.BorderFrame or nil
+    local region, path = PortraitRegion()
+    b:ClearAllPoints()
+    b:SetSize(PORTRAIT_SIZE, PORTRAIT_SIZE)
+    if region then
+        b:SetPoint("CENTER", region, "CENTER", 0, 0)
+        portraitFoundAs = path
+    else
+        b:SetPoint("TOPLEFT", border or map, "TOPLEFT", -5, 7)
+        portraitFoundAs = nil
+    end
+    -- Above the border and portrait; Blizzard may re-level them, so this runs on every show.
+    local parent = border or map
+    if parent.GetFrameStrata and b.SetFrameStrata then b:SetFrameStrata(parent:GetFrameStrata()) end
+    b:SetFrameLevel((Num(parent:GetFrameLevel()) or 0) + 20)
+    b:EnableMouse(true)
 end
 
 local function CreatePortraitButton()
-    if portraitButton or not map then return end
+    if not map then return end
+    if portraitButton then PlacePortraitButton() return end
     if InCombat() then portraitPending = true return end
     portraitPending = false
-    local border = map.BorderFrame
     local b = CreateFrame("Button", "GaarMapsForeverPortraitButton", map)
-    local region = PortraitRegion()
-    b:ClearAllPoints()
-    if region then
-        b:SetAllPoints(region)
-    else
-        b:SetSize(56, 56)
-        b:SetPoint("TOPLEFT", map, "TOPLEFT", -5, 7)
-    end
-    local base = (type(border) == "table" and Num(border:GetFrameLevel())) or Num(map:GetFrameLevel()) or 0
-    b:SetFrameLevel(base + 20)
-    b:RegisterForClicks("RightButtonUp")
-    b:SetScript("OnClick", function(self, button)
-        if button == "RightButton" then ShowPortraitMenu(self) end
+    b:RegisterForClicks("RightButtonUp", "RightButtonDown")
+    b:SetScript("OnClick", function(self, button, down)
+        if button == "RightButton" and not down then ShowPortraitMenu(self) end
     end)
     b:SetScript("OnEnter", function(self)
         local tip = _G.GameTooltip
@@ -632,6 +685,28 @@ local function CreatePortraitButton()
         if _G.GameTooltip then _G.GameTooltip:Hide() end
     end)
     portraitButton = b
+    PlacePortraitButton()
+end
+
+local function PortraitStatus()
+    local b = portraitButton
+    if not b then
+        Print("portrait button: not created" .. (portraitPending and " (waiting for combat to end)" or ""))
+        return
+    end
+    local border = map and map.BorderFrame
+    local w, h = Size(b)
+    Print("portrait region: " .. (portraitFoundAs or "none found, placed by offset at the border's top-left"))
+    local over = "?"
+    if b.IsMouseOver then
+        local ok, v = pcall(b.IsMouseOver, b)
+        if ok then over = v and "yes" or "no" end
+    end
+    Print(string.format("portrait button: shown=%s mouse=%s size=%dx%d strata=%s level=%s (border: %s, %s) mouse over now=%s",
+        tostring(b.IsShown and b:IsShown() or false), tostring(b.IsMouseEnabled and b:IsMouseEnabled() or false), w, h,
+        tostring(b.GetFrameStrata and b:GetFrameStrata()), tostring(b.GetFrameLevel and b:GetFrameLevel()),
+        tostring(type(border) == "table" and border.GetFrameStrata and border:GetFrameStrata() or "?"),
+        tostring(type(border) == "table" and border.GetFrameLevel and border:GetFrameLevel() or "?"), over))
 end
 
 local function HookBlizzard()
@@ -645,6 +720,7 @@ local function HookBlizzard()
     hooked = true
 
     map:HookScript("OnShow", OnMapShown)
+    map:HookScript("OnShow", function() CreatePortraitButton() end)
     map:HookScript("OnHide", OnMapHidden)
     for _, name in ipairs({ "Maximize", "Minimize", "SynchronizeDisplayState" }) do
         if type(map[name]) == "function" then hooksecurefunc(map, name, OnDisplayStateChanged) end
@@ -1083,6 +1159,7 @@ local function PrintHelp()
     Print(string.format("/gmf zone scale <%d-%d> - zone map scale in percent (now: %d%%)", ZMIN * 100, ZMAX * 100, Percent(db and db.zoneMapScale or 1)))
     Print("/gmf zone reset - zone map back to its default position and 100%")
     Print("Right-click the round portrait in the world map's top-left corner for this addon's menu (lock, reset, scale, fade).")
+    Print("/gmf portrait - state of the portrait right-click button (hover it first)")
     Print("/gmf status - what this client offers and the current settings")
 end
 
@@ -1098,6 +1175,7 @@ local function PrintStatus()
         Print("map: " .. (f:IsShown() and "open" or "closed") .. ", " .. (IsMaximized() and "maximized" or "windowed")
             .. string.format(", scale now %d%%", Percent(Num(f:GetScale()) or 1)))
     end
+    PortraitStatus()
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
@@ -1128,6 +1206,8 @@ local function OnSlash(msg)
         ZoneSetScalePercent(zoneScaleArg)
     elseif msg == "status" then
         PrintStatus()
+    elseif msg == "portrait" then
+        PortraitStatus()
     elseif scaleArg then
         SetScalePercent(scaleArg)
     elseif msg == "fade on" or msg == "fade off" then
@@ -1200,10 +1280,15 @@ end
 ShowPortraitMenu = function(owner)
     local MU = _G.MenuUtil
     if type(MU) == "table" and type(MU.CreateContextMenu) == "function" then
-        local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+        local ok, err = pcall(MU.CreateContextMenu, owner, function(_, root)
             BF.RenderMenu(root, MenuEntries(), A.title)
         end)
         if ok then return end
+        if not portraitErrShown then
+            portraitErrShown = true
+            Print("the menu failed: " .. tostring(err) .. " - type /gmf for the options.")
+        end
+        return
     end
     Print("the menu is not available on this client; type /gmf for the options.")
 end

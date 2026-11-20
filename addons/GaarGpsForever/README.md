@@ -309,3 +309,29 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Kalimdor flightpaths**
+
+<img src="../../docs/screenshots/GaarGpsForever/1-kalimdor-flightpaths.jpg" alt="Kalimdor flightpaths" width="600">
+
+**Arrow**
+
+<img src="../../docs/screenshots/GaarGpsForever/2-arrow.jpg" alt="Arrow" width="600">
+
+**Quest set gps**
+
+<img src="../../docs/screenshots/GaarGpsForever/3-quest-set-gps.jpg" alt="Quest set gps" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarGpsForever/4-menu.jpg" alt="Menu" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarGpsForever/5-options-1.jpg" alt="Options 1" width="600">
+
+**Options gather**
+
+<img src="../../docs/screenshots/GaarGpsForever/6-options-gather.jpg" alt="Options gather" width="600">

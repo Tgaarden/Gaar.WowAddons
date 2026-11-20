@@ -203,3 +203,21 @@ icon `Interface\Icons\INV_Shield_06`; the strings `INTERRUPTED` and `FAILED`.
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Testbars swing**
+
+<img src="../../docs/screenshots/GaarCastbarsForever/1-testbars-swing.jpg" alt="Testbars swing" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarCastbarsForever/2-menu.jpg" alt="Menu" width="600">
+
+**Options 1**
+
+<img src="../../docs/screenshots/GaarCastbarsForever/3-options-1.jpg" alt="Options 1" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarCastbarsForever/4-options-2.jpg" alt="Options 2" width="600">

@@ -83,3 +83,21 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Send recipients**
+
+<img src="../../docs/screenshots/GaarMailForever/1-send-recipients.jpg" alt="Send recipients" width="600">
+
+**Open all**
+
+<img src="../../docs/screenshots/GaarMailForever/2-open-all.jpg" alt="Open all" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarMailForever/3-menu.jpg" alt="Menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarMailForever/4-options.jpg" alt="Options" width="600">

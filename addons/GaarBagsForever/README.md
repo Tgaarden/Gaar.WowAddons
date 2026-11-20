@@ -327,3 +327,29 @@ popups `DELETE_ITEM`, `DELETE_GOOD_ITEM`, `DELETE_QUEST_ITEM`, `DELETE_GOOD_QUES
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Combined backpack**
+
+<img src="../../docs/screenshots/GaarBagsForever/1-combined-backpack.jpg" alt="Combined backpack" width="600">
+
+**Tooltip alts**
+
+<img src="../../docs/screenshots/GaarBagsForever/2-tooltip-alts.jpg" alt="Tooltip alts" width="600">
+
+**Gold alts**
+
+<img src="../../docs/screenshots/GaarBagsForever/3-gold-alts.jpg" alt="Gold alts" width="600">
+
+**Portrait menu**
+
+<img src="../../docs/screenshots/GaarBagsForever/4-portrait-menu.jpg" alt="Portrait menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarBagsForever/5-options.jpg" alt="Options" width="600">
+
+**Locked mail popup**
+
+<img src="../../docs/screenshots/GaarBagsForever/6-locked-mail-popup.jpg" alt="Locked mail popup" width="600">

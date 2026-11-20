@@ -621,3 +621,21 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Missing buffs dispel**
+
+<img src="../../docs/screenshots/GaarBuffsForever/1-missing-buffs-dispel.jpg" alt="Missing buffs dispel" width="600">
+
+**Menu**
+
+<img src="../../docs/screenshots/GaarBuffsForever/2-menu.jpg" alt="Menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarBuffsForever/3-options.jpg" alt="Options" width="600">
+
+**Options 2**
+
+<img src="../../docs/screenshots/GaarBuffsForever/4-options-2.jpg" alt="Options 2" width="600">

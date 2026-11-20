@@ -46,7 +46,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
 ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -562,6 +562,84 @@ local function PlayWhisperSound()
 end
 
 -- ---------------------------------------------------------------------------
+-- /gchat test: sample lines in the main chat frame, for a screenshot
+--
+-- Each line is built the way Blizzard builds a real one (channel link, player link, the
+-- CHAT_*_GET text) and then goes through our own functions: ShortenChannelText (also run by the
+-- AddMessage wrapper), the class colour, Linkify (the same as ChatFilter) and the timestamp
+-- format. It is printed with AddMessage only: no chat event is fired and nothing is sent.
+-- ---------------------------------------------------------------------------
+
+local TEST_SAMPLES = {
+    { kind = "CHANNEL", chan = 1, name = "General - Stormwind City", sender = "Jaina", class = "MAGE",
+      msg = "Anyone for Scholomance after this?" },
+    { kind = "CHANNEL", chan = 2, name = "Trade - Stormwind City", sender = "Thrall", class = "SHAMAN",
+      msg = "WTS [Thunderfury, Blessed Blade of the Windseeker] www.example.com/guide - whisper me" },
+    { kind = "CHANNEL", chan = 4, name = "LookingForGroup", sender = "Sylvanas", class = "HUNTER",
+      msg = "LF healer for Stratholme, 2 DPS ready" },
+    { kind = "GUILD",         sender = "Uther",    class = "PALADIN", msg = "Guild run tonight at 20:00." },
+    { kind = "OFFICER",       sender = "Bolvar",   class = "WARRIOR", msg = "Remember to check the bank." },
+    { kind = "PARTY",         sender = "Anduin",   class = "PRIEST",  msg = "Need mana, drinking." },
+    { kind = "SAY",           sender = "Varian",   class = "WARRIOR", msg = "Nice gear!" },
+    { kind = "YELL",          sender = "Valeera",  class = "ROGUE",   msg = "Behind you!" },
+    { kind = "WHISPER",       sender = "Malfurion", class = "DRUID",  msg = "Thanks for the help! Guide: https://example.com/druid" },
+    { kind = "WHISPER_INFORM", sender = "Gul'dan", class = "WARLOCK", msg = "Sure, summoning now." },
+    { kind = "SYSTEM", msg = "Jaina has come online." },
+}
+
+local TEST_FALLBACK_COLOR = { SYSTEM = { r = 1, g = 1, b = 0 } }
+
+local function TestColorName(name, class)
+    if not Effective("classColors") or not class then return name end
+    local rc = type(_G.RAID_CLASS_COLORS) == "table" and _G.RAID_CLASS_COLORS[class] or nil
+    if type(rc) ~= "table" then return name end
+    local hex = type(rc.colorStr) == "string" and rc.colorStr
+        or string.format("ff%02x%02x%02x", (rc.r or 1) * 255, (rc.g or 1) * 255, (rc.b or 1) * 255)
+    return "|c" .. hex .. name .. "|r"
+end
+
+-- One sample -> text, r, g, b (nil when it cannot be built).
+local function BuildTestLine(d, frame)
+    local info = type(_G.ChatTypeInfo) == "table" and (_G.ChatTypeInfo[d.kind == "CHANNEL" and ("CHANNEL" .. d.chan) or d.kind]
+        or (d.kind == "CHANNEL" and _G.ChatTypeInfo.CHANNEL)) or nil
+    local c = type(info) == "table" and info or TEST_FALLBACK_COLOR[d.kind] or { r = 1, g = 1, b = 1 }
+    local msg = d.msg
+    if Effective("urlCopy") then msg = Linkify(msg) end
+    local text
+    if d.kind == "SYSTEM" then
+        text = msg
+    else
+        local link = "|Hplayer:" .. d.sender .. "|h[" .. TestColorName(d.sender, d.class) .. "]|h"
+        if d.kind == "CHANNEL" then
+            text = "|Hchannel:channel:" .. d.chan .. "|h[" .. d.chan .. ". " .. d.name .. "]|h " .. link .. ": " .. msg
+            -- A wrapped frame shortens it in AddMessage (as for a real line); shortening twice would turn [LFG] into [4].
+            if Effective("shortChannels") and not wrapped[frame] then text = ShortenChannelText(text) end
+        else
+            local get = _G["CHAT_" .. d.kind .. "_GET"]
+            if type(get) ~= "string" then get = "%s: " end
+            text = get:gsub("%%s", function() return link end, 1) .. msg
+        end
+    end
+    local stamp = _G.CHAT_TIMESTAMP_FORMAT
+    if Effective("timestamps") and type(stamp) == "string" and stamp ~= "" then
+        text = date(stamp) .. text
+    end
+    return text, c.r or 1, c.g or 1, c.b or 1
+end
+
+local function ShowTestLines()
+    local f = _G.DEFAULT_CHAT_FRAME or _G.ChatFrame1
+    if type(f) ~= "table" or type(f.AddMessage) ~= "function" then Print("no main chat frame."); return end
+    f:AddMessage("GaarChat test lines:", 1, 1, 0)
+    for _, d in ipairs(TEST_SAMPLES) do
+        Safe("test line", function()
+            local text, r, g, b = BuildTestLine(d, f)
+            if text then f:AddMessage(text, r, g, b) end
+        end)
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- Slash command
 -- ---------------------------------------------------------------------------
 
@@ -578,6 +656,7 @@ local function PrintHelp()
     end
     ns.Feed.PrintHelp()
     Print("/gchat copy [n] - copy the last " .. COPY_LINES .. " lines of chat frame n (default: the selected one)")
+    Print("/gchat test - sample chat lines in the main chat frame, to show the tweaks (nothing is sent)")
     Print("/gchat status - the current state")
     Print("Right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu holds the same options.")
 end
@@ -619,6 +698,8 @@ local function OnSlash(msg)
         local f = n and _G["ChatFrame" .. math.floor(n)] or nil
         if n and not f then Print("no chat frame " .. arg .. "."); return end
         ShowCopy(f)
+    elseif cmd == "test" then
+        ShowTestLines()
     elseif cmd == "status" then
         PrintStatus()
     else
@@ -659,6 +740,7 @@ local function MenuEntries()
             func = function() SetFeature(f.key, not db[f.key]) end }
     end
     list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Show test lines (chat)", func = function() ShowTestLines() end }
     list[#list + 1] = { text = "Chat feed", submenu = ns.Feed.MenuEntries() }
     return list
 end

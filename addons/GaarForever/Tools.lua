@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.42"] = "notes for GaarChatForever 1.5.0: /gchat test and a Show test lines (chat) button put sample chat lines in the main chat frame, to show the tweaks",
         ["3.2.41"] = "notes for GaarLootForever 1.3.1: the Options page text about the Need/Greed/Pass counts and the right-click menu reads correctly again",
         ["3.2.40"] = "notes for GaarFramesForever 1.6.0: spell cost on the player power bar while casting",
         ["3.2.39"] = "the Options > AddOns subpages are now listed A-Z (Bags, Bars, Buffs, Castbars, ...) instead of in load order",
@@ -195,6 +196,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarChatForever = {
+        ["1.5.0"] = "/gchat test and a Show test lines (chat) button: sample chat lines in the main chat frame that show the tweaks, for a screenshot",
         ["1.4.0"] = "right-click chat feed window: opens the addon's menu",
         ["1.2.2"] = "your own messages are recognised for characters with a surname",
         ["1.1.0"] = "Renamed to GaarChatForever (new folders; settings move over automatically on first login; new /gchat commands, old ones still work)",

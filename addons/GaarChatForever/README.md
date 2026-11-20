@@ -70,6 +70,7 @@ kinds, locked, font size, scale, width, seconds on screen, test lines and reset.
 | `/gchat feed time <3-60>` | Seconds a line stays before it is gone (default 10) |
 | `/gchat feed test` | Sample lines of every kind |
 | `/gchat feed reset` | Position, scale, font size, width and time back to default |
+| `/gchat test` | Sample chat lines in the main chat frame (short channels, class colours, timestamps, links); nothing is sent. Also a button on the Options page and in the menu |
 | `/gchat copy [n]` | Open the copy window for chat frame `n` (default: the selected one) |
 | `/gchat status` | Version, master switch, every feature and the last error caught |
 

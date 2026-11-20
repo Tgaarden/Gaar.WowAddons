@@ -16,11 +16,15 @@
       green, one you have not is grey and faded. The tooltip says the name, the zone and "Learned" or
       "Not learned". On a continent map flight paths are shown too (placed through the world
       position, as the waypoint pin is); graveyards only on a zone map.
-    * Learned: whenever a flight master's map opens (TAXIMAP_OPENED) the nodes the client lists are
-      read (C_TaxiMap.GetAllTaxiNodes / GetTaxiNodesForMap, or the old NumTaxiNodes / TaxiNodeName)
-      and matched to the table by node ID or name; a node C_TaxiMap.GetTaxiNodesForMap reports as
-      discovered (isUndiscovered == false) counts as learned too. Saved per character in
-      GaarGpsForeverDB.placesLearned.
+    * Learned (1.5.2: strict, positive evidence only): when a flight master's map opens
+      (TAXIMAP_OPENED), the nodes C_TaxiMap.GetAllTaxiNodes lists with state Current or Reachable
+      (or the old TaxiNodeGetType "CURRENT" / "REACHABLE") are matched to the table by node ID, else
+      by name for your own faction's and the neutral rows only. A node C_TaxiMap.GetTaxiNodesForMap
+      reports with isUndiscovered == false counts only once that API has been seen to report
+      isUndiscovered == true for some node (proof that it tells the two apart). Never from mere
+      presence. Saved per character and faction row in GaarGpsForeverDB.placesLearned with the
+      source ("taxi" or "api"); the learned lists of 1.5.0 / 1.5.1 are wiped once (they could hold
+      flight paths that were never learned).
     * Not on the minimap. Nothing here is clickable beyond its tooltip.
 
   The pins are plain frames on the world map canvas, like the waypoint pin of the core: nothing of
@@ -55,7 +59,8 @@ local lastSig
 local posCache = {}           -- mapID -> { flights = { {e, x, y} }, graves = { {x, y, name} }, n, gen, t }
 local gen = 0
 local rev = 0                 -- bumped when what is shown could change (toggles, learned)
-local stats = { scans = 0, nodes = 0, matched = 0, unmatched = 0 }
+local stats = { scans = 0, nodes = 0, matched = 0, unmatched = 0, skipped = 0 }
+local undisc = { seenTrue = 0, seenFalse = 0, seenNil = 0 } -- what GetTaxiNodesForMap said in isUndiscovered
 local lastUnmatched = {}
 
 local function Print(msg) if core then core.Print(msg) end end
@@ -117,14 +122,12 @@ local function FactionShows(entryFaction, playerFaction)
     return entryFaction == playerFaction
 end
 
-local function Key(e) return (Norm(e.name) or "?") .. ":" .. tostring(e.map) end
+-- One learned key per table row: name, map and faction, so the Alliance and the Horde flight master
+-- of one town are learned apart.
+local function Key(e) return (Norm(e.name) or "?") .. ":" .. tostring(e.map) .. ":" .. tostring(e.faction) end
 
--- Learned keys of 1.5.0, whose table rows had other names than the client's nodes.
-local LEGACY = {
-    ["thecrossroads:1413"] = "crossroads:1413", ["theramoreisle:1445"] = "theramore:1445",
-    ["feathermoonstronghold:1444"] = "feathermoon:1444", ["stormwindcity:1453"] = "stormwind:1453",
-    ["gromgolbasecamp:1434"] = "gromgol:1434", ["nighthaven:1450"] = "moonglade:1450",
-}
+local LEARNED_VERSION = 2   -- 1.5.2; older learned lists are wiped once
+local SOURCES = { taxi = true, api = true }
 
 -- The icon look of a pin: desaturated, r, g, b, alpha. Learned flight paths green, unlearned grey.
 local function PinStyle(d)
@@ -158,6 +161,19 @@ local function MergeFlights(static, runtime, mapID, zoneName)
                     or p.e.faction == "Neutral" or p.e.faction == r.faction) then
                     hit, best = p, d
                 end
+            end
+        end
+        if not hit and Norm(r.name) then
+            -- a table row of that name on this map, any faction or distance: never a second pin
+            local n, best = Norm(r.name), nil
+            for _, p in ipairs(static) do
+                if Norm(p.e.name) == n then
+                    local d = Dist(p.x, p.y, r.x, r.y)
+                    if not best or d < best then hit, best = p, d end
+                end
+            end
+            if hit and r.faction and hit.e.faction ~= r.faction and hit.e.faction ~= "Neutral" then
+                hit = { e = hit.e, x = hit.x, y = hit.y, other = true } -- not this row: nothing learned from it
             end
         end
         if not hit then
@@ -218,25 +234,30 @@ local function Learned()
     if not db then return {} end
     local key = CharKey()
     if not key then return {} end
-    if type(db.placesLearned) ~= "table" then db.placesLearned = {} end
-    if type(db.placesLearned[key]) ~= "table" then db.placesLearned[key] = {} end
-    local set = db.placesLearned[key]
-    for old, new in pairs(LEGACY) do
-        if set[old] then set[new] = true; set[old] = nil end
+    if type(db.placesLearned) ~= "table" or db.placesLearned._v ~= LEARNED_VERSION then
+        db.placesLearned = { _v = LEARNED_VERSION }
     end
-    return set
+    if type(db.placesLearned[key]) ~= "table" then db.placesLearned[key] = {} end
+    return db.placesLearned[key]
+end
+
+-- The source a flight path was learned from ("taxi" or "api"), or nil.
+local function LearnedSource(e)
+    local v = Learned()[Key(e)]
+    if type(v) == "string" and SOURCES[v] then return v end
+    return nil
 end
 
 local function IsLearned(e)
-    return Learned()[Key(e)] == true
+    return LearnedSource(e) ~= nil
 end
 
--- Marks one flight path learned; true when it was new.
-local function MarkLearned(e)
+-- Marks one flight path learned from a source; true when it was new.
+local function MarkLearned(e, source)
     local set = Learned()
     local k = Key(e)
     if set[k] then return false end
-    set[k] = true
+    set[k] = source
     rev = rev + 1
     return true
 end
@@ -247,20 +268,31 @@ local function PlayerFaction()
     return nil
 end
 
--- Marks the static flight paths matching these client nodes as learned; returns how many were new.
--- names: node names; ids (optional): the node IDs of the same nodes, matched first.
+-- Marks the static flight paths matching these client nodes as learned ("taxi"); returns how many
+-- were new. Only call it with nodes the client says are known (Current / Reachable). names: node
+-- names; ids (optional): the node IDs of the same nodes. A node ID marks exactly that row; a name
+-- marks only the rows of the player's faction and the neutral ones.
 local function Record(names, ids)
     local set, new = Learned(), 0
+    local faction = PlayerFaction()
     stats.nodes = stats.nodes + #names
     lastUnmatched = {}
     for i, nm in ipairs(names) do
         local list
         local byId = EntryByNode(ids and ids[i])
-        if byId then list = MatchName(byId.name) or { byId } else list = MatchName(nm) end
+        if byId then
+            list = { byId }
+        else
+            list = {}
+            for _, e in ipairs(MatchName(nm) or {}) do
+                if FactionShows(e.faction, faction) then list[#list + 1] = e end
+            end
+            if #list == 0 then list = nil end
+        end
         if list then
             for _, e in ipairs(list) do
                 local k = Key(e)
-                if not set[k] then set[k] = true; new = new + 1 end
+                if not set[k] then set[k] = "taxi"; new = new + 1 end
             end
             stats.matched = stats.matched + 1
         else
@@ -274,9 +306,21 @@ end
 places.pure.Record = Record
 places.pure.IsLearned = IsLearned
 
+-- Whether a GetAllTaxiNodes state says the player knows the node: Current or Reachable only.
+local function KnownState(state)
+    if BF.IsSecret(state) then return false end
+    state = Num(state)
+    if not state then return false end
+    local E = _G.Enum and _G.Enum.FlightPathState
+    local current = E and Num(E.Current) or 0
+    local reachable = E and Num(E.Reachable) or 1
+    return state == current or state == reachable
+end
+places.pure.KnownState = KnownState
+
 local function NodesFromTaxiMap()
     local names, ids = {}, {}
-    local get = API("C_TaxiMap", "GetAllTaxiNodes") or API("C_TaxiMap", "GetTaxiNodesForMap")
+    local get = API("C_TaxiMap", "GetAllTaxiNodes")
     if not get then return nil end
     local seen = {}
     local maps = {}
@@ -293,7 +337,11 @@ local function NodesFromTaxiMap()
                 for _, info in ipairs(list) do
                     if not BF.IsSecret(info) and type(info) == "table" then
                         local nm = Str(info.name)
-                        if nm then names[#names + 1] = nm; ids[#names] = Num(info.nodeID) or false end
+                        if nm and KnownState(info.state) then
+                            names[#names + 1] = nm; ids[#names] = Num(info.nodeID) or false
+                        elseif nm then
+                            stats.skipped = stats.skipped + 1
+                        end
                     end
                 end
             end
@@ -310,7 +358,8 @@ local function NodeNamesLegacy()
     for i = 1, n do
         local kind = Str(Call(_G.TaxiNodeGetType, i))
         local nm = Str(Call(_G.TaxiNodeName, i))
-        if nm and kind ~= "NONE" then names[#names + 1] = nm end
+        if nm and (kind == "CURRENT" or kind == "REACHABLE") then names[#names + 1] = nm
+        elseif nm then stats.skipped = stats.skipped + 1 end
     end
     return names
 end
@@ -354,7 +403,15 @@ local function RuntimeFlights(mapID)
             local skip = not BF.IsSecret(layer) and layer == true
             if nm and x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 and not skip then
                 local und, known = info.isUndiscovered, nil
-                if not BF.IsSecret(und) and type(und) == "boolean" then known = not und end
+                if BF.IsSecret(und) or und == nil then
+                    undisc.seenNil = undisc.seenNil + 1
+                elseif und == true then
+                    undisc.seenTrue = undisc.seenTrue + 1; known = false
+                elseif und == false then
+                    undisc.seenFalse = undisc.seenFalse + 1; known = true
+                else
+                    undisc.seenNil = undisc.seenNil + 1
+                end
                 out[#out + 1] = { id = Num(info.nodeID), name = nm, x = x, y = y,
                     faction = RuntimeFaction(info.faction), known = known }
             end
@@ -419,9 +476,11 @@ local function Compute(mapID)
     local sf = StaticFlights(mapID, cont)
     local rf = RuntimeFlights(mapID)
     local flights, hits = MergeFlights(sf, rf, mapID, core.MapName(mapID))
+    -- isUndiscovered == false counts only once the API has told a node apart as undiscovered
+    local trusted = undisc.seenTrue > 0
     for _, h in ipairs(hits) do
-        if h.r.known == true and not h.p.e.runtime then MarkLearned(h.p.e) end
-        if h.r.known ~= nil then h.p.known = h.r.known end
+        if trusted and h.r.known == true and not h.p.other and not h.p.e.runtime then MarkLearned(h.p.e, "api") end
+        if h.r.known ~= nil and not h.p.other then h.p.known = h.r.known end
     end
     local sg = {}
     for _, g in ipairs((ns.graveyards or {})[mapID] or {}) do
@@ -448,6 +507,8 @@ local function Positions(mapID)
 end
 places.pure.Positions = function(mapID) return Positions(mapID) end
 places.pure.ClearCache = function() posCache = {} end
+places.pure.Undiscovered = undisc
+places.pure.LearnedSource = LearnedSource
 
 -- The entries to show on a map for a faction and the toggles:
 -- { kind = "flight"|"grave", e, x, y, learned, name }.
@@ -457,7 +518,7 @@ local function Visible(mapID, faction, flightsOn, gravesOn)
     if flightsOn then
         for _, p in ipairs(c.flights) do
             if FactionShows(p.e.faction, faction) then
-                local learned = IsLearned(p.e) or (p.e.runtime == true and p.known == true)
+                local learned = IsLearned(p.e) or (p.e.runtime == true and p.known == true and undisc.seenTrue > 0)
                 out[#out + 1] = { kind = "flight", e = p.e, x = p.x, y = p.y, learned = learned }
             end
         end
@@ -662,7 +723,9 @@ local function MapStatusLines()
     local shown = Visible(mapID, PlayerFaction(), true, true)
     local names, ng = {}, 0
     for _, d in ipairs(shown) do
-        if d.kind == "flight" then names[#names + 1] = d.e.name .. (d.learned and " (learned)" or "")
+        if d.kind == "flight" then
+            local src = LearnedSource(d.e) or (d.learned and "api, client-only node") or nil
+            names[#names + 1] = d.e.name .. " (" .. d.e.faction .. "): " .. (src and ("learned, " .. src) or "not learned")
         else ng = ng + 1 end
     end
     local lines = {
@@ -673,7 +736,9 @@ local function MapStatusLines()
             n.rtFlights and tostring(n.rtFlights) or "none", n.stFlights, n.flights, #names,
             YesNo(API("C_DeathInfo", "GetGraveyardsForMap")), n.rtGraves and tostring(n.rtGraves) or "none",
             n.stGraves, n.graves, n.gravesAdded or 0),
-        "  flight paths here: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "   graveyards here: " .. ng,
+        "  flight paths here: " .. (#names > 0 and table.concat(names, "; ") or "none") .. "   graveyards here: " .. ng,
+        string.format("  GetTaxiNodesForMap isUndiscovered seen: true %d, false %d, nil %d (%s for learned)",
+            undisc.seenTrue, undisc.seenFalse, undisc.seenNil, undisc.seenTrue > 0 and "trusted" or "not trusted"),
     }
     if drawn.map == mapID then
         lines[#lines + 1] = string.format("  last drawn on this map: %d flight paths, %d graveyards (pin level canvas + %d)",
@@ -687,9 +752,9 @@ function places.StatusLines()
     local show, learned, total, g = Counts()
     local lines = {
         string.format("map places: flight paths %s (%d for your faction, %d learned, %d in the table), graveyards %s"
-            .. " (%d in the table)   taxi scans: %d, matched %d, unmatched %d%s",
+            .. " (%d in the table)   taxi scans: %d, known nodes matched %d, unmatched %d, not known (skipped) %d%s",
             OnOff(db.places_flights), show, learned, total, OnOff(db.places_graves), g,
-            stats.scans, stats.matched, stats.unmatched,
+            stats.scans, stats.matched, stats.unmatched, stats.skipped,
             #lastUnmatched > 0 and (" (" .. table.concat(lastUnmatched, ", ") .. ")") or ""),
     }
     for _, l in ipairs(MapStatusLines()) do lines[#lines + 1] = l end

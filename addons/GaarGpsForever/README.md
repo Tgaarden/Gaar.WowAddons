@@ -154,11 +154,16 @@ Not on the minimap, and nothing is clickable: hover for the tooltip. On by defau
   what the client adds is drawn, nothing twice. `/ggps status` shows, for the map you look at (or
   your zone), whether the API is there, how many places the client and the table gave, the merged
   count, and the flight paths drawn.
-- **Learned.** Whenever a flight master's map opens (`TAXIMAP_OPENED`) the nodes the client lists
-  (`C_TaxiMap.GetAllTaxiNodes`, else `GetTaxiNodesForMap`, else the old `NumTaxiNodes` /
-  `TaxiNodeName`) are matched to the table by node ID or name (the part before the comma, so
-  `Stormwind, Elwynn` is Stormwind) and saved per character in `GaarGpsForeverDB.placesLearned`. A
-  node `GetTaxiNodesForMap` reports as discovered counts as learned too.
+- **Learned (strict since 1.5.2).** Only on positive evidence: when a flight master's map opens
+  (`TAXIMAP_OPENED`), the nodes `C_TaxiMap.GetAllTaxiNodes` lists with state Current or Reachable
+  (or the old `TaxiNodeGetType` `CURRENT` / `REACHABLE`) are matched to the table by node ID, else by
+  name (the part before the comma) for your own faction's and the neutral rows only. A node
+  `GetTaxiNodesForMap` reports with `isUndiscovered == false` counts only after that API has been
+  seen to report `isUndiscovered == true` for some node. Saved per character and faction row, with
+  its source (`taxi` / `api`), in `GaarGpsForeverDB.placesLearned`. 1.5.2 wipes the learned lists of
+  1.5.0 / 1.5.1 once, so all flight paths are grey until you next open a flight master's map.
+  `/ggps status` lists each flight path on the map with learned yes/no and source, and what the API
+  said in `isUndiscovered` (true / false / nil).
 - **Data.** `Data/FlightPaths.lua` (67 flight paths: 32 Alliance, 31 Horde, 4 for both) is built
   from the WoW Forever 1.60.1 client's own `TaxiNodes` and `UiMapAssignment` tables (wago.tools
   DB2 export), so names, factions and positions are the client's, on this client's map bounds

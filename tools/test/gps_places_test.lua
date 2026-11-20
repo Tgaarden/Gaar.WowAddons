@@ -186,22 +186,59 @@ check(P.MatchName("Light's Hope Chapel, Eastern Plaguelands"), "Light's Hope")
 check(#P.MatchName("Gadgetzan, Tanaris") == 2, "Gadgetzan: an Alliance and a Horde flight master")
 check(P.MatchName("") == nil and P.MatchName(nil) == nil, "bad names")
 -- a TAXIMAP_OPENED scan through C_TaxiMap
-nodes = { { name = "Ironforge, Dun Morogh" }, { name = "Menethil Harbor, Wetlands" } }
+nodes = { { name = "Ironforge, Dun Morogh", state = 0 }, { name = "Menethil Harbor, Wetlands", state = 1 },
+    { name = "Everlook, Winterspring", nodeID = 52, state = 2 }, { name = "Auberdine, Darkshore" } }
 P.Scan()
-check(P.IsLearned(P.MatchName("Ironforge")[1]) and P.IsLearned(P.MatchName("Menethil Harbor")[1]), "scan via C_TaxiMap learns nodes")
-check(not P.IsLearned(P.MatchName("Auberdine")[1]), "unlisted node stays unlearned")
+check(P.IsLearned(P.MatchName("Ironforge")[1]) and P.IsLearned(P.MatchName("Menethil Harbor")[1]), "scan: Current/Reachable learned")
+check(P.LearnedSource(P.MatchName("Ironforge")[1]) == "taxi", "source tag taxi")
+check(not P.IsLearned(has("Everlook", 1452, "Alliance")), "scan: Unreachable node not learned")
+check(not P.IsLearned(P.MatchName("Auberdine")[1]), "scan: node without a state not learned")
+check(P.KnownState(0) and P.KnownState(1) and not P.KnownState(2) and not P.KnownState(nil), "known states")
+-- the old API: only CURRENT / REACHABLE
+local savedTaxi = G.C_TaxiMap.GetAllTaxiNodes
+G.C_TaxiMap.GetAllTaxiNodes = nil
+local legacy = { { "Astranaar, Ashenvale", "DISTANT" }, { "Thelsamar, Loch Modan", "REACHABLE" }, { "Darkshire, Duskwood", "NONE" } }
+G.NumTaxiNodes = function() return #legacy end
+G.TaxiNodeName = function(i) return legacy[i][1] end
+G.TaxiNodeGetType = function(i) return legacy[i][2] end
+P.Scan()
+check(P.IsLearned(has("Thelsamar", 1432, "Alliance")), "legacy REACHABLE learned")
+check(not P.IsLearned(has("Astranaar", 1440, "Alliance")) and not P.IsLearned(has("Darkshire", 1431, "Alliance")),
+    "legacy DISTANT / NONE not learned")
+G.C_TaxiMap.GetAllTaxiNodes, G.NumTaxiNodes = savedTaxi, nil
+-- a name marks only the player's faction's row: Alliance Everlook, not the Horde one
+P.Record({ "Everlook, Winterspring" })
+check(P.IsLearned(has("Everlook", 1452, "Alliance")) and not P.IsLearned(has("Everlook", 1452, "Horde")),
+    "same-name Alliance/Horde rows learned apart")
 -- a scan matches by node ID before the name (the client node "Moonglade" of the Horde, node 69)
-nodes = { { name = "Something Else", nodeID = 69 } }
+nodes = { { name = "Something Else", nodeID = 69, state = 1 } }
 P.Scan()
-check(P.IsLearned(has("Moonglade", 1450, "Horde")), "scan by node ID")
--- 1.5.0 learned keys move to the client's names
-db.placesLearned["Dru Tics-Realm"]["thecrossroads:1413"] = true
-check(P.IsLearned(has("Crossroads", 1413, "Horde")), "1.5.0 learned key migrated")
+check(P.IsLearned(has("Moonglade", 1450, "Horde")) and not P.IsLearned(has("Moonglade", 1450, "Alliance")),
+    "scan by node ID marks exactly that row")
+-- the learned lists of 1.5.0 / 1.5.1 are wiped once
+local keep = db.placesLearned
+db.placesLearned = { ["Dru Tics-Realm"] = { ["crossroads:1413"] = true, ["everlook:1452"] = true } }
+check(not P.IsLearned(has("Crossroads", 1413, "Horde")) and not P.IsLearned(has("Everlook", 1452, "Alliance")),
+    "old learned entries wiped")
+check(db.placesLearned._v == 2 and next(db.placesLearned["Dru Tics-Realm"]) == nil, "wiped once, versioned")
+db.placesLearned["Dru Tics-Realm"]["everlook:1452:Alliance"] = true
+check(not P.IsLearned(has("Everlook", 1452, "Alliance")), "a learned entry without a source does not count")
+db.placesLearned = keep
 
 -- the client API merged into the table on The Barrens, no doubles
 P.ClearCache()
 faction = "Horde"
 local before = #P.Visible(1413, "Horde", true, true)
+rtNodes[1413] = {
+    { nodeID = 25, name = "Crossroads, The Barrens", position = { x = 0.516, y = 0.303 }, faction = 1 },
+    { nodeID = 77, name = "Camp Taurajo, The Barrens", position = { x = 0.446, y = 0.590 }, faction = 1, isUndiscovered = false },
+}
+played = "Nil Check"
+P.ClearCache()
+for _, d in ipairs(P.Visible(1413, "Horde", true, false)) do
+    check(not d.learned, "untrusted API (no isUndiscovered == true seen): " .. d.e.name .. " not learned")
+end
+check(P.Undiscovered.seenNil == 1 and P.Undiscovered.seenTrue == 0, "isUndiscovered nil counted, not trusted")
 rtNodes[1413] = {
     { nodeID = 25, name = "Crossroads, The Barrens", position = { x = 0.516, y = 0.303 }, faction = 1, isUndiscovered = false },
     { nodeID = 80, name = "Ratchet, The Barrens", position = { x = 0.631, y = 0.371 }, faction = 0, isUndiscovered = true },
@@ -220,7 +257,9 @@ end
 check(nf2 == 4, "barrens merged: 3 table + 1 new Horde node, got " .. nf2)
 check(ng2 == #gy[1413] + 1, "barrens graveyards merged: one added, one deduped, got " .. ng2)
 check(names["New Camp"] and names["New Camp"].learned, "client-only node, discovered: green")
-check(names["Crossroads"] and names["Crossroads"].learned, "client says discovered: learned")
+check(names["Crossroads"] and names["Crossroads"].learned, "client says discovered (API trusted): learned")
+check(P.LearnedSource(names["Crossroads"].e) == "api", "source tag api")
+check(not names["Camp Taurajo"].learned, "client node with isUndiscovered nil: not learned")
 check(names["Ratchet"] and not names["Ratchet"].learned, "client says undiscovered: grey")
 check(not names["Far Hold"], "client-only Alliance node hidden from the Horde")
 local pc = P.Positions(1413)
@@ -230,6 +269,9 @@ local merged = P.MergeFlights({ { e = has("Booty Bay", 1434, "Alliance"), x = 0.
     { e = has("Booty Bay", 1434, "Horde"), x = 0.268, y = 0.770 } },
     { { name = "Booty Bay", x = 0.269, y = 0.771, faction = "Horde" } }, 1434, "Stranglethorn Vale")
 check(#merged == 2, "same-name nodes of two factions: matched by faction, not added")
+local m2 = P.MergeFlights({ { e = has("Everlook", 1452, "Alliance"), x = 0.623, y = 0.366 } },
+    { { name = "Everlook, Winterspring", x = 0.40, y = 0.40, faction = "Horde", known = true } }, 1452, "Winterspring")
+check(#m2 == 1, "a client node with a table row's name never becomes a second pin")
 local mg = P.MergeGraves({ { x = 0.5, y = 0.5 } }, { { x = 0.51, y = 0.5, name = "A" }, { x = 0.51, y = 0.505 } })
 check(#mg == 1 and mg[1].name == "A", "graveyard dedupe by distance, client name kept")
 rtNodes[1413], rtGraves[1413] = nil, nil

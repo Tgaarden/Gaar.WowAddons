@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.32"] = "notes for GaarGpsForever 1.5.2: learned flight paths only from real evidence; the learned list is reset once - all flight paths are grey until you next open a flight master's map",
         ["3.2.31"] = "notes for GaarGpsForever 1.5.1: learned flight paths green on the map; flight paths and graveyards from the client's own data (WoW Forever zones too)",
         ["3.2.30"] = "notes for GaarMailForever 1.2.0: once a recipient is chosen, an empty mail subject becomes \"From <your full name>\" (/gmail subject on|off); typed text is never replaced and an attached item's name wins",
         ["3.2.29"] = "notes for GaarGpsForever 1.5.0: all graveyards and flight paths on the world and zone map, grey until learned (/ggps flights, /ggps graves)",
@@ -113,6 +114,7 @@ local CHANGES = {
         ["1.2.11"] = "secret-safe value checks",
     },
     GaarGpsForever = {
+        ["1.5.2"] = "Fix: flight paths you had not learned could show green. Learned now needs positive evidence (a known node on an open flight master's map, Current or Reachable; the client's isUndiscovered only once it has been seen to tell the two apart), and the Alliance and Horde flight master of a town are learned apart. The learned list is reset once: every flight path is grey until you next open a flight master's map. /ggps status lists each flight path on the map with learned yes/no and where that came from",
         ["1.5.1"] = "Map places: learned flight paths are green (unlearned stay grey); flight paths rebuilt from the WoW Forever client's own data - right positions on Mulgore, Eastern Plaguelands, Redridge and Stormwind, separate Alliance and Horde flight masters where a town has both, capitals' flight paths on their zone map too, and the WoW Forever ones (Mount Hyjal, Riverglades); graveyards cross-checked against the vanilla server list (93, with names in the tooltip); the client's own flight path and graveyard lists are merged in when it has them; /ggps status shows per map what each source gave",
         ["1.5.0"] = "Graveyards and flight paths: every spirit healer and flight master of your faction (and the neutral ones) on the world and zone map, also those you have not found; flight paths you have not learned are grey (learned ones are read when you open a flight master's map); /ggps flights on|off, /ggps graves on|off",
         ["1.4.0"] = "Gathering spots: the herbs, ore and chests you gather are remembered; an alert near a known spot you track; /ggps gather (next, hover) points the arrow at the nearest, and the next one on arrival",

@@ -18,6 +18,7 @@ is its own setting (`/gmail <feature> on|off`) and there is a master switch (`/g
 | Delete empty | `deleteempty` | off | With Open All: deletes mails that are empty after taking. See the safety rules. |
 | Recipient list | `recipients` | on | A `v` button right of the **To:** box on the Send Mail tab: your own characters on this realm and faction (every character that logs in is recorded) and the last 15 recipients (account-wide, recorded when a letter is sent). Click a name to fill in **To:**. |
 | Alt-click to attach | `sendmulti` | on | On the Send Mail tab, **Alt-click** an item in your bags to attach it. **Ctrl+Alt-click** attaches up to 12 stacks of the same item. Out of combat only. |
+| Default subject | `subject` | on | Once a recipient is chosen (list, typed and left with Enter/Tab/click away, or filled in by the client), an empty **Subject** becomes `From <your full name>` (e.g. `From Dru Tics`). Only an empty subject or our own earlier default is replaced; text you typed is never touched. Attaching an item replaces our default with the item name, as Blizzard does for an empty subject. |
 | New mail notice | `notice` | on | A chat line at login and when new mail arrives, with the senders from `GetLatestThreeSenders` (plain values only). |
 
 ## Safety rules
@@ -39,7 +40,7 @@ is its own setting (`/gmail <feature> on|off`) and there is a master switch (`/g
 |---|---|
 | `/gmail` or `/gmail help` | Help |
 | `/gmail on`, `/gmail off` | Master switch |
-| `/gmail openall\|deleteempty\|recipients\|sendmulti\|notice on\|off` | One feature on or off (without `on`/`off` it prints the state) |
+| `/gmail openall\|deleteempty\|recipients\|sendmulti\|notice\|subject on\|off` | One feature on or off (without `on`/`off` it prints the state) |
 | `/gmail open` | Run Open All, the same as the button (mailbox must be open) |
 | `/gmail status` | Version, master and every feature, mailbox open or closed, Open All running or idle, remembered names, the last error caught |
 

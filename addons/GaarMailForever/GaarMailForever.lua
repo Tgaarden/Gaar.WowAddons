@@ -25,6 +25,12 @@
     sendMulti    (default on)   On the Send Mail tab, Alt-click an item in your bags attaches it.
                                 Ctrl+Alt-click attaches up to 12 stacks of the same item. Out of
                                 combat only.
+    subject      (default on)   Once a recipient is chosen on the Send Mail tab (list, typed and
+                                left, Enter/Tab, name filled in by the client), an empty subject
+                                becomes "From <your full name>". Only an empty subject or our own
+                                earlier default is ever replaced; text you typed is never touched.
+                                When an item is attached, the item name replaces our default (what
+                                Blizzard does for an empty subject).
     mailNotice   (default on)   A chat line at login and when new mail arrives, with the senders
                                 GetLatestThreeSenders gives (only plain values are printed).
 
@@ -40,7 +46,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.2"
+local VERSION = "1.2.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -60,6 +66,7 @@ local FEATURES = {
     { key = "recipients", cmd = "recipients", label = "Recipient list", def = true },
     { key = "sendMulti", cmd = "sendmulti", label = "Alt-click to attach", def = true },
     { key = "mailNotice", cmd = "notice", label = "New mail notice", def = true },
+    { key = "subject", cmd = "subject", label = "Default subject (From <your name>)", def = true },
 }
 local SAVED_KEYS = { enabled = true, recent = true, alts = true }
 for _, f in ipairs(FEATURES) do SAVED_KEYS[f.key] = true end
@@ -228,6 +235,7 @@ local function ShowMenu()
                     if box and self.name then
                         box:SetText(self.name)
                         box:SetCursorPosition(0)
+                        ApplyDefaultSubject()
                         local subject = _G.SendMailSubjectEditBox
                         if subject and type(subject.SetFocus) == "function" then subject:SetFocus() end
                     end
@@ -251,6 +259,70 @@ local function ShowMenu()
     menu:ClearAllPoints()
     menu:SetPoint("TOPLEFT", recipBtn, "BOTTOMLEFT", 0, -2)
     menu:Show()
+end
+
+-- ---------------------------------------------------------------------------
+-- Default subject: "From <full name>" once a recipient is chosen
+-- ---------------------------------------------------------------------------
+
+local lastDefault        -- the default subject we put in the field last
+
+local function MyFullName()
+    local n
+    if type(BF.PlayerFullName) == "function" then n = Str(BF.PlayerFullName()) end
+    if not n or n == "" then n = PlayerName() end
+    return n
+end
+
+local function FirstAttachedName()
+    if type(_G.GetSendMailItem) ~= "function" then return nil end
+    for i = 1, MAX_STACKS do
+        local name = Str((_G.GetSendMailItem(i)))
+        if name and name ~= "" then return name end
+    end
+end
+
+local function ApplyDefaultSubject()
+    if not Feature("subject") then return end
+    local box, subject = _G.SendMailNameEditBox, _G.SendMailSubjectEditBox
+    if not (box and subject and type(subject.GetText) == "function") then return end
+    local to = Str(box:GetText())
+    if not to or not to:find("%S") then return end
+    if FirstAttachedName() then return end -- Blizzard names the subject after the item
+    local cur = Str(subject:GetText())
+    if cur == nil then return end
+    if cur == "" or (lastDefault and cur == lastDefault) then
+        local me = MyFullName()
+        if not me then return end
+        local text = "From " .. me
+        if cur ~= text then subject:SetText(text) end
+        lastDefault = text
+    end
+end
+
+-- An item was attached: if our default is still in the field, the item name wins.
+local function OnAttachChanged()
+    local subject = _G.SendMailSubjectEditBox
+    if not (lastDefault and subject and type(subject.GetText) == "function") then return end
+    if Str(subject:GetText()) ~= lastDefault then return end
+    local item = FirstAttachedName()
+    if item then
+        subject:SetText(item)
+        lastDefault = nil
+    end
+end
+
+local function HookRecipientBox()
+    local box = _G.SendMailNameEditBox
+    if not box or box.gaarSubjectHooked or type(box.HookScript) ~= "function" then return end
+    box.gaarSubjectHooked = true
+    for _, script in ipairs({ "OnEditFocusLost", "OnEnterPressed", "OnTabPressed" }) do
+        pcall(box.HookScript, box, script, function() Safe("subject", ApplyDefaultSubject) end)
+    end
+    -- the name filled in by code (Alt-click on a name, reply, autocomplete), not typed
+    pcall(box.HookScript, box, "OnTextChanged", function(_, userInput)
+        if not userInput then Safe("subject", ApplyDefaultSubject) end
+    end)
 end
 
 local function RefreshRecipientButton()
@@ -584,12 +656,12 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Mailbox helpers: an Open All button, an optional clean-up of empty mail, a recipient list with your own characters and recent names, Alt-click to attach items and a new-mail notice. Nice to know: Shift-click Open All for money only; COD mail is never paid; Ctrl+Alt-click attaches up to 12 stacks of an item; attaching works out of combat only."
+local INTRO = "Mailbox helpers: an Open All button, an optional clean-up of empty mail, a recipient list with your own characters and recent names, Alt-click to attach items and a new-mail notice, and a default subject (From <your name>) once a recipient is chosen. Nice to know: Shift-click Open All for money only; COD mail is never paid; Ctrl+Alt-click attaches up to 12 stacks of an item; attaching works out of combat only."
 
 local function PrintHelp()
     Print(INTRO)
     Print("/gmail on|off - master switch")
-    Print("/gmail openall|deleteempty|recipients|sendmulti|notice on|off - one feature")
+    Print("/gmail openall|deleteempty|recipients|sendmulti|notice|subject on|off - one feature")
     Print("/gmail open - run Open All (mailbox open); /gmail status")
 end
 
@@ -697,11 +769,12 @@ end
 local function CreateFrames()
     CreateOpenButton()
     CreateRecipientButton()
+    HookRecipientBox()
 end
 
 local events = CreateFrame("Frame")
 for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "MAIL_SHOW", "MAIL_CLOSED", "MAIL_INBOX_UPDATE",
-    "MAIL_SUCCESS", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "UI_ERROR_MESSAGE", "UPDATE_PENDING_MAIL" }) do
+    "MAIL_SUCCESS", "MAIL_SEND_INFO_UPDATE", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "UI_ERROR_MESSAGE", "UPDATE_PENDING_MAIL" }) do
     pcall(events.RegisterEvent, events, e)
 end
 events:SetScript("OnEvent", function(_, event, arg1, arg2)
@@ -714,6 +787,9 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             RecordAlt()
             CreateFrames()
             InstallItemHooks()
+            if type(_G.hooksecurefunc) == "function" and type(_G.SendMailFrame_Update) == "function" then
+                hooksecurefunc("SendMailFrame_Update", function() Safe("subject", OnAttachChanged) end)
+            end
             if type(_G.hooksecurefunc) == "function" and type(_G.SendMail) == "function" then
                 hooksecurefunc("SendMail", function(to)
                     if Feature("recipients") then pendingTo = Str(to) end
@@ -733,7 +809,10 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             HideMenu()
         elseif event == "MAIL_INBOX_UPDATE" or event == "MAIL_SUCCESS" then
             Answered()
+        elseif event == "MAIL_SEND_INFO_UPDATE" then
+            OnAttachChanged()
         elseif event == "MAIL_SEND_SUCCESS" then
+            lastDefault = nil
             if pendingTo then AddRecent(pendingTo) end
             pendingTo = nil
         elseif event == "MAIL_FAILED" then

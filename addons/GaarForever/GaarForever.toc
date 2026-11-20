@@ -4,7 +4,7 @@
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 3.2.30
+## Version: 3.2.31
 ## X-Curse-Project-ID: 1790363
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\INV_Misc_Bag_10

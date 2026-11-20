@@ -36,8 +36,9 @@
       one, or a node hovered on the minimap, and moves on to the next one on arrival. See the
       header of Gather.lua.
     * Graveyards and flight paths (1.5, Places.lua, /ggps flights|graves on|off): every spirit healer and
-      flight master of the vanilla world on the world map and zone map, found or not; flight paths
-      you have not learned are grey. See the header of Places.lua.
+      flight master of the world on the world map and zone map, found or not, from the client's own
+      API when it has one plus the static tables; learned flight paths are green, the others grey.
+      See the header of Places.lua.
     * GaarGpsForeverAPI, a small global table for GaarForever's hub menu and for other
       addons that set the waypoint (GaarQuestsForever's "Set GPS target"): SetWaypoint,
       ClearWaypoint, GetWaypoint.
@@ -70,7 +71,7 @@ ADDON_NAME = ADDON_NAME or "GaarGpsForever"
 ns = type(ns) == "table" and ns or {} -- shared with Gather.lua (ns.gather)
 local DOT = " \194\183 "
 
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates

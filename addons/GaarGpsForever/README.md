@@ -134,26 +134,37 @@ Not in 1.1: more than one waypoint, a queue, routes, importing, and the arrow in
 
 ## Graveyards and flight paths on the map (1.5)
 
-Every graveyard (spirit healer) and flight path (flight master) of the vanilla world is drawn on
-the world map and the zone map (`Places.lua`), also those you have not found. Not on the minimap,
-and nothing is clickable: hover for the tooltip. On by default.
+Every graveyard (spirit healer) and flight path (flight master) of the world, the WoW Forever zones
+included, is drawn on the world map and the zone map (`Places.lua`), also those you have not found.
+Not on the minimap, and nothing is clickable: hover for the tooltip. On by default.
 
-- **Flight paths.** Your own faction's and the neutral ones (Booty Bay, Gadgetzan, Everlook,
-  Cenarion Hold, Light's Hope Chapel, Thorium Point, Marshal's Refuge, Ratchet). A learned one has
-  the normal flight master icon, one you have not learned is grey and faded. The tooltip says the
-  name, the zone and `Learned` or `Not learned`. On a continent map they are placed through the
-  world position, as the waypoint pin is.
-- **Graveyards.** All of them in the zone, on the zone map only (the data does not say which
-  faction a graveyard serves, so none is hidden). Tooltip: `Graveyard` and the zone.
+- **Flight paths.** Your own faction's and the neutral ones. A learned one is **green**, one you
+  have not learned is grey and faded. The tooltip says the name, the zone and `Learned` or
+  `Not learned`. A town with an Alliance and a Horde flight master (Booty Bay, Gadgetzan, Everlook,
+  Cenarion Hold, Light's Hope Chapel, Thorium Point, Powderfuse Port) has one pin per faction, at
+  that flight master; Ratchet, Marshal's Refuge and the Hyjal ones are one node for both. A
+  capital's flight path is on the city map and on its zone map. On a continent map they are placed
+  through the world position, as the waypoint pin is.
+- **Graveyards.** All of them in the zone, on the zone map only (Thunder Bluff's and Darnassus's on
+  the city map too). Tooltip: `Graveyard`, its name when known, and the zone.
+- **The client first.** Per map, the client's own lists are read when it has the API
+  (`C_TaxiMap.GetTaxiNodesForMap`, `C_DeathInfo.GetGraveyardsForMap`, through pcall, secret values
+  never compared) and merged with the static tables: a client node is a table row when the node ID
+  matches (or the name, near), a client graveyard when within 2 % of the map of one in the table;
+  what the client adds is drawn, nothing twice. `/ggps status` shows, for the map you look at (or
+  your zone), whether the API is there, how many places the client and the table gave, the merged
+  count, and the flight paths drawn.
 - **Learned.** Whenever a flight master's map opens (`TAXIMAP_OPENED`) the nodes the client lists
   (`C_TaxiMap.GetAllTaxiNodes`, else `GetTaxiNodesForMap`, else the old `NumTaxiNodes` /
-  `TaxiNodeName`) are matched to the table by name (the part before the comma, so `Stormwind,
-  Elwynn` is Stormwind) and saved per character in `GaarGpsForeverDB.placesLearned`. Until your
-  first flight master visit on a character every flight path is grey.
-- **Data.** `Data/FlightPaths.lua` (55 flight paths: 24 Alliance, 23 Horde, 8 neutral) and
-  `Data/Graveyards.lua` (86 graveyards): per zone uiMapID and 0-1 position, compiled by hand from
-  public Wowhead Classic NPC pages; sources are in the file headers. Positions are NPC spawns, a
-  little off the exact spot.
+  `TaxiNodeName`) are matched to the table by node ID or name (the part before the comma, so
+  `Stormwind, Elwynn` is Stormwind) and saved per character in `GaarGpsForeverDB.placesLearned`. A
+  node `GetTaxiNodesForMap` reports as discovered counts as learned too.
+- **Data.** `Data/FlightPaths.lua` (67 flight paths: 32 Alliance, 31 Horde, 4 for both) is built
+  from the WoW Forever 1.60.1 client's own `TaxiNodes` and `UiMapAssignment` tables (wago.tools
+  DB2 export), so names, factions and positions are the client's, on this client's map bounds
+  (Mulgore, Eastern Plaguelands, Redridge and Stormwind differ from Classic Era).
+  `Data/Graveyards.lua` (93 graveyards) joins the vanilla server's graveyard list (CMaNGOS
+  classic-db) with Wowhead Classic's spirit healer spawns. Sources are in the file headers.
 - `/ggps flights on|off`, `/ggps graves on|off`, and two checkboxes in the hub menu / Options page.
 
 ## Commands
@@ -161,7 +172,7 @@ and nothing is clickable: hover for the tooltip. On by default.
 | Command | Does |
 |---|---|
 | `/ggps` | Help |
-| `/ggps flights on\|off`, `/ggps graves on\|off` | Show all flight paths (grey until learned) / graveyards on the world and zone map |
+| `/ggps flights on\|off`, `/ggps graves on\|off` | Show all flight paths (green when learned, grey until then) / graveyards on the world and zone map |
 | `/way x y`, `/way x,y`, `/way <zone> x y` | Set the waypoint (0-100, x first) |
 | `/way`, `/way clear` | Show the waypoint and the usage; clear it |
 | `/ggps way ...` | The same as `/way ...`, always there (the one to use with TomTom) |

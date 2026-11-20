@@ -12,6 +12,10 @@ Blizzard's own bars (Edit Mode). It needs GaarForever, the family hub, and no ot
 [GaarCast](../GaarCast/GaarCast.lua) to the Gaar...Forever conventions, and keeps everything
 GaarCast learnt about secret values.
 
+## Right-click menu
+
+Right-click a cast bar while the bars are unlocked (/gcb unlock) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **Four bars.** Player, target and focus are on by default (focus only where the client has a

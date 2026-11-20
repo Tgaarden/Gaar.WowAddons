@@ -10,6 +10,10 @@ A small standalone addon for the WoW Forever client (`_forever_`, interface 1600
 each one individually switchable. It needs GaarForever, the family hub, and no other addon or library and is not part of the Gaar
 suite.
 
+## Right-click menu
+
+Right-click the chat feed window while it is unlocked (/gchat feed unlock) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## Features
 
 Every feature has a saved setting (account-wide, `GaarChatForeverDB`), a `/gchat <feature> on|off`

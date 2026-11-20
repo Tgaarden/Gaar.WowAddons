@@ -59,14 +59,14 @@
 ]]
 
 local _G = _G
-local VERSION = "1.2.3"
+local VERSION = "1.3.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
 local IsSecret, Num, Str, Bool, API, Call = BF.IsSecret, BF.Num, BF.Str, BF.Bool, BF.API, BF.Call
 local OnOff = BF.OnOff
 
-local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a group loot roll: how many in "
+local INTRO = "Puts a small number on the Need, Greed and Pass buttons of a group loot roll: how many in  Right-click the recent-rolls panel for this addon's menu."
     .. "the group chose that option for that roll. Hover a button to see who. Nice to know: the counts "
     .. "come from the loot chat lines (and the loot history where the client has it), so they fill in as "
     .. "people choose. Once you have chosen, a small summary panel lists the last rolls: who chose "
@@ -680,6 +680,9 @@ local function Draggable(f)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", StartDrag)
     f:SetScript("OnDragStop", StopDrag)
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(f, { title = "GaarLootForever", api = "GaarLootForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
 end
 
 local function Line(parent, template)

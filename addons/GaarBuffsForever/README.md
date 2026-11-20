@@ -43,6 +43,10 @@ gets Cure Poison on left-click too. A spell the client can name but you have not
   member whose class uses mana, **Arcane Powder** once you know Arcane Brilliance, and (since 1.4)
   the **dispel panel** for curses (Remove Lesser Curse on either mouse button).
 
+## Right-click menu
+
+Right-click the empty background of the buff box (not the spell rows) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does (every class)
 
 - **Druids, paladins, shamans, priests and mages** get the buff box and the dispel panel,

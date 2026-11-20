@@ -181,7 +181,7 @@ ADDON_NAME = ADDON_NAME or "GaarFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.5.2"
+local VERSION = "1.6.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
@@ -1202,6 +1202,7 @@ local function YesNo(v) return v and "yes" or "no" end
 local INTRO = "Double right-click in the world casts Fishing while a fishing pole is equipped, and while the line is out the same double right-click anywhere reels in: no need to hit the bobber. A single right-click still loots and interacts as usual. Bind one key to Cast / Reel (Keybindings, GaarFishingForever) to do both from the keyboard. A small session panel counts casts, catches, catches per hour, skill gained and what you fished up. Loud splash (off by default) turns sound effects up and music and ambience down while the line is out, so you hear the bite, and puts them back after. An optional Fishing 1-300 route pins the next spot on the map, with GaarGpsForever's arrow. Nice to know: Shift + double right-click swaps the pole in or out; nothing is armed in combat or while the cursor holds an item."
 
 local function PrintHelp()
+    Print("Right-click the session stats panel: this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gfish on | /gfish off - switch it on or off")
     Print(string.format("/gfish window <%.1f-%.1f> - seconds between the two right-clicks (now %.2f)",

@@ -46,7 +46,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
 ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.3.0"
+local VERSION = "1.4.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -570,6 +570,7 @@ end
 local INTRO = "Chat tweaks, each with its own switch: short channel names, class-coloured names, timestamps, clickable URLs, a copy button, a whisper sound, sticky channels, arrow keys without Alt and a scrolling feed of whispers, group chat and mentions of your name. Nice to know: click a URL to get it selected for Ctrl+C; /gchat copy [n] copies the last 200 lines of a chat frame; /gchat feed unlock lets you drag the feed, and a click on a feed line replies; /gchat off turns every tweak off at once."
 
 local function PrintHelp()
+    Print("Right-click the chat feed window while it is unlocked (/gchat feed unlock): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gchat on | off - the master switch")
     for _, f in ipairs(FEATURES) do

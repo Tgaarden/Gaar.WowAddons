@@ -238,6 +238,9 @@ local function Create()
     panel:SetMovable(true)
     panel:EnableMouse(true)
     panel:RegisterForDrag("LeftButton")
+    if type(BF.AttachMenu) == "function" then
+        BF.AttachMenu(panel, { title = "GaarFishingForever", api = "GaarFishingForeverAPI", hook = true }) -- right-click: the addon's menu
+    end
     panel:SetSize(WIDTH, 60)
     local bg = panel:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()

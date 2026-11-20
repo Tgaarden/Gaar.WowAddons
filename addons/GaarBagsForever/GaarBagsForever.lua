@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.12.0"
+local VERSION = "1.13.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -95,6 +95,7 @@ local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, re
 
 local db                -- GaarBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
+local bagMenu           -- the right-click portrait menu handle (BF.AttachMenu)
 local cleanupButton     -- our button left of the search box
 local dragHandle        -- invisible handle over the title bar
 local blizzardPoints    -- the anchor Blizzard last gave the frame, for /gbf reset
@@ -3387,6 +3388,12 @@ local function HookBlizzard()
         AutoCleanUp()
     end)
     bagFrame:HookScript("OnHide", OnBagFrameHidden)
+    -- Right-click the round bag portrait: the addon's menu (hub helper; own overlay button, the
+    -- left-click still reaches Blizzard's portrait menu).
+    if type(BF.AttachMenu) == "function" then
+        bagMenu = BF.AttachMenu(bagFrame, { title = "GaarBagsForever", api = "GaarBagsForeverAPI",
+            portrait = true, propagate = true, name = "GaarBagsForeverPortraitButton" })
+    end
     if bagFrame.RegisterForDrag then
         bagFrame:RegisterForDrag("LeftButton")
         bagFrame:HookScript("OnDragStart", OnBagFrameDragStart)
@@ -3443,6 +3450,7 @@ local function Yes(v) return v and "yes" or "MISSING" end
 local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed, auctioned, traded or destroyed. Clean-up does not run in combat."
 
 local function PrintHelp()
+    Print("Right-click the Combined Backpack's round bag portrait (top-left): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("the Combined Backpack is movable: drag its title bar, or Alt-drag an empty part of it.")
     Print("/gbf reset - put the bags back at Blizzard's default position")
@@ -3483,6 +3491,7 @@ local function PrintStatus()
             or string.format("running: reversing, %d swaps so far", cleanupRun.swaps))
     end
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
+    if bagMenu then Print("portrait menu: " .. bagMenu.Status()) end
     local pos = db and db.position
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
     Print(InventoryStatus())

@@ -10,6 +10,10 @@ A small standalone addon for the WoW Forever client (`_forever_`, interface 1600
 helpers. It needs GaarForever, the family hub, and no other addon or library and is not part of the Gaar suite. Every feature
 is its own setting (`/gmail <feature> on|off`) and there is a master switch (`/gmail on|off`).
 
+## Right-click menu
+
+Right-click the mailbox window's round portrait (top-left) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## Features
 
 | Feature | Command word | Default | What it does |

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.37"] = "notes for the right-click menus: GaarForever.AttachMenu(target, opts) and FindPortrait; right-click the bag, mailbox and merchant portraits, and the XP, loot, fishing, chat feed, buff and cast bar windows to open that addon's menu",
         ["3.2.36"] = "notes for GaarChatForever 1.3.0: right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu with the same options as the hub menu",
         ["3.2.35"] = "notes for GaarMapsForever 1.4.1: the portrait right-click button is placed and raised more robustly (re-placed on every map show, own size, above the border) and shows menu errors; /gmf portrait for its state",
         ["3.2.34"] = "notes for GaarMapsForever 1.4.0: right-click the round portrait in the world map's top-left corner to open the GaarMaps menu",
@@ -89,6 +90,7 @@ local CHANGES = {
         ["3.0.2"] = "a Loot row for GaarLootForever",
     },
     GaarBagsForever = {
+        ["1.13.0"] = "right-click bag portrait: opens the addon's menu",
         ["1.12.0"] = "Locked items cannot be destroyed, auctioned or traded either: put back in the bags with a popup (dropping on the world, the auction sell slot, a trade slot); one shared popup for every block, mail included",
         ["1.11.0"] = "Locked items cannot be mailed (taken off the Send Mail tab, with a popup); cyan ring on bag items attached to the outgoing mail (/gbf mailglow)",
         ["1.10.1"] = "API: IsItemLocked(itemID), so GaarMerchantForever can ask for locks",
@@ -110,6 +112,7 @@ local CHANGES = {
         ["1.1.2"] = "uses the GaarForever shared library",
     },
     GaarCastbarsForever = {
+        ["1.3.0"] = "right-click cast bar: opens the addon's menu",
         ["1.2.0"] = "Renamed to GaarCastbarsForever (new folders; settings move over automatically on first login; new /gcf commands, old ones still work)",
         ["1.1.6"] = "the addon's own name in its menu errors",
         ["1.1.5"] = "uses the GaarForever shared library",
@@ -145,6 +148,7 @@ local CHANGES = {
         ["1.0.2"] = "uses the GaarForever shared library",
     },
     GaarFishingForever = {
+        ["1.6.0"] = "right-click session stats panel: opens the addon's menu",
         ["1.5.0"] = "Renamed to GaarFishingForever (new folders; settings move over automatically on first login; new /gfish commands, old ones still work)",
         ["1.4.1"] = "the addon's own name in its menu errors",
         ["1.4.0"] = "session stats panel, loud splash mode",
@@ -152,6 +156,7 @@ local CHANGES = {
         ["1.2.2"] = "uses the GaarForever shared library",
     },
     GaarBuffsForever = {
+        ["1.9.0"] = "right-click buff box background: opens the addon's menu",
         ["1.7.0"] = "Renamed to GaarBuffsForever (new folders; settings move over automatically on first login; new /gbuff commands, old ones still work)",
         ["1.6.0"] = "combat dispel icons, lower rank for low-level members, expiring-soon warning /gbuff expire, out-of-range sound fix",
         ["1.5.1"] = "out-of-range members left out unless /gbuff range on",
@@ -160,6 +165,7 @@ local CHANGES = {
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     GaarMerchantForever = {
+        ["1.2.0"] = "right-click merchant portrait: opens the addon's menu",
         ["1.1.1"] = "locked items are still skipped when an old BetterBagsForever is installed (reads its locks too)",
         ["1.1.0"] = "Renamed to GaarMerchantForever (new folders; settings move over automatically on first login; new /gmerch commands, old ones still work)",
         ["1.0.3"] = "the addon's own name in its menu errors",
@@ -171,11 +177,13 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarMailForever = {
+        ["1.3.0"] = "right-click mailbox portrait: opens the addon's menu",
         ["1.1.0"] = "Renamed to GaarMailForever (new folders; settings move over automatically on first login; new /gmail commands, old ones still work)",
         ["1.0.3"] = "the addon's own name in its chat lines and menu errors",
         ["1.0.2"] = "uses the GaarForever shared library",
     },
     GaarXPForever = {
+        ["1.4.0"] = "right-click XP panel: opens the addon's menu",
         ["1.2.1"] = "Ready quests: the XP is now read through several fallbacks (it was always 0 on WoW Forever); /gxp ready debug shows the source per quest",
         ["1.2.0"] = "Ready quests: the XP panel shows complete-but-not-turned-in quests with their XP, and time to level / kills count them (/gxp ready)",
         ["1.1.0"] = "Renamed to GaarXPForever (new folders; settings move over automatically on first login; new /gxp commands, old ones still work)",
@@ -183,6 +191,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarChatForever = {
+        ["1.4.0"] = "right-click chat feed window: opens the addon's menu",
         ["1.2.2"] = "your own messages are recognised for characters with a surname",
         ["1.1.0"] = "Renamed to GaarChatForever (new folders; settings move over automatically on first login; new /gchat commands, old ones still work)",
         ["1.0.4"] = "the addon's own name in its menu errors",
@@ -194,6 +203,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarLootForever = {
+        ["1.3.0"] = "right-click recent-rolls panel: opens the addon's menu",
         ["1.2.3"] = "your own rolls are counted under your full name, so characters with a surname are no longer split in two",
         ["1.2.0"] = "Renamed to GaarLootForever (new folders; settings move over automatically on first login; new /glf commands, old ones still work)",
         ["1.1.0"] = "roll result summary panel",

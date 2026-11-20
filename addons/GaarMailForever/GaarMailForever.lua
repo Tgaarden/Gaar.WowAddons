@@ -46,7 +46,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -660,6 +660,7 @@ end
 local INTRO = "Mailbox helpers: an Open All button, an optional clean-up of empty mail, a recipient list with your own characters and recent names, Alt-click to attach items and a new-mail notice, and a default subject (From <your name>) once a recipient is chosen. Nice to know: Shift-click Open All for money only; COD mail is never paid; Ctrl+Alt-click attaches up to 12 stacks of an item; attaching works out of combat only."
 
 local function PrintHelp()
+    Print("Right-click the mailbox window's round portrait (top-left): this addon's menu (the same options as the hub menu).")
     Print(INTRO)
     Print("/gmail on|off - master switch")
     Print("/gmail openall|deleteempty|recipients|sendmulti|notice|subject on|off - one feature")
@@ -767,7 +768,15 @@ local function BindSavedVariables()
     db.alts = alts
 end
 
+-- Right-click the mailbox window's round portrait: the addon's menu (hub helper).
+local function AttachPortraitMenu()
+    if type(BF.AttachMenu) ~= "function" or type(_G.MailFrame) ~= "table" then return end
+    BF.AttachMenu(_G.MailFrame, { title = "GaarMailForever", api = "GaarMailForeverAPI",
+        portrait = true, propagate = true, names = { "MailFramePortrait" }, name = "GaarMailForeverPortraitButton" })
+end
+
 local function CreateFrames()
+    pcall(AttachPortraitMenu)
     CreateOpenButton()
     CreateRecipientButton()
     HookRecipientBox()

@@ -13,6 +13,10 @@ the roll frame once you have chosen, a small movable summary panel lists the las
 what, the numbers they rolled and who won. Every part has its own switch. It needs GaarForever, the family hub, and no other addon or library, and it is not part
 of the Gaar suite.
 
+## Right-click menu
+
+Right-click the recent-rolls panel (anywhere on it) to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **Counts** (`counts`, on). A small white, outlined number in the bottom-right corner of the

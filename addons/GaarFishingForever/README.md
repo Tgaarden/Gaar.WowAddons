@@ -17,6 +17,10 @@ the bobber's splash easy to hear. Since 1.2 it also carries an optional **Fishin
 GaarGpsForever's arrow on the nearest spot. It needs GaarForever, the family hub, and no other addon or library (the arrow needs
 GaarGpsForever), and it is not part of the Gaar suite.
 
+## Right-click menu
+
+Right-click the session stats panel to open this addon's menu (the same options as the GaarForever hub menu).
+
 ## What it does
 
 - **Double right-click casts Fishing.** Right-click twice in the world (on the water, say)

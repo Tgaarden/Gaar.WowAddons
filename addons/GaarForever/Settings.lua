@@ -855,7 +855,16 @@ function Pages.Init(hub)
         return false
     end
     Pages.category, Pages.overview = cat, overview
-    for _, a in ipairs(hub.ADDONS) do Pages.AddAddon(a) end
+    -- The client lists subpages in registration order, so register them A-Z by label (an addon that
+    -- loads later is appended after these).
+    local sorted = {}
+    for i, a in ipairs(hub.ADDONS) do sorted[i] = a end
+    table.sort(sorted, function(x, y)
+        local lx, ly = string.lower(x.label or x.title or x.key), string.lower(y.label or y.title or y.key)
+        if lx ~= ly then return lx < ly end
+        return x.key < y.key
+    end)
+    for _, a in ipairs(sorted) do Pages.AddAddon(a) end
     local S = _G.Settings
     if type(S) == "table" and type(S.RegisterAddOnCategory) == "function" and cat ~= overview then
         pcall(S.RegisterAddOnCategory, cat)

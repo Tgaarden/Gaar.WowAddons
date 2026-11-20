@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.39"] = "the Options > AddOns subpages are now listed A-Z (Bags, Bars, Buffs, Castbars, ...) instead of in load order",
         ["3.2.37"] = "notes for the right-click menus: GaarForever.AttachMenu(target, opts) and FindPortrait; right-click the bag, mailbox and merchant portraits, and the XP, loot, fishing, chat feed, buff and cast bar windows to open that addon's menu",
         ["3.2.36"] = "notes for GaarChatForever 1.3.0: right-click a chat tab: a GaarChat submenu at the bottom of Blizzard's tab menu with the same options as the hub menu",
         ["3.2.35"] = "notes for GaarMapsForever 1.4.1: the portrait right-click button is placed and raised more robustly (re-placed on every map show, own size, above the border) and shows menu errors; /gmf portrait for its state",

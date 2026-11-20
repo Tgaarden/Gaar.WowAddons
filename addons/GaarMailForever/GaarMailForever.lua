@@ -5,7 +5,9 @@
   master switch on top. Nothing here replaces a Blizzard function: the addon adds its own frames
   and follows Blizzard code with hooksecurefunc.
 
-    hideBlizzOpenAll (default on) hides Blizzard's own Open All button (hide + OnShow hook, no script replaced).
+    hideBlizzOpenAll (default on) "Use GaarMail's Open All instead of Blizzard's": our button sits where
+                 Blizzard's is (anchors and size copied at MAIL_SHOW) and Blizzard's is hidden (hide + OnShow
+                 hook, no script replaced); off, or addon/Open All off: Blizzard's shows, ours is hidden.
     openAll      (default on)   "Open All" button on the inbox. Takes money and then items from
                                 one mail at a time and waits for MAIL_INBOX_UPDATE / MAIL_SUCCESS
                                 between actions (0.3 s apart at the fastest). Shift-click on the
@@ -47,7 +49,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -58,13 +60,12 @@ local MAX_RECENT = 15
 local STEP_DELAY = 0.3        -- seconds between two mail actions, at the fastest
 local WAIT_TIMEOUT = 2.0      -- seconds to wait for the inbox to answer an action
 local MAX_FAILS = 3           -- tries on one mail before it is skipped
-local OPEN_BTN_Y = -36          -- Open All button: y offset below the top of the Inbox frame (was -44)
 local MAX_STACKS = 12         -- ATTACHMENTS_MAX_SEND
 
 -- The features: saved key, slash word, label, default.
 local FEATURES = {
     { key = "openAll", cmd = "openall", label = "Open All button", def = true },
-    { key = "hideBlizzOpenAll", cmd = "blizzopenall", label = "Hide Blizzard's Open All button", def = true },
+    { key = "hideBlizzOpenAll", cmd = "blizzopenall", label = "Use GaarMail's Open All instead of Blizzard's", def = true },
     { key = "deleteEmpty", cmd = "deleteempty", label = "Delete empty system mail", def = false },
     { key = "recipients", cmd = "recipients", label = "Recipient list", def = true },
     { key = "sendMulti", cmd = "sendmulti", label = "Alt-click to attach", def = true },
@@ -363,21 +364,64 @@ end
 local run                -- the running Open All, or nil
 local driver = CreateFrame("Frame")
 
-local function UpdateOpenButton()
-    if not openBtn then return end
-    if not Feature("openAll") then openBtn:Hide(); return end
-    openBtn:Show()
-    openBtn:SetText(run and "Stop" or "Open All")
-end
+local BTN_TEXT = "Open All Mail"
+local BTN_PAD = 24           -- extra width around the text
+local BTN_FALLBACK_Y = 80    -- fallback only: bottom-centre of the Inbox frame, above the page buttons
 
 -- Blizzard's own Open All button (OpenAllMail from Blizzard_MailFrame; the other names are
--- fallbacks). Hidden without touching its scripts: Hide() plus an OnShow hook that re-hides it
--- while the option is on. Nothing happens if this client has no such button.
+-- fallbacks). Exactly one of the two buttons shows: with the option on (and the addon and Open All
+-- enabled) ours replaces Blizzard's, otherwise Blizzard's shows and ours is hidden. Blizzard's is
+-- hidden without touching its scripts: Hide() plus an OnShow hook that re-hides it.
 local blizzBtn, blizzHooked
 local function FindBlizzOpenAll()
     local inbox = _G.InboxFrame
     local b = _G.OpenAllMail or _G.OpenAllMailButton or (type(inbox) == "table" and inbox.OpenAllMail) or nil
     if type(b) == "table" and type(b.Hide) == "function" and type(b.Show) == "function" then return b end
+end
+
+local function UseOurs() return Feature("hideBlizzOpenAll") and Feature("openAll") end
+
+-- Puts our button where Blizzard's is: copies its anchors and size (only our own frame is moved;
+-- out of combat). Without Blizzard's button: bottom-centre of the Inbox frame, above the page buttons.
+local function PositionOpenButton()
+    if not openBtn or InCombat() then return end
+    local b = blizzBtn or FindBlizzOpenAll()
+    local n = b and type(b.GetNumPoints) == "function" and Num(b:GetNumPoints()) or 0
+    local placed = false
+    if n and n > 0 then
+        openBtn:ClearAllPoints()
+        for i = 1, n do
+            local p, rel, rp, x, y = b:GetPoint(i)
+            if p and rel ~= openBtn then
+                openBtn:SetPoint(p, rel, rp or p, x or 0, y or 0)
+                placed = true
+            end
+        end
+    end
+    local w = openBtn.GetFontString and openBtn:GetFontString()
+    local need = w and type(w.GetStringWidth) == "function" and Num(w:GetStringWidth())
+    need = need and (need + BTN_PAD) or 100
+    local bw = b and type(b.GetWidth) == "function" and Num(b:GetWidth()) or nil
+    openBtn:SetWidth((bw and bw >= need) and bw or need)
+    local bh = b and type(b.GetHeight) == "function" and Num(b:GetHeight()) or nil
+    openBtn:SetHeight((bh and bh > 0) and bh or 22)
+    if not placed then
+        local inbox = _G.InboxFrame
+        local y = BTN_FALLBACK_Y
+        local prev = _G.InboxPrevPageButton or _G.InboxNextPageButton
+        if prev and inbox and type(prev.GetTop) == "function" and type(inbox.GetBottom) == "function" then
+            local top, bot = Num(prev:GetTop()), Num(inbox:GetBottom())
+            if top and bot and top > bot then y = top - bot + 6 end
+        end
+        openBtn:ClearAllPoints()
+        openBtn:SetPoint("BOTTOM", inbox, "BOTTOM", 0, y)
+    end
+end
+
+local function UpdateOpenButton()
+    if not openBtn then return end
+    openBtn:SetText(run and "Stop" or BTN_TEXT)
+    if UseOurs() then openBtn:Show() else openBtn:Hide() end
 end
 
 local function UpdateBlizzOpenAll()
@@ -387,10 +431,10 @@ local function UpdateBlizzOpenAll()
     if not blizzHooked and type(b.HookScript) == "function" then
         blizzHooked = true
         b:HookScript("OnShow", function(self)
-            if Feature("hideBlizzOpenAll") then self:Hide() end
+            if UseOurs() then self:Hide() end
         end)
     end
-    if Feature("hideBlizzOpenAll") then
+    if UseOurs() then
         b:Hide()
     elseif mailOpen then
         b:Show()
@@ -516,9 +560,9 @@ local function CreateOpenButton()
     local parent = _G.InboxFrame
     if not parent then return end
     local b = CreateFrame("Button", "GaarMailForeverOpenAll", parent, "UIPanelButtonTemplate")
-    b:SetSize(86, 22)
-    b:SetText("Open All")
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 70, OPEN_BTN_Y)
+    b:SetSize(100, 22)
+    b:SetText(BTN_TEXT)
+    b:SetPoint("BOTTOM", parent, "BOTTOM", 0, BTN_FALLBACK_Y) -- until PositionOpenButton copies Blizzard's spot
     b:SetScript("OnClick", function()
         Safe("open all click", function()
             if run then Finish("stopped") else StartOpenAll(_G.IsShiftKeyDown and _G.IsShiftKeyDown()) end
@@ -528,13 +572,14 @@ local function CreateOpenButton()
         local tip = _G.GameTooltip
         if not tip then return end
         tip:SetOwner(self, "ANCHOR_RIGHT")
-        tip:SetText("Open All")
+        tip:SetText(BTN_TEXT)
         tip:AddLine("Takes money and items from every mail. COD mail is skipped.", 1, 1, 1, true)
         tip:AddLine("Shift-click: money only.", 0.7, 0.7, 0.7, true)
         tip:Show()
     end)
     b:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
     openBtn = b
+    PositionOpenButton()
     UpdateOpenButton()
 end
 
@@ -843,6 +888,7 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2)
             mailOpen = true
             announced = false
             CreateFrames()
+            Safe("position open all", PositionOpenButton)
             Refresh()
         elseif event == "MAIL_CLOSED" then
             mailOpen = false

@@ -71,7 +71,7 @@ ADDON_NAME = ADDON_NAME or "GaarGpsForever"
 ns = type(ns) == "table" and ns or {} -- shared with Gather.lua (ns.gather)
 local DOT = " \194\183 "
 
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates

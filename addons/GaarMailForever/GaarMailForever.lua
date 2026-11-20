@@ -46,7 +46,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMailForever"
 local DOT = " \194\183 "
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -57,6 +57,7 @@ local MAX_RECENT = 15
 local STEP_DELAY = 0.3        -- seconds between two mail actions, at the fastest
 local WAIT_TIMEOUT = 2.0      -- seconds to wait for the inbox to answer an action
 local MAX_FAILS = 3           -- tries on one mail before it is skipped
+local OPEN_BTN_Y = -36          -- Open All button: y offset below the top of the Inbox frame (was -44)
 local MAX_STACKS = 12         -- ATTACHMENTS_MAX_SEND
 
 -- The features: saved key, slash word, label, default.
@@ -488,7 +489,7 @@ local function CreateOpenButton()
     local b = CreateFrame("Button", "GaarMailForeverOpenAll", parent, "UIPanelButtonTemplate")
     b:SetSize(86, 22)
     b:SetText("Open All")
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 70, -44)
+    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 70, OPEN_BTN_Y)
     b:SetScript("OnClick", function()
         Safe("open all click", function()
             if run then Finish("stopped") else StartOpenAll(_G.IsShiftKeyDown and _G.IsShiftKeyDown()) end

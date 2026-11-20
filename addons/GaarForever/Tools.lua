@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.30"] = "notes for GaarMailForever 1.2.0: once a recipient is chosen, an empty mail subject becomes \"From <your full name>\" (/gmail subject on|off); typed text is never replaced and an attached item's name wins",
         ["3.2.29"] = "notes for GaarGpsForever 1.5.0: all graveyards and flight paths on the world and zone map, grey until learned (/ggps flights, /ggps graves)",
         ["3.2.28"] = "notes for GaarXPForever 1.3.8: XP from mobs and quests are kept apart: the kills estimate uses only mob kills (average base XP of the last 20 kills, quest XP no longer inflates it), and XP/hour shows the split (mobs, quests, other)",
         ["3.2.27"] = "surname fixes: shared name helpers (PlayerFullName, NamesMatch, UnitByName); notes for GaarChatForever 1.2.2 and GaarLootForever 1.2.3",

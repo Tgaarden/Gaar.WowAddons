@@ -77,6 +77,7 @@ local mailOpen = false
 local announced = false  -- new-mail line printed since the last mailbox visit
 local pendingTo          -- recipient of the letter being sent
 local openBtn, recipBtn, menu
+local ApplyDefaultSubject  -- defined with the default-subject code below
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -282,7 +283,7 @@ local function FirstAttachedName()
     end
 end
 
-local function ApplyDefaultSubject()
+ApplyDefaultSubject = function()
     if not Feature("subject") then return end
     local box, subject = _G.SendMailNameEditBox, _G.SendMailSubjectEditBox
     if not (box and subject and type(subject.GetText) == "function") then return end

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.46"] = "notes for GaarPlatesForever 1.4.0: the level number on a plate is coloured by difficulty against your level (option: /gpf levelcolor on|off)",
         ["3.2.45"] = "notes for GaarMailForever 1.5.0: our Open All Mail button takes the place of Blizzard's Open All button in the Inbox (option: /gmail blizzopenall on|off)",
         ["3.2.44"] = "notes for GaarMailForever 1.4.0: an option hides Blizzard's own Open All button in the Inbox (on by default; /gmail blizzopenall on|off)",
         ["3.2.43"] = "notes for GaarMailForever 1.3.1: the Open All button sits a little higher in the Inbox frame",
@@ -125,6 +126,7 @@ local CHANGES = {
         ["1.1.5"] = "uses the GaarForever shared library",
     },
     GaarPlatesForever = {
+        ["1.4.0"] = "The level number is coloured by difficulty against your level, like Blizzard (grey, green, yellow, orange, red; skull level red); option /gpf levelcolor on|off (on by default)",
         ["1.3.0"] = "Renamed to GaarPlatesForever (new folders; settings move over automatically on first login; new /gpf commands, old ones still work)",
         ["1.2.12"] = "the addon's own name in its menu errors",
         ["1.2.11"] = "secret-safe value checks",

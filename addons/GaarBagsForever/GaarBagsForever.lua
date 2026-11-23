@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.0"
+local VERSION = "1.13.1"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -1317,6 +1317,93 @@ local function PlayerRecord()
     return rec
 end
 
+-- Same character? NamesMatch handles "Dru" vs "Dru Tics" and realm suffixes (hub 3.2.27).
+local Keys = {}   -- one table: the main chunk is near Lua's 200-locals limit
+function Keys.SameChar(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    if type(BF.NamesMatch) == "function" then return BF.NamesMatch(a, b) and true or false end
+    return false
+end
+
+-- ---- one key per character and realm ------------------------------------
+
+-- A realm spelled differently ("Some Realm", "SomeRealm", other case) is one realm.
+function Keys.RealmKey(name)
+    return (tostring(name):lower():gsub("[^%w]", ""))
+end
+
+-- Adds from's data to into without losing any: scalar fields only where into has none (gold and
+-- class from the newer scan are kept as is), item tables merged by the larger count per item, the
+-- scan times the later of the two.
+function Keys.MergeRecord(into, from)
+    for k, v in pairs(from) do
+        local cur = into[k]
+        if type(v) == "table" then
+            if type(cur) ~= "table" then
+                into[k] = v
+            else
+                for id, n in pairs(v) do
+                    if type(n) == "number" and (type(cur[id]) ~= "number" or n > cur[id]) then cur[id] = n end
+                end
+            end
+        elseif type(v) == "number" and (k == "bankScanned" or k == "mailScanned") then
+            if type(cur) ~= "number" or v > cur then into[k] = v end
+        elseif cur == nil then
+            into[k] = v
+        end
+    end
+end
+
+-- Finds the logged-in character's records under any older key and folds them into one record
+-- under playerName / playerRealm: realm spelling variants, and first-name-only vs full-name keys.
+function Keys.Migrate()
+    if not db or type(db.inventory) ~= "table" or not playerRealm or not playerName then return end
+    local inv = db.inventory
+    local target = inv[playerRealm]
+    if type(target) ~= "table" then
+        target = {}
+        inv[playerRealm] = target
+    end
+    local wanted = Keys.RealmKey(playerRealm)
+    local keys = {}
+    for realmKey in pairs(inv) do
+        if realmKey ~= playerRealm and type(realmKey) == "string" and Keys.RealmKey(realmKey) == wanted then
+            keys[#keys + 1] = realmKey
+        end
+    end
+    for _, realmKey in ipairs(keys) do
+        local other = inv[realmKey]
+        if type(other) == "table" then
+            for name, rec in pairs(other) do
+                if type(rec) == "table" then
+                    if type(target[name]) == "table" then Keys.MergeRecord(target[name], rec) else target[name] = rec end
+                end
+            end
+        end
+        inv[realmKey] = nil
+    end
+    local old = {}
+    for name, rec in pairs(target) do
+        if type(name) == "string" and name ~= playerName and type(rec) == "table" and Keys.SameChar(name, playerName) then
+            old[#old + 1] = name
+        end
+    end
+    if #old == 0 then return end
+    local mine = target[playerName]
+    if type(mine) ~= "table" then
+        mine = {}
+        target[playerName] = mine
+    end
+    table.sort(old)
+    for _, name in ipairs(old) do
+        local rec = target[name]
+        -- The older record's gold is only a fallback; the live gold is read right after.
+        Keys.MergeRecord(mine, rec)
+        target[name] = nil
+    end
+end
+
 local function UpdateGold()
     local rec = PlayerRecord()
     if not rec or type(_G.GetMoney) ~= "function" then return end
@@ -1396,6 +1483,11 @@ local function InitInventory()
     local okRealm, realm = pcall(_G.GetRealmName)
     playerName = okName and PlainString(name) or nil
     playerRealm = okRealm and PlainString(realm) or nil
+    -- The whole name ("Dru Tics" where UnitName says "Dru"), like the rest of the suite.
+    local okFull, full = pcall(function() return type(BF.PlayerFullName) == "function" and BF.PlayerFullName() or nil end)
+    full = okFull and PlainString(full) or nil
+    if full and (not playerName or #full > #playerName) then playerName = full end
+    pcall(Keys.Migrate)
     local rec = PlayerRecord()
     if not rec then return end
     local okClass, _, class = pcall(_G.UnitClass, "player")
@@ -1423,21 +1515,31 @@ local function ClassColored(name, class)
     return name
 end
 
--- This realm's records, the logged-in character first, then by name.
+-- This realm's records, the logged-in character first, then by name. A record under a second
+-- spelling of the same character ("Dru" and "Dru Tics") is listed once, never counted twice.
 local function RealmCharacters()
     local realm = RealmData(false)
     local list = {}
     if not realm then return list end
     for name, rec in pairs(realm) do
         if type(name) == "string" and type(rec) == "table" then
-            list[#list + 1] = { name = name, rec = rec, me = name == playerName }
+            list[#list + 1] = { name = name, rec = rec, me = Keys.SameChar(name, playerName) }
         end
     end
     table.sort(list, function(a, b)
         if a.me ~= b.me then return a.me end
+        if (a.name == playerName) ~= (b.name == playerName) then return a.name == playerName end
         return a.name < b.name
     end)
-    return list
+    local out, mine = {}, false
+    for _, ch in ipairs(list) do
+        if ch.me then
+            if not mine then mine = true; out[#out + 1] = ch end
+        else
+            out[#out + 1] = ch
+        end
+    end
+    return out
 end
 
 local function CountIn(t, itemID)
@@ -1601,6 +1703,21 @@ local function HookMoneyFrames()
     local backpack = _G.ContainerFrame1
     if type(backpack) == "table" then HookMoneyFrame(backpack.MoneyFrame) end
     HookMoneyFrame(_G.ContainerFrame1MoneyFrame)
+    -- A client that names or nests the money frame differently: any child of the bag window that
+    -- has coin buttons or "Money" in its name.
+    if combined and type(combined.GetChildren) == "function" then
+        local ok, kids = pcall(function() return { combined:GetChildren() } end)
+        if ok then
+            for _, kid in ipairs(kids) do
+                if type(kid) == "table" then
+                    local n = type(kid.GetName) == "function" and kid:GetName() or nil
+                    if type(kid.GoldButton) == "table" or (type(n) == "string" and n:find("Money", 1, true)) then
+                        HookMoneyFrame(kid)
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function CountMoneyHooks()

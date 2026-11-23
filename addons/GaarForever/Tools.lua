@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.52"] = "notes for the new GaarGroupForever 1.0.0: a Group row in the menu and on the Options page (/ggf)",
         ["3.2.51"] = "notes for GaarBagsForever 1.13.1: the gold of your other characters (hover the bag gold, /gbf gold) is found again: records kept under another spelling of the realm or of your name (\"Dru\" vs \"Dru Tics\") are merged into one and never counted twice",
         ["3.2.50"] = "notes for GaarPlatesForever 1.4.1 and GaarFramesForever 1.7.1: both colour a mob level with the same shared classic difficulty bands, so a plate and the target frame agree",
         ["3.2.48"] = "notes for GaarFramesForever 1.7.0: PvP flag icon beside the portrait, with the flag timer on the player frame",
@@ -178,6 +179,9 @@ local CHANGES = {
         ["1.5.0"] = "Fortitude for priests, Arcane Intellect for mages",
         ["1.4.0"] = "dispel panel for priests, paladins and mages",
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
+    },
+    GaarGroupForever = {
+        ["1.0.0"] = "new: a small party bar (only in a party) with Tank / DPS / Healer role buttons and leader shortcuts for ready check, role check and pull countdown (/ggf)",
     },
     GaarMerchantForever = {
         ["1.2.0"] = "right-click merchant portrait: opens the addon's menu",

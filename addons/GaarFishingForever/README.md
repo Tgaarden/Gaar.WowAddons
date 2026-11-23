@@ -430,6 +430,10 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 
 ## Screenshots
 
+**Session stats**
+
+<img src="../../docs/screenshots/GaarFishingForever/1-stats.jpg" alt="Session stats" width="300">
+
 **Menu**
 
 <img src="../../docs/screenshots/GaarFishingForever/3-menu.jpg" alt="Menu" width="600">

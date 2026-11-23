@@ -31,6 +31,9 @@
     * Spell cost on your power bar (1.6.0): while you cast a spell with a cast time, the part of
       the bar the cost will take is drawn bright and pulsing with a small "-340", red when you
       do not have enough; gone the moment the cast ends (/gff cost).
+    * PvP flag (1.7.0): a faction / free-for-all icon on the left edge of a flagged player, target
+      or party frame; the player's also shows m:ss under it while the flag times out
+      (option /gff pvp, on by default).
     * Icons: raid target (own frame above the bars, centred on the top edge; secret-safe; option
       /gff marks, 1.2.9), group leader, combat and resting (player); a threat border.
     * Move: drag a frame while unlocked (out of combat), scale per frame (0.6-1.5), lock,
@@ -41,7 +44,7 @@
       offset from player and target. While Edit Mode is open Blizzard's frames are given back
       so they can be dragged, and ours go see-through. Own positions are kept for when it is off.
     * /gff (or /betterframesforever) for help, status, lock, unlock, test, reset, scale, frame,
-      editmode, portrait, text, classcolor, playerbuffs, healpred, hotpred, hotcast, cost, overheal and
+      editmode, portrait, pvp, text, classcolor, playerbuffs, healpred, hotpred, hotcast, cost, overheal and
       hotdebug.
     * GaarFramesForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden).
@@ -72,7 +75,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -183,6 +186,7 @@ local DEFAULTS = {
     overhealCap = 0.3,       -- 1.5.0: the overheal segment's longest length, a share of the bar's width
     raidMark = true,
     petHappiness = true,
+    pvpFlag = true,          -- 1.7.0: a faction / FFA icon beside the portrait of a PvP-flagged unit
 }
 local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true, pet = true, party = true }
 
@@ -190,7 +194,7 @@ local DEFAULT_FRAMES = { player = true, target = true, tot = true, focus = true,
 local SAVED_KEYS = {
     locked = true, portrait = true, text = true, classColor = true, followEditMode = true,
     playerBuffs = true, healPrediction = true, hotPred = true, hotCastPreview = true, overheal = true, powerCost = true,
-    overhealCap = true, raidMark = true, petHappiness = true, frames = true, scales = true, positions = true,
+    overhealCap = true, raidMark = true, petHappiness = true, pvpFlag = true, frames = true, scales = true, positions = true,
 }
 
 local db                    -- GaarFramesForeverDB, bound at ADDON_LOADED (never at file scope)
@@ -678,6 +682,7 @@ local FEATURE_LABELS = {
     name = "read names and levels for unit frames",
     portrait = "draw unit portraits",
     icons = "read raid, leader, combat and resting icons",
+    pvp = "read the PvP flag and its timer",
     threat = "read threat for unit frames",
     auras = "read auras for unit frames",
     range = "read party range",
@@ -709,6 +714,11 @@ local CLEAR = {
         f.mana:Hide()
         f.manaShown = false
         f.health:SetHeight(f.powerShown == false and (f.layout.hp + 1 + f.layout.mp) or f.layout.hp)
+    end,
+    pvp = function(f)
+        if f.pvpIcon then f.pvpIcon:Hide() end
+        if f.pvpTimer then f.pvpTimer:SetText(""); f.pvpTimer:Hide() end
+        f.pvpKind, f.pvpTicking = nil, nil
     end,
     happiness = function(f) if f.happyFrame then f.happyFrame:Hide(); f.happyFrame.level = nil end end,
     icons = function(f)
@@ -2794,6 +2804,21 @@ local function Build(key, unit, preview)
         li:Hide()
         f.leaderIcon = li
     end
+    if f.portraitFrame then
+        -- 1.7.0: PvP flag, on the frame's left edge (Blizzard's own icon is switched off with its frame).
+        local sz = (key == "party") and 20 or 26
+        local pi = f:CreateTexture(nil, "OVERLAY")
+        pi:SetSize(sz, sz)
+        pi:SetPoint("RIGHT", f, "LEFT", -1, key == "player" and 4 or 0)
+        pi:Hide()
+        f.pvpIcon = pi
+        if key == "player" then
+            local pt = NewFont(f, 10)
+            pt:SetPoint("TOP", pi, "BOTTOM", 0, 0)
+            pt:Hide()
+            f.pvpTimer = pt
+        end
+    end
     if key == "player" and f.portraitFrame then
         local si = f.portraitFrame:CreateTexture(nil, "OVERLAY")
         si:SetSize(16, 16)
@@ -3320,6 +3345,78 @@ local function UpdateIcons(f)
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- PvP flag (1.7.0). A faction (or free-for-all) icon beside the portrait of a flagged unit; on the
+-- player frame also the m:ss left of the flag's timeout. Everything read here may be secret: a
+-- secret answer keeps the last known state, and no secret is ever compared.
+-- ---------------------------------------------------------------------------
+Look.Pvp = {}
+Look.Pvp.ICONS = {
+    Alliance = "Interface\\TargetingFrame\\UI-PVP-Alliance",
+    Horde = "Interface\\TargetingFrame\\UI-PVP-Horde",
+    ffa = "Interface\\TargetingFrame\\UI-PVP-FFA",
+}
+Look.Pvp.NO_TIMER_MS = 301000   -- GetPVPTimer() reports about this when no timer is running
+
+-- "m:ss" for the milliseconds left, or nil when there is no timer (nothing, secret, <= 0, or the
+-- "no timer" value and anything larger).
+function Look.Pvp.Format(ms)
+    ms = Num(ms)
+    if not ms or ms <= 0 or ms >= Look.Pvp.NO_TIMER_MS then return nil end
+    local sec = math.ceil(ms / 1000)
+    return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+-- Raw timer read: nil when none runs or the client will not say.
+function Look.Pvp.TimerText()
+    if type(_G.GetPVPTimer) ~= "function" then return nil end
+    if type(_G.IsPVPTimerRunning) == "function" then
+        local ok, running = pcall(_G.IsPVPTimerRunning)
+        if ok and Plain(running) == false then return nil end
+    end
+    local ok, ms = pcall(_G.GetPVPTimer)
+    if not ok then return nil end
+    return Look.Pvp.Format(ms)
+end
+
+-- "ffa", "Alliance", "Horde", false (not flagged) or nil (unknown: keep what was shown).
+function Look.Pvp.Kind(unit)
+    if type(_G.UnitIsPVPFreeForAll) == "function" and Plain(_G.UnitIsPVPFreeForAll(unit)) == true then return "ffa" end
+    if type(_G.UnitIsPVP) ~= "function" then return nil end
+    local flagged = Plain(_G.UnitIsPVP(unit))   -- nil = secret (a plain false must stay false)
+    if flagged == nil then return nil end
+    if flagged ~= true then return false end
+    local fg = type(_G.UnitFactionGroup) == "function" and Plain((_G.UnitFactionGroup(unit))) or nil
+    if fg == "Alliance" or fg == "Horde" then return fg end
+    return nil
+end
+
+function Look.Pvp.Update(f)
+    local icon = f.pvpIcon
+    if not icon then return end
+    if not db.pvpFlag then
+        icon:Hide()
+        if f.pvpTimer then f.pvpTimer:Hide() end
+        f.pvpKind, f.pvpTicking = nil, nil
+        return
+    end
+    local kind = Look.Pvp.Kind(f.unit)
+    if kind ~= nil then f.pvpKind = kind end   -- unknown: keep the last known state
+    local show = f.pvpKind
+    if show then
+        icon:SetTexture(Look.Pvp.ICONS[show])
+        icon:SetTexCoord(0, 0.609375, 0, 0.640625)
+        icon:Show()
+    else
+        icon:Hide()
+    end
+    if f.pvpTimer then
+        local txt = show and Look.Pvp.TimerText() or nil
+        if txt then f.pvpTimer:SetText(txt); f.pvpTimer:Show() else f.pvpTimer:SetText(""); f.pvpTimer:Hide() end
+        f.pvpTicking = txt and true or nil
+    end
+end
+
 -- Friendly frames: that unit's own threat status. Hostile ones: the player's threat on it.
 -- This client's UnitThreatSituation takes a mob GUID as its second argument; older ones take a
 -- unit token, so that is tried when the GUID form is refused.
@@ -3824,6 +3921,7 @@ UpdateFrame = function(f)
     Run("name", UpdateName, f)
     Run("portrait", UpdatePortrait, f)
     Run("icons", UpdateIcons, f)
+    Run("pvp", Look.Pvp.Update, f)
     if f.happyFrame then Run("happiness", Look.UpdateHappiness, f) end
     Run("threat", UpdateThreat, f)
     if f.auraIcons then Run("auras", UpdateAuras, f, true) end
@@ -4657,6 +4755,7 @@ local SETTING_TOGGLES = {
     { key = "powerCost", cmd = "cost", label = "Spell cost on the power bar" },
     { key = "overheal", cmd = "overheal", label = "Overheal past the bar" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks" },
+    { key = "pvpFlag", cmd = "pvp", label = "Show PvP flag" },
     { key = "petHappiness", cmd = "pethappiness", label = "Hunter pet happiness icon and health colour" },
 }
 
@@ -4722,6 +4821,8 @@ local function PrintHelp()
     Print(string.format("/gff overheal cap <%.1f-%.0f> - its longest length, a share of the bar's width (now: %s)",
         OVER_CAP[1], OVER_CAP[2], db and tostring(db.overhealCap) or "?"))
     Print("/gff hotdebug [unit] - each HoT on the unit (default your target, else you), one line per buff, the cast summary last; /gff hotdebug cast - traces your next cast (cast, then screenshot)")
+    Print("/gff pvp on | off - a faction (or free-for-all) icon beside the portrait of a PvP-flagged unit; the player's also shows the minutes left while the flag times out (now: "
+        .. OnOff(db and db.pvpFlag) .. ")")
     Print("/gff marks on | off - raid target marks (skull, cross ...) on the frames (now: "
         .. OnOff(db and db.raidMark) .. ")")
     Print("/gff pethappiness on | off - hunter pet happiness icon next to the pet frame (tooltip on hover) and pet health bar coloured by happiness (now: "
@@ -5191,7 +5292,9 @@ local function OnUnitEvent(event, unit, arg2)
     end
     if event == "UNIT_FACTION" then
         local f = real[unit]
-        if Visible(f) then Run("health", UpdateHealth, f); Run("name", UpdateName, f) end
+        if Visible(f) then
+            Run("health", UpdateHealth, f); Run("name", UpdateName, f); Run("pvp", Look.Pvp.Update, f)
+        end
         return
     end
     if event == "UNIT_THREAT_SITUATION_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" then
@@ -5233,7 +5336,7 @@ for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_R
     "PLAYER_TARGET_CHANGED", "PLAYER_UPDATE_RESTING", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
     "RAID_TARGET_UPDATE", "UNIT_FACTION", "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
     "UNIT_TARGET", "UNIT_PET", "UNIT_COMBO_POINTS", "EDIT_MODE_LAYOUTS_UPDATED", "DISPLAY_SIZE_CHANGED",
-    "UI_SCALE_CHANGED", "UPDATE_SHAPESHIFT_FORM", "PET_UI_UPDATE", "UNIT_HAPPINESS" }) do
+    "UI_SCALE_CHANGED", "PLAYER_FLAGS_CHANGED", "ZONE_CHANGED_NEW_AREA", "UPDATE_SHAPESHIFT_FORM", "PET_UI_UPDATE", "UNIT_HAPPINESS" }) do
     pcall(events.RegisterEvent, events, e)
 end
 if HAS_FOCUS then pcall(events.RegisterEvent, events, "PLAYER_FOCUS_CHANGED") end
@@ -5332,6 +5435,8 @@ events:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)
         for _, u in ipairs(UNITS_OF.party) do UpdateUnit(u) end
         local p = real.player
         if Visible(p) then Run("icons", UpdateIcons, p) end
+    elseif event == "PLAYER_FLAGS_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
+        UpdateEach("pvp", Look.Pvp.Update)
     elseif event == "PARTY_LEADER_CHANGED" or event == "RAID_TARGET_UPDATE" then
         UpdateEach("icons", UpdateIcons)
     elseif HealPred.CAST_EVENTS[event] then
@@ -5344,6 +5449,7 @@ end)
 -- The light ticker: target of target (it has no events of its own) and party range.
 local driver = CreateFrame("Frame")
 local acc = 0
+Look.Pvp.acc = 0
 local happyAcc, HAPPY_POLL = 0, 2   -- seconds between pet happiness checks
 driver:SetScript("OnUpdate", function(_, elapsed)
     if not db or not started then return end
@@ -5352,6 +5458,15 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     acc = 0
     local tot = real.targettarget
     if Visible(tot) then UpdateFrame(tot) end
+    -- 1.7.0: the player's PvP timer, once a second and only while one runs.
+    local pp = real.player
+    if pp and pp.pvpTicking then
+        Look.Pvp.acc = Look.Pvp.acc + TICK
+        if Look.Pvp.acc >= 1 then
+            Look.Pvp.acc = 0
+            if Visible(pp) then Run("pvp", Look.Pvp.Update, pp) end
+        end
+    end
     -- Pet happiness, in case this client sends no happiness event: repaint on a change only.
     happyAcc = happyAcc + TICK
     local pf = real.pet

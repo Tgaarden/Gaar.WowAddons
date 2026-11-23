@@ -139,6 +139,7 @@ party, and switches Blizzard's off. It needs GaarForever, the family hub, and no
   the green and yellow - the client's raw incoming heals from the health edge, the HoTs after
   them, on the bar's own scale - and the overheal frame clips them to what reaches past the end;
   there the heal part can reach past the end by at most the current health's share of the bar.
+- **PvP flag** (1.7.0, on by default: `/gff pvp off` to hide). A faction (Alliance / Horde) or free-for-all icon on the left edge of the player, target and party frames while the unit is PvP flagged. The player's also shows the time left (`m:ss`) under the icon while the flag times out; it updates once a second only while a timer runs. Blizzard's own PvP icon goes with its frames, so there is no duplicate. A value the client hides in combat keeps the last known state.
 - **Spell cost on the power bar** (1.6.0, on by default: `/gff cost off` to hide). On the player
   frame only, from `UNIT_SPELLCAST_START` of a spell with a cast time until `_STOP`, `_FAILED`,
   `_INTERRUPTED` or `_SUCCEEDED`, the right end of the filled power bar, as wide as the cost, is
@@ -224,6 +225,7 @@ Not in 1.2.2: raid frames, an XP bar, an options panel, a minimap button, cast b
 | `/gff healpred on\|off` | Incoming heals, absorbs and heal absorbs on the health bars (on by default) |
 | `/gff hotpred on\|off` | What active HoTs will still heal, in yellow after the incoming heals (on by default; needs `healpred`) |
 | `/gff hotcast on\|off` | While you cast a HoT spell (Regrowth), its HoT in yellow on the target's frames from the start of the cast (on by default; needs `hotpred`) |
+| `/gff pvp on\|off` | PvP flag icon beside the portrait of a flagged unit, plus the flag timer on the player frame (on by default) |
 | `/gff cost on\|off` | While you cast a spell with a cast time, its cost marked on your power bar: the part that will go, bright and pulsing with a `-number`, red when you lack the power (on by default) |
 | `/gff overheal on\|off` | Heals past the maximum as a red / orange-red segment past the health bar's right edge (on by default) |
 | `/gff overheal cap <0.1-1>` | The overheal segment's longest length, as a share of the bar's width (default 0.3; `30` works too) |

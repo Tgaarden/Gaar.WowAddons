@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.48"] = "notes for GaarFramesForever 1.7.0: PvP flag icon beside the portrait, with the flag timer on the player frame",
         ["3.2.47"] = "notes for GaarXPForever 1.4.1: the kills estimate is now (XP left to level) / (average XP per kill); ready or done quest XP no longer lowers it",
         ["3.2.46"] = "notes for GaarPlatesForever 1.4.0: the level number on a plate is coloured by difficulty against your level (option: /gpf levelcolor on|off)",
         ["3.2.45"] = "notes for GaarMailForever 1.5.0: our Open All Mail button takes the place of Blizzard's Open All button in the Inbox (option: /gmail blizzopenall on|off)",
@@ -142,6 +143,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.7.0"] = "PvP flag: a faction (or free-for-all) icon beside the portrait of a flagged player, target or party member, and on your own frame the m:ss left while the flag times out (/gff pvp on|off, also in the menu)",
         ["1.6.0"] = "Spell cost on your power bar: while you cast a spell with a cast time, the part of the player frame's power bar (mana, energy, rage ...) the cost will take is drawn bright and gently pulsing with a small -number, red when you do not have enough; gone the moment the cast ends, fails or is interrupted (/gff cost on|off)",
         ["1.5.3"] = "Fix: the HoT preview while casting (Regrowth) found no target for WoW Forever characters with a surname (the cast gives \"First Surname\", the client unit name only the first name); names now match with surname and realm, for you, party and raid",
         ["1.5.2"] = "/gff hotdebug now prints one short line per buff and ends with a compact summary of the HoT cast being made (spell, HoT amount, target and how it was found, which frames draw it and why the yellow or overheal part is or is not shown). New: /gff hotdebug cast arms a trace of your next cast: type it, cast Regrowth, take a screenshot",

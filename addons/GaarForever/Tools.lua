@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.47"] = "notes for GaarXPForever 1.4.1: the kills estimate is now (XP left to level) / (average XP per kill); ready or done quest XP no longer lowers it",
         ["3.2.46"] = "notes for GaarPlatesForever 1.4.0: the level number on a plate is coloured by difficulty against your level (option: /gpf levelcolor on|off)",
         ["3.2.45"] = "notes for GaarMailForever 1.5.0: our Open All Mail button takes the place of Blizzard's Open All button in the Inbox (option: /gmail blizzopenall on|off)",
         ["3.2.44"] = "notes for GaarMailForever 1.4.0: an option hides Blizzard's own Open All button in the Inbox (on by default; /gmail blizzopenall on|off)",

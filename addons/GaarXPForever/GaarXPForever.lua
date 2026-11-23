@@ -21,7 +21,8 @@
     * questReady (on)   quests in the log that are complete but not turned in: a panel line
                         "Quests ready: N (+X XP)" and "After turn-in: ...", or "Turn in to level
                         up!". Their XP is also taken off the remaining XP, so "To level" and the
-                        kill/quest counts are about what is left AFTER turning them in. (The
+                        quest count are about what is left AFTER turning them in (the kill count
+                        is not: it only uses the XP left to level). (The
                         older questXP setting is the reward line in quest tooltips.)
     * questBar (on)     the XP of ready quests as a coloured segment on the XP bar, from the current
                         fill to fill + quest XP (clamped at the end of the bar). Own frame, child of
@@ -54,7 +55,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -287,7 +288,8 @@ local function Calc(cur, max, questXP, rate, killAvg)
     r.levelUp = questXP > 0 and questXP >= max - cur
     r.after = math.min(max, cur + questXP)
     r.secs = rate and rate > 0 and (r.remaining / rate * 3600) or nil
-    r.kills = killAvg and killAvg > 0 and math.ceil(r.remaining / killAvg) or nil
+    -- kills use only the XP left to level (quest XP, ready or done, never enters it)
+    r.kills = killAvg and killAvg > 0 and math.ceil(math.max(0, max - cur) / killAvg) or nil
     return r
 end
 
@@ -561,7 +563,7 @@ local function PanelText()
     lines[#lines + 1] = "To level: " .. (calc.levelUp and "turn in quests" or (calc.secs and Duration(calc.secs) or "--"))
     local parts = {}
     if killAvg then
-        parts[#parts + 1] = "~" .. math.ceil(remaining / killAvg) .. " kills (avg " .. Commas(killAvg) .. " XP)"
+        parts[#parts + 1] = "~" .. (calc.kills or 0) .. " kills (avg " .. Commas(killAvg) .. " XP)"
     end
     if session.quests > 0 and session.questXP > 0 then
         parts[#parts + 1] = "~" .. math.ceil(remaining / (session.questXP / session.quests)) .. " quests"

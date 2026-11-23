@@ -46,15 +46,20 @@ end
 -- Calc: 6204/8800, 2450 quest XP, rate 12592/h, kill avg 100
 local c = T.Calc(6204, 8800, 2450, 12592, 100)
 eq("remaining", c.remaining, 146); eq("after", c.after, 8654); eq("not levelup", c.levelUp, false)
-eq("kills", c.kills, 2); eq("secs", math.floor(c.secs), math.floor(146 / 12592 * 3600))
+eq("kills ignore quest xp", c.kills, 26); eq("secs", math.floor(c.secs), math.floor(146 / 12592 * 3600))
 -- quests cover the level
 c = T.Calc(6204, 8800, 2596, 12592, 100)
-eq("exact remaining 0", c.remaining, 0); eq("exact levelup", c.levelUp, true); eq("exact kills", c.kills, 0)
+eq("exact remaining 0", c.remaining, 0); eq("exact levelup", c.levelUp, true); eq("exact kills ignore quest xp", c.kills, 26)
 c = T.Calc(6204, 8800, 5000, nil, nil)
 eq("over remaining 0", c.remaining, 0); eq("over after capped", c.after, 8800); eq("no rate", c.secs, nil); eq("no kills", c.kills, nil)
 -- no quests: unchanged behaviour
 c = T.Calc(6204, 8800, 0, 12592, 200)
 eq("no q remaining", c.remaining, 2596); eq("no q levelUp", c.levelUp, false); eq("no q kills", c.kills, 13)
+
+-- kills = ceil((max - cur) / avg) only; ready quest XP never lowers it (in-game case: 47,139/58,600, +11,700 ready, avg 330)
+c = T.Calc(47139, 58600, 11700, 5000, 330)
+eq("kills real case", c.kills, 35); eq("kills real case remaining still after quests", c.remaining, 0)
+eq("kills same without quests", T.Calc(47139, 58600, 0, 5000, 330).kills, 35)
 
 -- Scan, retail-style API
 local log = {

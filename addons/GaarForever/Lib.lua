@@ -73,7 +73,7 @@ end
 -- The name before the folder rename, for anything that still looks the library up by it. The
 -- BetterForever folder is only a settings bridge now and defines nothing.
 _G.BetterForever = Lib
-Lib.version = "3.2.48"
+Lib.version = "3.2.50"
 
 local PREFIX_COLOR = "|cff33ff99"
 
@@ -273,6 +273,20 @@ end
 -- ---------------------------------------------------------------------------
 -- Text
 -- ---------------------------------------------------------------------------
+
+-- Level colour of a mob against the player's level (the classic difficulty bands), r, g, b. One shared
+-- function so GaarFramesForever and GaarPlatesForever always agree. Classic thresholds, NOT retail's
+-- GetCreatureDifficultyColor: grey (trivial) from 9 levels below, green 3-8 below, yellow +-2, orange +3/+4,
+-- red +5 and up. A skull level (<= 0) or an unknown player level is red. Takes plain numbers only.
+function Lib.LevelDifficultyColor(lvl, mine)
+    if type(lvl) ~= "number" or type(mine) ~= "number" or lvl <= 0 then return 1, 0.1, 0.1 end
+    local d = lvl - mine
+    if d >= 5 then return 1, 0.1, 0.1 end
+    if d >= 3 then return 1, 0.5, 0.25 end
+    if d >= -2 then return 1, 0.82, 0 end
+    if d >= -8 then return 0.25, 0.75, 0.25 end
+    return 0.6, 0.6, 0.6
+end
 
 function Lib.OnOff(v) return v and "on" or "off" end
 

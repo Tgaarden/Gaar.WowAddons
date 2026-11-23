@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.50"] = "notes for GaarPlatesForever 1.4.1 and GaarFramesForever 1.7.1: both colour a mob level with the same shared classic difficulty bands, so a plate and the target frame agree",
         ["3.2.48"] = "notes for GaarFramesForever 1.7.0: PvP flag icon beside the portrait, with the flag timer on the player frame",
         ["3.2.47"] = "notes for GaarXPForever 1.4.1: the kills estimate is now (XP left to level) / (average XP per kill); ready or done quest XP no longer lowers it",
         ["3.2.46"] = "notes for GaarPlatesForever 1.4.0: the level number on a plate is coloured by difficulty against your level (option: /gpf levelcolor on|off)",

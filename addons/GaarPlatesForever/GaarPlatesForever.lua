@@ -35,6 +35,7 @@
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
     * Level colour by difficulty (1.4.0, option /gpf levelcolor): GetCreatureDifficultyColor; skull red.
+    * 1.4.1: level colour uses the same classic bands as GaarFramesForever (shared GaarForever.LevelDifficultyColor); fixes grey vs green.
     * /gpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
       threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
     * GaarPlatesForeverAPI, a small global table for GaarForever's hub menu (version,
@@ -70,7 +71,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarPlatesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 -- The shared helpers (GaarForever's library, Lib.lua; the addon depends on GaarForever).
 local BF = _G.GaarForever
@@ -787,36 +788,16 @@ local function UpdateHealthText(o, unit)
     else fs:SetText(pct .. "%") end
 end
 
--- The colour of a mob's level against yours, as the game paints it: grey (trivial), green, yellow,
--- orange, red; the skull level (-1) is red. GetCreatureDifficultyColor (retail) or
--- GetQuestDifficultyColor does the work; only without both are the thresholds worked out here.
+-- The colour of a mob's level against yours: the same classic bands GaarFramesForever uses
+-- (GaarForever.LevelDifficultyColor), so a plate and the target frame always agree. Not the retail
+-- GetCreatureDifficultyColor: its grey threshold differs on this client. The skull level (-1) is red.
 -- Takes a plain number (callers drop secret levels first); returns r, g, b.
 local function LevelColor(lvl)
     if type(lvl) ~= "number" then return 1, 1, 1 end
     if lvl < 0 then return 1, 0.1, 0.1 end
-    for _, name in ipairs({ "GetCreatureDifficultyColor", "GetQuestDifficultyColor" }) do
-        local fn = _G[name]
-        if type(fn) == "function" then
-            local ok, c = pcall(fn, lvl)
-            if ok and type(c) == "table" and type(c.r) == "number" and type(c.g) == "number"
-                and type(c.b) == "number" then
-                return c.r, c.g, c.b
-            end
-        end
-    end
     local mine = Num(UnitLevel("player"))
     if not mine then return 1, 1, 1 end
-    local diff = lvl - mine
-    local green = 5
-    if type(_G.GetQuestGreenRange) == "function" then
-        local ok, v = pcall(_G.GetQuestGreenRange)
-        if ok and type(v) == "number" then green = v end
-    end
-    if diff >= 5 then return 1, 0.1, 0.1 end
-    if diff >= 3 then return 1, 0.5, 0.25 end
-    if diff >= -2 then return 1, 1, 0 end
-    if -diff <= green then return 0.25, 0.75, 0.25 end
-    return 0.5, 0.5, 0.5
+    return BF.LevelDifficultyColor(lvl, mine)
 end
 
 local function UpdateText(o, unit)

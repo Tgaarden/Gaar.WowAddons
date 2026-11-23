@@ -54,7 +54,7 @@ exactly what the game, or you, set them to.
   (`Texture:SetVertexColorFromBoolean`, and the ring with `SetAlphaFromBoolean`) where it has
   those. Plates refresh at once on `UNIT_THREAT_SITUATION_UPDATE` / `UNIT_THREAT_LIST_UPDATE`.
   `/gpf status` shows, for your target's plate, which source was used and what each returns.
-- **Text.** The name above the bar, the level right of it (`??` when the client hides it), the
+- **Text.** The name above the bar, the level right of it, coloured by difficulty against your level (1.4.0, `levelcolor`, on by default; `??` when the client hides it, white then), the
   health text inside it (`off`, `percent` (default), `current` or `both`, e.g. `850  85%`), and
   the unit's target under it
   as `-> Name` (on by default).
@@ -121,6 +121,7 @@ exactly what the game, or you, set them to.
 | `/gpf combo on\|off` | Combo points (orange squares under the bar, right-aligned) on your target's plate while you have any (on by default) |
 | `/gpf dim on\|off` | Dim non-target plates to 55% |
 | `/gpf targetscale on\|off` | Scale your target's plate to 115% and ring it |
+| `/gpf levelcolor on\|off` | Colour the level number by difficulty against yours, like Blizzard: grey, green, yellow, orange, red; `??` (skull) red (on by default) |
 | `/gpf marks on\|off` | Raid target marks (skull, cross ...) as a 20 px icon left of the bar (on by default) |
 | `/gpf reset` | Every setting back to its default |
 

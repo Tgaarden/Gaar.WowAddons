@@ -34,6 +34,7 @@
     * Your target: scaled up to 115% with a faint ring; other plates dimmed to 55% while you have
       a target (each an option).
     * Friendly plates are left to Blizzard unless "friendly" is turned on (off by default).
+    * Level colour by difficulty (1.4.0, option /gpf levelcolor): GetCreatureDifficultyColor; skull red.
     * /gpf (or /betterplatesforever) for help, status, on|off, color, health, size, friendly,
       threat, threattext, execute, debuffs, others, native, tot, combo, dim, targetscale, reset and debug.
     * GaarPlatesForeverAPI, a small global table for GaarForever's hub menu (version,
@@ -69,7 +70,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarPlatesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.2"
+local VERSION = "1.4.0"
 
 -- The shared helpers (GaarForever's library, Lib.lua; the addon depends on GaarForever).
 local BF = _G.GaarForever
@@ -207,6 +208,7 @@ local TOGGLES = {
     { key = "dim", cmd = "dim", label = "Dim non-target plates" },
     { key = "targetScale", cmd = "targetscale", label = "Enlarge my target" },
     { key = "raidMark", cmd = "marks", label = "Raid target marks (skull, cross ...)" },
+    { key = "levelColor", cmd = "levelcolor", label = "Colour level by difficulty" },
 }
 
 local DEFAULTS = {
@@ -227,6 +229,7 @@ local DEFAULTS = {
     dim = true,
     targetScale = true,
     raidMark = true,
+    levelColor = true,
 }
 
 -- Every key GaarPlatesForeverDB may hold; anything else is cleared on load.
@@ -784,6 +787,38 @@ local function UpdateHealthText(o, unit)
     else fs:SetText(pct .. "%") end
 end
 
+-- The colour of a mob's level against yours, as the game paints it: grey (trivial), green, yellow,
+-- orange, red; the skull level (-1) is red. GetCreatureDifficultyColor (retail) or
+-- GetQuestDifficultyColor does the work; only without both are the thresholds worked out here.
+-- Takes a plain number (callers drop secret levels first); returns r, g, b.
+local function LevelColor(lvl)
+    if type(lvl) ~= "number" then return 1, 1, 1 end
+    if lvl < 0 then return 1, 0.1, 0.1 end
+    for _, name in ipairs({ "GetCreatureDifficultyColor", "GetQuestDifficultyColor" }) do
+        local fn = _G[name]
+        if type(fn) == "function" then
+            local ok, c = pcall(fn, lvl)
+            if ok and type(c) == "table" and type(c.r) == "number" and type(c.g) == "number"
+                and type(c.b) == "number" then
+                return c.r, c.g, c.b
+            end
+        end
+    end
+    local mine = Num(UnitLevel("player"))
+    if not mine then return 1, 1, 1 end
+    local diff = lvl - mine
+    local green = 5
+    if type(_G.GetQuestGreenRange) == "function" then
+        local ok, v = pcall(_G.GetQuestGreenRange)
+        if ok and type(v) == "number" then green = v end
+    end
+    if diff >= 5 then return 1, 0.1, 0.1 end
+    if diff >= 3 then return 1, 0.5, 0.25 end
+    if diff >= -2 then return 1, 1, 0 end
+    if -diff <= green then return 0.25, 0.75, 0.25 end
+    return 0.5, 0.5, 0.5
+end
+
 local function UpdateText(o, unit)
     SetTextSafe(o.name, (UnitName(unit)))
     local r, g, b
@@ -793,6 +828,9 @@ local function UpdateText(o, unit)
     -- The level of a unit whose numbers the client hides comes back secret: "??" then.
     local lvl = Num(UnitLevel(unit))
     o.level:SetText((lvl and lvl > 0) and tostring(lvl) or "??")
+    -- A secret level (lvl nil) keeps the default colour: nothing is compared or guessed.
+    if db.levelColor and lvl then o.level:SetTextColor(LevelColor(lvl))
+    else o.level:SetTextColor(1, 1, 1) end
 
     local tu = unit .. "target"
     if db.tot and Plain(UnitExists(tu)) then
@@ -1900,7 +1938,7 @@ local events = CreateFrame("Frame")
 for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
                      "UNIT_THREAT_SITUATION_UPDATE", "UNIT_THREAT_LIST_UPDATE",
-                     "RAID_TARGET_UPDATE" }) do
+                     "RAID_TARGET_UPDATE", "PLAYER_LEVEL_UP" }) do
     pcall(events.RegisterEvent, events, e)
 end
 -- Combo points move at once instead of on the next tick (player only).
@@ -1939,8 +1977,8 @@ events:SetScript("OnEvent", function(_, event, arg1, _, arg3)
         RefreshPlates()
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateAll()
-    elseif event == "RAID_TARGET_UPDATE" then
-        UpdateAll()
+    elseif event == "RAID_TARGET_UPDATE" or event == "PLAYER_LEVEL_UP" then
+        UpdateAll()   -- a level up moves every difficulty colour
     elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE" or event == "UNIT_COMBO_POINTS" then
         if arg1 == "player" then UpdateAll() end
     elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" then

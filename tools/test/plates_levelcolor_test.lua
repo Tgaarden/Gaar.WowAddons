@@ -29,6 +29,14 @@ G.UnitName = function() return "Mob" end
 G.UnitExists = function() return false end
 local level, calls = 33, {}
 G.UnitLevel = function(u) if u == "player" then return 30 end return level end
+G.GaarForever.LevelDifficultyColor = function(l, mine)
+    local d = l - mine
+    if d >= 5 then return 1, 0.1, 0.1 end
+    if d >= 3 then return 1, 0.5, 0.25 end
+    if d >= -2 then return 1, 0.82, 0 end
+    if d >= -8 then return 0.25, 0.75, 0.25 end
+    return 0.6, 0.6, 0.6
+end
 G.GetCreatureDifficultyColor = function(l) calls[#calls + 1] = l; return { r = 0.1, g = 0.2, b = 0.3 } end
 local f = assert(loadstring(src, "plates")); setfenv(f, G); f("GaarPlatesForever")
 local T = G.__T
@@ -48,10 +56,13 @@ local function run(lvl, on)
     local o = overlay(); T.UpdateText(o, "nameplate1"); return o
 end
 
--- Colour comes from GetCreatureDifficultyColor.
+-- Colour comes from the shared classic bands (player 30), NOT GetCreatureDifficultyColor.
 local o = run(33, true)
-eq(o.text, "33", "text"); eq(#calls, 1, "api called"); eq(calls[1], 33, "api arg")
-eq(o.col[1], 0.1, "r"); eq(o.col[2], 0.2, "g"); eq(o.col[3], 0.3, "b")
+eq(o.text, "33", "text"); eq(#calls, 0, "retail api not used")
+eq(o.col[1], 1, "orange r"); eq(o.col[2], 0.5, "orange g")
+o = run(22, true); eq(o.col[1], 0.25, "green band r (-8)"); eq(o.col[2], 0.75, "green band g")
+o = run(21, true); eq(o.col[1], 0.6, "grey r (-9)")
+o = run(30, true); eq(o.col[2], 0.82, "yellow")
 
 -- Skull level: red, API not needed.
 o = run(-1, true)
@@ -66,13 +77,8 @@ eq(o.col[1], 1, "secret white r"); eq(o.col[2], 1, "secret white g"); eq(o.col[3
 o = run(33, false)
 eq(o.col[1], 1, "off r"); eq(o.col[2], 1, "off g"); eq(o.col[3], 1, "off b"); eq(#calls, 0, "off no api")
 
--- Fallbacks: GetQuestDifficultyColor, then own thresholds.
-G.GetCreatureDifficultyColor = nil
-G.GetQuestDifficultyColor = function() return { r = 0.7, g = 0.8, b = 0.9 } end
-local r = T.LevelColor(33); eq(r, 0.7, "quest fallback")
-G.GetQuestDifficultyColor = nil
-local r2, g2 = T.LevelColor(36); eq(r2, 1, "own red r"); eq(g2, 0.1, "own red g (+6)")
-r2, g2 = T.LevelColor(30); eq(g2, 1, "own yellow")
-r2, g2 = T.LevelColor(10); eq(r2, 0.5, "own grey")
+-- Unknown player level: default white.
+G.UnitLevel = function(u) if u == "player" then return nil end return level end
+local w = T.LevelColor(33); eq(w, 1, "no player level white")
 
 if fails == 0 then print("plates level colour: all ok") else os.exit(1) end

@@ -75,7 +75,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.7.0"
+local VERSION = "1.7.1"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -785,14 +785,7 @@ end
 
 -- Level colour against the player's own level, as the default frames do it.
 local function LevelRGB(lvl)
-    local mine = Num(UnitLevel("player"))
-    if not mine or lvl <= 0 then return 1, 0.1, 0.1 end
-    local d = lvl - mine
-    if d >= 5 then return 1, 0.1, 0.1 end
-    if d >= 3 then return 1, 0.5, 0.25 end
-    if d >= -2 then return 1, 0.82, 0 end
-    if d >= -8 then return 0.25, 0.75, 0.25 end
-    return 0.6, 0.6, 0.6
+    return BF.LevelDifficultyColor(lvl, Num(UnitLevel("player")))
 end
 
 ApplyBorder = function(f)

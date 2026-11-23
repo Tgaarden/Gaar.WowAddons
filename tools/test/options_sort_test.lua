@@ -22,14 +22,14 @@ f("GaarForever", {})
 local Pages = _G.GaarForever.Options
 
 local labels = { "Bags", "Quests", "Maps", "Castbars", "Plates", "GPS", "Frames", "Windows", "Fishing", "Buffs",
-    "Merchant", "Tooltips", "Mail", "XP", "Chat", "Bars", "Loot" }
+    "Merchant", "Tooltips", "Mail", "XP", "Chat", "Bars", "Loot", "Group" }
 local addons = {}
 for _, l in ipairs(labels) do addons[#addons + 1] = { key = l:lower(), label = l, title = "Gaar" .. l .. "Forever", slash = "/x" } end
 local hub = { version = "x", ADDONS = addons, API = function(a) return { version = "1" , MenuEntries = function() return {} end } end,
     StatusOf = function() return "" end, MinimapShown = function() return true end, SetMinimapShown = function() end }
 local ok, err = pcall(Pages.Init, hub)
 if not ok then fails = fails + 1; print("FAIL Init: " .. tostring(err)) end
-local want = { "Bags", "Bars", "Buffs", "Castbars", "Chat", "Fishing", "Frames", "GPS", "Loot", "Mail", "Maps",
+local want = { "Bags", "Bars", "Buffs", "Castbars", "Chat", "Fishing", "Frames", "GPS", "Group", "Loot", "Mail", "Maps",
     "Merchant", "Plates", "Quests", "Tooltips", "Windows", "XP" }
 eq("count", #registered, #want)
 for i, w in ipairs(want) do eq("order " .. i, registered[i], w) end

@@ -39,8 +39,9 @@ The family: [GaarBagsForever](../GaarBagsForever/README.md),
 [GaarMailForever](../GaarMailForever/README.md),
 [GaarXPForever](../GaarXPForever/README.md),
 [GaarChatForever](../GaarChatForever/README.md),
-[GaarBarsForever](../GaarBarsForever/README.md) and
-[GaarLootForever](../GaarLootForever/README.md). It is not part of the Gaar suite.
+[GaarBarsForever](../GaarBarsForever/README.md),
+[GaarLootForever](../GaarLootForever/README.md) and
+[GaarGroupForever](../GaarGroupForever/README.md). It is not part of the Gaar suite.
 
 The hub carries no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, window, fishing,
 buff, merchant, tooltip, mail, XP, chat or action-bar code of its own. Each addon keeps its logic,
@@ -158,7 +159,7 @@ GaarVanguard: on the rim of the minimap (half its width plus 5), or on the edge 
 minimap (`GetMinimapShape() == "SQUARE"`), dragged around it, angle saved, 285 degrees by default
 (clear of GaarOptions at 205 and GaarVanguard at 245). The tooltip shows each addon's state line.
 A click opens a submenu per addon, sorted alphabetically (since 3.2.4) - **Bags**, **Bars**,
-**Buffs**, **Castbars**, **Chat**, **Fishing**, **Frames**, **GPS**, **Loot**, **Mail**, **Maps**,
+**Buffs**, **Castbars**, **Chat**, **Fishing**, **Frames**, **GPS**, **Group**, **Loot**, **Mail**, **Maps**,
 **Merchant**, **Plates**, **Quests**, **Tooltips**, **Windows** and **XP** - each filled by the addon itself through its API, then
 **Hide minimap button** (`/gf minimap` brings it back). An addon that is not installed shows a
 disabled `GaarBagsForever – not installed` line instead; one that is loaded but older than its

@@ -32,6 +32,8 @@
                         first on turn-in and does not use rested): Blizzard's rested overlay and tick
                         are made invisible (SetAlpha 0, restored when the segment goes) and our own
                         rested segment + tick are drawn from fill + quest XP. No extra setting.
+    * /gxp restcap auto|150|180   the rested XP cap, account-wide: 150% of a level, or 180% with the Well Rested
+                        perk. auto (default) uses 180% once more than 150% rested was seen on any character.
     * /gxp reset        resets the session's numbers.
 
   How XP is counted. PLAYER_XP_UPDATE gives the change (UnitXP delta; across a level-up the rest of
@@ -55,7 +57,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.5.2"
+local VERSION = "1.5.3"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -155,6 +157,8 @@ local function XPValues()
     local max = type(_G.UnitXPMax) == "function" and Num(_G.UnitXPMax("player")) or nil
     if not cur or not max or max <= 0 then return nil end
     local rested = type(_G.GetXPExhaustion) == "function" and Num(_G.GetXPExhaustion()) or 0
+    -- More than 150% of a level rested = the account has the Well Rested perk (180%): remembered account-wide.
+    if db and not db.wellRested and rested > max * 1.51 then db.wellRested = true end
     return cur, max, rested
 end
 
@@ -537,7 +541,7 @@ end
 local function TestPanelText()
     return table.concat({
         "XP: 12,450/21,300 (58.5%)",
-        "Rested: 4,260 (14% of max) \194\183 full in 2d 21h",
+        "Rested: 4,260 (13% of max) \194\183 full in 34d 16h (8d 16h in inn)",
         "XP/hour: 38,200 (mobs 24,100" .. DOT .. "quests 14,100)",
         "Quests ready: 2 (+1,850 XP)",
         "After turn-in: 14,300/21,300 (67.1%)",
@@ -547,7 +551,14 @@ local function TestPanelText()
     }, "\n")
 end
 
-local RestedLine = {}   -- classic rested rules: cap 150% of a level, +5% of a level per 8h resting / 32h outside
+local RestedLine = {}   -- classic rested rules: cap 150% of a level (180% with Well Rested), +5% of a level per 8h resting / 32h outside
+
+-- The rested cap as a multiple of a level: /gxp restcap (db.restCap "auto" | 1.5 | 1.8); auto = 1.8 once Well Rested was seen.
+function RestedLine.Cap()
+    local m = db and db.restCap
+    if m == 1.5 or m == 1.8 then return m end
+    return (db and db.wellRested) and 1.8 or 1.5
+end
 
 function RestedLine.Dur(hours)
     local h = math.ceil(hours - 1e-9)
@@ -558,10 +569,11 @@ function RestedLine.Dur(hours)
 end
 
 function RestedLine.Build(rested, max)
-    if not rested or rested <= 0 then return "Rested: 0" end
-    local cap = max * 1.5
+    rested = (rested and rested > 0) and rested or 0
+    if not max or max <= 0 then return "Rested: " .. Commas(rested) end
+    local cap = max * RestedLine.Cap()
     local text = string.format("Rested: %s (%.0f%% of max)", Commas(rested), rested / cap * 100)
-    if rested >= cap then return text .. DOT .. "full" end
+    if rested >= cap * 0.999 then return text .. DOT .. "full" end   -- the game rounds a little under the cap
     local inn = (cap - rested) / (max * 0.05) * 8   -- hours while resting
     if Call(_G.IsResting) == true then return text .. DOT .. "full in " .. RestedLine.Dur(inn) end
     return text .. DOT .. "full in " .. RestedLine.Dur(inn * 4) .. " (" .. RestedLine.Dur(inn) .. " in inn)"
@@ -1425,6 +1437,7 @@ local function PrintHelp()
     Print("/gxp readybar color orange|green|yellow - colour of the ready-quest segment on the XP bar")
     Print("/gxp ready debug - per ready quest: id, XP and which source gave it")
     Print("/gxp test - show the XP panel with made-up numbers, to place it (now " .. (testing and "on" or "off") .. ")")
+    Print("/gxp restcap auto|150|180 - rested XP cap in % of a level (auto = 180 once Well Rested is seen; now " .. tostring(db.restCap) .. ")")
     Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
     Print("/gxp resetpos - panel back to its default place; /gxp status")
 end
@@ -1454,6 +1467,8 @@ local function PrintStatus()
         .. (AtMax() and " (reached)" or ""))
     Print("session " .. Duration(Now() - session.start) .. DOT .. "gained " .. Commas(session.gained) .. " xp"
         .. DOT .. session.kills .. " kills" .. DOT .. session.quests .. " quests")
+    Print("rest cap " .. tostring(db.restCap) .. " (effective " .. string.format("%.0f%%", RestedLine.Cap() * 100)
+        .. ")" .. DOT .. "Well Rested " .. (db.wellRested and "detected" or "not detected"))
     Print("rested shift: " .. (restedState == "off" and "off (stock bar)" or restedState))
     Print("last error: " .. (lastError or "none"))
 end
@@ -1484,6 +1499,13 @@ local function OnSlash(msg)
             if col and BAR_COLORS[col] then
                 db.questBarColor = col; Refresh(); Print("ready bar colour " .. col)
             else Print("ready bar colour: " .. (db.questBarColor or "orange") .. " (/gxp readybar color orange|green|yellow)") end
+            return
+        end
+        if a == "restcap" then
+            local m = ({ auto = "auto", ["150"] = 1.5, ["180"] = 1.8 })[b]
+            if m then db.restCap = m; Refresh() end
+            Print("rest cap " .. tostring(db.restCap) .. " (effective " .. string.format("%.0f%%", RestedLine.Cap() * 100)
+                .. DOT .. "Well Rested " .. (db.wellRested and "detected" or "not detected") .. ") - /gxp restcap auto|150|180")
             return
         end
         if a == "" or a == "help" then PrintHelp()
@@ -1568,13 +1590,15 @@ local function BindSavedVariables()
     if type(GaarXPForeverDB) ~= "table" then GaarXPForeverDB = {} end
     db = GaarXPForeverDB
     for k in pairs(db) do
-        if DEFAULTS[k] == nil and k ~= "pos" and k ~= "questBarColor" then db[k] = nil end
+        if DEFAULTS[k] == nil and k ~= "pos" and k ~= "questBarColor" and k ~= "restCap" and k ~= "wellRested" then db[k] = nil end
     end
     for k, v in pairs(DEFAULTS) do
         if type(db[k]) ~= "boolean" then db[k] = v end
     end
     if type(db.pos) ~= "table" then db.pos = nil end
     if not BAR_COLORS[db.questBarColor] then db.questBarColor = "orange" end
+    if db.restCap ~= 1.5 and db.restCap ~= 1.8 then db.restCap = "auto" end
+    db.wellRested = db.wellRested == true
 end
 
 local events = CreateFrame("Frame")

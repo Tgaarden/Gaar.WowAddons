@@ -31,6 +31,32 @@ Settings are saved account-wide in `GaarGroupForeverDB`: `show`, `locked`, `scal
 (default length 3, 5 or 10) and the bar's position. Your mode is saved per character in
 `GaarGroupForeverCharDB`.
 
+## Dock under the bar (since 1.2.0)
+
+Under the bar sits a row of small buttons (**Group**, **Check**, **Marks**, **Log**) and, below it, the
+member list and the raid-marker row. Each part has an option in the right-click / hub menu and Options
+page, all **on by default**; nothing is ever sent to chat unless you click Announce.
+
+- **Group overview** (`overview`, `ovCollapsed`): each party member with role icon, name and level in
+  class colour, and a status: `offline`, `dead`, or `far` (out of range / out of view, from
+  `UnitInRange`, else `CheckInteractDistance`). Refreshed once a second. The Group button collapses it.
+- **Pre-pull check** (`checks`): the Check button or `/ggf check` opens a local report window: who is
+  dead, offline, out of range, low on mana (under 50 %, mana users only) and who lacks Power Word:
+  Fortitude, Arcane Intellect (mana users), Mark of the Wild or a Blessing, each only when a class
+  that gives it is in the party. The window's **Announce** button posts a short summary to PARTY
+  (RAID in a raid); `/ggf check announce` does the same. Buffs are not read in combat; a mana or aura
+  value the client keeps secret is skipped, never compared.
+- **Raid markers** (`markers`, `markersOpen`): a row of the 8 markers. Left-click marks your target
+  (`SetRaidTarget("target", i)`), right-click clears your target's mark, **X** clears every mark it
+  can reach (target, focus, group, their pets and targets). No rank check: in a party anyone may mark.
+  The Marks button collapses the row.
+- **Dungeon run log** (`runlog`): per character, each dungeon run from entering to leaving
+  (`IsInInstance` / `GetInstanceInfo` on `PLAYER_ENTERING_WORLD` and `ZONE_CHANGED_NEW_AREA`): name,
+  time, deaths in the party and wipes (everyone dead at once), XP gained and the loot you received
+  (`CHAT_MSG_LOOT`, your own lines). Deaths are polled with `UnitIsDeadOrGhost` once a second, not read
+  from the combat log. Coming back to the same dungeon within 10 minutes (graveyard run) is the same
+  run. The Log button or `/ggf log` shows the last 20; 50 are kept in `GaarGroupForeverCharDB.runs`.
+
 ## Commands
 
 `/ggf` or `/gaargroupforever`:
@@ -44,6 +70,10 @@ Settings are saved account-wide in `GaarGroupForeverDB`: `show`, `locked`, `scal
 | `/ggf scale 0.5-2` | bar size |
 | `/ggf countdown 3\|5\|10` | default pull countdown |
 | `/ggf test` | show the bar solo to place it (this session only) |
+| `/ggf group on\|off\|collapse\|expand` | the member list under the bar |
+| `/ggf check` / `check announce` | the pre-pull report window / post its summary to party chat |
+| `/ggf marks on\|off\|collapse\|expand\|clear` | the raid-marker row; `clear` removes the marks it can reach |
+| `/ggf log` / `log clear` | the last 20 dungeon runs / empty the log |
 | `/ggf status` | settings, group state, which countdown path is used |
 
 ## With GaarForever (required)

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.55"] = "notes for GaarGroupForever 1.2.0: a dock under the bar with a group overview list, a pre-pull check (/ggf check, local report, Announce on click), a raid marker row and a per-character dungeon run log (/ggf log); each has its own option, all on by default",
         ["3.2.54"] = "notes for GaarGpsForever 1.6.0: hover a flight path on the map to see its direct flight connections (/ggps routes)",
         ["3.2.53"] = "notes for GaarBuffsForever 1.10.0, GaarCastbarsForever 1.4.0, GaarChatForever 1.6.0, GaarFramesForever 1.8.0, GaarGroupForever 1.1.0, GaarLootForever 1.4.0, GaarFishingForever 1.7.0 and GaarXPForever 1.5.0: every addon with a test mode has a Test entry in its menu (kept just before Reset); new test modes for the fishing session panel (/gfish test) and the XP panel (/gxp test); /ggf test is also a menu entry",
         ["3.2.52"] = "notes for the new GaarGroupForever 1.0.0: a Group row in the menu and on the Options page (/ggf)",

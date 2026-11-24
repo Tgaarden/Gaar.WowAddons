@@ -345,3 +345,9 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Options gather**
 
 <img src="../../docs/screenshots/GaarGpsForever/6-options-gather.jpg" alt="Options gather" width="600">
+
+**Flight routes**
+
+<img src="../../docs/screenshots/GaarGpsForever/7-flight-routes.jpg" alt="Flight routes" width="300">
+
+Hover a flight master on the world map: its direct flights, learned ones in green.

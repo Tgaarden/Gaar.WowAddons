@@ -28,7 +28,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -544,6 +544,7 @@ function M.PrintHelp()
         if ok and type(lines) == "table" then for _, l in ipairs(lines) do M.Print(l) end end
     end
     M.Print("/ggf status - settings")
+    if M.Roles then M.Roles.Help() end
 end
 
 function M.PrintStatus()

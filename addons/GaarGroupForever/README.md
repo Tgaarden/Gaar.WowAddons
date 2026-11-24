@@ -86,12 +86,55 @@ a short intro from `Intro()`.
 `GaarGroupForeverAPI` (`version`, `Intro`, `StatusLine`, `MenuEntries`, `AddMenuEntries`,
 `SetMinimapHidden`) lets the hub list these options in its menu.
 
+## Role modules (1.3.0)
+
+Active only while your mode is that role (the bar's highlighted mode) and the bar is shown. Each shows a row
+in the dock under the bar and/or warnings in a line above it. Every feature has an option (right-click menu,
+grouped per mode, or `/ggf <role> <name> on|off`); all on by default except the ones that type in chat. A
+warning is throttled and skipped when the game hides the value (secret values are never compared).
+`/ggf <role> test` shows sample warnings. Chat is only sent on your click, or by an option you turn on.
+
+**Tank** (`/ggf tank`)
+
+| Feature | How it shows | Option (default) |
+|---|---|---|
+| Pull marker | "Mark" button / `/ggf tank mark [x]`: skull on target (X if a skull is out; Shift-click or `x` = X) | `mark` on; `announce` off (says "Pulling <mob>" to party on the click) |
+| Lost aggro | red line "<mob> is on <member>" (mob in combat targeting a party member) | `aggro` on |
+| Healer mana | out of combat: "Healer mana 62%", red "Healer 30% mana - wait" below the threshold | `mana` on; `manapct 20-70` = 40 |
+| Loose mobs | in combat: "Loose (2): Wolf, Boar" (nameplates, target, focus, party targets not on you) | `loose` on |
+
+**Healer** (`/ggf healer`)
+
+| Feature | How it shows | Option (default) |
+|---|---|---|
+| Drink / OOM | two buttons post "Drinking" / "OOM" to party on click (`/ggf healer drink`, `oom`) | `buttons` on; `autodrink` off, `autooom` off (post by themselves) |
+| Dispel alert | "Dispel: Mira (Magic)" for what your class removes (Priest Magic/Disease, Paladin Magic/Poison/Disease, Druid Curse/Poison, Shaman Poison/Disease; needs the spell known) | `dispel` on |
+| Tank frame | small secure frame (name, health, target) for the member with the Tank role; click targets. Created and re-pointed out of combat only | `tankframe` on |
+| Dead / out of range | "Mira died", "Bob is out of range" | `deadrange` on |
+| PvP flag | "Kaz is PvP flagged - you are not" (target or mouseover) | `pvp` on |
+
+**DPS** (`/ggf dps`)
+
+| Feature | How it shows | Option (default) |
+|---|---|---|
+| Assist tank | "Assist" secure button (type assist on the tank). Created and re-pointed out of combat only | `assist` on |
+| Wrong target | "Not skull: <mob>" in combat while a skull is out | `wrongtarget` on |
+| Aggro | "<mob> is on you!" | `aggro` on |
+| CC assignment | party leader: right-click the bar > DPS mode > Crowd control > player > marker; says "Sheep = Moon (Name)" to party on that click and sends a `GGFcc` addon message; the assigned player sees "CC: Moon" above their bar. Session only (`/ggf dps cc` lists) | `cc` on |
+| Interrupt | "Interrupt <mob>: <spell>" when target or focus starts an interruptible cast | `interrupt` on |
+
+Limits: in combat the client often hides aura, target and cast values, then the matching warning is skipped
+(the dispel alert in particular mostly works out of combat). A secure button keeps its old tank until combat
+ends. Only players running this addon see the CC marker.
+
 ## How it is built
 
 Plain (non-secure) buttons; none of the calls used is protected, and no Blizzard frame is touched.
 Every handler runs in `pcall`, every client API is checked with `type(...) == "function"` first, and
 a secret value is never compared: it is treated as no value. The modes are a table (`Modes`) with a
-hook per mode (`ModeHooks`), so a per-mode module can be added later. It ships a `_Camelot` TOC and a
+hook per mode (`ModeHooks`); the role modules (`Roles.lua`, `Tank.lua`, `Healer.lua`, `Dps.lua`) use it, plus the
+dock, menu, slash and defaults hooks of `GaarGroupForeverAPI._M`. The Assist button and the tank frame are the only
+secure frames (created and changed out of combat only). It ships a `_Camelot` TOC and a
 plain fallback TOC, both at 16001.
 
 ## License

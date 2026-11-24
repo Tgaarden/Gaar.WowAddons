@@ -15,11 +15,11 @@
                     UNIT_SPELLCAST_START / CHANNEL_START; a secret flag is skipped.
 ]]
 
-local _, NS = ...
-local R = type(NS) == "table" and NS.R or nil
-if not R then return end
-local M = NS.M
 local _G = _G
+local API = _G.GaarGroupForeverAPI
+local M = API and API._M
+local R = M and M.Roles
+if not R then return end
 local BF = _G.GaarForever
 local Num, Str = BF.Num, BF.Str
 
@@ -69,7 +69,8 @@ end
 function D.ParseCast(kind, r)
     local newer = type(r[6]) == "boolean"
     local flag
-    if kind == "cast" then flag = newer and r[8] or r[9] else flag = newer and r[7] or r[8] end
+    local pos = (kind == "cast" and 8 or 7) + (newer and 0 or 1)
+    flag = r[pos]
     if BF.IsSecret(flag) or type(flag) ~= "boolean" then flag = nil end
     return Str(r[1]), flag
 end
@@ -150,7 +151,7 @@ function D.Candidates()
         local role = R.Q(_G.UnitGroupRolesAssigned, u)
         local name = R.Name(u)
         if name and role ~= "TANK" and role ~= "HEALER" then
-            local class = select(2, pcall(_G.UnitClass, u))
+            local _, _, class = pcall(_G.UnitClass, u)
             out[#out + 1] = { name = name, class = type(class) == "string" and class or nil }
         end
     end

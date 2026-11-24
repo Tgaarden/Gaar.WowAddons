@@ -19,10 +19,10 @@
   return nil for it, and a warning that needs the value is simply skipped.
 ]]
 
-local _, NS = ...
-local M = type(NS) == "table" and NS.M or nil
-if not M then return end
 local _G = _G
+local API = _G.GaarGroupForeverAPI
+local M = API and API._M
+if not M then return end
 local BF = _G.GaarForever
 local IsSecret, Num, Str = BF.IsSecret, BF.Num, BF.Str
 
@@ -39,7 +39,7 @@ local R = {
     scan = nil, scanAt = -10,
 }
 M.Roles = R
-NS.R = R
+M.Defaults.roles = {} -- saved in GaarGroupForeverDB.roles (option key -> value)
 
 R.RED, R.YELLOW, R.GREEN, R.BLUE = { 1, 0.35, 0.35 }, { 1, 0.85, 0.2 }, { 0.45, 1, 0.45 }, { 0.55, 0.8, 1 }
 R.TICK = 0.25
@@ -315,6 +315,10 @@ end
 function R.Register(role, mod)
     R.mods[role] = mod
     mod.role = role
+    if M.Dock and M.Dock.AddPanel then
+        M.Dock.AddPanel({ getFrame = function() return mod.row end,
+            height = function() return R.current == role and mod.row and mod.height or nil end })
+    end
     if type(mod.events) == "table" then
         for ev in pairs(mod.events) do
             if R.frame then pcall(R.frame.RegisterEvent, R.frame, ev) end
@@ -351,33 +355,28 @@ function R.BuildRow(role)
     local mod = R.mods[role]
     if not mod or mod.row or not M.bar or R.InCombat() or type(mod.build) ~= "function" then return end
     local row = _G.CreateFrame("Frame", "GaarGroupForever" .. role .. "Row", M.bar)
-    row:SetPoint("TOPLEFT", M.bar, "BOTTOMLEFT", 0, -2)
+    row:SetPoint("TOPLEFT", M.bar, "BOTTOMLEFT", 0, -2) -- the dock re-places it
     row:Hide()
     local ok, w, h = pcall(mod.build, row)
     if not ok then M.Fail("build " .. role, w); return end
     row:SetSize(Num(w) or 100, Num(h) or 26)
-    mod.row = row
+    mod.row, mod.height = row, Num(h) or 26
 end
 
 -- Show the active role's row (and hide the others); build it first when needed (out of combat).
 function R.Sync()
     local role = R.ActiveRole()
-    if role ~= R.current then
+    local changed = role ~= R.current
+    if changed then
         local prev = R.mods[R.current]
         if prev and type(prev.deactivate) == "function" then R.Safe("deactivate", prev.deactivate) end
         R.ClearAll()
         R.current = role
     end
-    for key, mod in pairs(R.mods) do
-        if key == role and not mod.row then R.BuildRow(key) end
-        if mod.row then
-            if key == role then
-                if not mod.row:IsShown() then mod.row:Show() end
-            elseif mod.row:IsShown() then
-                mod.row:Hide()
-            end
-        end
-    end
+    local built = false
+    local cur = R.mods[role]
+    if cur and not cur.row then R.BuildRow(role); built = cur.row ~= nil end
+    if changed or built then R.Dock() end
 end
 
 function R.Tick(force)
@@ -421,11 +420,18 @@ R.frame:SetScript("OnUpdate", function(_, elapsed)
     R.Tick()
 end)
 
--- The bar's own Refresh (mode, roster, role changes) re-syncs the rows at once.
-local baseRefresh = M.Refresh
-M.Refresh = function(...)
-    baseRefresh(...)
-    if M.db then R.Safe("sync", R.Sync) end
+-- The bar's own Refresh (mode, roster, role changes) re-syncs the rows at once. The rows are panels of
+-- the shared dock under the bar (Overview.lua), which lays them out.
+do
+    local baseRefresh = M.Refresh
+    M.Refresh = function(...)
+        baseRefresh(...)
+        if M.db then R.Safe("sync", R.Sync) end
+    end
+end
+
+function R.Dock()
+    if M.Dock and M.Dock.Update then M.Safe("dock", M.Dock.Update) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -440,7 +446,7 @@ function R.MenuEntries()
     for _, role in ipairs(R.order) do
         local mod = R.mods[role]
         if mod then
-            e[#e + 1] = { divider = true }
+            if #e > 0 then e[#e + 1] = { divider = true } end
             e[#e + 1] = { label = ROLE_LABEL[role] .. " mode" }
             for _, o in ipairs(R.options) do
                 if o.role == role then
@@ -524,8 +530,12 @@ function R.Slash(cmd, arg)
     return true
 end
 
-function R.Help()
-    M.Print("/ggf tank | healer | dps - the role modules (options, actions, demo with 'test')")
+M.MenuParts[#M.MenuParts + 1] = function() return R.MenuEntries() end
+M.HelpParts[#M.HelpParts + 1] = function()
+    return { "/ggf tank | healer | dps - the role modules (options, actions; 'test' shows sample warnings)" }
+end
+for _, role in ipairs(R.order) do
+    M.Slash[role] = function(arg) R.Slash(role, arg) end
 end
 
 -- Per-mode hook (M.ModeHooks): picking a mode re-syncs the rows and warnings at once.

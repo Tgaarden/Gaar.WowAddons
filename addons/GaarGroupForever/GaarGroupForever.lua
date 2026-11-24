@@ -28,7 +28,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever

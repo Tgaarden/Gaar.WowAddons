@@ -16,11 +16,11 @@
     PvP flag        A warning when your target or mouseover is a PvP-flagged friendly player and you are not.
 ]]
 
-local _, NS = ...
-local R = type(NS) == "table" and NS.R or nil
-if not R then return end
-local M = NS.M
 local _G = _G
+local API = _G.GaarGroupForeverAPI
+local M = API and API._M
+local R = M and M.Roles
+if not R then return end
 local BF = _G.GaarForever
 local Num, Str = BF.Num, BF.Str
 
@@ -107,7 +107,7 @@ local function KnownFn()
 end
 
 function H.MyKinds()
-    local class = select(2, pcall(_G.UnitClass, "player"))
+    local _, _, class = pcall(_G.UnitClass, "player")
     if type(class) ~= "string" then return {} end
     return H.KindsFor(class, KnownFn())
 end

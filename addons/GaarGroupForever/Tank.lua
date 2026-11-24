@@ -14,11 +14,11 @@
   No protected function is used: SetRaidTarget and SendChatMessage are plain calls on your own click.
 ]]
 
-local _, NS = ...
-local R = type(NS) == "table" and NS.R or nil
-if not R then return end
-local M = NS.M
 local _G = _G
+local API = _G.GaarGroupForeverAPI
+local M = API and API._M
+local R = M and M.Roles
+if not R then return end
 local BF = _G.GaarForever
 local Num = BF.Num
 
@@ -46,7 +46,7 @@ function T.NextMarker(targetIdx, skullTaken, force)
     targetIdx = targetIdx or 0
     if targetIdx == SKULL or (targetIdx == CROSS and force == "x") then return nil end
     if force == "x" then return CROSS end
-    if targetIdx == CROSS then return skullTaken and nil or SKULL end
+    if targetIdx == CROSS then if skullTaken then return nil end return SKULL end
     if skullTaken then return CROSS end
     return SKULL
 end

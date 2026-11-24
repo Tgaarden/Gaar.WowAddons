@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.66"] = "notes for GaarGroupForever 1.5.4: the addon has its CurseForge project id (GaarGroupForever is on CurseForge) and its README shows screenshots of the Tank, DPS and Healer modes, the right-click menu and the options",
         ["3.2.65"] = "notes for GaarGroupForever 1.5.3: the role row is one compact strip (28 px) in every mode; the Healer tank frame moved up beside Drink / OOM (\"No tank\" shows while there is none), so there is no empty space below the buttons",
         ["3.2.64"] = "notes for GaarGroupForever 1.5.2: the panel keeps the same height in Tank, DPS and Healer mode (the role row has a fixed height) and always grows and shrinks downward - the title never moves; an old centre-anchored position is converted once",
         ["3.2.63"] = "notes for GaarBagsForever 1.13.4: the do-not-sell padlock is half the size of its item slot (a quarter of the slot) and sits under the stack count, which stays readable",

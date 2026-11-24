@@ -150,3 +150,37 @@ MIT, see [LICENSE](LICENSE).
 ## Support
 
 If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaarden) ☕
+
+## Screenshots
+
+**Tank mode**
+
+<img src="../../docs/screenshots/GaarGroupForever/1-tank.jpg" alt="Tank mode" width="400">
+
+**DPS mode**
+
+<img src="../../docs/screenshots/GaarGroupForever/2-dps.jpg" alt="DPS mode" width="400">
+
+**Healer mode**
+
+<img src="../../docs/screenshots/GaarGroupForever/3-healer.jpg" alt="Healer mode" width="400">
+
+**Right-click menu**
+
+<img src="../../docs/screenshots/GaarGroupForever/4-menu.jpg" alt="Right-click menu" width="600">
+
+**Options**
+
+<img src="../../docs/screenshots/GaarGroupForever/5-options.jpg" alt="Options" width="600">
+
+**Options: tank**
+
+<img src="../../docs/screenshots/GaarGroupForever/6-options-tank.jpg" alt="Options: tank" width="600">
+
+**Options: healer and DPS**
+
+<img src="../../docs/screenshots/GaarGroupForever/7-options-healer-dps.jpg" alt="Options: healer and DPS" width="600">
+
+**Options: instance info and test mode**
+
+<img src="../../docs/screenshots/GaarGroupForever/8-options-end.jpg" alt="Options: instance info and test mode" width="600">

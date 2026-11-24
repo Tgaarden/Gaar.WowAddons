@@ -28,7 +28,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -50,6 +50,12 @@ local M = {
     fallbackRunning = false,
     lastError = nil,
     ModeHooks = {},  -- ModeHooks[modeKey] = function(modeKey): per-mode modules plug in here
+    -- Extension points for the other files (Overview, Checks, Markers, RunLog ...), reached through
+    -- GaarGroupForeverAPI._M: saved-variable defaults, menu entries, slash subcommands, help lines.
+    Defaults = {},   -- Defaults[key] = value, kept and filled in in GaarGroupForeverDB
+    MenuParts = {},  -- function() return { menu entries } end
+    Slash = {},      -- Slash[cmd] = function(arg)
+    HelpParts = {},  -- function() return { help lines } end
 }
 
 -- The modes, in button order. role: what UnitSetRole / UnitGroupRolesAssigned use.
@@ -497,18 +503,26 @@ function M.MenuEntries()
             checked = function() return M.DefaultCountdown() == n end,
             func = function() M.SetCountdown(n) end }
     end
-    return {
+    local entries = {
         { text = "Show the bar in a party", checkbox = true,
           checked = function() return M.db.show ~= false end, func = function() M.SetShow(M.db.show == false) end },
         { text = "Lock the bar", checkbox = true,
           checked = function() return M.db.locked == true end, func = function() M.SetLocked(not M.db.locked) end },
         { text = "Scale", submenu = scales },
         { text = "Default countdown", submenu = counts },
-        { divider = true },
-        { text = "Test mode", checkbox = true, checked = function() return M.preview and true or false end,
-          func = function() M.SetPreview(not M.preview) end },
-        { text = "Reset position", func = M.ResetPos },
     }
+    for _, part in ipairs(M.MenuParts) do
+        local ok, list = pcall(part)
+        if ok and type(list) == "table" and #list > 0 then
+            entries[#entries + 1] = { divider = true }
+            for _, e in ipairs(list) do entries[#entries + 1] = e end
+        end
+    end
+    entries[#entries + 1] = { divider = true }
+    entries[#entries + 1] = { text = "Test mode", checkbox = true, checked = function() return M.preview and true or false end,
+        func = function() M.SetPreview(not M.preview) end }
+    entries[#entries + 1] = { text = "Reset position", func = M.ResetPos }
+    return entries
 end
 
 function M.StatusLine()
@@ -525,6 +539,10 @@ function M.PrintHelp()
     M.Print("/ggf reset - put the bar back where it started")
     M.Print("/ggf scale 0.5-2 | countdown 3|5|10 - size and default pull time")
     M.Print("/ggf test - show the bar solo to place it (this session)")
+    for _, part in ipairs(M.HelpParts) do
+        local ok, lines = pcall(part)
+        if ok and type(lines) == "table" then for _, l in ipairs(lines) do M.Print(l) end end
+    end
     M.Print("/ggf status - settings")
 end
 
@@ -562,6 +580,8 @@ function M.OnSlash(msg)
             M.SetPreview(not M.preview); M.Print("test mode " .. OnOff(M.preview) .. ".")
         elseif cmd == "status" then
             M.PrintStatus()
+        elseif type(M.Slash[cmd]) == "function" then
+            M.Slash[cmd](arg)
         else
             M.PrintHelp()
         end
@@ -580,6 +600,7 @@ _G.GaarGroupForeverAPI = {
     MenuEntries = M.MenuEntries,
     AddMenuEntries = function(root) BF.RenderMenu(root, M.MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
+    _M = M, -- for the other files of this addon (Overview.lua, Checks.lua, Markers.lua, RunLog.lua)
 }
 
 -- ---------------------------------------------------------------------------
@@ -592,7 +613,10 @@ function M.BindSavedVariables()
     local db = _G.GaarGroupForeverDB
     M.db, M.cdb = db, _G.GaarGroupForeverCharDB
     for k in pairs(db) do
-        if DEFAULTS[k] == nil and k ~= "pos" then db[k] = nil end
+        if DEFAULTS[k] == nil and M.Defaults[k] == nil and k ~= "pos" then db[k] = nil end
+    end
+    for k, v in pairs(M.Defaults) do
+        if type(db[k]) ~= type(v) then db[k] = v end
     end
     if type(db.show) ~= "boolean" then db.show = DEFAULTS.show end
     if type(db.locked) ~= "boolean" then db.locked = DEFAULTS.locked end

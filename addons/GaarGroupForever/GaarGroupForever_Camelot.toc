@@ -16,3 +16,7 @@ Overview.lua
 Checks.lua
 Markers.lua
 RunLog.lua
+Roles.lua
+Tank.lua
+Healer.lua
+Dps.lua

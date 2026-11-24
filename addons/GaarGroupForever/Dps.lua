@@ -235,7 +235,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function D.build(row)
-    local f = R.Secure(row, 5, 0, 60, 22, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
+    local f = R.Secure(row, 5, R.BTN_Y, 60, 22, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
         function() return D.AssistLive() end)
     if not f then return 70, 26 end
     f:RegisterForClicks("AnyUp")

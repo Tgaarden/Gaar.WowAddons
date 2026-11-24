@@ -32,7 +32,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -304,9 +304,28 @@ local MT = M.Metrics
 MT.roleBottom = MT.top + MT.icon -- y (down from the panel top) where the role row ends
 local SIZE, GAP, SEP, WIDE = MT.icon, MT.gap, MT.sep, MT.wide
 
+local TOP_POINTS = { TOP = true, TOPLEFT = true, TOPRIGHT = true }
+
+-- The panel changes height when panels open or close; a TOP-anchored frame then grows and shrinks downward and
+-- the title never moves. Older saves (and a drag in some clients) can anchor on CENTER / BOTTOM...: convert to
+-- the same screen spot anchored TOPLEFT to UIParent's BOTTOMLEFT. Returns true when it re-anchored.
+function M.EnsureTopAnchor()
+    local bar = M.bar
+    if not bar or M.Q(_G.InCombatLockdown) then return false end
+    local p = bar:GetPoint(1)
+    if type(p) ~= "string" or TOP_POINTS[p] then return false end
+    local ok, l, t = pcall(function() return bar:GetLeft(), bar:GetTop() end)
+    l, t = Num(l), Num(t)
+    if not ok or not l or not t then return false end
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", _G.UIParent, "BOTTOMLEFT", l, t)
+    return true
+end
+
 function M.SavePos()
     local bar, db = M.bar, M.db
     if not bar or not db then return end
+    M.EnsureTopAnchor()
     local p, _, rp, x, y = bar:GetPoint(1)
     if p and Num(x) and Num(y) then db.pos = { p = p, rp = rp, x = x, y = y } end
 end
@@ -320,6 +339,7 @@ function M.PlaceBar()
     else
         bar:SetPoint("TOP", _G.UIParent, "CENTER", 0, -150)
     end
+    M.topChecked = nil -- re-check once the dock has sized the bar (Overview.lua D.Layout)
 end
 
 function M.ApplyScale()

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.64"] = "notes for GaarGroupForever 1.5.2: the panel keeps the same height in Tank, DPS and Healer mode (the role row has a fixed height) and always grows and shrinks downward - the title never moves; an old centre-anchored position is converted once",
         ["3.2.63"] = "notes for GaarBagsForever 1.13.4: the do-not-sell padlock is half the size of its item slot (a quarter of the slot) and sits under the stack count, which stays readable",
         ["3.2.62"] = "notes for GaarGroupForever 1.5.1: role icons stay visible after you pick a role (the active state is now a glow overlay instead of an opaque checked texture)",
         ["3.2.61"] = "notes for GaarGroupForever 1.5.0: Blizzard-style panel - one dialog frame with a title plate, red Blizzard buttons for Ready/Roles/Pull and the tabs, square action-style role and raid-marker buttons, tidy member rows",

@@ -55,7 +55,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -349,8 +349,11 @@ local LOAD_RETRY = 30
 local function LogWindowOpen()
     for _, name in ipairs({ "QuestLogFrame", "QuestMapFrame", "WorldMapFrame" }) do
         local f = _G[name]
-        if f and type(f.IsShown) == "function" then
-            local ok, shown = pcall(f.IsShown, f)
+        -- IsVisible (effective): on Forever QuestMapFrame is a child of WorldMapFrame and keeps its own
+        -- shown flag, so IsShown() is true even with the map closed.
+        local fn = f and (f.IsVisible or f.IsShown)
+        if type(fn) == "function" then
+            local ok, shown = pcall(fn, f)
             if ok and shown then return true end
         end
     end

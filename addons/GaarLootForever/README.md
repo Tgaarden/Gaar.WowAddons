@@ -90,7 +90,7 @@ loot history is there, how many rolls are open and how many are in the summary.
 | `/glf autohide on\|off` | clear the summary 60 s after the last roll finished (`autohide`) |
 | `/glf rolls <1-10>` | how many rolls the summary keeps (`summaryRolls`, default 5) |
 | `/glf reset` | the summary back to its default place |
-| `/glf test` | the preview window, the parse results and fake rolls in the summary |
+| `/glf test` (menu: **Test: show a preview**) | the preview window, the parse results and fake rolls in the summary |
 | `/glf status` | version, settings, patterns, open rolls, the last error |
 
 ## With GaarForever (required)

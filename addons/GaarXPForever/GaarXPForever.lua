@@ -55,7 +55,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.4.1"
+local VERSION = "1.5.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -84,6 +84,7 @@ local LABELS = {
 
 local db
 local lastError
+local testing = false   -- /gxp test: the panel with made-up numbers, this session only (never saved)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -529,7 +530,22 @@ local function Rate()
     return session.gained / el * 3600
 end
 
+-- Test mode: a made-up panel (also at max level), to see it and place it. Touches no real data.
+local function TestPanelText()
+    return table.concat({
+        "XP: 12,450/21,300 (58.5%)",
+        "Rested: 4,260 (20% of level)",
+        "XP/hour: 38,200 (mobs 24,100" .. DOT .. "quests 14,100)",
+        "Quests ready: 2 (+1,850 XP)",
+        "After turn-in: 14,300/21,300 (67.1%)",
+        "To level: 11m 2s",
+        "~38 kills (avg 180 XP)" .. DOT .. "~4 quests",
+        "(test mode: made-up numbers)",
+    }, "\n")
+end
+
 local function PanelText()
+    if testing then return TestPanelText() end
     if AtMax() then return "Max level" end
     local cur, max, rested = XPValues()
     if not cur then return "XP: no data" end
@@ -625,7 +641,7 @@ end
 
 RefreshPanel = function()
     if not db then return end
-    if not Enabled("panel") then
+    if not (testing or Enabled("panel")) then
         if panel then panel:Hide() end
         return
     end
@@ -1352,6 +1368,15 @@ local function SetFlag(key, v)
     Refresh()
 end
 
+local function SetTest(on, quiet)
+    testing = on and true or false
+    Refresh()
+    if not quiet then
+        Print(testing and "test mode on: the XP panel shows made-up numbers - drag it into place (unlock it first, or Alt-drag). /gxp test again to stop."
+            or "test mode off.")
+    end
+end
+
 local function OnOff(v)
     if v == "on" then return true elseif v == "off" then return false end
 end
@@ -1378,6 +1403,7 @@ local function PrintHelp()
     Print("/gxp panel|xpbar|always|levellog|questxp|ready|readybar on|off - one part (no value shows its state)")
     Print("/gxp readybar color orange|green|yellow - colour of the ready-quest segment on the XP bar")
     Print("/gxp ready debug - per ready quest: id, XP and which source gave it")
+    Print("/gxp test - show the XP panel with made-up numbers, to place it (now " .. (testing and "on" or "off") .. ")")
     Print("/gxp unlock|lock|reset  panel drag without Alt; lock; reset the session (stats)")
     Print("/gxp resetpos - panel back to its default place; /gxp status")
 end
@@ -1442,6 +1468,7 @@ local function OnSlash(msg)
         if a == "" or a == "help" then PrintHelp()
         elseif a == "on" or a == "off" then SetFlag("enabled", a == "on"); Print("master " .. a)
         elseif a == "status" then PrintStatus()
+        elseif a == "test" then SetTest(not testing)
         elseif a == "reset" then ResetSession(); Refresh(); Print("session reset")
         elseif a == "unlock" or a == "lock" then
             db.locked = (a == "lock")
@@ -1493,6 +1520,9 @@ local function MenuEntries()
         { text = "Panel unlocked (drag)", checkbox = true,
           checked = function() return not db.locked end,
           func = function() db.locked = not db.locked end },
+        { text = "Test mode", checkbox = true,
+          checked = function() return testing end,
+          func = function() SetTest(not testing) end },
         { text = "Reset session", func = function() ResetSession(); Refresh() end },
     }
 end

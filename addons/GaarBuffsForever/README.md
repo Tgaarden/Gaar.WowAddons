@@ -487,7 +487,7 @@ menu has a **Buffs** submenu with the options for your class:
 - every class with a module: **Enabled**, then the class options, **List group members**, **Sound
   when something goes missing**, **Low reagent warning**, **Show members out of range**, **Warn
   when a buff expires within (minutes)** (a slider, 0-5), the class's reagent threshold(s), **Set
-  tank: current target**, **Clear tank** (while one is set), **Lock box**, **Test box** and **Reset
+  tank: current target**, **Clear tank** (while one is set), **Lock box**, **Test mode** (was Test box) and **Reset
   position**;
 - a druid: **Mark of the Wild check**, **Thorns on you**, **Thorns on the tank**, **Dispel panel
   (curses, poisons)**, **Dispel: curses**, **Dispel: poisons**, **Gift of the Wild reagent warning

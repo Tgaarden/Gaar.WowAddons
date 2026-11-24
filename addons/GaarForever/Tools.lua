@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.53"] = "notes for GaarBuffsForever 1.10.0, GaarCastbarsForever 1.4.0, GaarChatForever 1.6.0, GaarFramesForever 1.8.0, GaarGroupForever 1.1.0, GaarLootForever 1.4.0, GaarFishingForever 1.7.0 and GaarXPForever 1.5.0: every addon with a test mode has a Test entry in its menu (kept just before Reset); new test modes for the fishing session panel (/gfish test) and the XP panel (/gxp test); /ggf test is also a menu entry",
         ["3.2.52"] = "notes for the new GaarGroupForever 1.0.0: a Group row in the menu and on the Options page (/ggf)",
         ["3.2.51"] = "notes for GaarBagsForever 1.13.1: the gold of your other characters (hover the bag gold, /gbf gold) is found again: records kept under another spelling of the realm or of your name (\"Dru\" vs \"Dru Tics\") are merged into one and never counted twice",
         ["3.2.50"] = "notes for GaarPlatesForever 1.4.1 and GaarFramesForever 1.7.1: both colour a mob level with the same shared classic difficulty bands, so a plate and the target frame agree",
@@ -125,6 +126,7 @@ local CHANGES = {
         ["1.1.2"] = "uses the GaarForever shared library",
     },
     GaarCastbarsForever = {
+        ["1.4.0"] = "Test mode entry moved next to Reset positions & sizes in the menu",
         ["1.3.0"] = "right-click cast bar: opens the addon's menu",
         ["1.2.0"] = "Renamed to GaarCastbarsForever (new folders; settings move over automatically on first login; new /gcf commands, old ones still work)",
         ["1.1.6"] = "the addon's own name in its menu errors",
@@ -146,6 +148,7 @@ local CHANGES = {
         ["1.2.2"] = "shared helpers from the GaarForever library",
     },
     GaarFramesForever = {
+        ["1.8.0"] = "Test mode entry moved next to Reset positions & scales in the menu",
         ["1.7.0"] = "PvP flag: a faction (or free-for-all) icon beside the portrait of a flagged player, target or party member, and on your own frame the m:ss left while the flag times out (/gff pvp on|off, also in the menu)",
         ["1.6.0"] = "Spell cost on your power bar: while you cast a spell with a cast time, the part of the player frame's power bar (mana, energy, rage ...) the cost will take is drawn bright and gently pulsing with a small -number, red when you do not have enough; gone the moment the cast ends, fails or is interrupted (/gff cost on|off)",
         ["1.5.3"] = "Fix: the HoT preview while casting (Regrowth) found no target for WoW Forever characters with a surname (the cast gives \"First Surname\", the client unit name only the first name); names now match with surname and realm, for you, party and raid",
@@ -164,6 +167,7 @@ local CHANGES = {
         ["1.0.2"] = "uses the GaarForever shared library",
     },
     GaarFishingForever = {
+        ["1.7.0"] = "test mode: /gfish test or the Test mode menu entry shows the session stats panel with made-up numbers, to place it without fishing",
         ["1.6.0"] = "right-click session stats panel: opens the addon's menu",
         ["1.5.0"] = "Renamed to GaarFishingForever (new folders; settings move over automatically on first login; new /gfish commands, old ones still work)",
         ["1.4.1"] = "the addon's own name in its menu errors",
@@ -172,6 +176,7 @@ local CHANGES = {
         ["1.2.2"] = "uses the GaarForever shared library",
     },
     GaarBuffsForever = {
+        ["1.10.0"] = "Test mode entry in the menu (was Test box); it sits just before Reset position",
         ["1.9.0"] = "right-click buff box background: opens the addon's menu",
         ["1.7.0"] = "Renamed to GaarBuffsForever (new folders; settings move over automatically on first login; new /gbuff commands, old ones still work)",
         ["1.6.0"] = "combat dispel icons, lower rank for low-level members, expiring-soon warning /gbuff expire, out-of-range sound fix",
@@ -181,6 +186,7 @@ local CHANGES = {
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     GaarGroupForever = {
+        ["1.1.0"] = "Test mode entry in the menu (shows the bar solo, this session only)",
         ["1.0.0"] = "new: a small party bar (only in a party) with Tank / DPS / Healer role buttons and leader shortcuts for ready check, role check and pull countdown (/ggf)",
     },
     GaarMerchantForever = {
@@ -202,6 +208,7 @@ local CHANGES = {
         ["1.0.2"] = "uses the GaarForever shared library",
     },
     GaarXPForever = {
+        ["1.5.0"] = "test mode: /gxp test or the Test mode menu entry shows the XP panel with made-up numbers (also at max level), to place it",
         ["1.4.0"] = "right-click XP panel: opens the addon's menu",
         ["1.2.1"] = "Ready quests: the XP is now read through several fallbacks (it was always 0 on WoW Forever); /gxp ready debug shows the source per quest",
         ["1.2.0"] = "Ready quests: the XP panel shows complete-but-not-turned-in quests with their XP, and time to level / kills count them (/gxp ready)",
@@ -210,6 +217,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarChatForever = {
+        ["1.6.0"] = "Test: print sample chat lines is the last menu entry; /gchat test unchanged",
         ["1.5.0"] = "/gchat test and a Show test lines (chat) button: sample chat lines in the main chat frame that show the tweaks, for a screenshot",
         ["1.4.0"] = "right-click chat feed window: opens the addon's menu",
         ["1.2.2"] = "your own messages are recognised for characters with a surname",
@@ -223,6 +231,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarLootForever = {
+        ["1.4.0"] = "the preview button is named Test: show a preview and sits before the reset button; /glf test unchanged",
         ["1.3.0"] = "right-click recent-rolls panel: opens the addon's menu",
         ["1.2.3"] = "your own rolls are counted under your full name, so characters with a surname are no longer split in two",
         ["1.2.0"] = "Renamed to GaarLootForever (new folders; settings move over automatically on first login; new /glf commands, old ones still work)",

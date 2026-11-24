@@ -77,6 +77,7 @@ Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbar
 | `/gxp readybar color orange\|green\|yellow` | Segment colour |
 | `/gxp ready debug` | Per ready quest: title, questID and which source gave its XP (or the raw returns) |
 | `/gxp unlock`, `/gxp lock` | Drag the panel without Alt / back to Alt-drag |
+| `/gxp test` | Test mode (1.5.0): the XP panel with made-up numbers (also at max level), to place it; this session only. Also a **Test mode** menu entry |
 | `/gxp resetpos` | Panel back to its default place |
 | `/gxp reset` | Reset the session |
 | `/gxp status` | Version, every setting, the XP bar frame found, session numbers and the last error |

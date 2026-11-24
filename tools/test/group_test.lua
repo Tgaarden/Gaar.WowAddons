@@ -119,4 +119,21 @@ chat = {}; M.ShortcutCount(); eq(called, 5, "default length 5")
 M.SetCountdown(3); M.ShortcutCount(); eq(called, 3, "default length option")
 eq(M.SetCountdown(7), false, "only 3/5/10")
 
+-- test mode: a menu checkbox (just before Reset) that follows M.preview, and the same switch as /ggf test
+do
+    local entries = M.MenuEntries()
+    local ti, last
+    for i, e in ipairs(entries) do if e.text == "Test mode" then ti = i end; last = i end
+    eq(ti ~= nil, true, "menu has Test mode")
+    eq(entries[ti].checkbox, true, "Test mode is a checkbox")
+    eq(entries[last].text, "Reset position", "Reset stays last")
+    eq(ti, last - 1, "Test mode sits just before Reset")
+    state.group, state.raid = false, false; M.preview = false
+    eq(entries[ti].checked(), false, "test off")
+    entries[ti].func()
+    eq(entries[ti].checked(), true, "test on after click"); eq(M.ShouldShow(), true, "solo bar shown in test")
+    M.OnSlash("test")
+    eq(M.preview, false, "/ggf test toggles it back off"); eq(M.ShouldShow(), false, "solo bar hidden again")
+end
+
 if fails == 0 then print("group_test: ok") else os.exit(1) end

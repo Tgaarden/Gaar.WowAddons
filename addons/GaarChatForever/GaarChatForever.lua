@@ -46,7 +46,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
 ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.5.0"
+local VERSION = "1.6.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -740,8 +740,8 @@ local function MenuEntries()
             func = function() SetFeature(f.key, not db[f.key]) end }
     end
     list[#list + 1] = { divider = true }
-    list[#list + 1] = { text = "Show test lines (chat)", func = function() ShowTestLines() end }
     list[#list + 1] = { text = "Chat feed", submenu = ns.Feed.MenuEntries() }
+    list[#list + 1] = { text = "Test: print sample chat lines", func = function() ShowTestLines() end }
     return list
 end
 

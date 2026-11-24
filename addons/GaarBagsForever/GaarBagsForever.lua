@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.1"
+local VERSION = "1.13.2"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -1355,9 +1355,78 @@ function Keys.MergeRecord(into, from)
     end
 end
 
+-- A name without its realm suffix, lower case: the part two keys of one character share.
+function Keys.Bare(name)
+    if type(name) ~= "string" then return nil end
+    local strip = type(BF.StripRealm) == "function" and BF.StripRealm(name) or name:gsub("%-[^%- ]+$", "")
+    return type(strip) == "string" and strip:lower() or nil
+end
+
+-- The one key in realm that is a longer spelling of short ("Dru Tics" for "Dru") and not of
+-- another class; nil when there is none, or more than one full name it could be.
+function Keys.UniqueLonger(short, realm, class)
+    local a = Keys.Bare(short)
+    if not a or type(realm) ~= "table" then return nil end
+    local found, foundBare
+    for other, orec in pairs(realm) do
+        if type(other) == "string" and type(orec) == "table" then
+            local o = Keys.Bare(other)
+            if o and #o > #a and Keys.SameChar(other, short)
+                and not (type(class) == "string" and type(orec.class) == "string" and orec.class ~= class) then
+                if foundBare and foundBare ~= o then return nil end
+                if not found or other == playerName then found, foundBare = other, o end
+            end
+        end
+    end
+    return found
+end
+
+-- Is the record under name the logged-in character's? The same name in another case or with a
+-- realm suffix; its first name only, when no other full name here has that first name; or, when
+-- playerName itself is only a first name, the one full name it can be. Never one of another class.
+function Keys.IsMine(name, rec, realm, myClass)
+    if type(name) ~= "string" or not playerName then return false end
+    if name == playerName then return true end
+    if not Keys.SameChar(name, playerName) then return false end
+    if type(rec) == "table" and type(rec.class) == "string" and type(myClass) == "string" and rec.class ~= myClass then
+        return false
+    end
+    local a, b = Keys.Bare(name), Keys.Bare(playerName)
+    if not a or not b then return false end
+    if #a == #b then return true end
+    if #a < #b then return Keys.UniqueLonger(name, realm, type(rec) == "table" and rec.class or myClass) == playerName end
+    return Keys.UniqueLonger(playerName, realm, myClass) == name
+end
+
+-- A second key of one character that is listed under the other: a first name whose full name is
+-- known ("Dru" beside "Dru Tics"), or another spelling of the same name. The logged-in key never is.
+function Keys.Shadowed(name, rec, realm)
+    if name == playerName then return false end
+    local a = Keys.Bare(name)
+    if not a then return false end
+    for other, orec in pairs(realm) do
+        if other ~= name and type(other) == "string" and type(orec) == "table" and Keys.Bare(other) == a
+            and (other == playerName or (playerName == nil or Keys.Bare(playerName) ~= a) and other < name) then
+            return true
+        end
+    end
+    return Keys.UniqueLonger(name, realm, type(rec) == "table" and rec.class or nil) ~= nil
+end
+
+local function DeepCopy(v, depth)
+    if type(v) ~= "table" or (depth or 0) > 8 then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = DeepCopy(x, (depth or 0) + 1) end
+    return t
+end
+
 -- Finds the logged-in character's records under any older key and folds them into one record
 -- under playerName / playerRealm: realm spelling variants, and first-name-only vs full-name keys.
-function Keys.Migrate()
+-- Since 1.13.2 a key is folded only when it is surely this character (Keys.IsMine): a longer name
+-- is never folded into a first-name playerName, a record of another class never, and a first name
+-- that two full names share stays where it is. 1.13.1 folded every NamesMatch hit, so a login that
+-- knew only "Dru" swallowed "Dru Tics" and "Dru Other" alike.
+function Keys.Migrate(myClass)
     if not db or type(db.inventory) ~= "table" or not playerRealm or not playerName then return end
     local inv = db.inventory
     local target = inv[playerRealm]
@@ -1368,7 +1437,7 @@ function Keys.Migrate()
     local wanted = Keys.RealmKey(playerRealm)
     local keys = {}
     for realmKey in pairs(inv) do
-        if realmKey ~= playerRealm and type(realmKey) == "string" and Keys.RealmKey(realmKey) == wanted then
+        if realmKey ~= playerRealm and type(realmKey) == "string" and wanted ~= "" and Keys.RealmKey(realmKey) == wanted then
             keys[#keys + 1] = realmKey
         end
     end
@@ -1383,9 +1452,11 @@ function Keys.Migrate()
         end
         inv[realmKey] = nil
     end
+    local mineBare = Keys.Bare(playerName)
     local old = {}
     for name, rec in pairs(target) do
-        if type(name) == "string" and name ~= playerName and type(rec) == "table" and Keys.SameChar(name, playerName) then
+        if type(name) == "string" and name ~= playerName and type(rec) == "table"
+            and #(Keys.Bare(name) or "") <= #(mineBare or "") and Keys.IsMine(name, rec, target, myClass) then
             old[#old + 1] = name
         end
     end
@@ -1402,6 +1473,56 @@ function Keys.Migrate()
         Keys.MergeRecord(mine, rec)
         target[name] = nil
     end
+end
+
+-- Characters recorded before the Better -> Gaar rename (2026-11-15) are in BetterBagsForeverDB,
+-- which the client loads only while the BetterBagsForever bridge folder is installed. BF.Migrate
+-- copies the old settings only into an EMPTY GaarBagsForeverDB, so once this addon had run a
+-- single time without the bridge, those characters were never brought over. They are merged here
+-- record by record (a record already here keeps its gold), once; the old table is marked.
+function Keys.MergeOld()
+    local old = _G.BetterBagsForeverDB
+    if type(old) ~= "table" then
+        Keys.oldState = "BetterBagsForeverDB not loaded (BetterBagsForever bridge folder not installed)"
+        return 0
+    end
+    if type(old.inventory) ~= "table" then
+        Keys.oldState = "BetterBagsForeverDB loaded, no characters in it"
+        return 0
+    end
+    if old.__gbfInventoryMerged then
+        Keys.oldState = "BetterBagsForeverDB loaded, its characters merged earlier"
+        return 0
+    end
+    if type(db.inventory) ~= "table" then db.inventory = {} end
+    local n = 0
+    for realmKey, chars in pairs(old.inventory) do
+        if type(realmKey) == "string" and type(chars) == "table" then
+            local into = db.inventory[realmKey]
+            if type(into) ~= "table" then
+                local want = Keys.RealmKey(realmKey)
+                for k, v in pairs(db.inventory) do
+                    if type(k) == "string" and type(v) == "table" and want ~= "" and Keys.RealmKey(k) == want then into = v; break end
+                end
+            end
+            if type(into) ~= "table" then
+                into = {}
+                db.inventory[realmKey] = into
+            end
+            for name, rec in pairs(chars) do
+                if type(name) == "string" and type(rec) == "table" then
+                    local copy = DeepCopy(rec)
+                    local key = name
+                    if type(into[key]) ~= "table" then key = Keys.UniqueLonger(name, into, rec.class) or name end
+                    if type(into[key]) == "table" then Keys.MergeRecord(into[key], copy) else into[key] = copy end
+                    n = n + 1
+                end
+            end
+        end
+    end
+    old.__gbfInventoryMerged = true
+    Keys.oldState = string.format("BetterBagsForeverDB loaded, %d character record%s merged in now", n, n == 1 and "" or "s")
+    return n
 end
 
 local function UpdateGold()
@@ -1487,11 +1608,11 @@ local function InitInventory()
     local okFull, full = pcall(function() return type(BF.PlayerFullName) == "function" and BF.PlayerFullName() or nil end)
     full = okFull and PlainString(full) or nil
     if full and (not playerName or #full > #playerName) then playerName = full end
-    pcall(Keys.Migrate)
-    local rec = PlayerRecord()
-    if not rec then return end
     local okClass, _, class = pcall(_G.UnitClass, "player")
     class = okClass and PlainString(class) or nil
+    pcall(Keys.Migrate, class)
+    local rec = PlayerRecord()
+    if not rec then return end
     if class then rec.class = class end
     local okFaction, faction = pcall(_G.UnitFactionGroup, "player")
     faction = okFaction and PlainString(faction) or nil
@@ -1515,15 +1636,18 @@ local function ClassColored(name, class)
     return name
 end
 
--- This realm's records, the logged-in character first, then by name. A record under a second
--- spelling of the same character ("Dru" and "Dru Tics") is listed once, never counted twice.
+-- This realm's records, the logged-in character first, then by name. A second key of one
+-- character ("Dru" beside "Dru Tics", another spelling) is listed once, never counted twice; a
+-- first name two full names share is kept, never folded into either (Keys.IsMine, Keys.Shadowed).
 local function RealmCharacters()
     local realm = RealmData(false)
     local list = {}
     if not realm then return list end
+    local mineRec = playerName and realm[playerName]
+    local myClass = type(mineRec) == "table" and mineRec.class or nil
     for name, rec in pairs(realm) do
-        if type(name) == "string" and type(rec) == "table" then
-            list[#list + 1] = { name = name, rec = rec, me = Keys.SameChar(name, playerName) }
+        if type(name) == "string" and type(rec) == "table" and not Keys.Shadowed(name, rec, realm) then
+            list[#list + 1] = { name = name, rec = rec, me = Keys.IsMine(name, rec, realm, myClass) }
         end
     end
     table.sort(list, function(a, b)
@@ -1635,6 +1759,24 @@ local function HookTooltips()
 end
 
 -- ---- gold -------------------------------------------------------------------
+--
+-- The gold tooltip (since 1.7) is shown two ways, so it does not hang on one frame layout:
+--   hook  HookScript OnEnter/OnLeave on every money frame found and every frame inside it (the
+--         coin buttons take the mouse; on the retail-engine client they can sit a level deeper,
+--         under a money frame that has no global name, where 1.7-1.13.1 never looked).
+--   poll  a small OnUpdate of our own (every 0.1 s, out of combat) asks each money frame
+--         IsMouseOver(); a frame that takes no mouse, or one covered by another frame, still
+--         gets the tooltip. A tooltip of someone else (an item) is never replaced.
+-- Gold.diag keeps what happened last (/gbf gold, /gbf status), errors included: 1.7-1.13.1
+-- swallowed every error in pcall, so a failing hover showed nothing and said nothing.
+
+local Gold = {
+    frames = {},                                     -- { frame, path } per money frame found
+    targets = setmetatable({}, { __mode = "k" }),    -- every frame whose OnEnter is hooked -> path
+    diag = { enters = 0 },
+    COINS = { "GoldButton", "SilverButton", "CopperButton" },
+    POLL = 0.1,
+}
 
 -- This realm's gold: rows of { name, class, gold } in the usual order, and the total.
 local function GoldRows()
@@ -1650,16 +1792,119 @@ local function GoldRows()
     return rows, total
 end
 
-local function OnMoneyEnter(self)
+function Gold.Children(frame)
+    if type(frame) ~= "table" or type(frame.GetChildren) ~= "function" then return {} end
+    local ok, kids = pcall(function() return { frame:GetChildren() } end)
+    return ok and kids or {}
+end
+
+function Gold.Name(frame)
+    if type(frame) ~= "table" or type(frame.GetName) ~= "function" then return nil end
+    local ok, n = pcall(frame.GetName, frame)
+    return ok and PlainString(n) or nil
+end
+
+-- A readable path for the status line: the child's global name, else parent path + its key.
+function Gold.ChildPath(parent, parentPath, kid)
+    local n = Gold.Name(kid)
+    if n then return n end
+    for k, v in pairs(parent) do
+        if v == kid and type(k) == "string" then return parentPath .. "." .. k end
+    end
+    return parentPath .. ".?"
+end
+
+function Gold.LooksLikeMoney(frame, path)
+    if type(frame) ~= "table" then return false end
+    for _, coin in ipairs(Gold.COINS) do
+        if type(frame[coin]) == "table" then return true end
+    end
+    local n = Gold.Name(frame)
+    if n and n:find("Money", 1, true) then return true end
+    return type(path) == "string" and (path:match("%.([^%.]+)$") or ""):find("Money", 1, true) ~= nil
+end
+
+-- Every money frame of the bag windows: the known names first, then any descendant of the
+-- Combined Backpack or the backpack, three levels deep, that has coin buttons or "Money" in its
+-- name or key (until one is found, at most three walks: the bags hold many item buttons).
+function Gold.Find()
+    local found, seen = {}, {}
+    local function add(f, path)
+        if type(f) == "table" and not seen[f] and type(f.HookScript) == "function" then
+            seen[f] = true
+            found[#found + 1] = { frame = f, path = path }
+        end
+    end
+    local combined = GetBagFrame()
+    if combined then add(combined.MoneyFrame, "ContainerFrameCombinedBags.MoneyFrame") end
+    add(_G.ContainerFrameCombinedBagsMoneyFrame, "ContainerFrameCombinedBagsMoneyFrame")
+    local backpack = _G.ContainerFrame1
+    if type(backpack) == "table" then add(backpack.MoneyFrame, "ContainerFrame1.MoneyFrame") end
+    add(_G.ContainerFrame1MoneyFrame, "ContainerFrame1MoneyFrame")
+    if not Gold.walked and (Gold.walks or 0) < 3 then
+        Gold.walks = (Gold.walks or 0) + 1
+        local function walk(f, path, depth)
+            if depth > 3 then return end
+            for _, kid in ipairs(Gold.Children(f)) do
+                local kp = Gold.ChildPath(f, path, kid)
+                if Gold.LooksLikeMoney(kid, kp) then add(kid, kp) else walk(kid, kp, depth + 1) end
+            end
+        end
+        if combined then walk(combined, "ContainerFrameCombinedBags", 1) end
+        if type(backpack) == "table" then walk(backpack, "ContainerFrame1", 1) end
+        Gold.walked = (combined ~= nil or type(backpack) == "table") and #found > 0
+    end
+    return found
+end
+
+function Gold.HookOne(t, path)
+    if type(t) ~= "table" or Gold.targets[t] or type(t.HookScript) ~= "function" then return end
+    if type(t.HasScript) == "function" then
+        local ok, has = pcall(t.HasScript, t, "OnEnter")
+        if not ok or not has then return end
+    end
+    Gold.targets[t] = path
+    -- Only OnEnter and OnLeave: the clicks (coin pickup) stay Blizzard's.
+    pcall(t.HookScript, t, "OnEnter", function(self) Gold.Enter(self, "hook") end)
+    pcall(t.HookScript, t, "OnLeave", function(self) Gold.Leave(self) end)
+end
+
+-- The money frame and everything inside it, three levels deep, plus the coin buttons by key or
+-- global name (Blizzard's classic MoneyFrame names them <frame>GoldButton).
+function Gold.Hook(entry)
+    local f = entry.frame
+    Gold.HookOne(f, entry.path)
+    local name = Gold.Name(f)
+    for _, coin in ipairs(Gold.COINS) do
+        local b = f[coin]
+        if type(b) ~= "table" and name then b = _G[name .. coin] end
+        Gold.HookOne(b, entry.path .. "." .. coin)
+    end
+    local function walk(p, path, depth)
+        if depth > 3 then return end
+        for _, kid in ipairs(Gold.Children(p)) do
+            local kp = Gold.ChildPath(p, path, kid)
+            Gold.HookOne(kid, kp)
+            walk(kid, kp, depth + 1)
+        end
+    end
+    walk(f, entry.path, 1)
+end
+
+function Gold.Show(owner)
     local tip = _G.GameTooltip
-    if not tip or not db then return end
+    if type(tip) ~= "table" then return "no GameTooltip" end
+    if not db then return "not loaded" end
     local rows, total = GoldRows()
-    if #rows == 0 then return end
-    -- Blizzard's own tooltip, if it showed one for this frame, keeps its lines; ours follow.
-    if tip.GetOwner and tip:GetOwner() == self and tip:IsShown() then
+    if #rows == 0 then return "no gold recorded (realm " .. tostring(playerRealm) .. ", name " .. tostring(playerName) .. ")" end
+    local shown = tip:IsShown() and true or false
+    local cur = tip:GetOwner()
+    if shown and Gold.owner and cur == Gold.owner then return #rows end   -- ours is up already
+    -- Blizzard's own tooltip, if it showed one for this money frame, keeps its lines; ours follow.
+    if shown and cur ~= nil and (cur == owner or Gold.targets[cur]) then
         tip:AddLine(" ")
     else
-        tip:SetOwner(self, "ANCHOR_TOPLEFT")
+        tip:SetOwner(owner, "ANCHOR_TOPLEFT")
     end
     tip:AddLine("Gold on " .. (playerRealm or "this realm"))
     for _, r in ipairs(rows) do
@@ -1667,55 +1912,97 @@ local function OnMoneyEnter(self)
     end
     tip:AddDoubleLine("Total", CoinText(total), 1, 0.82, 0, 1, 1, 1)
     tip:Show()
+    Gold.owner = tip:GetOwner() or owner
+    return #rows
 end
 
-local function OnMoneyLeave(self)
-    local tip = _G.GameTooltip
-    if tip and tip.GetOwner and tip:GetOwner() == self then tip:Hide() end
-end
-
-local function HookMoneyFrame(frame)
-    if type(frame) ~= "table" or moneyHooked[frame] or type(frame.HookScript) ~= "function" then return end
-    moneyHooked[frame] = true
-    -- The coin buttons sit on top of the money frame and take the mouse, so they are hooked too.
-    -- Only OnEnter and OnLeave: their clicks stay Blizzard's.
-    local targets = { frame }
-    local name = type(frame.GetName) == "function" and frame:GetName() or nil
-    for _, coin in ipairs({ "GoldButton", "SilverButton", "CopperButton" }) do
-        local b = frame[coin]
-        if type(b) ~= "table" and name then b = _G[name .. coin] end
-        if type(b) == "table" and type(b.HookScript) == "function" then targets[#targets + 1] = b end
+function Gold.Enter(owner, source)
+    local d = Gold.diag
+    d.enters = d.enters + 1
+    d.at = time()
+    d.source = source
+    d.path = Gold.targets[owner] or Gold.Name(owner) or "?"
+    local ok, res = pcall(Gold.Show, owner)
+    if ok then
+        d.result = res
+    else
+        d.result = nil
+        d.err = tostring(res)
     end
-    for _, t in ipairs(targets) do
-        if type(t.HasScript) ~= "function" or t:HasScript("OnEnter") then
-            pcall(t.HookScript, t, "OnEnter", function(...) pcall(OnMoneyEnter, ...) end)
-            pcall(t.HookScript, t, "OnLeave", function(...) pcall(OnMoneyLeave, ...) end)
+end
+
+function Gold.Leave(owner)
+    local tip = _G.GameTooltip
+    if type(tip) ~= "table" then return end
+    local ok, cur = pcall(tip.GetOwner, tip)
+    if ok and cur == owner then
+        pcall(tip.Hide, tip)
+        Gold.owner = nil
+    end
+end
+
+function Gold.Poll()
+    if not db then return end
+    local tip = _G.GameTooltip
+    if type(tip) ~= "table" then return end
+    local over
+    -- In combat nothing new is shown (a tooltip the poll showed is taken down).
+    for _, e in ipairs(InCombat() and {} or Gold.frames) do
+        local f = e.frame
+        local okV, vis = pcall(f.IsVisible, f)
+        if okV and vis == true then
+            local okM, mo = pcall(f.IsMouseOver, f)
+            if okM and mo == true then over = f; break end
         end
+    end
+    if over then
+        if Gold.pollOver == over then return end
+        Gold.pollOver = over
+        local cur = tip:GetOwner()
+        if tip:IsShown() then
+            if Gold.owner and cur == Gold.owner then return end                  -- a hook showed it
+            if cur ~= nil and cur ~= over and not Gold.targets[cur] then return end -- someone else's
+        end
+        Gold.Enter(over, "poll")
+        Gold.pollShown = Gold.owner
+    elseif Gold.pollOver then
+        Gold.pollOver = nil
+        if Gold.pollShown and Gold.owner == Gold.pollShown and tip:GetOwner() == Gold.pollShown then
+            tip:Hide()
+            Gold.owner = nil
+        end
+        Gold.pollShown = nil
     end
 end
 
 -- The Combined Backpack's money frame and the separate backpack's, under whichever name or key
--- this client gives them.
+-- this client gives them; safe to call again (each bag show): new frames are hooked, old ones
+-- are not hooked twice.
 local function HookMoneyFrames()
-    local combined = GetBagFrame()
-    if combined then HookMoneyFrame(combined.MoneyFrame) end
-    HookMoneyFrame(_G.ContainerFrameCombinedBagsMoneyFrame)
-    local backpack = _G.ContainerFrame1
-    if type(backpack) == "table" then HookMoneyFrame(backpack.MoneyFrame) end
-    HookMoneyFrame(_G.ContainerFrame1MoneyFrame)
-    -- A client that names or nests the money frame differently: any child of the bag window that
-    -- has coin buttons or "Money" in its name.
-    if combined and type(combined.GetChildren) == "function" then
-        local ok, kids = pcall(function() return { combined:GetChildren() } end)
-        if ok then
-            for _, kid in ipairs(kids) do
-                if type(kid) == "table" then
-                    local n = type(kid.GetName) == "function" and kid:GetName() or nil
-                    if type(kid.GoldButton) == "table" or (type(n) == "string" and n:find("Money", 1, true)) then
-                        HookMoneyFrame(kid)
-                    end
-                end
-            end
+    local tip = _G.GameTooltip
+    if not Gold.tipHooked and type(tip) == "table" and type(tip.HookScript) == "function" then
+        Gold.tipHooked = true
+        pcall(tip.HookScript, tip, "OnHide", function() Gold.owner = nil end)
+    end
+    for _, e in ipairs(Gold.Find()) do
+        if not moneyHooked[e.frame] then
+            moneyHooked[e.frame] = true
+            Gold.frames[#Gold.frames + 1] = e
+        end
+        pcall(Gold.Hook, e)
+    end
+    if not Gold.poller and type(CreateFrame) == "function" then
+        local ok, f = pcall(CreateFrame, "Frame")
+        if ok and type(f) == "table" then
+            Gold.poller = f
+            local acc = 0
+            f:SetScript("OnUpdate", function(_, elapsed)
+                acc = acc + (type(elapsed) == "number" and elapsed or 0)
+                if acc < Gold.POLL then return end
+                acc = 0
+                local okP, err = pcall(Gold.Poll)
+                if not okP then Gold.diag.err = tostring(err) end
+            end)
         end
     end
 end
@@ -1724,6 +2011,61 @@ local function CountMoneyHooks()
     local n = 0
     for _ in pairs(moneyHooked) do n = n + 1 end
     return n
+end
+
+-- What the gold feature sees, for /gbf gold and /gbf status: where the data is, who is in it per
+-- realm, the money frames hooked, and the last hover.
+function Gold.StatusLines()
+    local out = {}
+    local inv = db and db.inventory
+    local realms = {}
+    if type(inv) == "table" then
+        for realm, chars in pairs(inv) do
+            if type(realm) == "string" and type(chars) == "table" then
+                local n = 0
+                for name, rec in pairs(chars) do
+                    if type(name) == "string" and type(rec) == "table" then n = n + 1 end
+                end
+                realms[#realms + 1] = string.format("%s%s: %d", realm, realm == playerRealm and " (this realm)" or "", n)
+            end
+        end
+    end
+    table.sort(realms)
+    out[#out + 1] = string.format("gold data: GaarBagsForeverDB.inventory%syou: %s on %s%scharacters per realm: %s",
+        DOT, tostring(playerName), tostring(playerRealm), DOT, #realms > 0 and table.concat(realms, ", ") or "none")
+    out[#out + 1] = "old data: " .. (Keys.oldState or "not checked yet")
+    local paths, mouse, targets = {}, 0, 0
+    for _, e in ipairs(Gold.frames) do paths[#paths + 1] = e.path end
+    for t in pairs(Gold.targets) do
+        targets = targets + 1
+        if type(t.IsMouseEnabled) == "function" then
+            local ok, on = pcall(t.IsMouseEnabled, t)
+            if ok and on == true then mouse = mouse + 1 end
+        end
+    end
+    out[#out + 1] = string.format("gold hover: %d money frame%s (%s)%s%d hooked frame%s, %d take the mouse%spoll fallback %s",
+        #paths, #paths == 1 and "" or "s", #paths > 0 and table.concat(paths, ", ") or "none found", DOT,
+        targets, targets == 1 and "" or "s", mouse, DOT, Gold.poller and "on" or "off")
+    if #paths == 0 then
+        local combined = GetBagFrame()
+        local kids = {}
+        for _, kid in ipairs(Gold.Children(combined)) do
+            kids[#kids + 1] = Gold.ChildPath(combined, "", kid)
+            if #kids >= 15 then break end
+        end
+        out[#out + 1] = "bag window children: " .. (#kids > 0 and table.concat(kids, ", ") or "none (open the bags once)")
+    end
+    local d = Gold.diag
+    if d.enters == 0 then
+        out[#out + 1] = "last gold hover: none this session"
+    else
+        local result = type(d.result) == "number" and string.format("%d character%s shown", d.result, d.result == 1 and "" or "s")
+            or tostring(d.result or "failed")
+        out[#out + 1] = string.format("last gold hover: %d s ago via %s on %s, %s (%d this session)",
+            math.max(0, time() - (d.at or time())), tostring(d.source), tostring(d.path), result, d.enters)
+    end
+    if d.err then out[#out + 1] = "last gold error: " .. d.err end
+    return out
 end
 
 -- ---- commands and settings ------------------------------------------------
@@ -1742,17 +2084,40 @@ local function SetAutoSort(on)
     Print("auto clean-up when the bags open: " .. OnOff(db.autoSort))
 end
 
+-- This realm's gold, then every other realm's characters (the tooltip shows this realm only),
+-- then where the data comes from and what the hover did last (since 1.13.2).
 local function PrintGold()
     local rows, total = GoldRows()
     if #rows == 0 then
-        Print("no gold recorded on this realm yet.")
-        return
+        Print("no gold recorded on " .. (playerRealm or "this realm") .. " yet.")
+    else
+        Print("gold on " .. (playerRealm or "this realm") .. ":")
+        for _, r in ipairs(rows) do
+            Print("  " .. ClassColored(r.name, r.class) .. ": " .. CoinText(r.gold))
+        end
+        Print("  Total: " .. CoinText(total))
     end
-    Print("gold on " .. (playerRealm or "this realm") .. ":")
-    for _, r in ipairs(rows) do
-        Print("  " .. ClassColored(r.name, r.class) .. ": " .. CoinText(r.gold))
+    local inv = db and db.inventory
+    if type(inv) == "table" then
+        local others = {}
+        for realm, chars in pairs(inv) do
+            if realm ~= playerRealm and type(realm) == "string" and type(chars) == "table" then others[#others + 1] = realm end
+        end
+        table.sort(others)
+        for _, realm in ipairs(others) do
+            local parts, sum = {}, 0
+            for name, rec in pairs(inv[realm]) do
+                if type(name) == "string" and type(rec) == "table" then
+                    local g = type(rec.gold) == "number" and rec.gold or nil
+                    parts[#parts + 1] = name .. " " .. (g and CoinText(g) or "?")
+                    sum = sum + (g or 0)
+                end
+            end
+            table.sort(parts)
+            Print("other realm " .. realm .. " (not in the bag tooltip): " .. table.concat(parts, ", ") .. DOT .. "Total " .. CoinText(sum))
+        end
     end
-    Print("  Total: " .. CoinText(total))
+    for _, line in ipairs(Gold.StatusLines()) do Print(line) end
 end
 
 local function ForgetCharacter(who)
@@ -3578,7 +3943,7 @@ local function PrintHelp()
     Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
     Print("/gbf stop - stop a running reversal")
     Print("/gbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
-    Print("/gbf gold - gold of this realm's characters (also: hover the gold in the bag window)")
+    Print("/gbf gold - gold of this realm's characters (also: hover the gold in the bag window), other realms, and what the gold hover found and did last")
     Print("/gbf forget <name> - remove a character from this realm's counts and gold")
     Print("Alt-click an item in your bags: lock or unlock it (all copies). A locked item shows a padlock and cannot be sold to a merchant.")
     Print("/gbf locked - list the locked items (now: " .. Lock.Count() .. ")")
@@ -3612,6 +3977,7 @@ local function PrintStatus()
     local pos = db and db.position
     Print("saved position: " .. (pos and string.format("%.0f, %.0f", pos.x, pos.y) or "none (Blizzard default)"))
     Print(InventoryStatus())
+    for _, line in ipairs(Gold.StatusLines()) do Print(line) end
     Print(Lock.Status())
     Print(Mail.Status())
     Print(Block.Status())
@@ -3746,6 +4112,8 @@ local function BindSavedVariables()
     if type(db.autoSort) ~= "boolean" then db.autoSort = true end
     if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
+    -- Characters recorded before the rename, when the bridge folder is installed (since 1.13.2).
+    pcall(Keys.MergeOld)
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then
         db.position = nil
@@ -3875,8 +4243,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
         end
     elseif event == "PLAYER_LOGIN" then
         if db then
-            HookBlizzard()
-            HookMoneyFrames()
+            -- Each on its own: one failing must not keep the others (the gold above all) from running.
+            pcall(HookBlizzard)
+            pcall(HookMoneyFrames)
             pcall(InitInventory)
         end
     elseif event == "PLAYER_REGEN_DISABLED" then

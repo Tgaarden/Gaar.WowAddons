@@ -86,8 +86,14 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
   or the **Item counts in tooltip** checkbox in the GaarForever hub.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm
-  and the total. `/gbf gold` prints the same to chat. Clicking the coins still does what it always
-  did.
+  and the total. `/gbf gold` prints the same to chat, then the other realms' characters and what
+  the hover found (see below). Clicking the coins still does what it always did.
+  Since 1.13.2 the hover no longer hangs on one frame layout: every frame inside the money frame
+  is hooked (coin buttons a level deeper, a money frame without a global name), and a light poll
+  (every 0.1 s, out of combat) shows the gold when the mouse is over the money frame even if no
+  frame there takes the mouse. Characters recorded before the Better -> Gaar rename live in
+  `BetterBagsForeverDB`; install the `BetterBagsForever` bridge folder once and they are merged
+  in (also into a `GaarBagsForeverDB` that already has data), once.
 - **What is counted, and when it is read.** Only the character you are logged in as is ever read,
   so a character shows up once it has logged in with 1.7. Each character's record is kept
   account-wide, per realm, and only the current realm is ever shown (both factions).
@@ -204,13 +210,13 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
 | `/gbf autosort`, `/gbf autosort on`, `/gbf autosort off` | Toggle or set the automatic clean-up when the bags open (on by default) |
 | `/gbf stop` | Stop a running reversal |
 | `/gbf counts`, `/gbf counts on`, `/gbf counts off` | Toggle or set the item counts in tooltips (on by default) |
-| `/gbf gold` | Print every character's gold on this realm, and the total |
+| `/gbf gold` | Print every character's gold on this realm, and the total; then each other realm's characters, and (since 1.13.2) the gold diagnosis: the saved variable in use with characters per realm, whether the old `BetterBagsForeverDB` is loaded and merged, the money frames hooked (by name or path), how many hooked frames take the mouse, and the last hover (when, via hook or poll, on which frame, how many characters, or the error) |
 | Alt + left-click an item | Lock or unlock it (all copies of the item, this character only). A locked item shows a padlock and is never sold, mailed, auctioned, traded or destroyed |
 | `/gbf locked` | List the locked items as links |
 | `/gbf unlockall`, `/gbf unlockall yes` | Unlock every locked item; the plain form only says how many and asks for `yes` |
 | `/gbf mailglow`, `/gbf mailglow on`, `/gbf mailglow off` | Toggle or set the cyan ring on bag items attached to the outgoing mail (on by default) |
 | `/gbf forget <name>` | Remove a character from this realm's counts and gold (not the one you are playing). Say what was removed |
-| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there. Since 1.11 also one mail line: how many locked attachments were taken off this session, whether `ClickSendMailItemButton` and `GetSendMailItem` are there, whether `SendMailFrame_Update` is hooked, and mail glow on/off with how many rings are shown. Since 1.12 also one blocks line: how many destroys, auctions and trades were blocked this session, whether `StaticPopup_Show` is hooked, which auction UI this client has, and whether `ClickTradeButton` is there |
+| `/gbf status` | Which of the frames and functions this client has, whether combined bags are in use, Reverse and what the next clean-up will do, how many slots it finds in the Combined Backpack, whether the bags are locked, and the saved position. Since 1.7 also one inventory line: characters on this realm, counts on/off, when the bank and the mail were last read, and how many money frames have the gold tooltip. Since 1.9 also one item lock line: how many items are locked, which padlock art is used, whether left clicks pass the merchant guard, and whether `BuybackItem` is there. Since 1.11 also one mail line: how many locked attachments were taken off this session, whether `ClickSendMailItemButton` and `GetSendMailItem` are there, whether `SendMailFrame_Update` is hooked, and mail glow on/off with how many rings are shown. Since 1.12 also one blocks line: how many destroys, auctions and trades were blocked this session, whether `StaticPopup_Show` is hooked, which auction UI this client has, and whether `ClickTradeButton` is there. Since 1.13.2 also the gold diagnosis lines of `/gbf gold` |
 
 ## With GaarForever (required)
 
@@ -252,9 +258,11 @@ The hub talks to this addon only through `GaarBagsForeverAPI` (since 1.6):
   tooltip's `OnTooltipCleared`, so nothing is written into Blizzard's tooltip tables. Secret
   values are skipped, and every read is behind `pcall` and a type check.
 - The gold tooltip is `HookScript("OnEnter")` / `HookScript("OnLeave")` on the bag money frame
-  (`ContainerFrameCombinedBags.MoneyFrame`, `ContainerFrame1MoneyFrame` and the like) and its
-  coin buttons. Their clicks are never touched. If Blizzard showed a tooltip there first, the
-  gold lines are added below it.
+  (`ContainerFrameCombinedBags.MoneyFrame`, `ContainerFrame1MoneyFrame` and the like) and every
+  frame inside it, three levels deep (the coin buttons). Their clicks are never touched. If
+  Blizzard showed a tooltip there first, the gold lines are added below it. Since 1.13.2 an
+  OnUpdate of the addon's own (throttled to 0.1 s, idle in combat) also asks the money frames
+  `IsMouseOver()` and shows the same tooltip; it never replaces a tooltip another frame owns.
 - The item lock never replaces or wraps a Blizzard click handler, and never clicks a Blizzard
   button. A blocked sale is blocked by separate frames of the addon's own laid on top (over the
   slot, the merchant window or the Sell Junk button), so Blizzard's handlers simply do not run

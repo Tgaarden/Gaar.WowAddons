@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.56"] = "notes for GaarBagsForever 1.13.2: the gold hover in the bag window works on more layouts (coin buttons a level deeper, or no frame taking the mouse) and /gbf gold and /gbf status say what it found; a login that knows only your first name no longer folds other characters into you; characters saved before the rename come back once the BetterBagsForever bridge folder is installed",
         ["3.2.55"] = "notes for GaarGroupForever 1.2.0: a dock under the bar with a group overview list, a pre-pull check (/ggf check, local report, Announce on click), a raid marker row and a per-character dungeon run log (/ggf log); each has its own option, all on by default",
         ["3.2.54"] = "notes for GaarGpsForever 1.6.0: hover a flight path on the map to see its direct flight connections (/ggps routes)",
         ["3.2.53"] = "notes for GaarBuffsForever 1.10.0, GaarCastbarsForever 1.4.0, GaarChatForever 1.6.0, GaarFramesForever 1.8.0, GaarGroupForever 1.1.0, GaarLootForever 1.4.0, GaarFishingForever 1.7.0 and GaarXPForever 1.5.0: every addon with a test mode has a Test entry in its menu (kept just before Reset); new test modes for the fishing session panel (/gfish test) and the XP panel (/gxp test); /ggf test is also a menu entry",
@@ -106,6 +107,7 @@ local CHANGES = {
         ["3.0.2"] = "a Loot row for GaarLootForever",
     },
     GaarBagsForever = {
+        ["1.13.2"] = "Gold hover in the bag window: every frame in the money frame is hooked, plus a mouse-over check that needs no frame to take the mouse; /gbf gold and /gbf status show the characters per realm, the money frames found and the last hover (or its error); a first-name login no longer folds other characters into yours; characters saved before the rename are merged in once the BetterBagsForever bridge folder is installed",
         ["1.13.0"] = "right-click bag portrait: opens the addon's menu",
         ["1.12.0"] = "Locked items cannot be destroyed, auctioned or traded either: put back in the bags with a popup (dropping on the world, the auction sell slot, a trade slot); one shared popup for every block, mail included",
         ["1.11.0"] = "Locked items cannot be mailed (taken off the Send Mail tab, with a popup); cyan ring on bag items attached to the outgoing mail (/gbf mailglow)",

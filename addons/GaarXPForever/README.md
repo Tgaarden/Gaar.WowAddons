@@ -76,6 +76,7 @@ Settings are saved account-wide in `GaarXPForeverDB`: `enabled`, `panel`, `xpbar
 | `/gxp readybar on\|off` | Ready quest XP segment on the XP bar (`questBar`) |
 | `/gxp readybar color orange\|green\|yellow` | Segment colour |
 | `/gxp ready debug` | Per ready quest: title, questID and which source gave its XP (or the raw returns) |
+| `/gxp restcap auto\|150\|180` | Rested XP cap, account-wide (1.5.3): 150% of a level or 180% (Well Rested). `auto` (default) switches to 180% once more than 150% rested has been seen. No argument shows the mode |
 | `/gxp unlock`, `/gxp lock` | Drag the panel without Alt / back to Alt-drag |
 | `/gxp test` | Test mode (1.5.0): the XP panel with made-up numbers (also at max level), to place it; this session only. Also a **Test mode** menu entry |
 | `/gxp resetpos` | Panel back to its default place |

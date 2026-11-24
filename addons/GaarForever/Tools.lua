@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.69"] = "notes for GaarXPForever 1.5.3: rested cap follows Well Rested (180%), auto-detected; /gxp restcap auto|150|180",
         ["3.2.68"] = "notes for GaarXPForever 1.5.2: the Rested line shows % of max rested and the time until rested XP is full",
         ["3.2.67"] = "notes for GaarXPForever 1.5.1: the ready-quest XP segment on the XP bar shows again (the map / quest log is no longer seen as open when it is closed)",
         ["3.2.66"] = "notes for GaarGroupForever 1.5.4: the addon has its CurseForge project id (GaarGroupForever is on CurseForge) and its README shows screenshots of the Tank, DPS and Healer modes, the right-click menu and the options",

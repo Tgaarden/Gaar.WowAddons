@@ -7,6 +7,9 @@
 --           takes the mouse; another tooltip is never replaced; errors are kept for /gbf status;
 --           a first-name login never swallows other characters; characters recorded before the
 --           rename (BetterBagsForeverDB, bridge folder) are merged into a non-empty DB, once.
+--   1.13.3: the realm is resolved lazily with fallbacks (GetRealmName nil -> other sources -> the
+--           one realm in the data); records under a nil/""/"Unknown" realm are merged in; a
+--           first-name record ("Dru") folds into the full name ("Dru Tics").
 -- Run: luajit tools/test/bags_money_test.lua   (from the repo root)
 local path = "addons/GaarBagsForever/GaarBagsForever.lua"
 local fh = assert(io.open(path)); local src = fh:read("*a"); fh:close()
@@ -18,6 +21,7 @@ local function eq(a, b, msg) if a ~= b then fails = fails + 1; print("FAIL " .. 
 local function ok(v, msg) if not v then fails = fails + 1; print("FAIL " .. msg) end end
 
 local noop = function() end
+local BUCKET = "Forever"
 
 -- ---- a small frame model: scripts, hooks, children, names, mouse --------------------------------
 local Frame = {}
@@ -107,7 +111,8 @@ local function Load(opts)
     G.hooksecurefunc = noop
     G.time = os.time
     G.UnitName = function() return opts.unitName or "Dru" end
-    G.GetRealmName = function() return "Some Realm" end
+    G.GetRealmName = opts.realmFn or function() return "Some Realm" end
+    if opts.charDB then G.GaarBagsForeverCharDB = opts.charDB end
     G.UnitClass = function() return "Druid", opts.class or "DRUID" end
     G.UnitFactionGroup = function() return "Alliance" end
     G.GetMoney = function() return 500000 end
@@ -148,7 +153,7 @@ do
     T.Init()
     local inv = G.GaarBagsForeverDB.inventory
     eq(inv["SomeRealm"], nil, "realm spelling variant folded in")
-    local realm = inv["Some Realm"]
+    local realm = inv[BUCKET]
     eq(realm["Dru"], nil, "first-name key merged away")
     eq(realm["Dru Tics"].gold, 500000, "live gold wins")
     eq(realm["Dru Tics"].bags[1], 5, "item counts kept (larger)")
@@ -175,7 +180,7 @@ do
     } })
     T.Bind()
     T.Init()
-    local realm = G.GaarBagsForeverDB.inventory["Some Realm"]
+    local realm = G.GaarBagsForeverDB.inventory[BUCKET]
     ok(realm["Dru Tics"] and realm["Dru Tics"].gold == 1000, "Dru Tics kept under a first-name login")
     ok(realm["Dru Other"] and realm["Dru Other"].gold == 2000, "Dru Other kept under a first-name login")
     local rows, total = T.Rows()
@@ -190,7 +195,7 @@ do
     } })
     T.Bind()
     T.Init()
-    local realm = G.GaarBagsForeverDB.inventory["Some Realm"]
+    local realm = G.GaarBagsForeverDB.inventory[BUCKET]
     ok(realm["Dru"] and realm["Dru"].gold == 777, "other-class first-name record kept")
     local rows = T.Rows()
     eq(#rows, 2, "other-class Dru listed beside you")
@@ -227,7 +232,7 @@ do
     eq(tip.owner, gold, "tooltip owned by the coin button")
     ok(tip._shown, "tooltip shown")
     local text = table.concat(tip.lines, "|")
-    ok(text:find("Gold on Some Realm", 1, true), "header line")
+    ok(text:find("Gold on this account", 1, true), "header line")
     ok(text:find("Bob", 1, true) and text:find("Anna", 1, true) and text:find("Dru Tics", 1, true), "all three characters")
     eq(T.Gold.diag.source, "hook", "diag: via hook")
     eq(T.Gold.diag.result, 3, "diag: three rows")
@@ -244,7 +249,7 @@ do
     local status = table.concat(T.Gold.StatusLines(), "\n")
     ok(status:find("ContainerFrameCombinedBags.MoneyFrame", 1, true), "status: money frame path")
     ok(status:find("last gold hover", 1, true) and status:find("via hook", 1, true), "status: last hover")
-    ok(status:find("Some Realm (this realm): 3", 1, true), "status: characters per realm")
+    ok(status:find("3 characters", 1, true), "status: characters in the bucket")
     ok(status:find("not loaded", 1, true), "status: old DB not loaded")
 end
 
@@ -306,18 +311,18 @@ do
     T.Bind()
     T.Init()
     local inv = G.GaarBagsForeverDB.inventory
-    eq(inv["Some Realm"].Old and inv["Some Realm"].Old.gold, 12345, "old character merged in")
-    eq(inv["Some Realm"].Bob.gold, 70000, "newer gold kept")
-    eq(inv["Some Realm"].Dru, nil, "old first-name record of you folded into the full name")
-    eq(inv["Other Realm"].Far.gold, 99, "old other realm merged in")
+    eq(inv[BUCKET].Old and inv[BUCKET].Old.gold, 12345, "old character merged in")
+    eq(inv[BUCKET].Bob.gold, 70000, "newer gold kept")
+    eq(inv[BUCKET].Dru, nil, "old first-name record of you folded into the full name")
+    eq(inv[BUCKET].Far.gold, 99, "old other realm merged in")
     eq(old.__gbfInventoryMerged, true, "old table marked")
     ok(T.Keys.oldState:find("merged in now", 1, true), "old state says merged")
-    inv["Some Realm"].Old.gold = 1
+    inv[BUCKET].Old.gold = 1
     T.Bind()
-    eq(inv["Some Realm"].Old.gold, 1, "merged only once")
+    eq(inv[BUCKET].Old.gold, 1, "merged only once")
     local rows, total = T.Rows()
-    eq(#rows, 3, "you, Bob, Old")
-    eq(total, 500000 + 70000 + 1, "total over the merged list")
+    eq(#rows, 4, "you, Bob, Old, Far")
+    eq(total, 500000 + 70000 + 1 + 99, "total over the merged list")
 end
 
 -- ---- 7. /gbf gold prints other realms and the diagnosis ---------------------------------------
@@ -330,10 +335,91 @@ do
     T.Init()
     T.PrintGold()
     local all = table.concat(printed, "\n")
-    ok(all:find("gold on Some Realm", 1, true), "gold: this realm")
-    ok(all:find("other realm Other Realm", 1, true) and all:find("Far", 1, true), "gold: other realm listed")
+    ok(all:find("gold, all characters", 1, true), "gold: account list")
+    ok(all:find("Far", 1, true), "gold: other realm character in the same list")
     ok(all:find("gold data: GaarBagsForeverDB.inventory", 1, true), "gold: SV in use")
     ok(all:find("gold hover:", 1, true), "gold: hover line")
+end
+
+
+-- ---- 8. 1.13.3: no realms; every realm key is one account pool under one bucket ------------------
+local REALM = "CAMWOW EU5 Realm 7 PvE"
+local function TenChars()
+    return {
+        Bank = { gold = 0 }, Dru = { gold = 1, class = "DRUID" }, Hun = { gold = 11, class = "HUNTER" },
+        Lock = { gold = 1955, class = "WARLOCK" }, Mag = { gold = 0, class = "MAGE" },
+        Pala = { gold = 285, class = "PALADIN" }, Prie = { gold = 0, class = "PRIEST" },
+        Rou = { gold = 24, class = "ROGUE" }, Sha = { gold = 3730, class = "SHAMAN" }, War = { gold = 70, class = "WARRIOR" },
+    }
+end
+do
+    local G, T = Load({ fullName = "Dru Tics", realmFn = function() return nil end, bags = RetailBags,
+        db = { locked = false, inventory = { [REALM] = TenChars() } } })
+    Fire(G, "ADDON_LOADED", "GaarBagsForever")
+    Fire(G, "PLAYER_LOGIN")
+    local inv = G.GaarBagsForeverDB.inventory
+    eq(inv[REALM], nil, "old realm bucket merged away")
+    local b = inv[BUCKET]
+    ok(b and b["Dru Tics"] ~= nil, "current character saved in the one bucket")
+    eq(b.Dru, nil, "Dru folded into Dru Tics")
+    eq(b["Dru Tics"].gold, 500000, "live gold wins")
+    eq(b["Dru Tics"].class, "DRUID", "class kept")
+    local rows, total = T.Rows()
+    eq(#rows, 10, "ten characters listed")
+    eq(total, 500000 + 0 + 11 + 1955 + 0 + 285 + 0 + 24 + 3730 + 70, "total over the ten")
+    eq(rows[1].name, "Dru Tics", "you first")
+    G.__inner.GoldButton:Fire("OnEnter")
+    local text = table.concat(G.GameTooltip.lines, "|")
+    ok(text:find("Bank", 1, true) and text:find("War", 1, true) and text:find("Dru Tics", 1, true), "tooltip lists the characters")
+    eq(T.Gold.diag.result, 10, "hover: ten rows")
+    local status = table.concat(T.Gold.StatusLines(), "\n")
+    ok(status:find("10 characters", 1, true) and status:find("merged in from older realm keys: 10", 1, true), "status: bucket count and migration")
+    ok(not status:find("this realm", 1, true), "status: no realm wording")
+end
+
+-- ---- 9. several realm keys incl. nil/""/"Unknown": one list, deduplicated, no double count -------
+do
+    local G, T = Load({ fullName = "Dru Tics", realmFn = function() return nil end, db = { inventory = {
+        ["Some Realm"] = { Bob = { gold = 70000 }, ["Dru Tics"] = { gold = 10, class = "DRUID", bags = { [1] = 5 } } },
+        ["nil"] = { Anna = { gold = 30000 }, Bob = { gold = 1 }, Dru = { gold = 4, class = "DRUID", bags = { [1] = 9 } } },
+        [""] = { Cid = { gold = 100 } },
+        ["Unknown"] = { Eve = { gold = 200 } },
+        ["Other Realm"] = { Far = { gold = 99 } },
+    } } })
+    T.Bind(); T.Init()
+    local inv = G.GaarBagsForeverDB.inventory
+    local n = 0
+    for _ in pairs(inv) do n = n + 1 end
+    eq(n, 1, "only the one bucket remains")
+    local b = inv[BUCKET]
+    eq(b.Anna.gold, 30000, "nil-realm character moved")
+    eq(b.Far.gold, 99, "other realm character moved")
+    eq(b.Dru, nil, "Dru folded")
+    eq(b["Dru Tics"].bags[1], 9, "larger count kept, not summed")
+    local rows, total = T.Rows()
+    eq(#rows, 6, "Dru Tics, Bob, Anna, Cid, Eve, Far")
+    eq(total, 500000 + b.Bob.gold + 30000 + 100 + 200 + 99, "no double count")
+    -- run again: nothing changes
+    T.Init()
+    eq(select(2, T.Rows()), total, "second run: same total")
+end
+
+-- ---- 10. "Dru" of another class is not folded into Dru Tics, listed beside you -------------------
+do
+    local G, T = Load({ fullName = "Dru Tics", db = { inventory = { ["A"] = { Dru = { gold = 777, class = "MAGE" } } } } })
+    T.Bind(); T.Init()
+    ok(G.GaarBagsForeverDB.inventory[BUCKET].Dru ~= nil, "other-class Dru kept")
+    eq(#T.Rows(), 2, "both listed")
+end
+
+-- ---- 11. /gbf gold lists the whole account, no "other realm" split ------------------------------
+do
+    local printed = {}
+    local _, T = Load({ fullName = "Dru Tics", printed = printed, db = { inventory = { A = { Bob = { gold = 70000 } }, B = { Far = { gold = 99 } } } } })
+    T.Bind(); T.Init(); T.PrintGold()
+    local all = table.concat(printed, "\n")
+    ok(all:find("Bob", 1, true) and all:find("Far", 1, true), "gold: every character")
+    ok(not all:find("other realm", 1, true), "gold: no other-realm section")
 end
 
 if fails == 0 then print("bags_money_test: ok") else os.exit(1) end

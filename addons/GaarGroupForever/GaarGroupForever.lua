@@ -298,7 +298,11 @@ end
 -- The bar
 -- ---------------------------------------------------------------------------
 
-local SIZE, GAP, PAD, SEP, WIDE = 26, 3, 5, 8, 46
+-- Panel metrics (shared with Overview.lua, which stacks the dock panels inside the frame).
+M.Metrics = { icon = 26, btnH = 22, gap = 3, sep = 8, wide = 48, inset = 14, top = 22, bottom = 14, inner = 242 }
+local MT = M.Metrics
+MT.roleBottom = MT.top + MT.icon -- y (down from the panel top) where the role row ends
+local SIZE, GAP, SEP, WIDE = MT.icon, MT.gap, MT.sep, MT.wide
 
 function M.SavePos()
     local bar, db = M.bar, M.db
@@ -314,7 +318,7 @@ function M.PlaceBar()
     if type(pos) == "table" and type(pos.p) == "string" and Num(pos.x) and Num(pos.y) then
         bar:SetPoint(pos.p, _G.UIParent, type(pos.rp) == "string" and pos.rp or pos.p, pos.x, pos.y)
     else
-        bar:SetPoint("CENTER", _G.UIParent, "CENTER", 0, -200)
+        bar:SetPoint("TOP", _G.UIParent, "CENTER", 0, -150)
     end
 end
 
@@ -346,7 +350,7 @@ function M.EnableDrag(frame)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function()
         M.Safe("drag", function()
-            if M.db and not M.db.locked and M.bar then M.bar:StartMoving() end
+            if M.db and not M.db.locked and M.bar and not M.Q(_G.InCombatLockdown) then M.bar:StartMoving() end
         end)
     end)
     frame:SetScript("OnDragStop", function()
@@ -354,23 +358,145 @@ function M.EnableDrag(frame)
     end)
 end
 
-function M.NewButton(name, width, entries)
-    local b = _G.CreateFrame("Button", name, M.bar)
-    b:SetSize(width, SIZE)
+-- Blizzard dialog look: dark dialog background + the gold-rimmed border and a title plate. A frame
+-- needs the BackdropTemplate to take a backdrop (12.x); without it (or if SetBackdrop fails) it
+-- falls back to a flat dark fill, and f.dialog stays false.
+M.DIALOG = {
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 32, insets = { left = 11, right = 11, top = 12, bottom = 11 },
+}
+M.FLAT = {
+    bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
+}
+
+-- A frame with the given backdrop table (or a flat colour fill when that is not possible).
+function M.NewBackdropFrame(name, parent, backdrop, flatColor)
+    local ok, f = pcall(_G.CreateFrame, "Frame", name, parent, "BackdropTemplate")
+    if not ok or not f then f = _G.CreateFrame("Frame", name, parent) end
+    f.dialog = false
+    if type(f.SetBackdrop) == "function" and pcall(f.SetBackdrop, f, backdrop) then
+        f.dialog = true
+    else
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(flatColor[1], flatColor[2], flatColor[3], flatColor[4])
+    end
+    return f
+end
+
+function M.NewDialog(name, parent)
+    return M.NewBackdropFrame(name, parent, M.DIALOG, { 0.05, 0.05, 0.08, 0.92 })
+end
+
+-- A thin dark inset with a grey 1px edge: the well the dock panels and lists sit in.
+function M.NewInset(name, parent)
+    local f = M.NewBackdropFrame(name, parent, M.FLAT, { 0, 0, 0, 0.4 })
+    if f.dialog then
+        pcall(f.SetBackdropColor, f, 0, 0, 0, 0.4)
+        pcall(f.SetBackdropBorderColor, f, 0.4, 0.4, 0.4, 0.8)
+    end
+    return f
+end
+
+-- The gold title plate on a dialog frame's top edge, with the title text. Returns the FontString.
+function M.DialogTitle(f, text)
+    local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    if f.dialog then
+        local hdr = f:CreateTexture(nil, "ARTWORK")
+        hdr:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
+        hdr:SetSize(256, 64)
+        hdr:SetPoint("TOP", f, "TOP", 0, 12)
+        fs:SetPoint("TOP", hdr, "TOP", 0, -14)
+    else
+        fs:SetPoint("TOP", f, "TOP", 0, -8)
+    end
+    fs:SetText(text)
+    return fs
+end
+
+-- The classic red Blizzard button textures on a plain Button (no template): used when
+-- UIPanelButtonTemplate is not there, and to dress a frame that must keep its own template.
+function M.SkinPanelButton(b)
+    local T = "Interface\\Buttons\\UI-Panel-Button-"
+    pcall(function()
+        b:SetNormalTexture(T .. "Up")
+        b:SetPushedTexture(T .. "Down")
+        b:SetDisabledTexture(T .. "Disabled")
+        b:SetHighlightTexture(T .. "Highlight", "ADD")
+        for _, get in ipairs({ "GetNormalTexture", "GetPushedTexture", "GetDisabledTexture", "GetHighlightTexture" }) do
+            local t = b[get](b)
+            if t then t:SetTexCoord(0, 0.625, 0, 0.6875) end
+        end
+        local fs = b:GetFontString() or b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        b:SetFontString(fs)
+        b:SetNormalFontObject("GameFontNormalSmall")
+        b:SetHighlightFontObject("GameFontHighlightSmall")
+        b:SetDisabledFontObject("GameFontDisableSmall")
+    end)
+end
+
+-- A real red Blizzard button (UIPanelButtonTemplate, not secure) with the small fonts; falls back
+-- to the same textures on a plain Button.
+function M.PanelButton(parent, name, text, width, height)
+    local ok, b = pcall(_G.CreateFrame, "Button", name, parent, "UIPanelButtonTemplate")
+    if ok and b then
+        pcall(function()
+            b:SetNormalFontObject("GameFontNormalSmall")
+            b:SetHighlightFontObject("GameFontHighlightSmall")
+            b:SetDisabledFontObject("GameFontDisableSmall")
+        end)
+    else
+        b = _G.CreateFrame("Button", name, parent)
+        M.SkinPanelButton(b)
+    end
+    b:SetText(text)
+    b:SetSize(width, height or MT.btnH)
+    return b
+end
+
+-- Selected state of a panel button (the tabs): the highlight stays on and the text turns white.
+function M.SetSelected(btn, on)
+    if not btn then return end
+    pcall(on and btn.LockHighlight or btn.UnlockHighlight, btn)
+    pcall(btn.SetNormalFontObject, btn, on and "GameFontHighlightSmall" or "GameFontNormalSmall")
+end
+
+-- A square action-button-like icon button: dark well, icon, the Quickslot border, hover and pushed
+-- textures and (checkable) a lit "checked" state. texture may be nil (then it carries text only).
+function M.IconButton(name, parent, size, texture, coords, checkable)
+    local b = _G.CreateFrame(checkable and "CheckButton" or "Button", name, parent)
+    b:SetSize(size, size)
+    local well = b:CreateTexture(nil, "BACKGROUND")
+    well:SetAllPoints()
+    well:SetColorTexture(0, 0, 0, 0.6)
+    local icon = b:CreateTexture(nil, "BORDER")
+    icon:SetPoint("TOPLEFT", 2, -2)
+    icon:SetPoint("BOTTOMRIGHT", -2, 2)
+    if texture then
+        icon:SetTexture(texture)
+        if coords then icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4]) end
+    end
+    b.icon = icon
+    pcall(function()
+        local big = size * 66 / 36 -- the ActionButton border is drawn 66 px for a 36 px button
+        b:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+        local n = b:GetNormalTexture()
+        n:ClearAllPoints()
+        n:SetPoint("CENTER", b, "CENTER", 0, -size / 36)
+        n:SetSize(big, big)
+        b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+        b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        if checkable then b:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight", "ADD") end
+    end)
     b:RegisterForClicks("LeftButtonUp")
-    local bg = b:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-    b.bg = bg
-    local hl = b:CreateTexture(nil, "BORDER")
-    hl:SetPoint("TOPLEFT", -2, 2)
-    hl:SetPoint("BOTTOMRIGHT", 2, -2)
-    hl:SetColorTexture(0.2, 0.9, 0.3, 1)
-    hl:Hide()
-    b.active = hl
-    local hot = b:CreateTexture(nil, "HIGHLIGHT")
-    hot:SetAllPoints()
-    hot:SetColorTexture(1, 1, 1, 0.15)
+    M.EnableDrag(b)
+    return b
+end
+
+function M.TextButton(name, text, width, entries)
+    local b = M.PanelButton(M.bar, name, text, width, MT.btnH)
+    b:RegisterForClicks("LeftButtonUp")
     M.EnableDrag(b)
     if type(BF.AttachMenu) == "function" then
         BF.AttachMenu(b, { title = "GaarGroupForever", api = "GaarGroupForeverAPI", hook = true, entries = entries })
@@ -378,42 +504,31 @@ function M.NewButton(name, width, entries)
     return b
 end
 
-function M.TextButton(name, text, width, entries)
-    local b = M.NewButton(name, width, entries)
-    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    fs:SetPoint("CENTER")
-    fs:SetText(text)
-    b.label = fs
-    return b
+-- The panel title: "Group", plus your mode when you have one (and "test" in test mode).
+function M.TitleText()
+    local m = M.ModeByKey(M.ActiveMode())
+    return "Group" .. (m and (DOT .. m.label) or "") .. (M.preview and (DOT .. "test") or "")
 end
 
 function M.CreateBar()
     if M.bar then return end
-    local bar = _G.CreateFrame("Frame", "GaarGroupForeverBar", _G.UIParent)
+    local bar = M.NewDialog("GaarGroupForeverBar", _G.UIParent)
     M.bar = bar
     bar:SetFrameStrata("MEDIUM")
     bar:SetClampedToScreen(true)
     bar:SetMovable(true)
     bar:EnableMouse(true)
-    local bg = bar:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.5)
-    M.EnableDrag(bar)
+    M.EnableDrag(bar) -- drag by any part of the panel, the title included
     if type(BF.AttachMenu) == "function" then
         BF.AttachMenu(bar, { title = "GaarGroupForever", api = "GaarGroupForeverAPI", hook = true }) -- right-click: the addon's menu
     end
+    bar.title = M.DialogTitle(bar, "Group")
 
-    local x = PAD
+    local x = MT.inset
     M.buttons.modes = {}
     for _, m in ipairs(M.Modes) do
-        local b = M.NewButton("GaarGroupForeverMode" .. m.key, SIZE)
-        b:SetPoint("LEFT", bar, "LEFT", x, 0)
-        local icon = b:CreateTexture(nil, "ARTWORK")
-        icon:SetPoint("TOPLEFT", 1, -1)
-        icon:SetPoint("BOTTOMRIGHT", -1, 1)
-        icon:SetTexture(M.ROLE_ICONS)
-        icon:SetTexCoord(m.coords[1], m.coords[2], m.coords[3], m.coords[4])
-        b.icon = icon
+        local b = M.IconButton("GaarGroupForeverMode" .. m.key, bar, SIZE, M.ROLE_ICONS, m.coords, true)
+        b:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -MT.top)
         b:SetScript("OnClick", function()
             M.Safe("mode", function()
                 local _, result = M.SetMode(m.key)
@@ -425,6 +540,9 @@ function M.CreateBar()
             return { m.label, "Sets your group role to " .. m.label .. " and remembers it for this character.",
                 "Right-click: menu" }
         end)
+        if type(BF.AttachMenu) == "function" then
+            BF.AttachMenu(b, { title = "GaarGroupForever", api = "GaarGroupForeverAPI", hook = true })
+        end
         M.buttons.modes[m.key] = b
         x = x + SIZE + GAP
     end
@@ -432,7 +550,7 @@ function M.CreateBar()
 
     local function shortcut(key, name, text, state, click, extra, entries)
         local b = M.TextButton("GaarGroupForever" .. name, text, WIDE, entries)
-        b:SetPoint("LEFT", bar, "LEFT", x, 0)
+        b:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -(MT.top + (SIZE - MT.btnH) / 2))
         b:SetScript("OnClick", function() M.Safe(key, click) end)
         M.Tip(b, function()
             local l = extra()
@@ -455,17 +573,20 @@ function M.CreateBar()
             "Left-click: " .. M.DefaultCountdown() .. " second countdown.",
             "Right-click: choose 3, 5 or 10 seconds." }
     end, M.CountdownEntries) -- right-click: its own menu of lengths
-    bar:SetSize(x - GAP + PAD, SIZE + 2 * PAD)
+    bar:SetSize(x - GAP + MT.inset, MT.roleBottom + MT.bottom) -- the dock (Overview.lua) grows the height
     M.PlaceBar()
     M.ApplyScale()
 end
 
--- Grey a button out (leader rule) without hiding its tooltip.
+-- Grey a button out (leader rule) without hiding its tooltip: the Blizzard disabled look on the
+-- text buttons, desaturated and dimmed icon buttons.
 function M.SetEnabled(btn, ok)
     if not btn then return end
     btn:SetEnabled(ok and true or false)
-    btn:SetAlpha(ok and 1 or 0.4)
-    if btn.icon then btn.icon:SetDesaturated(not ok) end
+    if btn.icon then
+        btn:SetAlpha(ok and 1 or 0.4)
+        btn.icon:SetDesaturated(not ok)
+    end
 end
 
 function M.Refresh()
@@ -481,9 +602,8 @@ function M.Refresh()
         local role = M.InGroup() and M.ModeByRole(M.GameRole())
         if role and M.cdb then M.cdb.mode = role.key end
         local active = M.ActiveMode()
-        for key, b in pairs(M.buttons.modes) do
-            if active == key then b.active:Show() else b.active:Hide() end
-        end
+        for key, b in pairs(M.buttons.modes) do b:SetChecked(active == key) end
+        if bar.title then bar.title:SetText(M.TitleText()) end
         M.SetEnabled(M.buttons.ready, (M.ReadyState()))
         M.SetEnabled(M.buttons.role, (M.RoleState()))
         M.SetEnabled(M.buttons.count, (M.CountState()))

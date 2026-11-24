@@ -31,7 +31,8 @@ local D = { buttons = {}, panels = {}, rows = {} }
 M.Dock = D
 M.UI = {}
 
-local GAP, ROWH, ICON = 3, 15, 13
+local GAP, ROWH, ICON = 3, 18, 16
+local NAMEW, LEVELW = 116, 24
 
 -- ---------------------------------------------------------------------------
 -- Member info (logic; tested without a client)
@@ -111,27 +112,15 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.UI.Button(parent, text, width, onclick)
-    local ok, b = pcall(_G.CreateFrame, "Button", nil, parent, "UIPanelButtonTemplate")
-    if not ok or not b then
-        b = _G.CreateFrame("Button", nil, parent)
-        local bg = b:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.2, 0.2, 0.2, 0.9)
-        local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("CENTER")
-        fs:SetText(text)
-    else
-        b:SetText(text)
-    end
-    b:SetSize(width, 20)
+    local b = M.PanelButton(parent, nil, text, width, 22)
     b:SetScript("OnClick", function() M.Safe("button", onclick) end)
     return b
 end
 
--- A movable, closable window of text lines. Returns w with w.frame, w.SetLines(lines),
--- w.AddButton(text, fn) and w.Show().
+-- A movable, closable Blizzard dialog window of text lines. Returns w with w.frame,
+-- w.SetLines(lines), w.AddButton(text, fn) and w.Show().
 function M.UI.Window(name, title, width)
-    local f = _G.CreateFrame("Frame", name, _G.UIParent)
+    local f = M.NewDialog(name, _G.UIParent)
     f:SetSize(width, 100)
     f:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 80)
     f:SetFrameStrata("DIALOG")
@@ -141,20 +130,15 @@ function M.UI.Window(name, title, width)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", function() M.Safe("wdrag", f.StartMoving, f) end)
     f:SetScript("OnDragStop", function() M.Safe("wdragstop", f.StopMovingOrSizing, f) end)
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.05, 0.05, 0.08, 0.92)
-    local t = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    t:SetPoint("TOPLEFT", 10, -8)
-    t:SetText(title)
+    M.DialogTitle(f, title)
     local body = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    body:SetPoint("TOPLEFT", 10, -28)
-    body:SetWidth(width - 20)
+    body:SetPoint("TOPLEFT", 20, -26)
+    body:SetWidth(width - 40)
     body:SetJustifyH("LEFT")
     body:SetJustifyV("TOP")
     local ok, close = pcall(_G.CreateFrame, "Button", nil, f, "UIPanelCloseButton")
     if ok and close then
-        close:SetPoint("TOPRIGHT", 2, 2)
+        close:SetPoint("TOPRIGHT", -4, -4)
         close:SetScript("OnClick", function() f:Hide() end)
     end
     if type(_G.UISpecialFrames) == "table" and name then table.insert(_G.UISpecialFrames, name) end
@@ -166,12 +150,12 @@ function M.UI.Window(name, title, width)
         local h = ROWH * #lines
         local ok2, sh = pcall(body.GetStringHeight, body)
         if ok2 and type(sh) == "number" and sh > 0 then h = sh end
-        f:SetHeight(28 + h + 40)
+        f:SetHeight(26 + h + 56)
     end
     function w.AddButton(text, fn)
         local b = M.UI.Button(f, text, 80, fn)
         local n = #w.buttons
-        b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10 + n * 84, 10)
+        b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 20 + n * 84, 18)
         w.buttons[n + 1] = b
         return b
     end
@@ -196,7 +180,7 @@ function D.Build()
     if D.built or not M.bar then return end
     D.built = true
     for _, spec in ipairs(D.buttons) do
-        local b = M.TextButton("GaarGroupForeverDock" .. spec.key, spec.text, 40)
+        local b = M.TextButton("GaarGroupForeverDock" .. spec.key, spec.text, 44)
         b:SetScript("OnClick", function() M.Safe(spec.key, spec.click) end)
         M.Tip(b, function()
             local l = {}
@@ -216,48 +200,67 @@ function D.Build()
     end)
 end
 
+-- Stacks items top to bottom: heights = list of numbers (false = hidden), start = y of the first
+-- item (down from the panel top). Returns the y of each item (nil when hidden) and the total panel
+-- height (the last item's end + bottom padding).
+function D.Stack(start, heights, gap, bottom)
+    local ys, y, shown = {}, start, 0
+    for i = 1, #heights do
+        local h = heights[i]
+        if h and h > 0 then
+            ys[i] = y
+            y = y + h + gap
+            shown = shown + 1
+        end
+    end
+    return ys, y - gap + bottom, shown
+end
+
+-- Lays the tab row and the panels out inside the bar and sizes the bar to fit. Not in combat: the
+-- bar may carry protected children, which must not be moved or resized then.
 function D.Layout()
     local bar = M.bar
-    if not bar then return end
-    local w = bar:GetWidth()
-    if type(w) ~= "number" or w < 50 then w = 240 end
+    if not bar or M.Q(_G.InCombatLockdown) then return end
+    local MT = M.Metrics
+    local w = MT.inner
     local vis = {}
     for _, spec in ipairs(D.buttons) do
         if spec.btn then
             if D.OptOn(spec) then vis[#vis + 1] = spec else spec.btn:Hide() end
         end
     end
-    local y = 2
+    local heights = { #vis > 0 and MT.btnH or false }
+    local frames = {}
+    for i, p in ipairs(D.panels) do
+        local h = p.height()
+        frames[i] = p.frame or (p.getFrame and p.getFrame())
+        heights[i + 1] = frames[i] and h and h > 0 and h or false
+    end
+    local ys, total = D.Stack(MT.roleBottom + MT.gap, heights, MT.gap, MT.bottom)
     if #vis > 0 then
-        local bw = math.floor((w - (#vis - 1) * GAP) / #vis)
+        local bw = math.floor((w - (#vis - 1) * MT.gap) / #vis)
         for i, spec in ipairs(vis) do
             local b = spec.btn
             b:ClearAllPoints()
-            b:SetWidth(bw)
-            b:SetHeight(22)
-            b:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", (i - 1) * (bw + GAP), -y)
+            b:SetSize(bw, MT.btnH)
+            b:SetPoint("TOPLEFT", bar, "TOPLEFT", MT.inset + (i - 1) * (bw + MT.gap), -ys[1])
             b:Show()
-            if type(spec.active) == "function" then
-                if spec.active() then b.active:Show() else b.active:Hide() end
-            end
-        end
-        y = y + 22 + GAP
-    end
-    for _, p in ipairs(D.panels) do
-        local h = p.height()
-        local fr = p.frame or (p.getFrame and p.getFrame())
-        if fr then
-            if h and h > 0 then
-                fr:ClearAllPoints()
-                fr:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -y)
-                fr:SetSize(w, h)
-                fr:Show()
-                y = y + h + GAP
-            else
-                fr:Hide()
-            end
+            if type(spec.active) == "function" then M.SetSelected(b, spec.active() and true or false) end
         end
     end
+    for i, fr in pairs(frames) do
+        if ys[i + 1] then
+            fr:ClearAllPoints()
+            fr:SetPoint("TOPLEFT", bar, "TOPLEFT", MT.inset, -ys[i + 1])
+            fr:SetSize(w, heights[i + 1])
+            fr:Show()
+        else
+            fr:Hide()
+        end
+    end
+    bar:SetHeight(total)
+    -- The secure buttons (tank frame, Assist) sit over their rows, not inside them: realign them.
+    if M.Roles and type(M.Roles.SyncSecure) == "function" then M.Safe("secure", M.Roles.SyncSecure) end
 end
 
 function D.Update()
@@ -290,21 +293,30 @@ function O.Expanded() return O.Enabled() and not (M.db and M.db.ovCollapsed) end
 local frame
 local function EnsureFrame()
     if frame or not M.bar then return frame end
-    frame = _G.CreateFrame("Frame", "GaarGroupForeverOverview", M.bar)
-    local bg = frame:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    frame = M.NewInset("GaarGroupForeverOverview", M.bar)
     for i = 1, 5 do
         local r = {}
+        local y = -(3 + (i - 1) * ROWH)
+        r.stripe = frame:CreateTexture(nil, "BACKGROUND")
+        r.stripe:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, y)
+        r.stripe:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, y)
+        r.stripe:SetHeight(ROWH)
+        r.stripe:SetColorTexture(1, 1, 1, i % 2 == 0 and 0.05 or 0)
         r.icon = frame:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(ICON, ICON)
-        r.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -(2 + (i - 1) * ROWH))
+        r.icon:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, y - 1)
         r.icon:SetTexture(M.ROLE_ICONS)
         r.name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         r.name:SetPoint("LEFT", r.icon, "RIGHT", 4, 0)
+        r.name:SetWidth(NAMEW)
         r.name:SetJustifyH("LEFT")
+        pcall(r.name.SetWordWrap, r.name, false)
+        r.level = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        r.level:SetPoint("LEFT", r.name, "RIGHT", 4, 0)
+        r.level:SetWidth(LEVELW)
+        r.level:SetJustifyH("CENTER")
         r.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        r.status:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -(2 + (i - 1) * ROWH - 1))
+        r.status:SetPoint("RIGHT", frame, "TOPRIGHT", -6, y - 1 - ICON / 2)
         r.status:SetJustifyH("RIGHT")
         D.rows[i] = r
     end
@@ -314,7 +326,7 @@ end
 D.AddPanel({ getFrame = EnsureFrame, height = function()
     if not O.Expanded() then return nil end
     local n = #(O.shown or {})
-    return n > 0 and (n * ROWH + 4) or nil
+    return n > 0 and (n * ROWH + 6) or nil
 end })
 
 function O.Fill()
@@ -326,7 +338,7 @@ function O.Fill()
     for i, r in ipairs(D.rows) do
         local unit = units[i]
         if not unit then
-            r.icon:Hide(); r.name:SetText(""); r.status:SetText("")
+            r.icon:Hide(); r.name:SetText(""); r.level:SetText(""); r.status:SetText("")
         else
             local m = O.Member(unit)
             local mode = M.ModeByRole(m.role)
@@ -336,7 +348,8 @@ function O.Fill()
             else
                 r.icon:Hide()
             end
-            r.name:SetText(m.name .. (m.level and ("  " .. m.level) or ""))
+            r.name:SetText(m.name)
+            r.level:SetText(m.level and tostring(m.level) or "")
             r.name:SetTextColor(O.ClassColor(m.class))
             r.status:SetText(O.STATUS_TEXT[m.status] or "")
         end

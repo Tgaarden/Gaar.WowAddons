@@ -66,47 +66,34 @@ end
 function K.Enabled() return M.db and M.db.markers ~= false end
 function K.Open() return K.Enabled() and M.db.markersOpen ~= false end
 
-local ROW = 22
+local ROW, BTN = 25, 22
 local frame
 local function EnsureFrame()
     if frame or not M.bar then return frame end
-    frame = _G.CreateFrame("Frame", "GaarGroupForeverMarkers", M.bar)
-    local bg = frame:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.5)
-    local function btn(x, label, onclick, tip)
-        local b = _G.CreateFrame("Button", nil, frame)
-        b:SetSize(ROW - 2, ROW - 2)
-        b:SetPoint("LEFT", frame, "LEFT", 4 + x * ROW, 0)
+    frame = M.NewInset("GaarGroupForeverMarkers", M.bar)
+    local function btn(x, texture, coords, onclick, tip)
+        local b = M.IconButton(nil, frame, BTN, texture, coords)
+        b:SetPoint("LEFT", frame, "LEFT", 6 + x * ROW, 0)
         b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        b:RegisterForDrag("LeftButton")
-        M.EnableDrag(b)
         b:SetScript("OnClick", function(_, button) M.Safe("mark", onclick, button) end)
-        local hot = b:CreateTexture(nil, "HIGHLIGHT")
-        hot:SetAllPoints()
-        hot:SetColorTexture(1, 1, 1, 0.2)
         M.Tip(b, function() return tip end)
         return b
     end
     for i = 1, 8 do
-        local b = btn(i - 1, nil, function(button) K.Mark(i, button) end,
+        btn(i - 1, K.TEXTURE, { K.Coords(i) }, function(button) K.Mark(i, button) end,
             { K.NAMES[i], "Left-click: mark your target " .. K.NAMES[i] .. ".", "Right-click: clear your target's mark." })
-        local t = b:CreateTexture(nil, "ARTWORK")
-        t:SetAllPoints()
-        t:SetTexture(K.TEXTURE)
-        t:SetTexCoord(K.Coords(i))
     end
-    local x = btn(8, nil, function()
+    local x = btn(8, nil, nil, function()
         local n = K.ClearAll()
         M.Print(n > 0 and ("cleared " .. n .. " mark(s).") or "no marks found on the group's units or targets.")
     end, { "Clear all", "Clears the marks on your target and focus, and on the group, their pets and their targets." })
-    local fs = x:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local fs = x:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("CENTER")
-    fs:SetText("X")
+    fs:SetText("|cffff4040X|r")
     return frame
 end
 
-M.Dock.AddPanel({ getFrame = EnsureFrame, height = function() return K.Open() and ROW or nil end })
+M.Dock.AddPanel({ getFrame = EnsureFrame, height = function() return K.Open() and (ROW + 6) or nil end })
 
 function K.SetEnabled(v) M.db.markers = v and true or false; M.Refresh() end
 function K.SetOpen(v) M.db.markersOpen = v and true or false; M.Refresh() end

@@ -219,5 +219,22 @@ eq(R.Check(), nil, "option off")
 M.db.runlog = true
 eq(R.Check(), "started", "instance info read"); eq(R.Cur().id, 99, "instance id")
 
+-- ---- Panel layout (Blizzard style) ----
+do
+    local D = M.Dock
+    local ys, total, shown = D.Stack(48, { 22, false, 100, 25 }, 3, 14)
+    eq(ys[1], 48, "stack first"); eq(ys[2], nil, "stack hidden skipped"); eq(ys[3], 73, "stack third")
+    eq(ys[4], 176, "stack fourth"); eq(total, 215, "stack total"); eq(shown, 3, "stack count")
+    local _, t0, n0 = D.Stack(48, { false, false }, 3, 14)
+    eq(n0, 0, "stack empty count"); eq(t0, 48 - 3 + 14, "stack empty total")
+    state.group = true
+    M.preview = false; M.cdb.mode = "tank"
+    eq(M.TitleText(), "Group \194\183 Tank", "title with mode")
+    M.cdb.mode = nil; M.preview = true
+    eq(M.TitleText(), "Group \194\183 test", "title test mode")
+    M.preview = false
+    eq(M.Metrics.inner + 2 * M.Metrics.inset, 270, "panel width")
+end
+
 if fails > 0 then print(fails .. " failures"); os.exit(1) end
 print("group_all_test ok")

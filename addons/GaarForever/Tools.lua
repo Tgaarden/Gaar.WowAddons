@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.54"] = "notes for GaarGpsForever 1.6.0: hover a flight path on the map to see its direct flight connections (/ggps routes)",
         ["3.2.53"] = "notes for GaarBuffsForever 1.10.0, GaarCastbarsForever 1.4.0, GaarChatForever 1.6.0, GaarFramesForever 1.8.0, GaarGroupForever 1.1.0, GaarLootForever 1.4.0, GaarFishingForever 1.7.0 and GaarXPForever 1.5.0: every addon with a test mode has a Test entry in its menu (kept just before Reset); new test modes for the fishing session panel (/gfish test) and the XP panel (/gxp test); /ggf test is also a menu entry",
         ["3.2.52"] = "notes for the new GaarGroupForever 1.0.0: a Group row in the menu and on the Options page (/ggf)",
         ["3.2.51"] = "notes for GaarBagsForever 1.13.1: the gold of your other characters (hover the bag gold, /gbf gold) is found again: records kept under another spelling of the realm or of your name (\"Dru\" vs \"Dru Tics\") are merged into one and never counted twice",
@@ -139,6 +140,7 @@ local CHANGES = {
         ["1.2.11"] = "secret-safe value checks",
     },
     GaarGpsForever = {
+        ["1.6.0"] = "Flight connections on hover: hover a flight path on the map to see the flight paths it connects to directly - lines on the map and a list in the tooltip, green when learned, grey when not (/ggps routes on|off, also in the menu). The network comes from the client's own flight table and is corrected from the routes the game offers at each flight master",
         ["1.5.2"] = "Fix: flight paths you had not learned could show green. Learned now needs positive evidence (a known node on an open flight master's map, Current or Reachable; the client's isUndiscovered only once it has been seen to tell the two apart), and the Alliance and Horde flight master of a town are learned apart. The learned list is reset once: every flight path is grey until you next open a flight master's map. /ggps status lists each flight path on the map with learned yes/no and where that came from",
         ["1.5.1"] = "Map places: learned flight paths are green (unlearned stay grey); flight paths rebuilt from the WoW Forever client's own data - right positions on Mulgore, Eastern Plaguelands, Redridge and Stormwind, separate Alliance and Horde flight masters where a town has both, capitals' flight paths on their zone map too, and the WoW Forever ones (Mount Hyjal, Riverglades); graveyards cross-checked against the vanilla server list (93, with names in the tooltip); the client's own flight path and graveyard lists are merged in when it has them; /ggps status shows per map what each source gave",
         ["1.5.0"] = "Graveyards and flight paths: every spirit healer and flight master of your faction (and the neutral ones) on the world and zone map, also those you have not found; flight paths you have not learned are grey (learned ones are read when you open a flight master's map); /ggps flights on|off, /ggps graves on|off",

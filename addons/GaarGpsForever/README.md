@@ -171,6 +171,15 @@ Not on the minimap, and nothing is clickable: hover for the tooltip. On by defau
   `Data/Graveyards.lua` (93 graveyards) joins the vanilla server's graveyard list (CMaNGOS
   classic-db) with Wowhead Classic's spirit healer spawns. Sources are in the file headers.
 - `/ggps flights on|off`, `/ggps graves on|off`, and two checkboxes in the hub menu / Options page.
+- **Flight connections on hover (1.6).** Hover a flight path pin: the tooltip lists its direct
+  connections (green learned, grey not, sorted by name, with a count) and lines on the map run from
+  the pin to each connection on the map shown (green / grey). A connection off the map (zone map)
+  gets a short stub pointing the way it lies, worked out from the world positions. The network is
+  `Data/FlightRoutes.lua` (143 edges: 70 Alliance, 74 Horde; from the client's own `TaxiPath`
+  table, see its header), corrected by what the game offers when a flight master's map opens: each
+  hop of each route is saved as a learned edge (account-wide, per faction) and a static edge to a
+  node that is only reachable in two hops or more is removed. Option "Show flight connections on
+  hover" (default on): `/ggps routes on|off` and the menu. `/ggps status` has the route counts.
 
 ## Commands
 
@@ -178,6 +187,7 @@ Not on the minimap, and nothing is clickable: hover for the tooltip. On by defau
 |---|---|
 | `/ggps` | Help |
 | `/ggps flights on\|off`, `/ggps graves on\|off` | Show all flight paths (green when learned, grey until then) / graveyards on the world and zone map |
+| `/ggps routes on\|off` | Show the direct flight connections of a flight path when you hover it on the map |
 | `/way x y`, `/way x,y`, `/way <zone> x y` | Set the waypoint (0-100, x first) |
 | `/way`, `/way clear` | Show the waypoint and the usage; clear it |
 | `/ggps way ...` | The same as `/way ...`, always there (the one to use with TomTom) |

@@ -561,6 +561,7 @@ local function OnEnter(self)
         tip:SetText(d.e.name, 1, 1, 1)
         tip:AddLine(d.e.zone, 0.8, 0.8, 0.8)
         if d.learned then tip:AddLine("Learned", 0.2, 1, 0.2) else tip:AddLine("Not learned", 0.6, 0.6, 0.6) end
+        if ns.routes then core.Safe("routes", ns.routes.OnEnter, self, tip) end -- 1.6: direct connections
     else
         tip:SetText("Graveyard", 1, 1, 1)
         if d.name then tip:AddLine(d.name, 1, 0.82, 0) end
@@ -570,6 +571,7 @@ local function OnEnter(self)
 end
 
 local function OnLeave()
+    if ns.routes then ns.routes.Hide() end
     if _G.GameTooltip then _G.GameTooltip:Hide() end
 end
 
@@ -604,6 +606,7 @@ end
 places.pure.Skin = Skin
 
 function places.HideAll()
+    if ns.routes then ns.routes.Hide() end
     for _, p in ipairs(pins) do p:Hide() end
     lastSig = nil
 end
@@ -633,6 +636,7 @@ function places.Draw()
     local sig = table.concat({ mapID, w, h, zoom, rev, c.gen }, ":")
     if sig == lastSig then return end
     lastSig = sig
+    if ns.routes then ns.routes.Hide() end
     local list = Visible(mapID, PlayerFaction(), db.places_flights, db.places_graves)
     local size = PIN_SIZE / zoom
     local level = (Num(Method(canvas, "GetFrameLevel")) or 0) + PIN_LEVEL
@@ -659,6 +663,7 @@ local events = CreateFrame("Frame")
 events:SetScript("OnEvent", function(_, event)
     if event == "TAXIMAP_OPENED" then
         core.Safe("places", ScanTaxi)
+        if ns.routes then core.Safe("routes", ns.routes.Scan) end
     end
     -- entering the world, death and resurrection, a flight map: read the client again
     posCache = {}
@@ -670,9 +675,11 @@ function places.Bind(d, c)
     if type(db.places_flights) ~= "boolean" then db.places_flights = true end
     if type(db.places_graves) ~= "boolean" then db.places_graves = true end
     if type(db.placesLearned) ~= "table" then db.placesLearned = {} end
+    if ns.routes then ns.routes.Bind(db, core, places) end
 end
 
-places.SAVED_KEYS = { places_flights = true, places_graves = true, placesLearned = true }
+places.SAVED_KEYS = { places_flights = true, places_graves = true, placesLearned = true,
+    places_routes = true, placesRoutes = true }
 
 function places.Start()
     if started or not db then return end
@@ -712,11 +719,13 @@ local function Counts()
 end
 
 function places.HelpLines()
-    return {
+    local lines = {
         "/ggps flights on|off (now " .. OnOff(db and db.places_flights) .. ") - all flight paths of your faction on the"
             .. " world and zone map, green when learned, grey until then; /ggps graves on|off (now "
             .. OnOff(db and db.places_graves) .. ") - all graveyards on the zone map",
     }
+    if ns.routes then for _, l in ipairs(ns.routes.HelpLines()) do lines[#lines + 1] = l end end
+    return lines
 end
 
 local function YesNo(v) return v and "yes" or "no" end
@@ -769,6 +778,7 @@ function places.StatusLines()
             #lastUnmatched > 0 and (" (" .. table.concat(lastUnmatched, ", ") .. ")") or ""),
     }
     for _, l in ipairs(MapStatusLines()) do lines[#lines + 1] = l end
+    if ns.routes then for _, l in ipairs(ns.routes.StatusLines()) do lines[#lines + 1] = l end end
     return lines
 end
 
@@ -776,6 +786,7 @@ end
 function places.Slash(cmd, arg)
     local fn
     local cur
+    if ns.routes and ns.routes.Slash(cmd, arg) then return true end
     if cmd == "flights" or cmd == "flight" then fn, cur = SetFlights, db and db.places_flights
     elseif cmd == "graves" or cmd == "graveyards" or cmd == "graveyard" then fn, cur = SetGraves, db and db.places_graves
     else return false end
@@ -786,10 +797,12 @@ end
 
 function places.MenuEntries()
     if not db then return {} end
-    return {
+    local entries = {
         { text = "Flight paths on the map", checkbox = true, checked = function() return db.places_flights end,
           func = function() SetFlights(not db.places_flights) end },
         { text = "Graveyards on the map", checkbox = true, checked = function() return db.places_graves end,
           func = function() SetGraves(not db.places_graves) end },
     }
+    if ns.routes then for _, e in ipairs(ns.routes.MenuEntries()) do entries[#entries + 1] = e end end
+    return entries
 end

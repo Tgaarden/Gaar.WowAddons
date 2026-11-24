@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.58"] = "notes for GaarGroupForever 1.4.0: instance info panel (/ggf info, Info button) with levels, bosses and loot for your class",
         ["3.2.57"] = "notes for GaarGroupForever 1.3.0: role modules - Tank (pull marker, lost-aggro warning, healer mana before the pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out-of-range, PvP flag) and DPS (assist tank, wrong target, aggro, CC markers, interrupt); /ggf tank|healer|dps",
         ["3.2.56"] = "notes for GaarBagsForever 1.13.2: the gold hover in the bag window works on more layouts (coin buttons a level deeper, or no frame taking the mouse) and /gbf gold and /gbf status say what it found; a login that knows only your first name no longer folds other characters into you; characters saved before the rename come back once the BetterBagsForever bridge folder is installed",
         ["3.2.55"] = "notes for GaarGroupForever 1.2.0: a dock under the bar with a group overview list, a pre-pull check (/ggf check, local report, Announce on click), a raid marker row and a per-character dungeon run log (/ggf log); each has its own option, all on by default",
@@ -192,6 +193,7 @@ local CHANGES = {
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     GaarGroupForever = {
+        ["1.4.0"] = "instance info: all vanilla 5-man dungeons with recommended levels vs yours and the party's, boss list ticked as bosses die, notable loot for your class (hover a boss; /ggf info [name] for any dungeon); Info button and Show instance info option",
         ["1.3.0"] = "role modules: Tank (pull marker, lost aggro, healer mana before pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out of range, PvP flag), DPS (assist tank, wrong target, aggro, CC markers, interrupt alert); options in the menu, /ggf tank|healer|dps",
         ["1.1.0"] = "Test mode entry in the menu (shows the bar solo, this session only)",
         ["1.0.0"] = "new: a small party bar (only in a party) with Tank / DPS / Healer role buttons and leader shortcuts for ready check, role check and pull countdown (/ggf)",

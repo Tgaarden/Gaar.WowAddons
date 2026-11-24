@@ -71,7 +71,7 @@ ADDON_NAME = ADDON_NAME or "GaarGpsForever"
 ns = type(ns) == "table" and ns or {} -- shared with Gather.lua (ns.gather)
 local DOT = " \194\183 "
 
-local VERSION = "1.5.3"
+local VERSION = "1.6.0"
 
 local ARRIVAL_YARDS = 10
 local TICK = 0.05                -- seconds between arrow and minimap updates
@@ -114,7 +114,7 @@ local DEFAULTS = {
 local SAVED_KEYS = { waypoint = true, arrow = true, locked = true, arrowPos = true, corpse = true,
     corpseRun = true, gather = true, gatherAlert = true, gatherRadius = true, gatherSound = true,
     gatherHover = true, gatherAutoNext = true, gatherNodes = true, places_flights = true,
-    places_graves = true, placesLearned = true }
+    places_graves = true, placesLearned = true, places_routes = true, placesRoutes = true }
 
 local db                -- GaarGpsForeverDB, bound at ADDON_LOADED (never at file scope)
 local started           -- PLAYER_LOGIN work done
@@ -219,6 +219,7 @@ local FEATURE_TEXT = {
     click = "Alt + left-click (Option on Mac) on the world map",
     corpse = "the corpse route",
     places = "graveyards and flight paths on the map",
+    routes = "flight connections on hover",
     gatherRecord = "recording gathering spots",
     gatherAlert = "the gathering spot alert",
     gatherHover = "the minimap hover hint",
@@ -1051,6 +1052,8 @@ OnFeatureBroken = function(feature)
         if worldPin then worldPin:Hide() end
     elseif feature == "places" then
         if ns.places then ns.places.HideAll() end
+    elseif feature == "routes" then
+        if ns.routes then ns.routes.Hide() end
     end
 end
 

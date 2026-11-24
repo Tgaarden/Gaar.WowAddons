@@ -4,7 +4,7 @@
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.5.3
+## Version: 1.6.0
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_02
 ## Dependencies: GaarForever
 ## OptionalDeps: BetterGpsForever
@@ -14,6 +14,8 @@
 
 Data\Graveyards.lua
 Data\FlightPaths.lua
+Data\FlightRoutes.lua
 GaarGpsForever.lua
 Gather.lua
 Places.lua
+Routes.lua

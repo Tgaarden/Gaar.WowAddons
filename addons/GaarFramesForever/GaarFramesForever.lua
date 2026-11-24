@@ -75,7 +75,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarFramesForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.7.1"
+local VERSION = "1.8.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -5169,8 +5169,6 @@ local function MenuEntries()
     local list = {
         { text = "Lock", checkbox = true, checked = function() return db.locked end,
           func = function() SetLocked(not db.locked) end },
-        { text = "Test mode", checkbox = true, checked = function() return testing end,
-          func = function() SetTesting(not testing) end },
         { text = "Frames", submenu = frameItems },
         { text = "Portrait", submenu = portraits },
         { text = "Follow Blizzard Edit Mode", checkbox = true, checked = function() return db.followEditMode end,
@@ -5190,6 +5188,8 @@ local function MenuEntries()
     end
     list[#list + 1] = { text = "Overheal cap", submenu = caps }
     list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Test mode", checkbox = true, checked = function() return testing and true or false end,
+        func = function() SetTesting(not testing) end }
     list[#list + 1] = { text = "Reset positions & scales", func = ResetLayout }
     return list
 end

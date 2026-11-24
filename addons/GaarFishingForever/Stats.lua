@@ -58,6 +58,7 @@ local stopAt                    -- GetTime() the last Fishing channel ended
 local lootSlots                 -- slot = { id, icon, qty, link } of the open fishing loot window
 local lastSkill                 -- the last skill read
 local lastError
+local testing                   -- /gfish test: the panel with made-up numbers, this session only
 
 local panel, text, icons
 local accum = 0
@@ -125,6 +126,24 @@ local function Session()
         charDb.session = s
     end
     return s
+end
+
+-- Test mode: a made-up session for the panel and its tooltip. Nothing is saved or touched; the real
+-- session (charDb.session) is left alone.
+local function Fake()
+    local fish = "Interface\\Icons\\INV_Misc_Fish_02"
+    return { casts = 32, catches = 26, start = Epoch() - 25 * 60, skill0 = 150, last = Epoch(),
+        items = {
+            [6358] = { n = 9, icon = fish, link = "|cffffffff|Hitem:6358::::::::1:::::::|h[Oily Blackmouth]|h|r" },
+            [6359] = { n = 6, icon = fish, link = "|cffffffff|Hitem:6359::::::::1:::::::|h[Firefin Snapper]|h|r" },
+            [6303] = { n = 5, icon = fish, link = "|cffffffff|Hitem:6303::::::::1:::::::|h[Raw Slitherskin Mackerel]|h|r" },
+            [13422] = { n = 2, icon = fish, link = "|cffffffff|Hitem:13422::::::::1:::::::|h[Stonescale Eel]|h|r" },
+        } }
+end
+
+-- What the panel and the tooltip show: the made-up session in test mode, else the real one.
+local function Shown()
+    return testing and Fake() or Session()
 end
 
 -- Something happened: start the session if it has not started, note the time.
@@ -206,7 +225,7 @@ end
 local function ShowTooltip(self)
     local tip = _G.GameTooltip
     if type(tip) ~= "table" or type(tip.SetOwner) ~= "function" then return end
-    local s = Session()
+    local s = Shown()
     tip:SetOwner(self, "ANCHOR_LEFT")
     tip:AddLine("Fishing session")
     for _, l in ipairs(Lines(s)) do tip:AddLine(l, 1, 1, 1) end
@@ -277,7 +296,7 @@ local function Create()
 end
 
 local function Fill()
-    local s = Session()
+    local s = Shown()
     text:SetText(table.concat(Lines(s), "\n"))
     local list = Sorted(s)
     local textH = Num(text:GetStringHeight()) or 36
@@ -301,7 +320,7 @@ end
 
 function stats.Refresh()
     if not db then return end
-    local want = On() and (lineOut or PoleEquipped())
+    local want = testing or (On() and (lineOut or PoleEquipped()))
     if not want then
         if panel then panel:Hide() end
         return
@@ -405,6 +424,18 @@ function stats.SetOn(on, quiet)
     end
 end
 
+function stats.IsTest() return testing and true or false end
+
+-- Test mode: the panel with a made-up session, to see it and place it without fishing. Not saved.
+function stats.SetTest(on, quiet)
+    testing = on and true or false
+    stats.Refresh()
+    if not quiet then
+        A:Print(testing and "test mode on: the session panel shows made-up numbers - drag it into place. /gfish test again to stop."
+            or "test mode off.")
+    end
+end
+
 function stats.Reset(quiet)
     if not charDb then return end
     charDb.session = Empty()
@@ -426,6 +457,7 @@ end
 
 function stats.HelpLines()
     return {
+        "/gfish test - show the session panel with made-up numbers, to place it (now " .. (testing and "on" or "off") .. ")",
         "/gfish stats - show or hide the session panel (now " .. (On() and "on" or "off")
             .. "); /gfish stats reset - start a new session (it also resets after 30 min without fishing)",
     }
@@ -435,7 +467,7 @@ function stats.StatusLines()
     local s = Session()
     local l = Lines(s)
     return {
-        "stats: " .. (On() and "on" or "off") .. "   " .. l[1] .. DOT .. l[2] .. DOT .. l[3]
+        "stats: " .. (On() and "on" or "off") .. (testing and " (test mode)" or "") .. "   " .. l[1] .. DOT .. l[2] .. DOT .. l[3]
             .. DOT .. "items " .. #Sorted(s)
             .. "   IsFishingLoot: " .. (type(_G.IsFishingLoot) == "function" and "yes" or "no (loot right after the channel)")
             .. (lastError and ("   last error: " .. lastError) or ""),

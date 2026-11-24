@@ -124,7 +124,7 @@ Since 1.1.4 this addon lists `GaarForever` (the GaarForever folder) under `## De
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a submenu per Gaar...Forever addon. Its **Castbars** row is in
 the hub (then named BetterGaarForever) 2.2 and later; older versions of the hub do not list it. The submenu has **Lock position &
-size**, **Test bars**, **Bars** (Player, Target, Focus, Pet), **Swing timer** (Show swing
+size**, **Test mode** (just before Reset), **Bars** (Player, Target, Focus, Pet), **Swing timer** (Show swing
 timer, Off hand, Ranged), **Follow Blizzard (Edit Mode)**,
 **Latency safe-zone**, **Texture**, **Font size**, the two **Timer** styles and **Reset positions
 & sizes**, the same settings as `/gcf` (both go through the same functions). This addon has no

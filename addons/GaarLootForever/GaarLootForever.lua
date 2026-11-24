@@ -59,7 +59,7 @@
 ]]
 
 local _G = _G
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -1088,8 +1088,8 @@ A:Toggle("names", "Who chose what, in the button tooltips", true, Changed)
 A:Toggle("summary", "Summary panel of the last rolls", true, Changed)
 A:Toggle("autohide", "Hide the summary 60 s after the last roll", true, Changed)
 A:Slider("summaryRolls", "Rolls kept in the summary", 1, 10, 1, 5, Changed, nil, { cmd = "rolls" })
+A:Button("Test: show a preview", function() RunTest() end, { cmd = "test" })
 A:Button("Summary back to its default place", function() ResetPosition() end, { cmd = "reset" })
-A:Button("Show a preview", function() RunTest() end, { cmd = "test" })
 
 local function ActiveCount()
     local n = 0

@@ -181,7 +181,7 @@ ADDON_NAME = ADDON_NAME or "GaarFishingForever"
 ns = type(ns) == "table" and ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies); the addon
 -- object is made by RouteGuide.lua, which loads first.
@@ -1300,6 +1300,8 @@ local function OnSlash(msg)
         end
     elseif cmd == "stats" and ns.stats then
         ns.stats.Slash(arg)
+    elseif cmd == "test" and ns.stats then
+        ns.stats.SetTest(not ns.stats.IsTest())
     elseif cmd == "status" then
         PrintStatus()
     elseif cmd == "swap" then
@@ -1364,10 +1366,13 @@ local function MenuEntries()
         ns.stats and { text = "Session stats panel", checkbox = true,
           checked = function() return ns.stats.IsOn() end,
           func = function() ns.stats.SetOn(not ns.stats.IsOn()) end } or nil,
-        ns.stats and { text = "Reset session stats", func = function() ns.stats.Reset() end } or nil,
         ns.guide and { text = "Fishing route", checkbox = true,
           checked = function() return ns.guide.IsOn() end,
           func = function() ns.guide.SetOn(not ns.guide.IsOn()) end } or nil,
+        ns.stats and { text = "Test mode", checkbox = true,
+          checked = function() return ns.stats.IsTest() end,
+          func = function() ns.stats.SetTest(not ns.stats.IsTest()) end } or nil,
+        ns.stats and { text = "Reset session stats", func = function() ns.stats.Reset() end } or nil,
     }
 end
 

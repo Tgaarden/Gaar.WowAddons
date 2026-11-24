@@ -325,6 +325,7 @@ with both settings and never takes the first click away from the bobber.
 | `/gfish window <0.2-0.8>` | Seconds between the two right presses (default 0.4) |
 | `/gfish reel on`, `/gfish reel off` | While the line is out, double right-click anywhere (and the Cast / Reel key) reels in; on by default |
 | `/gfish stats` | Show or hide the session panel (on by default); `/gfish stats on` and `/gfish stats off` also work |
+| `/gfish test` | Test mode (1.7.0): the session panel with made-up numbers, to place it without fishing; this session only. Also a **Test mode** menu entry |
 | `/gfish stats reset` | Start a new session (it also resets after 30 minutes without fishing) |
 | `/gfish splash on`, `/gfish splash off` | Loud splash while the line is out: sound effects up, music and ambience down, put back after; off by default |
 | `/gfish swap` | Swap the fishing pole in or out, the same as Shift + double right-click (out of combat) |
@@ -343,8 +344,8 @@ Since 1.2.1 this addon lists `GaarForever` (the GaarForever folder) under `## De
 menu has a **Fishing** submenu with **Double right-click casts Fishing** (the same as `/gfish
 on|off`), **Double right-click reels in** (the same as `/gfish reel on|off`), **Double-click window** (0.2 to 0.8 s, the same as `/gfish window`), **Loud splash while fishing**
 (the same as `/gfish splash on|off`), **Session stats panel** (the same as `/gfish stats`),
-**Reset session stats** (the same as `/gfish stats reset`) and **Fishing
-route** (the same as `/gfish route on|off`). Both go through
+**Fishing route** (the same as `/gfish route on|off`), **Test mode** (the same as `/gfish test`) and
+**Reset session stats** (the same as `/gfish stats reset`). Both go through
 the same functions as the slash command. This addon has no minimap button or menu of its own, so
 nothing here changes with or without the hub.
 

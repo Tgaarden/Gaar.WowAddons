@@ -7,7 +7,7 @@ hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## Right-click menu
 
-Right-click the bar to open this addon's menu (the same options as the GaarForever hub menu).
+Right-click the bar to open this addon's menu (the same options as the GaarForever hub menu). Since 1.1.0 it has a **Test mode** entry (the same as `/ggf test`): the bar is shown solo, this session only.
 
 ## What it does
 

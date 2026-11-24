@@ -241,7 +241,7 @@ Since 1.2.12 this addon lists `GaarForever` (the GaarForever folder) under `## D
 
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a submenu per Gaar...Forever addon. Its **Frames** row is in the hub (then named BetterGaarForever) 2.4
-and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode**,
+and later; older versions of the hub do not list it. The submenu has **Lock**, **Test mode** (just before Reset),
 **Frames** (a checkbox per frame), **Portrait** (2D or 3D), **Follow Blizzard Edit Mode**, **Bar text**,
 **Class colour**, **Player buffs**, **Heal prediction**, **HoT prediction** and **Reset positions & scales**, the same settings as `/gff` (both go through
 the same functions). This addon has no minimap button or menu of its own, so nothing here

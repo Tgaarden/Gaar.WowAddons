@@ -694,7 +694,7 @@ function Feed.MenuEntries()
         value = function() return opts.time end, set = function(v) SetNumber("time", v, true) end,
         format = function(v) return v .. " s" end }
     list[#list + 1] = { divider = true }
-    list[#list + 1] = { text = "Show test lines", func = function() Test() end }
+    list[#list + 1] = { text = "Test: show sample lines", func = function() Test() end }
     list[#list + 1] = { text = "Reset position and size", func = function() Reset() end }
     return list
 end

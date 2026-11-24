@@ -58,7 +58,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarCastbarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.3.0"
+local VERSION = "1.4.0"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"
@@ -1793,8 +1793,6 @@ local function MenuEntries()
     local list = {
         { text = "Lock position & size", checkbox = true, checked = function() return db.locked end,
           func = function() SetLocked(not db.locked) end },
-        { text = "Test bars", checkbox = true, checked = function() return testing end,
-          func = function() SetTesting(not testing) end },
         { text = "Bars", submenu = barItems },
         { text = "Swing timer", submenu = {
             { text = "Show swing timer", checkbox = true, checked = function() return db.swingTimer end,
@@ -1819,6 +1817,8 @@ local function MenuEntries()
             func = function() SetTimer(t.key) end }
     end
     list[#list + 1] = { divider = true }
+    list[#list + 1] = { text = "Test mode", checkbox = true, checked = function() return testing and true or false end,
+        func = function() SetTesting(not testing) end }
     list[#list + 1] = { text = "Reset positions & sizes", func = ResetLayout }
     return list
 end

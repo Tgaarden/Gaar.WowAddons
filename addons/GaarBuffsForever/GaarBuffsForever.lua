@@ -100,7 +100,7 @@ ADDON_NAME = ADDON_NAME or "GaarBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.9.0"
+local VERSION = "1.10.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -1441,7 +1441,7 @@ local function MenuEntries()
     list[#list + 1] = { text = "Lock box", checkbox = true,
         checked = function() return db.locked ~= false end,
         func = function() SetLocked(db.locked == false) end }
-    list[#list + 1] = { text = "Test box", checkbox = true,
+    list[#list + 1] = { text = "Test mode", checkbox = true,
         checked = function() return testMode and true or false end,
         func = function() SetTest(not testMode) end }
     list[#list + 1] = { text = "Reset position", func = ResetPosition }

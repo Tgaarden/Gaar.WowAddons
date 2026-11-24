@@ -28,7 +28,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -464,6 +464,11 @@ function M.SetCountdown(n)
     return false
 end
 
+function M.SetPreview(on)
+    M.preview = on and true or false
+    M.Refresh()
+end
+
 function M.ResetPos()
     M.db.pos = nil
     if M.bar then M.PlaceBar() end
@@ -500,6 +505,8 @@ function M.MenuEntries()
         { text = "Scale", submenu = scales },
         { text = "Default countdown", submenu = counts },
         { divider = true },
+        { text = "Test mode", checkbox = true, checked = function() return M.preview and true or false end,
+          func = function() M.SetPreview(not M.preview) end },
         { text = "Reset position", func = M.ResetPos },
     }
 end
@@ -552,7 +559,7 @@ function M.OnSlash(msg)
             if M.SetCountdown(tonumber(arg)) then M.Print("default countdown " .. M.DefaultCountdown() .. " s.")
             else M.Print("/ggf countdown 3|5|10") end
         elseif cmd == "test" then
-            M.preview = not M.preview; M.Refresh(); M.Print("test display " .. OnOff(M.preview) .. ".")
+            M.SetPreview(not M.preview); M.Print("test mode " .. OnOff(M.preview) .. ".")
         elseif cmd == "status" then
             M.PrintStatus()
         else

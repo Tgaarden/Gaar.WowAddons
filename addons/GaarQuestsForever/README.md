@@ -16,6 +16,17 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 - **Order.** Tracked quests are shown by quest level, lowest first (the `[n]` the tracker shows,
   `C_QuestLog.GetInfo(logIndex).level`, falling back to `difficultyLevel`). Quests of the same
   level are ordered by title, ignoring case.
+- **Collapse all (1.14, default on).** A small +/- button in the quest log's header row, between
+  the search box and the "Quests: n/m" count. Minus (at least one zone header is open) collapses
+  every header; plus (all collapsed) expands them all. Tooltip: Collapse all / Expand all.
+  `/gqf collapse` toggles it (or **Collapse-all button in quest log** in the menus). It calls
+  Blizzard's `CollapseQuestHeader(0)` / `ExpandQuestHeader(0)` from its click (falling back to one
+  header at a time) and replaces nothing.
+- **Quest count on the tracker (1.14, default on).** The objective tracker's "Quests" header reads
+  "Quests 38/40": quests in the log (not zone headers) over the log's size
+  (`C_QuestLog.GetMaxNumQuestsCanAccept()`, else `MAX_QUESTLOG_QUESTS`, else 40). `/gqf questcount`
+  toggles it (or **Quest count on tracker header** in the menus). Only the header's text is set,
+  again after each of Blizzard's updates of that module.
 - **Sort by zone (optional, 1.13).** `/gqf sort zone` (or **Sort by > Zone** in the minimap menu)
   groups quests by the zone header they sit under in your quest log. The zone you are in comes
   first, the other zones follow alphabetically, and quests whose header cannot be found ("Other")
@@ -118,6 +129,8 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 | `/gqf completed top`, `level`, `bottom` | Where quests ready to turn in go (default bottom) |
 | `/gqf autowatch on`, `/gqf autowatch off` | Auto-watch: watch the lowest quests that fit the tracker's height and un-watch the rest (default on); off leaves the watch list as it is |
 | `/gqf autoaccept` | Toggle auto-accept (1.12, default off): accepts a quest when its window opens; hold Shift to skip. Never turns in quests or picks gossip |
+| `/gqf collapse` | Toggle the collapse-all +/- button in the quest log's header row (1.14, default on) |
+| `/gqf questcount` | Toggle the quest count ("Quests 38/40") on the tracker's Quests header (1.14, default on) |
 | `/gqf dungeon on`, `/gqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
 | `/gqf on`, `/gqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/gqf bg on`, `/gqf bg off` | Show or hide the backdrop behind the tracker (default on) |

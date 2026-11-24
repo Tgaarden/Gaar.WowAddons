@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.71"] = "notes for GaarQuestsForever 1.14.0: a +/- button in the quest log header row collapses or expands every zone header at once (/gqf collapse); the tracker's Quests header shows the quest count, Quests 38/40 (/gqf questcount)",
         ["3.2.70"] = "notes for GaarChatForever 1.7.0: autoGroupChannel - the chat box switches to Party/Raid when you join a group and back to your old channel when you leave; /gchat autogroupchannel on|off",
         ["3.2.69"] = "notes for GaarXPForever 1.5.3: rested cap follows Well Rested (180%), auto-detected; /gxp restcap auto|150|180",
         ["3.2.68"] = "notes for GaarXPForever 1.5.2: the Rested line shows % of max rested and the time until rested XP is full",
@@ -131,6 +132,7 @@ local CHANGES = {
         ["1.9.2"] = "shared helpers from the GaarForever library",
     },
     GaarQuestsForever = {
+        ["1.14.0"] = "Collapse-all button in the quest log: a +/- button between the search box and the quests count collapses or expands every zone header (/gqf collapse); the tracker's Quests header shows the quest count (/gqf questcount)",
         ["1.13.0"] = "New sort mode: /gqf sort zone groups quests by quest-log zone, your current zone first, the others A-Z, no zone last; level order inside each zone; re-sorts when you change zone",
         ["1.11.0"] = "Renamed to GaarQuestsForever (new folders; settings move over automatically on first login; new /gqf commands, old ones still work)",
         ["1.10.3"] = "the addon's own name in its menu errors",

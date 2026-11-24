@@ -32,7 +32,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.5.0"
+local VERSION = "1.5.1"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -470,7 +470,7 @@ function M.IconButton(name, parent, size, texture, coords, checkable)
     local well = b:CreateTexture(nil, "BACKGROUND")
     well:SetAllPoints()
     well:SetColorTexture(0, 0, 0, 0.6)
-    local icon = b:CreateTexture(nil, "BORDER")
+    local icon = b:CreateTexture(nil, "ARTWORK", nil, 2) -- above the border (ARTWORK 0): never covered
     icon:SetPoint("TOPLEFT", 2, -2)
     icon:SetPoint("BOTTOMRIGHT", -2, 2)
     if texture then
@@ -487,11 +487,25 @@ function M.IconButton(name, parent, size, texture, coords, checkable)
         n:SetSize(big, big)
         b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
         b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        if checkable then b:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight", "ADD") end
     end)
+    -- Active state: our own additive glow on top. (SetCheckedTexture takes no blend mode, so the
+    -- native checked texture drew opaque over the icon and hid it.)
+    local glow = b:CreateTexture(nil, "OVERLAY")
+    glow:SetAllPoints()
+    glow:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+    glow:SetBlendMode("ADD")
+    glow:SetAlpha(0.7)
+    glow:Hide()
+    b.glow = glow
     b:RegisterForClicks("LeftButtonUp")
     M.EnableDrag(b)
     return b
+end
+
+-- Active (checked) state of an icon button: glow overlay on top, the icon is never touched.
+function M.SetIconChecked(b, on)
+    if b.SetChecked then b:SetChecked(on and true or false) end
+    if b.glow then if on then b.glow:Show() else b.glow:Hide() end end
 end
 
 function M.TextButton(name, text, width, entries)
@@ -602,7 +616,7 @@ function M.Refresh()
         local role = M.InGroup() and M.ModeByRole(M.GameRole())
         if role and M.cdb then M.cdb.mode = role.key end
         local active = M.ActiveMode()
-        for key, b in pairs(M.buttons.modes) do b:SetChecked(active == key) end
+        for key, b in pairs(M.buttons.modes) do M.SetIconChecked(b, active == key) end
         if bar.title then bar.title:SetText(M.TitleText()) end
         M.SetEnabled(M.buttons.ready, (M.ReadyState()))
         M.SetEnabled(M.buttons.role, (M.RoleState()))

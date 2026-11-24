@@ -259,6 +259,12 @@ function D.Layout()
         end
     end
     bar:SetHeight(total)
+    -- Once per placement (height now known): an old CENTER-anchored save becomes TOPLEFT, so height changes
+    -- only ever move the bottom edge.
+    if not M.topChecked and M.EnsureTopAnchor then
+        M.topChecked = true
+        if M.EnsureTopAnchor() and M.SavePos then M.SavePos() end
+    end
     -- The secure buttons (tank frame, Assist) sit over their rows, not inside them: realign them.
     if M.Roles and type(M.Roles.SyncSecure) == "function" then M.Safe("secure", M.Roles.SyncSecure) end
 end

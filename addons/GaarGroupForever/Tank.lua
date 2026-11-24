@@ -147,7 +147,7 @@ function T.build(row)
             "Shift-click: X.", "Macro: /ggf tank mark [x]",
             R.Opt("tankAnnounce") and "Announces the pull to party." or "Does not post to chat (option)." }
     end)
-    b:SetPoint("LEFT", row, "LEFT", 5, 0)
+    b:SetPoint("TOPLEFT", row, "TOPLEFT", 5, R.BTN_Y)
     T.markButton = b
     return 56, 26
 end

@@ -298,7 +298,7 @@ function H.build(row)
     local b1 = R.Button(row, "GaarGroupForeverHealDrink", "Drink", 46, function() H.Post("Drinking") end, function()
         return { "Drinking", "Posts \"Drinking\" to party chat when you click." }
     end)
-    b1:SetPoint("TOPLEFT", row, "TOPLEFT", 5, -2)
+    b1:SetPoint("TOPLEFT", row, "TOPLEFT", 5, R.BTN_Y)
     local b2 = R.Button(row, "GaarGroupForeverHealOom", "OOM", 46, function() H.Post("OOM") end, function()
         return { "Out of mana", "Posts \"OOM\" to party chat when you click." }
     end)

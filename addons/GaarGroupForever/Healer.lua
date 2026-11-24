@@ -292,7 +292,10 @@ end
 -- Row: Drink / OOM buttons + the secure tank frame
 -- ---------------------------------------------------------------------------
 
-local TANK_W, TANK_H = 150, 30
+-- The tank frame sits in the same strip, right of Drink / OOM, filling the rest of the inset width.
+local TANK_X = 5 + 46 + 3 + 46 + 4
+local TANK_W = (M.Metrics and M.Metrics.inner or 242) - TANK_X
+local TANK_H = 22
 
 function H.build(row)
     local b1 = R.Button(row, "GaarGroupForeverHealDrink", "Drink", 46, function() H.Post("Drinking") end, function()
@@ -307,9 +310,14 @@ function H.build(row)
 
     -- The tank frame: secure, created here (out of combat, guaranteed by R.BuildRow) as a child of UIParent
     -- laid over the row; R.SyncSecure shows, hides and places it out of combat only.
-    local f = R.Secure(row, 5, -30, TANK_W, TANK_H, "SecureUnitButtonTemplate", "GaarGroupForeverTankFrame",
+    -- Muted placeholder (plain, not secure) in the same spot while there is no tank, so the height stays fixed.
+    local none = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    none:SetPoint("LEFT", row, "TOPLEFT", TANK_X + 4, R.BTN_Y - TANK_H / 2)
+    none:SetText("No tank")
+    H.noTank = none
+    local f = R.Secure(row, TANK_X, R.BTN_Y, TANK_W, TANK_H, "SecureUnitButtonTemplate", "GaarGroupForeverTankFrame",
         function() return H.TankLive() end)
-    if not f then return 56 * 2, 26 end
+    if not f then return 56 * 2, R.ROW_H end
     f:RegisterForClicks("AnyUp")
     f:SetAttribute("type1", "target")
     local bg = f:CreateTexture(nil, "BACKGROUND")
@@ -323,13 +331,17 @@ function H.build(row)
     hp:SetMinMaxValues(0, 1)
     hp:SetValue(1)
     local name = hp:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    name:SetPoint("TOPLEFT", hp, "TOPLEFT", 3, -3)
+    name:SetPoint("LEFT", hp, "LEFT", 3, 0)
+    name:SetWidth(math.floor(TANK_W * 0.55))
+    name:SetJustifyH("LEFT")
     local tgt = hp:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    tgt:SetPoint("BOTTOMLEFT", hp, "BOTTOMLEFT", 3, 3)
+    tgt:SetPoint("RIGHT", hp, "RIGHT", -3, 0)
+    tgt:SetWidth(math.floor(TANK_W * 0.35))
+    tgt:SetJustifyH("RIGHT")
     tgt:SetTextColor(1, 0.5, 0.5)
     f.hp, f.nameText, f.targetText = hp, name, tgt
     H.tankFrame = f
-    return TANK_W + 10, 30 + TANK_H + 2
+    return TANK_X + TANK_W, R.ROW_H
 end
 
 -- The tank the frame should show (option on and a party member has the TANK role), or nil.
@@ -351,6 +363,7 @@ function H.refresh()
     local f = H.tankFrame
     if not f then return end
     local unit = H.TankUnit()
+    if H.noTank then H.noTank:SetShown(R.Opt("healTankFrame") and not (unit and f.unitSet == unit)) end
     if not R.InCombat() and unit ~= f.unitSet then
         f:SetAttribute("unit", unit)
         f.unitSet = unit

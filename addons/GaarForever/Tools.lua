@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.63"] = "notes for GaarBagsForever 1.13.4: the do-not-sell padlock is half the size of its item slot (a quarter of the slot) and sits under the stack count, which stays readable",
         ["3.2.62"] = "notes for GaarGroupForever 1.5.1: role icons stay visible after you pick a role (the active state is now a glow overlay instead of an opaque checked texture)",
         ["3.2.61"] = "notes for GaarGroupForever 1.5.0: Blizzard-style panel - one dialog frame with a title plate, red Blizzard buttons for Ready/Roles/Pull and the tabs, square action-style role and raid-marker buttons, tidy member rows",
         ["3.2.60"] = "notes for GaarBagsForever 1.13.3: WoW Forever has no realms, so gold and item counts are one account-wide list (the bag gold tooltip showed nothing when the client gave no realm name); old realm entries, including ones saved under no realm, are merged in without losing or double counting anything",

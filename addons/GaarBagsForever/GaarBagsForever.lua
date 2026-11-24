@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.3"
+local VERSION = "1.13.4"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -2207,7 +2207,8 @@ local function BuildItemLock()
     local clickCursorBefore         -- what the cursor held right before an item button click
     local merchantGuard, junkGuard, cursorWatcher
 
-    local PADLOCK_SIZE = 13
+    local PADLOCK_SCALE = 0.5       -- padlock width and height = half the slot button (a quarter of its area)
+    local PADLOCK_FALLBACK = 37     -- slot size when the client gives none
     local PADLOCK_ATLASES = { "Padlock", "AdventureMapIcon-Lock" }
     local PADLOCK_FILES = { "Interface\\PetBattles\\PetBattle-LockIcon", "Interface\\Buttons\\LockButton-Locked-Up" }
     local CURSOR_POLL = 0.05        -- seconds between cursor checks while a merchant is open
@@ -2472,11 +2473,24 @@ local function BuildItemLock()
         end
     end
 
+    -- Sizes the padlock from the slot button, so it follows the slot when the bags are resized.
+    local function SizePadlock(tex, button)
+        local w = type(button.GetWidth) == "function" and PlainNumber(button:GetWidth()) or nil
+        local h = type(button.GetHeight) == "function" and PlainNumber(button:GetHeight()) or nil
+        tex:SetSize((w or PADLOCK_FALLBACK) * PADLOCK_SCALE, (h or PADLOCK_FALLBACK) * PADLOCK_SCALE)
+    end
+
     local function CreatePadlock(button)
-        local tex = button:CreateTexture(nil, "OVERLAY", nil, 7)
-        tex:SetSize(PADLOCK_SIZE, PADLOCK_SIZE)
+        -- OVERLAY 6: above the icon, below the stack count, which is raised to OVERLAY 7 so the
+        -- bigger padlock never covers it.
+        local tex = button:CreateTexture(nil, "OVERLAY", nil, 6)
+        SizePadlock(tex, button)
         tex:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
         ApplyPadlockArt(tex)
+        local count = button.Count
+        if type(count) == "table" and type(count.SetDrawLayer) == "function" then
+            pcall(count.SetDrawLayer, count, "OVERLAY", 7)
+        end
         tex:Hide()
         lockOverlay[button] = tex
         lockVisuals = true
@@ -2593,7 +2607,7 @@ local function BuildItemLock()
         if locked and link and LockedItems()[id] == true then LockedItems()[id] = link end
         local tex = lockOverlay[button]
         if locked and not tex then tex = CreatePadlock(button) end
-        if tex then tex:SetShown(locked) end
+        if tex then SizePadlock(tex, button); tex:SetShown(locked) end
         local wantGuard = locked and merchantOpen
         local guard = lockGuard[button]
         if wantGuard and not guard and not InCombat() then guard = CreateGuard(button) end

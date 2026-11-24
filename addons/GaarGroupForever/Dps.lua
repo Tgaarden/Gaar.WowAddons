@@ -235,20 +235,13 @@ end
 -- ---------------------------------------------------------------------------
 
 function D.build(row)
-    local f = R.Secure(row, 5, 0, 60, 26, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
+    local f = R.Secure(row, 5, 0, 60, 22, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
         function() return D.AssistLive() end)
     if not f then return 70, 26 end
     f:RegisterForClicks("AnyUp")
     f:SetAttribute("type", "assist")
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-    local hot = f:CreateTexture(nil, "HIGHLIGHT")
-    hot:SetAllPoints()
-    hot:SetColorTexture(1, 1, 1, 0.15)
-    local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    fs:SetPoint("CENTER")
-    fs:SetText("Assist")
+    M.SkinPanelButton(f) -- the red Blizzard button textures (the frame itself stays secure)
+    f:SetText("Assist")
     M.Tip(f, function()
         local u = D.assistUnit
         return { "Assist the tank", u and ("Targets what " .. (R.Name(u) or "the tank") .. " is targeting.")

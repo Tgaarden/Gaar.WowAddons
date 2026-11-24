@@ -202,7 +202,7 @@ function R.EnsureDisplay()
     local f = _G.CreateFrame("Frame", "GaarGroupForeverAlerts", M.bar)
     f:SetFrameStrata("HIGH")
     f:EnableMouse(false)
-    f:SetPoint("BOTTOM", M.bar, "TOP", 0, 4)
+    f:SetPoint("BOTTOM", M.bar, "TOP", 0, 16) -- above the dialog title plate
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0, 0, 0, 0.55)

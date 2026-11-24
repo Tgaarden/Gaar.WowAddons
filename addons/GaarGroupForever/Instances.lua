@@ -524,10 +524,7 @@ end
 
 local function EnsureFrame()
     if frame or not M.bar then return frame end
-    frame = _G.CreateFrame("Frame", "GaarGroupForeverInfo", M.bar)
-    local bg = frame:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    frame = M.NewInset("GaarGroupForeverInfo", M.bar)
     return frame
 end
 
@@ -536,8 +533,8 @@ local function GetRow(i)
     if r then return r end
     r = _G.CreateFrame("Button", nil, frame)
     r:SetHeight(ROWH)
-    r:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -(2 + (i - 1) * ROWH))
-    r:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -(2 + (i - 1) * ROWH))
+    r:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -(2 + (i - 1) * ROWH))
+    r:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -(2 + (i - 1) * ROWH))
     r:RegisterForClicks("LeftButtonUp")
     local hot = r:CreateTexture(nil, "HIGHLIGHT")
     hot:SetAllPoints()

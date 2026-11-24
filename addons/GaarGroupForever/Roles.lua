@@ -48,11 +48,12 @@ M.Defaults.roles = {} -- saved in GaarGroupForeverDB.roles (option key -> value)
 
 R.RED, R.YELLOW, R.GREEN, R.BLUE = { 1, 0.35, 0.35 }, { 1, 0.85, 0.2 }, { 0.45, 1, 0.45 }, { 0.55, 0.8, 1 }
 R.TICK = 0.25
--- The role row has ONE height for every role, so switching Tank / DPS / Healer never resizes the panel: the
--- tallest module (Healer: buttons strip + tank frame = 62) sets it. Buttons sit in the top R.STRIP_H strip.
-R.STRIP_H = 26
-R.BTN_Y = -2 -- a 22 high button centred in the strip (y down from the row top)
-R.ROW_H = 62
+-- The role row has ONE compact height for every role (a single strip), so switching Tank / DPS / Healer never
+-- resizes the panel. Everything (buttons, the Healer tank frame) sits in that strip, centred vertically.
+R.STRIP_H = 28
+R.BTN_H = 22
+R.BTN_Y = -3 -- a 22 high button centred in the strip (3 px above and below; y down from the row top)
+R.ROW_H = R.STRIP_H
 R.MAX_ALERTS = 3
 R.SCAN_CACHE = 0.2
 

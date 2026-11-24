@@ -149,7 +149,7 @@ function T.build(row)
     end)
     b:SetPoint("TOPLEFT", row, "TOPLEFT", 5, R.BTN_Y)
     T.markButton = b
-    return 56, 26
+    return 56, R.ROW_H
 end
 
 function T.refresh()

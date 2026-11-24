@@ -237,7 +237,7 @@ end
 function D.build(row)
     local f = R.Secure(row, 5, R.BTN_Y, 60, 22, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
         function() return D.AssistLive() end)
-    if not f then return 70, 26 end
+    if not f then return 70, R.ROW_H end
     f:RegisterForClicks("AnyUp")
     f:SetAttribute("type", "assist")
     M.SkinPanelButton(f) -- the red Blizzard button textures (the frame itself stays secure)
@@ -248,7 +248,7 @@ function D.build(row)
             or "No party member has the Tank role yet." }
     end)
     D.assistButton = f
-    return 70, 26
+    return 70, R.ROW_H
 end
 
 function D.AssistUnitWanted() return R.Opt("dpsAssist") and R.UnitByRole("TANK") or nil end

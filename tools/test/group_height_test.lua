@@ -109,13 +109,13 @@ for _, key in ipairs({ "tank", "dps", "healer", "tank", "healer", "dps" }) do
 end
 for i = 2, #heights do eq(heights[i], heights[1], "same panel height in every mode (" .. i .. ")") end
 
--- the fixed row height is at least what every module asks for, and every role row has it
+-- one compact strip: every role row has exactly ROW_H, and ROW_H is small (buttons + equal padding)
+eq(R.ROW_H, 28, "compact single-strip row height")
 for role, mod in pairs(R.mods) do
     if mod.row then
-        eq(mod.height <= R.ROW_H, true, role .. " build height fits ROW_H (" .. tostring(mod.height) .. ")")
+        eq(mod.height, R.ROW_H, role .. " build height equals ROW_H (" .. tostring(mod.height) .. ")")
     end
 end
-eq(R.mods.healer.height, R.ROW_H, "healer is the tallest and defines ROW_H")
 
 -- toggling a dock panel changes the height but not the top edge
 local h0 = bar:GetHeight()

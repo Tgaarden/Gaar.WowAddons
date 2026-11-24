@@ -29,6 +29,7 @@ command and a checkbox in the GaarForever menu. A master switch turns them all o
 | `whisperSound` | on | A short sound on incoming whispers and Battle.net whispers, never for your own outgoing ones. |
 | `stickyChannels` | on | Remembers the last used chat type for say, emote, yell, party, raid, guild, officer, whisper, Battle.net whisper, instance and channels (`ChatTypeInfo[x].sticky = 1`). |
 | `arrowKeys` | on | Arrow keys move the cursor in the chat edit box without Alt (`SetAltArrowKeyMode(false)`). |
+| `autoGroupChannel` | on | (since 1.7.0) When you join a group, the chat box switches to Party (Raid in a raid, Instance in an instance group); also on a party to raid change and at login if already grouped. Your own choice in between is left alone. When you leave the group, the channel you had before comes back (only if you have not changed it yourself). `/gchat autogroupchannel on\|off`; `/gchat status` shows the state and the remembered channel. |
 | `feed` | on | A scrolling chat feed (since 1.2.0), see below. |
 
 ## Chat feed
@@ -59,7 +60,7 @@ kinds, locked, font size, scale, width, seconds on screen, test lines and reset.
 | Right-click a chat tab | A `GaarChat` submenu at the bottom of Blizzard's tab menu (menu tag `MENU_FCF_TAB`) with the same options as the GaarForever hub menu |
 | `/gchat` or `/gaarchatforever` | Help |
 | `/gchat on`, `/gchat off` | Master switch |
-| `/gchat <feature> on`, `/gchat <feature> off` | Switch one feature (`shortChannels`, `classColors`, `timestamps`, `urlCopy`, `copyChat`, `whisperSound`, `stickyChannels`, `arrowKeys`) |
+| `/gchat <feature> on`, `/gchat <feature> off` | Switch one feature (`shortChannels`, `classColors`, `timestamps`, `urlCopy`, `copyChat`, `whisperSound`, `stickyChannels`, `arrowKeys`, `autoGroupChannel`) |
 | `/gchat feed` | The feed's state and its commands |
 | `/gchat feed on`, `/gchat feed off` | Switch the feed (the same as the `feed` feature) |
 | `/gchat feed whispers\|group\|mentions on\|off` | Switch one kind of message in the feed |
@@ -108,7 +109,7 @@ hub talks to this addon only through `GaarChatForeverAPI`:
 ## How it stays out of the way
 
 - Blizzard code is followed, not replaced. Only strings and flags are written (`CHAT_*_GET`,
-  `ChatTypeInfo[x].sticky`, `CHAT_TIMESTAMP_FORMAT`) plus a wrapper on each chat frame's
+  `ChatTypeInfo[x].sticky`, `CHAT_TIMESTAMP_FORMAT`, the chat edit boxes' `chatType`/`stickyType` attributes on group changes) plus a wrapper on each chat frame's
   `AddMessage` that always calls the original. The chat feed has its own frame and events and
   registers only the chat events of the kinds that are on; its animation is one `OnUpdate` that
   runs only while a line is shown.

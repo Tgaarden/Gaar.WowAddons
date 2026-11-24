@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.70"] = "notes for GaarChatForever 1.7.0: autoGroupChannel - the chat box switches to Party/Raid when you join a group and back to your old channel when you leave; /gchat autogroupchannel on|off",
         ["3.2.69"] = "notes for GaarXPForever 1.5.3: rested cap follows Well Rested (180%), auto-detected; /gxp restcap auto|150|180",
         ["3.2.68"] = "notes for GaarXPForever 1.5.2: the Rested line shows % of max rested and the time until rested XP is full",
         ["3.2.67"] = "notes for GaarXPForever 1.5.1: the ready-quest XP segment on the XP bar shows again (the map / quest log is no longer seen as open when it is closed)",
@@ -237,6 +238,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarChatForever = {
+        ["1.7.0"] = "autoGroupChannel: the chat box switches to Party/Raid when you join a group and back to your old channel when you leave (/gchat autogroupchannel on|off)",
         ["1.6.0"] = "Test: print sample chat lines is the last menu entry; /gchat test unchanged",
         ["1.5.0"] = "/gchat test and a Show test lines (chat) button: sample chat lines in the main chat frame that show the tweaks, for a screenshot",
         ["1.4.0"] = "right-click chat feed window: opens the addon's menu",

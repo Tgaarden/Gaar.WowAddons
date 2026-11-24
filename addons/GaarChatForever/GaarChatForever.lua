@@ -46,7 +46,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarChatForever"
 ns = ns or {}               -- shared with Feed.lua
 local DOT = " \194\183 "
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarChatForever", { title = "GaarChatForever", version = VERSION })
@@ -65,6 +65,7 @@ local FEATURES = {
     { key = "whisperSound",   label = "Whisper sound",               default = true  },
     { key = "stickyChannels", label = "Remember last chat type",     default = true  },
     { key = "arrowKeys",      label = "Arrow keys in the edit box",  default = true  },
+    { key = "autoGroupChannel", label = "Auto party/raid chat channel", default = true },
     { key = "feed",           label = "Scrolling chat feed",         default = true  },
 }
 local SAVED_KEYS = { enabled = true, owned = true, feedOpts = true }
@@ -499,6 +500,122 @@ local function ApplyArrowKeys()
 end
 
 -- ---------------------------------------------------------------------------
+-- autoGroupChannel
+--
+-- The edit box's sticky chat type becomes PARTY (RAID in a raid, INSTANCE_CHAT in an instance
+-- group) when a group transition happens: joined a group, party <-> raid, or already grouped at
+-- login. Between transitions the player's own choice is left alone. When the group is left the
+-- type that was sticky before our first switch comes back, but only if the box still has the type
+-- we set. Written: the "chatType" / "stickyType" (and tellTarget / channelTarget) attributes of
+-- the ChatFrameNEditBox frames, which Blizzard's ChatEdit_* code reads, then ChatEdit_UpdateHeader.
+-- A box that is being typed in, or any box in combat, is done later (OnHide / focus lost /
+-- PLAYER_REGEN_ENABLED).
+-- ---------------------------------------------------------------------------
+
+local AG = { state = "none", saved = nil, setType = nil, pending = {}, hooked = {} }
+
+function AG.Boxes()
+    local list = {}
+    for i = 1, NumWindows() do
+        local eb = _G["ChatFrame" .. i .. "EditBox"]
+        if type(eb) == "table" and type(eb.GetAttribute) == "function" then list[#list + 1] = eb end
+    end
+    return list
+end
+
+function AG.Group()
+    if type(_G.IsInGroup) ~= "function" then return "none" end
+    local home = _G.LE_PARTY_CATEGORY_HOME
+    local inst = _G.LE_PARTY_CATEGORY_INSTANCE
+    local info = _G.ChatTypeInfo
+    if inst and type(info) == "table" and info.INSTANCE_CHAT and _G.IsInGroup(inst) then return "INSTANCE_CHAT" end
+    if type(_G.IsInRaid) == "function" and _G.IsInRaid(home) then return "RAID" end
+    if _G.IsInGroup(home) then return "PARTY" end
+    return "none"
+end
+
+function AG.Snapshot(eb)
+    local t = eb:GetAttribute("stickyType") or eb:GetAttribute("chatType") or "SAY"
+    local s = { chatType = t }
+    if t == "WHISPER" or t == "BN_WHISPER" then
+        s.tellTarget = eb:GetAttribute("tellTarget")
+        if not s.tellTarget then s.chatType = "SAY" end
+    elseif t == "CHANNEL" then
+        s.channelTarget = eb:GetAttribute("channelTarget")
+        if not s.channelTarget then s.chatType = "SAY" end
+    end
+    return s
+end
+
+-- Sets one edit box: want = { chatType, tellTarget, channelTarget, onlyIfSticky }.
+function AG.Write(eb, want)
+    if want.onlyIfSticky and eb:GetAttribute("stickyType") ~= want.onlyIfSticky then return end
+    eb:SetAttribute("chatType", want.chatType)
+    eb:SetAttribute("stickyType", want.chatType)
+    if want.tellTarget then eb:SetAttribute("tellTarget", want.tellTarget) end
+    if want.channelTarget then eb:SetAttribute("channelTarget", want.channelTarget) end
+    if type(_G.ChatEdit_UpdateHeader) == "function" then _G.ChatEdit_UpdateHeader(eb) end
+end
+
+function AG.Busy(eb)
+    if type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() then return true end
+    return type(eb.HasFocus) == "function" and eb:HasFocus() and true or false
+end
+
+function AG.Hook(eb)
+    if AG.hooked[eb] or type(eb.HookScript) ~= "function" then return end
+    AG.hooked[eb] = true
+    local function retry() if AG.pending[eb] then Safe("autoGroup retry", AG.Flush) end end
+    pcall(eb.HookScript, eb, "OnHide", retry)
+    pcall(eb.HookScript, eb, "OnEditFocusLost", retry)
+end
+
+function AG.Flush()
+    for eb, want in pairs(AG.pending) do
+        if not AG.Busy(eb) then
+            AG.pending[eb] = nil
+            Safe("autoGroup write", AG.Write, eb, want)
+        end
+    end
+end
+
+function AG.Push(want)
+    for _, eb in ipairs(AG.Boxes()) do
+        AG.Hook(eb)
+        AG.pending[eb] = want
+    end
+    AG.Flush()
+end
+
+-- Called on GROUP_ROSTER_UPDATE / PLAYER_ENTERING_WORLD (force = feature just switched on or off).
+function AG.Check()
+    if not applied or not db then return end
+    local new = Effective("autoGroupChannel") and AG.Group() or "none"
+    if new == AG.state then return end
+    AG.state = new
+    local main = _G.ChatEdit_ChooseBoxForSend and _G.ChatEdit_ChooseBoxForSend() or _G.ChatFrame1EditBox
+    if type(main) ~= "table" or type(main.GetAttribute) ~= "function" then main = _G.ChatFrame1EditBox end
+    if type(main) ~= "table" or type(main.GetAttribute) ~= "function" then return end
+    if new ~= "none" then
+        if not AG.saved then AG.saved = AG.Snapshot(main) end
+        AG.setType = new
+        AG.Push({ chatType = new })
+    elseif AG.saved then
+        local s = AG.saved
+        local was = AG.setType
+        AG.saved, AG.setType = nil, nil
+        AG.Push({ chatType = s.chatType, tellTarget = s.tellTarget, channelTarget = s.channelTarget, onlyIfSticky = was })
+    end
+end
+
+function AG.Text()
+    local s = AG.saved
+    local prev = s and (s.chatType .. ((s.tellTarget or s.channelTarget) and (" " .. tostring(s.tellTarget or s.channelTarget)) or "")) or "none"
+    return string.format("autoGroupChannel: group state %s, set channel %s, remembered previous channel %s",
+        AG.state, AG.setType or "none", prev)
+end
+
+-- ---------------------------------------------------------------------------
 -- Applying features
 -- ---------------------------------------------------------------------------
 
@@ -519,6 +636,21 @@ local APPLY = {
     whisperSound   = function() end,   -- the event handler checks Effective() itself
     stickyChannels = function(on) ApplySticky(on) end,
     arrowKeys      = function() ApplyArrowKeys() end,
+    autoGroupChannel = function(on)
+        if not on then   -- switched off: put the old channel back, then forget
+            local s = AG.state
+            AG.state = s ~= "none" and "none" or s
+            if AG.saved then
+                local sv, was = AG.saved, AG.setType
+                AG.saved, AG.setType = nil, nil
+                AG.Push({ chatType = sv.chatType, tellTarget = sv.tellTarget, channelTarget = sv.channelTarget, onlyIfSticky = was })
+            end
+            AG.state = "none"
+        else
+            AG.state = "none"
+            AG.Check()
+        end
+    end,
     feed           = function(on) ns.Feed.Apply(on) end,
 }
 
@@ -631,6 +763,11 @@ local function ShowTestLines()
     local f = _G.DEFAULT_CHAT_FRAME or _G.ChatFrame1
     if type(f) ~= "table" or type(f.AddMessage) ~= "function" then Print("no main chat frame."); return end
     f:AddMessage("GaarChat test lines:", 1, 1, 0)
+    Safe("test group", function()
+        local g = AG.Group()
+        f:AddMessage("autoGroupChannel would set the chat channel to " .. (g == "none" and "(nothing: not in a group)" or g)
+            .. " on joining a group (nothing is changed)", 1, 1, 0)
+    end)
     for _, d in ipairs(TEST_SAMPLES) do
         Safe("test line", function()
             local text, r, g, b = BuildTestLine(d, f)
@@ -666,6 +803,7 @@ local function PrintStatus()
     for _, f in ipairs(FEATURES) do
         Print(string.format("%s: %s", f.key, db[f.key] and "on" or "off"))
     end
+    Print(AG.Text())
     Print(ns.Feed.StatusText())
     Print("last error: " .. (lastError or "none"))
 end
@@ -810,7 +948,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
-for _, ev in ipairs({ "UPDATE_CHAT_WINDOWS", "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER", "CVAR_UPDATE" }) do
+for _, ev in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UPDATE_CHAT_WINDOWS", "CHAT_MSG_WHISPER", "CHAT_MSG_BN_WHISPER", "CVAR_UPDATE" }) do
     pcall(events.RegisterEvent, events, ev)
 end
 events:SetScript("OnEvent", function(_, event, arg1)
@@ -839,10 +977,15 @@ events:SetScript("OnEvent", function(_, event, arg1)
                 EnsureFrames()
                 ApplyArrowKeys()
                 if event == "PLAYER_ENTERING_WORLD" then
+                    AG.Check()
                     ApplyFeature("classColors")     -- Blizzard loads its chat settings after login
                     ApplyFeature("timestamps")
                 end
             end
+        elseif event == "GROUP_ROSTER_UPDATE" then
+            AG.Check()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            AG.Flush()
         elseif event == "CVAR_UPDATE" then
             -- Blizzard re-reads the cvar into CHAT_TIMESTAMP_FORMAT; put our grey back.
             if applied and arg1 == "showTimestamps" and Effective("timestamps") then

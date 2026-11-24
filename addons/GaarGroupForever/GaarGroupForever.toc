@@ -1,10 +1,11 @@
 ## Interface: 16001
 ## Title: GaarGroupForever
-## Notes: A small movable bar that shows only while you are in a party: pick your group role (Tank, DPS, Healer) and use the leader shortcuts Ready check, Role check and Pull countdown. Tooltips on every button, position lockable. /ggf
+## Notes: Party helper for WoW Forever: pick Tank/DPS/Healer, ready/role check, pull countdown, markers, pre-pull check, role alerts and dungeon info. /ggf
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.5.3
+## Version: 1.5.4
+## X-Curse-Project-ID: 1827972
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\Achievement_GuildPerk_EverybodysFriend
 ## Dependencies: GaarForever

@@ -20,7 +20,11 @@
     Per-mode modules  Modes is a table (key, role, label, icon); a later per-mode module can add
                    entries to M.ModeHooks[key] (called with the new mode when it is picked).
 
-  Taint and safety: plain (non-secure) buttons only; none of these APIs is protected. No Blizzard
+  Taint and safety: the bar has plain (non-secure) buttons only; none of these APIs is protected. The
+  two secure buttons of the role modules (Healer tank frame, DPS Assist) are children of UIParent, not
+  of the bar, and are only shown, hidden, moved or changed out of combat (Roles.lua). No event the
+  client keeps from addons is registered (M.RegisterEvent refuses the combat log). ADDON_ACTION_BLOCKED /
+  ADDON_ACTION_FORBIDDEN naming this addon are recorded for /ggf status. No Blizzard
   frame is touched. Every client API is checked with type(...) == "function" first and called in
   pcall, and a secret value is never compared: it is treated as no value.
 ]]
@@ -28,7 +32,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -87,6 +91,53 @@ function M.Q(fn, ...)
     local ok, v = pcall(fn, ...)
     if not ok or IsSecret(v) then return nil end
     return v
+end
+
+-- Events WoW Forever (12.x engine) keeps from addons: registering one is itself a forbidden action
+-- ("blocked from an action only available to the Blizzard UI"), so it is never done.
+M.FORBIDDEN_EVENTS = { COMBAT_LOG_EVENT_UNFILTERED = true, COMBAT_LOG_EVENT = true }
+
+function M.RegisterEvent(frame, event)
+    if M.FORBIDDEN_EVENTS[event] then return false end
+    return (pcall(frame.RegisterEvent, frame, event))
+end
+
+-- ---------------------------------------------------------------------------
+-- Diagnostic: actions the client blocked for this addon (this session only)
+-- ---------------------------------------------------------------------------
+
+M.blocked = {}        -- { { event, func, combat, time } ...}, the last BLOCKED_KEEP
+M.blockedNoted = false
+local BLOCKED_KEEP = 20
+
+function M.OnBlocked(event, addon, func)
+    if addon ~= ADDON_NAME then return false end
+    local combat = type(_G.InCombatLockdown) == "function" and _G.InCombatLockdown() and true or false
+    local stamp = "?"
+    if type(_G.date) == "function" then
+        local ok, d = pcall(_G.date, "%H:%M:%S")
+        if ok and type(d) == "string" then stamp = d end
+    end
+    local fn = type(func) == "string" and not IsSecret(func) and func or "?"
+    local list = M.blocked
+    list[#list + 1] = { event = event, func = fn, combat = combat, time = stamp }
+    while #list > BLOCKED_KEEP do table.remove(list, 1) end
+    if not M.blockedNoted then
+        M.blockedNoted = true
+        M.Print("blocked: " .. fn .. " \226\128\148 see /ggf status")
+    end
+    return true
+end
+
+-- The last n records as lines, newest last.
+function M.BlockedLines(n)
+    local out, list = {}, M.blocked
+    for i = math.max(1, #list - (n or 5) + 1), #list do
+        local b = list[i]
+        out[#out + 1] = b.time .. " " .. (b.event == "ADDON_ACTION_FORBIDDEN" and "forbidden" or "blocked") .. " "
+            .. b.func .. (b.combat and " (in combat)" or " (out of combat)")
+    end
+    return out
 end
 
 function M.InGroup() return M.Q(_G.IsInGroup) and true or false end
@@ -444,7 +495,7 @@ function M.OnRosterUpdate()
     local inGroup = M.InGroup()
     if inGroup and not M.wasInGroup then
         local m = M.cdb and M.ModeByKey(M.cdb.mode)
-        if m and not M.GameRole() and type(_G.UnitSetRole) == "function" then
+        if m and not M.GameRole() and type(_G.UnitSetRole) == "function" and not M.Q(_G.InCombatLockdown) then
             M.Safe("UnitSetRole", _G.UnitSetRole, "player", m.role)
         end
     end
@@ -555,6 +606,10 @@ function M.PrintStatus()
     M.Print("bar shown: " .. OnOff(M.bar and M.bar:IsShown()) .. DOT .. "countdown: "
         .. (M.NativeCountdown() and "game (C_PartyInfo.DoCountdown)" or "party chat fallback"))
     if M.lastError then M.Print("last error: " .. M.lastError) end
+    if #M.blocked > 0 then
+        M.Print("actions the game blocked for this addon this session: " .. #M.blocked .. " (last 5):")
+        for _, l in ipairs(M.BlockedLines(5)) do M.Print("  " .. l) end
+    end
 end
 
 function M.OnSlash(msg)
@@ -626,9 +681,11 @@ function M.BindSavedVariables()
     if not M.ModeByKey(M.cdb.mode) then M.cdb.mode = nil end
 end
 
-function M.OnEvent(_, event, arg1)
+function M.OnEvent(_, event, arg1, arg2)
     local ok, err = pcall(function()
-        if event == "ADDON_LOADED" then
+        if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
+            M.OnBlocked(event, arg1, arg2)
+        elseif event == "ADDON_LOADED" then
             if arg1 == ADDON_NAME then M.BindSavedVariables() end
         elseif not M.db then
             return
@@ -646,8 +703,8 @@ end
 
 local events = _G.CreateFrame("Frame")
 for _, ev in ipairs({ "ADDON_LOADED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE",
-    "PLAYER_ROLES_ASSIGNED", "PARTY_LEADER_CHANGED" }) do
-    pcall(events.RegisterEvent, events, ev)
+    "PLAYER_ROLES_ASSIGNED", "PARTY_LEADER_CHANGED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
+    M.RegisterEvent(events, ev)
 end
 events:SetScript("OnEvent", M.OnEvent)
 

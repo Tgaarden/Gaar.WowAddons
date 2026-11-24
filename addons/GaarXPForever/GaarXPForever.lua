@@ -3,8 +3,8 @@
 
   Every part is its own switch (saved setting + /gxp <feature> on|off + a hub menu entry):
 
-    * panel (on)        a small movable text panel: XP cur/max (pct%), rested XP (amount and % of
-                        the level), XP per hour this session, time to level at that rate, and
+    * panel (on)        a small movable text panel: XP cur/max (pct%), rested XP (amount, % of max rested
+                        and time until it is full), XP per hour this session, time to level at that rate, and
                         "about N kills / N quests to level" from the session's average XP per kill
                         and per quest turn-in. Hidden at max level ("Max level").
     * xpbarText (on)    text on the XP bar, and only the XP bar (never the reputation bar stacked
@@ -55,7 +55,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarXPForever"
 local DOT = " \194\183 "
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarXPForever", { title = "GaarXPForever", version = VERSION })
@@ -537,7 +537,7 @@ end
 local function TestPanelText()
     return table.concat({
         "XP: 12,450/21,300 (58.5%)",
-        "Rested: 4,260 (20% of level)",
+        "Rested: 4,260 (14% of max) \194\183 full in 2d 21h",
         "XP/hour: 38,200 (mobs 24,100" .. DOT .. "quests 14,100)",
         "Quests ready: 2 (+1,850 XP)",
         "After turn-in: 14,300/21,300 (67.1%)",
@@ -545,6 +545,26 @@ local function TestPanelText()
         "~38 kills (avg 180 XP)" .. DOT .. "~4 quests",
         "(test mode: made-up numbers)",
     }, "\n")
+end
+
+local RestedLine = {}   -- classic rested rules: cap 150% of a level, +5% of a level per 8h resting / 32h outside
+
+function RestedLine.Dur(hours)
+    local h = math.ceil(hours - 1e-9)
+    if h < 1 then return "<1h" end
+    local d = math.floor(h / 24)
+    h = h - d * 24
+    return d > 0 and string.format("%dd %dh", d, h) or string.format("%dh", h)
+end
+
+function RestedLine.Build(rested, max)
+    if not rested or rested <= 0 then return "Rested: 0" end
+    local cap = max * 1.5
+    local text = string.format("Rested: %s (%.0f%% of max)", Commas(rested), rested / cap * 100)
+    if rested >= cap then return text .. DOT .. "full" end
+    local inn = (cap - rested) / (max * 0.05) * 8   -- hours while resting
+    if Call(_G.IsResting) == true then return text .. DOT .. "full in " .. RestedLine.Dur(inn) end
+    return text .. DOT .. "full in " .. RestedLine.Dur(inn * 4) .. " (" .. RestedLine.Dur(inn) .. " in inn)"
 end
 
 local function PanelText()
@@ -558,9 +578,7 @@ local function PanelText()
     local calc = Calc(cur, max, qx, rate, killAvg)
     local remaining = calc.remaining
     local lines = { string.format("XP: %s/%s (%.1f%%)", Commas(cur), Commas(max), cur / max * 100) }
-    lines[#lines + 1] = (rested and rested > 0)
-        and string.format("Rested: %s (%.0f%% of level)", Commas(rested), rested / max * 100)
-        or "Rested: 0"
+    lines[#lines + 1] = RestedLine.Build(rested, max)
     local rateLine = "XP/hour: " .. (rate and Commas(rate) or "--")
     if rate and session.gained > 0 then
         local el = Now() - session.start

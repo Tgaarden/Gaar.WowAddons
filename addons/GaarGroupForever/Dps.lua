@@ -2,8 +2,10 @@
   GaarGroupForever - Dps.lua: the DPS role module (active only while your mode is DPS).
 
     Assist tank     An "Assist" button under the bar: SECURE (SecureActionButtonTemplate, type "assist",
-                    unit = the party member whose role is TANK). Created out of combat only; its unit is
-                    changed out of combat only (in combat it keeps the old tank).
+                    unit = the party member whose role is TANK). Created out of combat only, as a child of
+                    UIParent laid over the row (R.Secure), so the bar can hide, move and scale in combat;
+                    its unit, Show/Hide and position change out of combat only (in combat it keeps the old
+                    tank, and is only faded out when the bar goes away).
     Wrong target    In combat, while a skull is out and you attack a living mob that is not the skull: a
                     short warning. Needs readable marker indexes; a secret answer is skipped.
     Aggro           A hostile mob in combat that targets you (you are not the tank): "<mob> is on you".
@@ -233,9 +235,9 @@ end
 -- ---------------------------------------------------------------------------
 
 function D.build(row)
-    local f = _G.CreateFrame("Button", "GaarGroupForeverAssist", row, "SecureActionButtonTemplate")
-    f:SetSize(60, 26)
-    f:SetPoint("LEFT", row, "LEFT", 5, 0)
+    local f = R.Secure(row, 5, 0, 60, 26, "SecureActionButtonTemplate", "GaarGroupForeverAssist",
+        function() return D.AssistLive() end)
+    if not f then return 70, 26 end
     f:RegisterForClicks("AnyUp")
     f:SetAttribute("type", "assist")
     local bg = f:CreateTexture(nil, "BACKGROUND")
@@ -256,20 +258,24 @@ function D.build(row)
     return 70, 26
 end
 
+function D.AssistUnitWanted() return R.Opt("dpsAssist") and R.UnitByRole("TANK") or nil end
+
+-- Shown when there is a tank and the secure unit attribute already points at it.
+function D.AssistLive()
+    local f, unit = D.assistButton, D.AssistUnitWanted()
+    return f ~= nil and unit ~= nil and f.unitSet == unit
+end
+
+-- The secure unit attribute only out of combat (Show/Hide/placing: R.SyncSecure, out of combat only).
 function D.refresh()
     local f = D.assistButton
     if not f then return end
-    local unit = R.Opt("dpsAssist") and R.UnitByRole("TANK") or nil
-    if not R.InCombat() then
-        if unit ~= f.unitSet then
-            f:SetAttribute("unit", unit)
-            f.unitSet = unit
-        end
-        local want = unit ~= nil
-        if want and not f:IsShown() then f:Show() elseif not want and f:IsShown() then f:Hide() end
+    local unit = D.AssistUnitWanted()
+    if not R.InCombat() and unit ~= f.unitSet then
+        f:SetAttribute("unit", unit)
+        f.unitSet = unit
     end
     D.assistUnit = unit
-    f:SetAlpha(unit and f.unitSet == unit and 1 or 0)
 end
 
 function D.tick(now)
@@ -329,7 +335,7 @@ end)
 -- CHAT_MSG_ADDON arrives whatever your mode is (an assignment can come before you switch), so the
 -- module listens itself instead of using the active-role event table.
 D.addonFrame = _G.CreateFrame("Frame")
-pcall(D.addonFrame.RegisterEvent, D.addonFrame, "CHAT_MSG_ADDON")
+M.RegisterEvent(D.addonFrame, "CHAT_MSG_ADDON")
 D.addonFrame:SetScript("OnEvent", function(_, _, ...)
     pcall(D.OnAddon, ...)
 end)

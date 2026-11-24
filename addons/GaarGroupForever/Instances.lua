@@ -8,7 +8,8 @@
     - the instance name, recommended levels against your level and the party's levels
       (coloured like mob difficulty, Lib.LevelDifficultyColor: green = easy, yellow = even, red = hard),
     - the boss list; a boss is ticked when ENCOUNTER_END (success) / BOSS_KILL reports it, else when
-      the combat log says UNIT_DIED for a mob of that name; click a boss row to tick or untick it by hand,
+      the hostile-death chat line (CHAT_MSG_COMBAT_HOSTILE_DEATH: "X dies." / "You have slain X!") names
+      it; click a boss row to tick or untick it by hand,
     - "Loot for you": the notable loot that your class can use (armor type from your level, weapon
       types, shield / relic, and the stats your class wants); click the header to open or close it.
   Hover a boss: tooltip with all of its notable loot, quality coloured, the ones for you first.
@@ -16,6 +17,9 @@
 
   Everything is event driven (events / HookScript style); no Blizzard frame is touched. Client values
   go through M.Q / pcall and a secret value is never compared: it counts as no value.
+  NOT the combat log: WoW Forever (12.x engine) closes COMBAT_LOG_EVENT_* to addons, and merely
+  registering for it gets the addon blocked ("blocked from an action only available to the Blizzard
+  UI", ADDON_ACTION_FORBIDDEN on Frame:RegisterEvent) at every login. 1.4.0 did that; 1.4.1 does not.
 ]]
 
 local _G = _G
@@ -669,20 +673,32 @@ end
 -- Events
 -- ---------------------------------------------------------------------------
 
--- Combat log fallback: a mob of a boss's name died. Values are plain-checked; secret ones are skipped.
-function N.OnCombatLog()
-    if not N.cur or type(_G.CombatLogGetCurrentEventInfo) ~= "function" then return end
-    local ok, _, sub, _, _, _, _, _, _, destName = pcall(_G.CombatLogGetCurrentEventInfo)
-    if not ok or IsSecret(sub) or sub ~= "UNIT_DIED" then return end
-    if type(destName) ~= "string" or IsSecret(destName) then return end
-    N.MarkKilled(destName)
+-- The boss of inst a chat line names ("Gilnid dies.", "You have slain Gilnid!"), or nil. Whole words of the
+-- normalised boss name inside the normalised line; longest name first ("Mr. Smite" before "Smite").
+function N.BossInText(inst, text)
+    if not inst or type(text) ~= "string" or IsSecret(text) then return nil end
+    local line = " " .. N.Norm(text) .. " "
+    local best, bestLen = nil, 0
+    for _, b in ipairs(inst.bosses) do
+        local bn = N.Norm(b.name)
+        if #bn > bestLen and line:find(" " .. bn .. " ", 1, true) then best, bestLen = b, #bn end
+    end
+    return best
+end
+
+-- Fallback for bosses without ENCOUNTER_END / BOSS_KILL: the hostile-death chat line.
+function N.OnHostileDeath(text)
+    local inst = N.cur
+    local b = N.BossInText(inst, text)
+    if b and not N.IsKilled(inst, b) then N.SetKilled(inst, b, true) end
+    return b
 end
 
 function N.OnEvent(_, event, a1, a2, a3, a4, a5)
     local ok, err = pcall(function()
         if not M.db then return end
-        if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-            N.OnCombatLog()
+        if event == "CHAT_MSG_COMBAT_HOSTILE_DEATH" then
+            N.OnHostileDeath(a1)
         elseif event == "ENCOUNTER_END" then
             -- encounterID, name, difficultyID, groupSize, success
             if a5 == 1 and type(a2) == "string" and not IsSecret(a2) then N.MarkKilled(a2) end
@@ -697,7 +713,7 @@ end
 
 local ev = _G.CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "GROUP_ROSTER_UPDATE", "PLAYER_LEVEL_UP",
-    "ENCOUNTER_END", "BOSS_KILL", "COMBAT_LOG_EVENT_UNFILTERED" }) do
-    pcall(ev.RegisterEvent, ev, e)
+    "ENCOUNTER_END", "BOSS_KILL", "CHAT_MSG_COMBAT_HOSTILE_DEATH" }) do
+    M.RegisterEvent(ev, e)
 end
 ev:SetScript("OnEvent", N.OnEvent)

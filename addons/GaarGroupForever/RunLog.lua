@@ -310,7 +310,7 @@ end
 do
     local f = _G.CreateFrame("Frame")
     for _, ev in ipairs({ "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "PLAYER_XP_UPDATE", "CHAT_MSG_LOOT" }) do
-        pcall(f.RegisterEvent, f, ev)
+        M.RegisterEvent(f, ev)
     end
     f:SetScript("OnEvent", R.OnEvent)
     local acc = 0

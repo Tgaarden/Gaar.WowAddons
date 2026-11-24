@@ -8,7 +8,12 @@
     * alerts      R.Alert(key, text, opts): a short line above the bar, throttled per key (and per group)
     * statuses    R.SetStatus(key, text): a line that stays while its condition holds (nil removes it)
     * a row       one insecure frame under the bar per role; a module builds its buttons in it ONCE, out of
-                  combat (secure buttons are never created or re-anchored in combat)
+                  combat
+    * secure      R.Secure(row, x, y, w, h, template, name, live): a secure button (Healer tank frame, DPS
+                  Assist) that is a child of UIParent, NOT of the bar or the row, laid over the row at x, y.
+                  The bar and its dock can then show, hide, move and scale in combat without touching a
+                  protected frame. R.SyncSecure() shows / hides / places it only out of combat (also on
+                  PLAYER_REGEN_ENABLED); in combat it only changes its alpha (0 when the row is gone).
     * a scan      R.Scan(): hostile units around you (nameplates, target, focus, party members' targets)
                   with whether they target you / which party member
     * the tick    0.25 s OnUpdate and the events the modules ask for
@@ -321,7 +326,7 @@ function R.Register(role, mod)
     end
     if type(mod.events) == "table" then
         for ev in pairs(mod.events) do
-            if R.frame then pcall(R.frame.RegisterEvent, R.frame, ev) end
+            if R.frame then M.RegisterEvent(R.frame, ev) end
         end
     end
     return mod
@@ -349,6 +354,66 @@ function R.Button(row, name, text, width, onClick, tip)
     b:SetScript("OnClick", function(_, ...) R.Safe(name, onClick, ...) end)
     if tip then M.Tip(b, tip) end
     return b
+end
+
+-- Secure buttons: never children of the bar (a hidden / moved / scaled insecure parent would carry the
+-- protected child with it, which the client blocks in combat), never anchored to an insecure frame.
+R.secure = {}
+
+-- Creates the button (out of combat only: R.BuildRow guarantees it). live() -> true when it should be
+-- shown and its unit attribute is current.
+function R.Secure(row, x, y, w, h, template, name, live)
+    if R.InCombat() then return nil end
+    local f = _G.CreateFrame("Button", name, _G.UIParent, template)
+    f:SetSize(w, h)
+    f:SetFrameStrata("MEDIUM")
+    if M.bar and type(M.bar.GetFrameLevel) == "function" then
+        local lvl = Num(M.bar:GetFrameLevel())
+        if lvl then f:SetFrameLevel(lvl + 10) end
+    end
+    f:Hide()
+    R.secure[#R.secure + 1] = { frame = f, row = row, x = x, y = y, live = live }
+    return f
+end
+
+local function Visible(fr)
+    if not fr or type(fr.IsVisible) ~= "function" then return false end
+    local ok, v = pcall(fr.IsVisible, fr)
+    return ok and v == true
+end
+
+-- Places the secure button over its row (row's scale; the offsets are in the row's coordinates).
+local function PlaceSecure(s)
+    local f, row = s.frame, s.row
+    local ui = _G.UIParent
+    local ok, l, t, rs, us = pcall(function()
+        return row:GetLeft(), row:GetTop(), row:GetEffectiveScale(), ui:GetEffectiveScale()
+    end)
+    l, t, rs, us = Num(l), Num(t), Num(rs), Num(us)
+    if not ok or not l or not t or not rs or not us or us <= 0 then return end
+    local scale = rs / us
+    if s.l == l and s.t == t and s.scale == scale then return end
+    s.l, s.t, s.scale = l, t, scale
+    f:SetScale(scale)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", ui, "BOTTOMLEFT", l + s.x, t + s.y)
+end
+
+-- Out of combat: show (and place) or hide each secure button. In combat: alpha only.
+function R.SyncSecure()
+    local combat = R.InCombat()
+    for _, s in ipairs(R.secure) do
+        local f = s.frame
+        local okLive, live = pcall(s.live)
+        local want = Visible(s.row) and okLive and live == true
+        if combat then
+            f:SetAlpha(want and f:IsShown() and 1 or 0)
+        else
+            if want then PlaceSecure(s) end
+            if want and not f:IsShown() then f:Show() elseif not want and f:IsShown() then f:Hide() end
+            f:SetAlpha(want and 1 or 0)
+        end
+    end
 end
 
 function R.BuildRow(role)
@@ -389,6 +454,7 @@ function R.Tick(force)
             if type(mod.tick) == "function" then R.Safe("modtick", mod.tick, R.Now(), force) end
         end
         R.Render()
+        R.SyncSecure()
     end)
 end
 
@@ -410,7 +476,7 @@ end
 
 R.frame = _G.CreateFrame("Frame")
 for _, ev in ipairs({ "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "GROUP_ROSTER_UPDATE", "PLAYER_ROLES_ASSIGNED" }) do
-    pcall(R.frame.RegisterEvent, R.frame, ev)
+    M.RegisterEvent(R.frame, ev)
 end
 R.frame:SetScript("OnEvent", R.OnEvent)
 R.frame:SetScript("OnUpdate", function(_, elapsed)
@@ -426,7 +492,7 @@ do
     local baseRefresh = M.Refresh
     M.Refresh = function(...)
         baseRefresh(...)
-        if M.db then R.Safe("sync", R.Sync) end
+        if M.db then R.Safe("sync", R.Sync); R.Safe("secure", R.SyncSecure) end
     end
 end
 

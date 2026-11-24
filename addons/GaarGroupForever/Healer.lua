@@ -11,7 +11,9 @@
                     aura is skipped (so in combat it often shows nothing).
     Tank frame      A small frame under the buttons for the party member whose role is TANK: name, health
                     bar, target. SECURE (SecureUnitButtonTemplate): click targets the tank. Created out of
-                    combat only; its unit is changed out of combat only (in combat it keeps the old tank).
+                    combat only, as a child of UIParent laid over the row (R.Secure), so the bar can hide,
+                    move and scale in combat; its unit, Show/Hide and position change out of combat only
+                    (in combat it keeps the old tank, and is only faded out when the bar goes away).
     Dead / range    A warning when a party member dies, or leaves heal range (UnitInRange, checked ones only).
     PvP flag        A warning when your target or mouseover is a PvP-flagged friendly player and you are not.
 ]]
@@ -303,10 +305,11 @@ function H.build(row)
     b2:SetPoint("LEFT", b1, "RIGHT", 3, 0)
     H.drinkButton, H.oomButton = b1, b2
 
-    -- The tank frame: secure, created here (out of combat, guaranteed by R.BuildRow), never re-anchored.
-    local f = _G.CreateFrame("Button", "GaarGroupForeverTankFrame", row, "SecureUnitButtonTemplate")
-    f:SetSize(TANK_W, TANK_H)
-    f:SetPoint("TOPLEFT", row, "TOPLEFT", 5, -30)
+    -- The tank frame: secure, created here (out of combat, guaranteed by R.BuildRow) as a child of UIParent
+    -- laid over the row; R.SyncSecure shows, hides and places it out of combat only.
+    local f = R.Secure(row, 5, -30, TANK_W, TANK_H, "SecureUnitButtonTemplate", "GaarGroupForeverTankFrame",
+        function() return H.TankLive() end)
+    if not f then return 56 * 2, 26 end
     f:RegisterForClicks("AnyUp")
     f:SetAttribute("type1", "target")
     local bg = f:CreateTexture(nil, "BACKGROUND")
@@ -325,13 +328,21 @@ function H.build(row)
     tgt:SetPoint("BOTTOMLEFT", hp, "BOTTOMLEFT", 3, 3)
     tgt:SetTextColor(1, 0.5, 0.5)
     f.hp, f.nameText, f.targetText = hp, name, tgt
-    f:SetAlpha(0)
     H.tankFrame = f
     return TANK_W + 10, 30 + TANK_H + 2
 end
 
+-- The tank the frame should show (option on and a party member has the TANK role), or nil.
+function H.TankUnit() return R.Opt("healTankFrame") and R.UnitByRole("TANK") or nil end
+
+-- Shown when there is a tank and the secure unit attribute already points at it.
+function H.TankLive()
+    local f, unit = H.tankFrame, H.TankUnit()
+    return f ~= nil and unit ~= nil and f.unitSet == unit
+end
+
 -- Applies options and the current tank to the row. Only plain widgets in combat; the secure unit attribute
--- and Show/Hide of the secure frame only out of combat.
+-- only out of combat (Show/Hide/placing: R.SyncSecure, out of combat only).
 function H.refresh()
     if H.drinkButton then
         H.drinkButton:SetShown(R.Opt("healButtons"))
@@ -339,15 +350,11 @@ function H.refresh()
     end
     local f = H.tankFrame
     if not f then return end
-    local unit = R.Opt("healTankFrame") and R.UnitByRole("TANK") or nil
-    if not R.InCombat() then
-        if unit ~= f.unitSet then
-            f:SetAttribute("unit", unit)
-            f.unitSet = unit
-        end
-        if unit and not f:IsShown() then f:Show() elseif not unit and f:IsShown() then f:Hide() end
+    local unit = H.TankUnit()
+    if not R.InCombat() and unit ~= f.unitSet then
+        f:SetAttribute("unit", unit)
+        f.unitSet = unit
     end
-    f:SetAlpha(unit and f.unitSet == unit and 1 or 0)
     if unit and f.unitSet == unit then
         pcall(function()
             f.nameText:SetText(_G.UnitName(unit))

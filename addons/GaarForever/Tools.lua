@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.59"] = "notes for GaarGroupForever 1.4.1: fixes the \"blocked from an action only available to the Blizzard UI\" popup at login (the instance panel no longer listens to the combat log, which WoW Forever keeps from addons; bosses are ticked from the kill chat line instead); the Healer tank frame and DPS Assist button no longer sit inside the bar, so the bar can hide, move and scale in combat; /ggf status lists any action the game blocked",
         ["3.2.58"] = "notes for GaarGroupForever 1.4.0: instance info panel (/ggf info, Info button) with levels, bosses and loot for your class",
         ["3.2.57"] = "notes for GaarGroupForever 1.3.0: role modules - Tank (pull marker, lost-aggro warning, healer mana before the pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out-of-range, PvP flag) and DPS (assist tank, wrong target, aggro, CC markers, interrupt); /ggf tank|healer|dps",
         ["3.2.56"] = "notes for GaarBagsForever 1.13.2: the gold hover in the bag window works on more layouts (coin buttons a level deeper, or no frame taking the mouse) and /gbf gold and /gbf status say what it found; a login that knows only your first name no longer folds other characters into you; characters saved before the rename come back once the BetterBagsForever bridge folder is installed",

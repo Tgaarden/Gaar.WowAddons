@@ -74,7 +74,7 @@ page, all **on by default**; nothing is ever sent to chat unless you click Annou
 | `/ggf check` / `check announce` | the pre-pull report window / post its summary to party chat |
 | `/ggf marks on\|off\|collapse\|expand\|clear` | the raid-marker row; `clear` removes the marks it can reach |
 | `/ggf log` / `log clear` | the last 20 dungeon runs / empty the log |
-| `/ggf status` | settings, group state, which countdown path is used |
+| `/ggf status` | settings, group state, which countdown path is used, and the last 5 actions the game blocked for this addon this session (if any) |
 
 ## With GaarForever (required)
 
@@ -109,7 +109,7 @@ warning is throttled and skipped when the game hides the value (secret values ar
 |---|---|---|
 | Drink / OOM | two buttons post "Drinking" / "OOM" to party on click (`/ggf healer drink`, `oom`) | `buttons` on; `autodrink` off, `autooom` off (post by themselves) |
 | Dispel alert | "Dispel: Mira (Magic)" for what your class removes (Priest Magic/Disease, Paladin Magic/Poison/Disease, Druid Curse/Poison, Shaman Poison/Disease; needs the spell known) | `dispel` on |
-| Tank frame | small secure frame (name, health, target) for the member with the Tank role; click targets. Created and re-pointed out of combat only | `tankframe` on |
+| Tank frame | small secure frame (name, health, target) for the member with the Tank role; click targets. Created and re-pointed out of combat only; sits over the bar but is not part of it (a child of the screen), so in combat it stays put and fades out if the bar goes away | `tankframe` on |
 | Dead / out of range | "Mira died", "Bob is out of range" | `deadrange` on |
 | PvP flag | "Kaz is PvP flagged - you are not" (target or mouseover) | `pvp` on |
 
@@ -117,7 +117,7 @@ warning is throttled and skipped when the game hides the value (secret values ar
 
 | Feature | How it shows | Option (default) |
 |---|---|---|
-| Assist tank | "Assist" secure button (type assist on the tank). Created and re-pointed out of combat only | `assist` on |
+| Assist tank | "Assist" secure button (type assist on the tank). Created and re-pointed out of combat only; sits over the bar but is not part of it (a child of the screen), so in combat it stays put and fades out if the bar goes away | `assist` on |
 | Wrong target | "Not skull: <mob>" in combat while a skull is out | `wrongtarget` on |
 | Aggro | "<mob> is on you!" | `aggro` on |
 | CC assignment | party leader: right-click the bar > DPS mode > Crowd control > player > marker; says "Sheep = Moon (Name)" to party on that click and sends a `GGFcc` addon message; the assigned player sees "CC: Moon" above their bar. Session only (`/ggf dps cc` lists) | `cc` on |
@@ -134,7 +134,13 @@ Every handler runs in `pcall`, every client API is checked with `type(...) == "f
 a secret value is never compared: it is treated as no value. The modes are a table (`Modes`) with a
 hook per mode (`ModeHooks`); the role modules (`Roles.lua`, `Tank.lua`, `Healer.lua`, `Dps.lua`) use it, plus the
 dock, menu, slash and defaults hooks of `GaarGroupForeverAPI._M`. The Assist button and the tank frame are the only
-secure frames (created and changed out of combat only). It ships a `_Camelot` TOC and a
+secure frames: children of `UIParent` laid over their row (never of the bar, so the bar and its dock can hide,
+move and scale in combat), created, shown, hidden, moved and re-pointed out of combat only (in combat only their
+alpha changes). The combat log is never registered: WoW Forever keeps `COMBAT_LOG_EVENT_*` from addons and
+registering it is itself blocked ("blocked from an action only available to the Blizzard UI"; 1.4.0 did, at
+every login). The instance panel ticks a boss from `ENCOUNTER_END` / `BOSS_KILL`, else from the kill chat line
+(`CHAT_MSG_COMBAT_HOSTILE_DEATH`). `ADDON_ACTION_BLOCKED` / `ADDON_ACTION_FORBIDDEN` naming this addon are kept
+for `/ggf status` (one chat note per session at most). It ships a `_Camelot` TOC and a
 plain fallback TOC, both at 16001.
 
 ## License

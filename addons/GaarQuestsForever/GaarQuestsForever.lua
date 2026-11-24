@@ -119,13 +119,16 @@ local DEFAULTS = {
     autoWatch = true,
     dungeonFilter = false,
     autoAccept = false,
+    collapseAllButton = true,
+    trackerQuestCount = true,
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
 -- Every key GaarQuestsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
     hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true, dungeonFilter = true,
-    dungeonRestore = true, autoAccept = true }
+    dungeonRestore = true, autoAccept = true, collapseAllButton = true,
+    trackerQuestCount = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -2201,6 +2204,226 @@ local function SetAutoAccept(on)
         or "off.") )
 end
 
+-- ---------------------------------------------------------------------------
+-- Collapse all (1.14): one +/- button in the quest log's header row, between the search box and
+-- the "Quests: n/m" count. Minus (some zone header is open) collapses every header; plus (all are
+-- collapsed) expands them all. Only Blizzard's own collapse functions are called, from the
+-- button's click; the quest log is not protected. Nothing of Blizzard's is replaced.
+-- ---------------------------------------------------------------------------
+local CollapseAll = { state = "not built yet" }
+
+function CollapseAll.Pcall(fn, ...)
+    if type(fn) ~= "function" then return false end
+    return (pcall(fn, ...))
+end
+
+-- Returns headers (number), open (number of headers not collapsed), or nil when unreadable.
+function CollapseAll.Scan()
+    local ql = _G.C_QuestLog
+    if type(ql) ~= "table" or type(ql.GetNumQuestLogEntries) ~= "function" or type(ql.GetInfo) ~= "function" then
+        return nil
+    end
+    local okN, n = pcall(ql.GetNumQuestLogEntries)
+    if not okN or type(n) ~= "number" or IsSecret(n) then return nil end
+    local headers, open = 0, 0
+    for i = 1, n do
+        local ok, info = pcall(ql.GetInfo, i)
+        if ok and type(info) == "table" and info.isHeader == true then
+            headers = headers + 1
+            if info.isCollapsed ~= true and not IsSecret(info.isCollapsed) then open = open + 1 end
+        end
+    end
+    return headers, open
+end
+
+-- Bulk call first (0 = all headers), verified by a rescan; else one header at a time, from the
+-- end when collapsing because the indices shift.
+function CollapseAll.Run(collapse)
+    local ql = _G.C_QuestLog
+    local wantOpen = not collapse
+    local function Done()
+        local headers, open = CollapseAll.Scan()
+        if not headers then return true end
+        if collapse then return open == 0 end
+        return open == headers
+    end
+    local bulk = collapse and _G.CollapseQuestHeader or _G.ExpandQuestHeader
+    CollapseAll.Pcall(bulk, 0)
+    if Done() then CollapseAll.state = "bulk call (" .. (collapse and "CollapseQuestHeader(0)" or "ExpandQuestHeader(0)") .. ")" return end
+    local okN, n = pcall(ql.GetNumQuestLogEntries)
+    if not okN or type(n) ~= "number" or IsSecret(n) then return end
+    local first, last, step = 1, n, 1
+    if collapse then first, last, step = n, 1, -1 end
+    for i = first, last, step do
+        local ok, info = pcall(ql.GetInfo, i)
+        if ok and type(info) == "table" and info.isHeader == true and not IsSecret(info.isCollapsed)
+            and (info.isCollapsed == true) == wantOpen then
+            CollapseAll.Pcall(collapse and _G.CollapseQuestHeader or _G.ExpandQuestHeader, i)
+        end
+    end
+    CollapseAll.state = "per-header loop"
+end
+
+-- The frame holding the quest list and its search box, wherever this client keeps it.
+function CollapseAll.Frames()
+    local list = {}
+    list[#list + 1] = _G.QuestScrollFrame
+    local qmf = _G.QuestMapFrame
+    if type(qmf) == "table" then list[#list + 1] = qmf.QuestsFrame end
+    list[#list + 1] = _G.QuestLogFrame
+    for _, f in ipairs(list) do
+        if type(f) == "table" and type(f.GetObjectType) == "function" then
+            local box = f.SearchBox or f.searchBox
+            if type(box) == "table" and type(box.SetPoint) == "function" then return f, box end
+        end
+    end
+end
+
+-- The "Quests: n/m" fontstring (or the frame holding it): a named field if there is one, else the
+-- first visible fontstring under the frame whose text has the shape "<word>: 38/40".
+function CollapseAll.CountFrame(f)
+    for _, key in ipairs({ "QuestCount", "questCount", "QuestCountFrame", "Count", "CountText" }) do
+        local c = f[key]
+        if type(c) == "table" and type(c.SetPoint) == "function" then return c end
+    end
+    local function Matches(region)
+        if type(region) ~= "table" or type(region.GetObjectType) ~= "function" then return false end
+        if region:GetObjectType() ~= "FontString" then return false end
+        local ok, t = pcall(region.GetText, region)
+        return ok and type(t) == "string" and not IsSecret(t) and t:match("%d+%s*/%s*%d+") ~= nil
+    end
+    local parents = { f, f:GetParent() }
+    for _, p in ipairs(parents) do
+        if type(p) == "table" and type(p.GetRegions) == "function" then
+            for _, r in ipairs({ p:GetRegions() }) do if Matches(r) then return r end end
+            for _, child in ipairs({ p:GetChildren() }) do
+                if type(child.GetRegions) == "function" then
+                    for _, r in ipairs({ child:GetRegions() }) do if Matches(r) then return r end end
+                end
+            end
+        end
+    end
+end
+
+function CollapseAll.Refresh()
+    local btn = CollapseAll.button
+    if not btn then return end
+    if not (db and db.collapseAllButton) then btn:Hide() return end
+    local headers, open = CollapseAll.Scan()
+    if not headers or headers == 0 then btn:Hide() return end
+    local plus = open == 0
+    btn.plus = plus
+    local tex = plus and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up"
+    btn:SetNormalTexture(tex)
+    btn:SetPushedTexture(plus and "Interface\\Buttons\\UI-PlusButton-Down" or "Interface\\Buttons\\UI-MinusButton-Down")
+    btn:Show()
+end
+
+function CollapseAll.Place()
+    local btn, f, box = CollapseAll.button, CollapseAll.frame, CollapseAll.box
+    if not (btn and f and box) then return end
+    btn:ClearAllPoints()
+    local count = CollapseAll.CountFrame(f)
+    if count then
+        btn:SetPoint("RIGHT", count, "LEFT", -4, 0)
+        CollapseAll.state = "anchored left of the quest count"
+    else
+        btn:SetPoint("LEFT", box, "RIGHT", 2, 0)
+        CollapseAll.state = "anchored right of the search box (no quest count found)"
+    end
+end
+
+function CollapseAll.Build()
+    if CollapseAll.button then return true end
+    if not (db and db.collapseAllButton) then return false end
+    local f, box = CollapseAll.Frames()
+    if not f then CollapseAll.state = "quest log not loaded yet" return false end
+    local btn = CreateFrame("Button", nil, f)
+    btn:SetSize(17, 17)
+    btn:SetFrameLevel((box.GetFrameLevel and box:GetFrameLevel() or f:GetFrameLevel()) + 2)
+    btn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight", "ADD")
+    btn:RegisterForClicks("LeftButtonUp")
+    btn:SetScript("OnClick", function(self)
+        pcall(CollapseAll.Run, not self.plus)
+        CollapseAll.Refresh()
+    end)
+    btn:SetScript("OnEnter", function(self)
+        local tip = _G.GameTooltip
+        if not tip then return end
+        tip:SetOwner(self, "ANCHOR_RIGHT")
+        tip:SetText(self.plus and "Expand all" or "Collapse all")
+        tip:Show()
+    end)
+    btn:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    CollapseAll.button, CollapseAll.frame, CollapseAll.box = btn, f, box
+    CollapseAll.Place()
+    if type(f.HookScript) == "function" then
+        pcall(f.HookScript, f, "OnShow", function() CollapseAll.Place() CollapseAll.Refresh() end)
+    end
+    return true
+end
+
+function CollapseAll.Update()
+    if db and db.collapseAllButton then CollapseAll.Build() end
+    CollapseAll.Refresh()
+    CollapseAll.ApplyTrackerCount()
+end
+
+-- Quest count on the objective tracker's "Quests" header (1.14): "Quests 38/40". Only the header's
+-- text is changed, re-applied after Blizzard's own updates (hooksecurefunc) and on QUEST_LOG_UPDATE.
+function CollapseAll.QuestCount()
+    local ql = _G.C_QuestLog
+    if type(ql) ~= "table" or type(ql.GetNumQuestLogEntries) ~= "function" then return nil end
+    local ok, _, numQuests = pcall(ql.GetNumQuestLogEntries)
+    if not ok or type(numQuests) ~= "number" or IsSecret(numQuests) then return nil end
+    local max
+    if type(ql.GetMaxNumQuestsCanAccept) == "function" then
+        local okM, m = pcall(ql.GetMaxNumQuestsCanAccept)
+        if okM and type(m) == "number" and not IsSecret(m) and m > 0 then max = m end
+    end
+    if not max and type(_G.MAX_QUESTLOG_QUESTS) == "number" and not IsSecret(_G.MAX_QUESTLOG_QUESTS) then
+        max = _G.MAX_QUESTLOG_QUESTS
+    end
+    return numQuests, max or 40
+end
+
+function CollapseAll.ApplyTrackerCount()
+    local q = _G.QuestObjectiveTracker
+    local header = type(q) == "table" and q.Header
+    local fs = type(header) == "table" and header.Text
+    if type(fs) ~= "table" or type(fs.GetText) ~= "function" or type(fs.SetText) ~= "function" then
+        CollapseAll.countState = "no QuestObjectiveTracker.Header.Text"
+        return
+    end
+    if not CollapseAll.countHooked and type(q.Update) == "function" then
+        CollapseAll.countHooked = pcall(hooksecurefunc, q, "Update", function()
+            if db and db.trackerQuestCount then pcall(CollapseAll.ApplyTrackerCount) end
+        end)
+    end
+    local ok, text = pcall(fs.GetText, fs)
+    if not ok or type(text) ~= "string" or IsSecret(text) then return end
+    local base = text:gsub("%s*%d+%s*/%s*%d+%s*$", "")
+    if base == "" then return end
+    local want = base
+    local n, max = CollapseAll.QuestCount()
+    if db and db.trackerQuestCount and n then want = base .. " " .. n .. "/" .. max end
+    if want ~= text then pcall(fs.SetText, fs, want) end
+    CollapseAll.countState = want
+end
+
+function CollapseAll.SetCount(on)
+    db.trackerQuestCount = on and true or false
+    pcall(CollapseAll.ApplyTrackerCount)
+    Print("tracker quest count " .. (on and "on: the Quests header shows how many quests are in the log, e.g. Quests 38/40." or "off.") )
+end
+
+function CollapseAll.Set(on)
+    db.collapseAllButton = on and true or false
+    pcall(CollapseAll.Update)
+    Print("collapse-all button " .. (on and "on: a +/- button in the quest log's header row collapses or expands every zone header."
+        or "off.") )
+end
+
 local function SetDungeonFilter(on)
     db.dungeonFilter = on and true or false
     if on then
@@ -2337,6 +2560,10 @@ local function OptionEntries()
           func = function() SetAutoWatch(not db.autoWatch) end },
         { text = "Auto-accept quests", checkbox = true, checked = function() return db.autoAccept end,
           func = function() SetAutoAccept(not db.autoAccept) end },
+        { text = "Collapse-all button in quest log", checkbox = true, checked = function() return db.collapseAllButton end,
+          func = function() CollapseAll.Set(not db.collapseAllButton) end },
+        { text = "Quest count on tracker header", checkbox = true, checked = function() return db.trackerQuestCount end,
+          func = function() CollapseAll.SetCount(not db.trackerQuestCount) end },
         { text = "Dungeon filter", checkbox = true, checked = function() return db.dungeonFilter end,
           func = function() SetDungeonFilter(not db.dungeonFilter) end },
     }
@@ -2961,6 +3188,10 @@ local function PrintHelp()
         .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
     Print("/gqf autoaccept - toggle accepting quests automatically when their window opens; hold Shift to skip; never turns in or picks gossip (now: "
         .. ((db and db.autoAccept) and "on" or "off") .. ")")
+    Print("/gqf collapse - toggle the +/- button in the quest log's header row that collapses or expands every zone header (now: "
+        .. ((db and db.collapseAllButton) and "on" or "off") .. ")")
+    Print("/gqf questcount - toggle the quest count on the tracker's Quests header, e.g. Quests 38/40 (now: "
+        .. ((db and db.trackerQuestCount) and "on" or "off") .. ")")
     Print("/gqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
         .. ((db and db.dungeonFilter) and "on" or "off") .. ")")
     Print("/gqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
@@ -3044,6 +3275,11 @@ local function PrintStatus()
     local state = m.hide and "hidden (/gqf minimap shows it)" or string.format("shown at %d degrees", m.angle)
     if HiddenByHub() then state = "hidden while GaarForever is loaded (saved setting: " .. state .. ")" end
     Print("minimap button: " .. state .. (type(_G.Minimap) ~= "table" and " - no Minimap frame on this client" or ""))
+    Print("collapse-all button: " .. (db.collapseAllButton and "on" or "off") .. " - "
+        .. (CollapseAll.button and CollapseAll.state or "not built (" .. CollapseAll.state .. ")")
+        .. "   tracker count: " .. (db.trackerQuestCount and "on" or "off") .. " - " .. tostring(CollapseAll.countState or "not applied")
+        .. "   CollapseQuestHeader: " .. Yes(type(_G.CollapseQuestHeader) == "function")
+        .. "   ExpandQuestHeader: " .. Yes(type(_G.ExpandQuestHeader) == "function"))
     Print("Set GPS target: " .. GpsMenuStatus() .. "   GetNextWaypoint: " .. Yes(ql and type(ql.GetNextWaypoint) == "function")
         .. "   GetQuestsOnMap: " .. Yes(ql and type(ql.GetQuestsOnMap) == "function")
         .. "   GetQuestUiMapID: " .. Yes(type(_G.GetQuestUiMapID) == "function"))
@@ -3108,6 +3344,14 @@ local function OnSlash(msg)
         SetAutoAccept(not db.autoAccept)
     elseif msg:match("^autoaccept ") then
         Print("use /gqf autoaccept to toggle (now: " .. (db.autoAccept and "on" or "off") .. ").")
+    elseif msg == "collapse" then
+        CollapseAll.Set(not db.collapseAllButton)
+    elseif msg:match("^collapse ") then
+        Print("use /gqf collapse to toggle (now: " .. (db.collapseAllButton and "on" or "off") .. ").")
+    elseif msg == "questcount" then
+        CollapseAll.SetCount(not db.trackerQuestCount)
+    elseif msg:match("^questcount ") then
+        Print("use /gqf questcount to toggle (now: " .. (db.trackerQuestCount and "on" or "off") .. ").")
     elseif msg == "dungeon on" then
         SetDungeonFilter(true)
     elseif msg == "dungeon off" then
@@ -3149,7 +3393,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.13.0"
+local VERSION = "1.14.0"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3193,6 +3437,8 @@ local function BindSavedVariables()
     if type(db.autoWatch) ~= "boolean" then db.autoWatch = DEFAULTS.autoWatch end
     if type(db.dungeonFilter) ~= "boolean" then db.dungeonFilter = DEFAULTS.dungeonFilter end
     if type(db.autoAccept) ~= "boolean" then db.autoAccept = DEFAULTS.autoAccept end
+    if type(db.collapseAllButton) ~= "boolean" then db.collapseAllButton = DEFAULTS.collapseAllButton end
+    if type(db.trackerQuestCount) ~= "boolean" then db.trackerQuestCount = DEFAULTS.trackerQuestCount end
     Dungeon.CleanRestore()
     MinimapDB()
     BackdropDB()
@@ -3216,10 +3462,14 @@ events:SetScript("OnEvent", function(_, event, arg1)
             pcall(HookTrackerHeaders)
             pcall(RegisterGpsMenu)
             pcall(AutoWatch.HookEditMode)
+            pcall(CollapseAll.Update)
             MarkBackdrop()
             Schedule()
+        elseif db and (arg1 == "Blizzard_WorldMap" or arg1 == "Blizzard_QuestLog") then
+            pcall(CollapseAll.Update)
         elseif db and arg1 == "Blizzard_ObjectiveTracker" then
             pcall(HookTrackerHeaders)
+            pcall(CollapseAll.ApplyTrackerCount)
             if not hooked then Schedule() end
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
@@ -3237,7 +3487,11 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if db then pcall(ApplyMinimap) end
         if db then pcall(RegisterGpsMenu) end
         if db then pcall(HookTrackerHeaders) end
+        if db then pcall(CollapseAll.Update) end
         pcall(AutoWatch.HookEditMode)
+        Schedule()
+    elseif event == "QUEST_LOG_UPDATE" then
+        if db then pcall(CollapseAll.Update) end
         Schedule()
     elseif event == "ZONE_CHANGED" then
         -- Fires on every sub-zone change: only worth a pass when the order depends on the zone.

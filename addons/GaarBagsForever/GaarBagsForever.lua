@@ -13,7 +13,7 @@
     * Reverse (right-click the button, or /gbf reverse; off by default): in the Combined Backpack,
       once Blizzard's sort has settled, the whole visible order is mirrored, so the slot shown
       last trades places with the slot shown first, and so on. Separate bags are never touched.
-    * Item counts and gold across this realm's characters (since 1.7): every character that logs
+    * Item counts and gold across this account's characters (since 1.7): every character that logs
       in keeps a compact record of its bags, bank, equipped items, mail and gold in
       GaarBagsForeverDB.inventory. Item tooltips list each character that has the item, and
       hovering the gold in the bag window lists every character's gold. /gbf counts on|off,
@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.2"
+local VERSION = "1.13.3"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -1057,7 +1057,7 @@ local function LayoutSearchRow()
 end
 
 -- ---------------------------------------------------------------------------
--- Inventory: item counts and gold across this realm's characters (since 1.7)
+-- Inventory: item counts and gold across this account's characters (since 1.7)
 --
 -- Every character that logs in with 1.7 keeps a compact record in the account-wide
 -- GaarBagsForeverDB.inventory[realm][name]:
@@ -1099,7 +1099,10 @@ local function PlainNumber(v)
 end
 
 
-local playerName, playerRealm   -- known from PLAYER_LOGIN on
+local playerName                -- known from PLAYER_LOGIN on
+-- WoW Forever has no realms, only layers: the whole account is one pool, kept under one fixed key
+-- of GaarBagsForeverDB.inventory (1.13.3). Older realm keys are merged into it (Keys.Consolidate).
+local playerRealm = "Forever"
 local bankOpen, mailOpen = false, false
 local pendingScan = {}          -- sources waiting for the next scan: bags, bank, equipped
 local scanScheduled = false
@@ -1420,6 +1423,38 @@ local function DeepCopy(v, depth)
     return t
 end
 
+-- Merges every other key of db.inventory (a realm, "nil", "", "Unknown", any spelling) into the
+-- one bucket, record by record: no record is lost, a character under two keys becomes one record
+-- (scalars of the record already there win, item counts the larger, scan times the later), so
+-- nothing is counted twice. Safe to run again; the current character's live gold is read after.
+function Keys.Consolidate()
+    local inv = db and db.inventory
+    if type(inv) ~= "table" then return 0 end
+    local target = inv[playerRealm]
+    if type(target) ~= "table" then target = {}; inv[playerRealm] = target end
+    local others = {}
+    for k in pairs(inv) do
+        if k ~= playerRealm then others[#others + 1] = k end
+    end
+    table.sort(others, function(a, b) return tostring(a) < tostring(b) end)
+    local moved = 0
+    for _, k in ipairs(others) do
+        local chars = inv[k]
+        if type(chars) == "table" then
+            for name, rec in pairs(chars) do
+                if type(name) == "string" and type(rec) == "table" then
+                    if type(target[name]) == "table" then Keys.MergeRecord(target[name], rec) else target[name] = rec end
+                    moved = moved + 1
+                end
+            end
+        end
+        inv[k] = nil
+    end
+    Keys.buckets = #others
+    Keys.moved = (Keys.moved or 0) + moved
+    return moved
+end
+
 -- Finds the logged-in character's records under any older key and folds them into one record
 -- under playerName / playerRealm: realm spelling variants, and first-name-only vs full-name keys.
 -- Since 1.13.2 a key is folded only when it is surely this character (Keys.IsMine): a longer name
@@ -1427,31 +1462,19 @@ end
 -- that two full names share stays where it is. 1.13.1 folded every NamesMatch hit, so a login that
 -- knew only "Dru" swallowed "Dru Tics" and "Dru Other" alike.
 function Keys.Migrate(myClass)
-    if not db or type(db.inventory) ~= "table" or not playerRealm or not playerName then return end
+    if not db or not playerName then return end
+    if type(db.inventory) ~= "table" then db.inventory = {} end
     local inv = db.inventory
     local target = inv[playerRealm]
     if type(target) ~= "table" then
         target = {}
         inv[playerRealm] = target
     end
-    local wanted = Keys.RealmKey(playerRealm)
-    local keys = {}
-    for realmKey in pairs(inv) do
-        if realmKey ~= playerRealm and type(realmKey) == "string" and wanted ~= "" and Keys.RealmKey(realmKey) == wanted then
-            keys[#keys + 1] = realmKey
-        end
-    end
-    for _, realmKey in ipairs(keys) do
-        local other = inv[realmKey]
-        if type(other) == "table" then
-            for name, rec in pairs(other) do
-                if type(rec) == "table" then
-                    if type(target[name]) == "table" then Keys.MergeRecord(target[name], rec) else target[name] = rec end
-                end
-            end
-        end
-        inv[realmKey] = nil
-    end
+    Keys.Consolidate()
+    target = inv[playerRealm]
+    -- Your own record exists before the lookup, so a first-name record ("Dru") can see its full
+    -- name ("Dru Tics") and be folded into it.
+    if type(target[playerName]) ~= "table" then target[playerName] = { class = myClass } end
     local mineBare = Keys.Bare(playerName)
     local old = {}
     for name, rec in pairs(target) do
@@ -1498,16 +1521,10 @@ function Keys.MergeOld()
     local n = 0
     for realmKey, chars in pairs(old.inventory) do
         if type(realmKey) == "string" and type(chars) == "table" then
-            local into = db.inventory[realmKey]
-            if type(into) ~= "table" then
-                local want = Keys.RealmKey(realmKey)
-                for k, v in pairs(db.inventory) do
-                    if type(k) == "string" and type(v) == "table" and want ~= "" and Keys.RealmKey(k) == want then into = v; break end
-                end
-            end
+            local into = db.inventory[playerRealm]
             if type(into) ~= "table" then
                 into = {}
-                db.inventory[realmKey] = into
+                db.inventory[playerRealm] = into
             end
             for name, rec in pairs(chars) do
                 if type(name) == "string" and type(rec) == "table" then
@@ -1601,9 +1618,7 @@ end
 -- PLAYER_LOGIN: who and where this is, then the first scans.
 local function InitInventory()
     local okName, name = pcall(_G.UnitName, "player")
-    local okRealm, realm = pcall(_G.GetRealmName)
     playerName = okName and PlainString(name) or nil
-    playerRealm = okRealm and PlainString(realm) or nil
     -- The whole name ("Dru Tics" where UnitName says "Dru"), like the rest of the suite.
     local okFull, full = pcall(function() return type(BF.PlayerFullName) == "function" and BF.PlayerFullName() or nil end)
     full = okFull and PlainString(full) or nil
@@ -1636,7 +1651,7 @@ local function ClassColored(name, class)
     return name
 end
 
--- This realm's records, the logged-in character first, then by name. A second key of one
+-- The account's records, the logged-in character first, then by name. A second key of one
 -- character ("Dru" beside "Dru Tics", another spelling) is listed once, never counted twice; a
 -- first name two full names share is kept, never folded into either (Keys.IsMine, Keys.Shadowed).
 local function RealmCharacters()
@@ -1778,7 +1793,7 @@ local Gold = {
     POLL = 0.1,
 }
 
--- This realm's gold: rows of { name, class, gold } in the usual order, and the total.
+-- The account's gold: rows of { name, class, gold } in the usual order, and the total.
 local function GoldRows()
     UpdateGold()
     local rows, total = {}, 0
@@ -1896,7 +1911,7 @@ function Gold.Show(owner)
     if type(tip) ~= "table" then return "no GameTooltip" end
     if not db then return "not loaded" end
     local rows, total = GoldRows()
-    if #rows == 0 then return "no gold recorded (realm " .. tostring(playerRealm) .. ", name " .. tostring(playerName) .. ")" end
+    if #rows == 0 then return "no gold recorded (name " .. tostring(playerName) .. ")" end
     local shown = tip:IsShown() and true or false
     local cur = tip:GetOwner()
     if shown and Gold.owner and cur == Gold.owner then return #rows end   -- ours is up already
@@ -1906,7 +1921,7 @@ function Gold.Show(owner)
     else
         tip:SetOwner(owner, "ANCHOR_TOPLEFT")
     end
-    tip:AddLine("Gold on " .. (playerRealm or "this realm"))
+    tip:AddLine("Gold on this account")
     for _, r in ipairs(rows) do
         tip:AddDoubleLine(ClassColored(r.name, r.class), CoinText(r.gold), 1, 1, 1, 1, 1, 1)
     end
@@ -2018,21 +2033,17 @@ end
 function Gold.StatusLines()
     local out = {}
     local inv = db and db.inventory
-    local realms = {}
-    if type(inv) == "table" then
-        for realm, chars in pairs(inv) do
-            if type(realm) == "string" and type(chars) == "table" then
-                local n = 0
-                for name, rec in pairs(chars) do
-                    if type(name) == "string" and type(rec) == "table" then n = n + 1 end
-                end
-                realms[#realms + 1] = string.format("%s%s: %d", realm, realm == playerRealm and " (this realm)" or "", n)
-            end
+    local n = 0
+    local bucket = type(inv) == "table" and inv[playerRealm]
+    if type(bucket) == "table" then
+        for name, rec in pairs(bucket) do
+            if type(name) == "string" and type(rec) == "table" then n = n + 1 end
         end
     end
-    table.sort(realms)
-    out[#out + 1] = string.format("gold data: GaarBagsForeverDB.inventory%syou: %s on %s%scharacters per realm: %s",
-        DOT, tostring(playerName), tostring(playerRealm), DOT, #realms > 0 and table.concat(realms, ", ") or "none")
+    local other = 0
+    if type(inv) == "table" then for k in pairs(inv) do if k ~= playerRealm then other = other + 1 end end end
+    out[#out + 1] = string.format("gold data: GaarBagsForeverDB.inventory.%s%syou: %s%s%d characters, whole account%smerged in from older realm keys: %d records (%d old keys left)",
+        playerRealm, DOT, tostring(playerName), DOT, n, DOT, Keys.moved or 0, other)
     out[#out + 1] = "old data: " .. (Keys.oldState or "not checked yet")
     local paths, mouse, targets = {}, 0, 0
     for _, e in ipairs(Gold.frames) do paths[#paths + 1] = e.path end
@@ -2084,38 +2095,17 @@ local function SetAutoSort(on)
     Print("auto clean-up when the bags open: " .. OnOff(db.autoSort))
 end
 
--- This realm's gold, then every other realm's characters (the tooltip shows this realm only),
--- then where the data comes from and what the hover did last (since 1.13.2).
+-- The account's gold (all characters in one list), then where the data comes from and what the hover did last (since 1.13.2).
 local function PrintGold()
     local rows, total = GoldRows()
     if #rows == 0 then
-        Print("no gold recorded on " .. (playerRealm or "this realm") .. " yet.")
+        Print("no gold recorded yet.")
     else
-        Print("gold on " .. (playerRealm or "this realm") .. ":")
+        Print("gold, all characters on this account:")
         for _, r in ipairs(rows) do
             Print("  " .. ClassColored(r.name, r.class) .. ": " .. CoinText(r.gold))
         end
         Print("  Total: " .. CoinText(total))
-    end
-    local inv = db and db.inventory
-    if type(inv) == "table" then
-        local others = {}
-        for realm, chars in pairs(inv) do
-            if realm ~= playerRealm and type(realm) == "string" and type(chars) == "table" then others[#others + 1] = realm end
-        end
-        table.sort(others)
-        for _, realm in ipairs(others) do
-            local parts, sum = {}, 0
-            for name, rec in pairs(inv[realm]) do
-                if type(name) == "string" and type(rec) == "table" then
-                    local g = type(rec.gold) == "number" and rec.gold or nil
-                    parts[#parts + 1] = name .. " " .. (g and CoinText(g) or "?")
-                    sum = sum + (g or 0)
-                end
-            end
-            table.sort(parts)
-            Print("other realm " .. realm .. " (not in the bag tooltip): " .. table.concat(parts, ", ") .. DOT .. "Total " .. CoinText(sum))
-        end
     end
     for _, line in ipairs(Gold.StatusLines()) do Print(line) end
 end
@@ -2124,7 +2114,7 @@ local function ForgetCharacter(who)
     local realm = RealmData(false)
     who = who and who:gsub("^%s+", ""):gsub("%s+$", "") or ""
     if who == "" then
-        Print("/gbf forget <name> - remove a character from this realm's item counts and gold.")
+        Print("/gbf forget <name> - remove a character from this account's item counts and gold.")
         return
     end
     local key
@@ -2134,12 +2124,12 @@ local function ForgetCharacter(who)
         end
     end
     if not key then
-        Print("no character named " .. who .. " is recorded on " .. (playerRealm or "this realm") .. ".")
+        Print("no character named " .. who .. " is recorded.")
     elseif key == playerName then
         Print("you are logged in as " .. key .. "; that character cannot be forgotten here.")
     else
         realm[key] = nil
-        Print("removed " .. key .. " from " .. playerRealm .. ": its bags, bank, equipped, mail and gold.")
+        Print("removed " .. key .. ": its bags, bank, equipped, mail and gold.")
     end
 end
 
@@ -2155,8 +2145,8 @@ local function InventoryStatus()
     local rec = playerName and RealmData(false) and RealmData(false)[playerName]
     rec = type(rec) == "table" and rec or {}
     local chars, frames = #RealmCharacters(), CountMoneyHooks()
-    return string.format("inventory: %d character%s on %s%scounts %s%sbank scanned %s%smail scanned %s%sgold hover on %d money frame%s",
-        chars, chars == 1 and "" or "s", playerRealm or "?", DOT, OnOff(CountsOn()), DOT, Ago(rec.bankScanned), DOT,
+    return string.format("inventory: %d character%s%scounts %s%sbank scanned %s%smail scanned %s%sgold hover on %d money frame%s",
+        chars, chars == 1 and "" or "s", DOT, OnOff(CountsOn()), DOT, Ago(rec.bankScanned), DOT,
         Ago(rec.mailScanned), DOT, frames, frames == 1 and "" or "s")
 end
 
@@ -3929,7 +3919,7 @@ local function Yes(v) return v and "yes" or "MISSING" end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this realm's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed, auctioned, traded or destroyed. Clean-up does not run in combat."
+local INTRO = "Makes Blizzard's Combined Backpack movable and adds a Clean Up button left of the search box, with an optional Reverse order and auto clean-up when the bags open. Tooltips count an item across this account's characters; hover the bag gold for everyone's gold. Nice to know: drag the title bar (or Alt-drag an empty spot) to move; right-click Clean Up toggles Reverse; Alt-click an item to lock it so no merchant can buy it and it cannot be mailed, auctioned, traded or destroyed. Clean-up does not run in combat."
 
 local function PrintHelp()
     Print("Right-click the Combined Backpack's round bag portrait (top-left): this addon's menu (the same options as the hub menu).")
@@ -3942,9 +3932,9 @@ local function PrintHelp()
     Print("/gbf reverse - toggle Reverse; /gbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
     Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
     Print("/gbf stop - stop a running reversal")
-    Print("/gbf counts on | off - item counts of this realm's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
-    Print("/gbf gold - gold of this realm's characters (also: hover the gold in the bag window), other realms, and what the gold hover found and did last")
-    Print("/gbf forget <name> - remove a character from this realm's counts and gold")
+    Print("/gbf counts on | off - item counts of this account's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
+    Print("/gbf gold - gold of this account's characters (also: hover the gold in the bag window), and what the gold hover found and did last")
+    Print("/gbf forget <name> - remove a character from this account's counts and gold")
     Print("Alt-click an item in your bags: lock or unlock it (all copies). A locked item shows a padlock and cannot be sold to a merchant.")
     Print("/gbf locked - list the locked items (now: " .. Lock.Count() .. ")")
     Print("/gbf unlockall yes - unlock every locked item")
@@ -4113,7 +4103,9 @@ local function BindSavedVariables()
     if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     -- Characters recorded before the rename, when the bridge folder is installed (since 1.13.2).
+    pcall(Keys.Consolidate)   -- the saved realm keys first, so the newer data wins over the old DB
     pcall(Keys.MergeOld)
+    pcall(Keys.Consolidate)
     local pos = db.position
     if pos ~= nil and (type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number") then
         db.position = nil

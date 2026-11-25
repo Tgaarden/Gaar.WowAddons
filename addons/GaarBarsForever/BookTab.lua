@@ -1,10 +1,13 @@
 --[[
   GaarBarsForever - BookTab.lua: the "Missing from bars" tab in the spellbook (bookMissingTab).
 
-  A tab of our own, left of the spellbook's first category tab (General), styled with Blizzard's
-  own tab art (TabSystemButtonArtTemplate, the plain non-secure art template its category tabs
-  use). Clicking it shows a panel of ours over the paged spell area: ONE list of the player's
-  known, castable, non-passive spells that either
+  A square icon tab of our own in the BOTTOM-LEFT corner of the spellbook, level with the page
+  arrows, so it never touches the category tab row. It wears the art of Forever's category icon
+  tabs (read from a live tab at setup, spellbook-Tab-Frame-C60 and its glow as the fallback, an
+  action-button frame if the client has neither), a book icon with a green arrow, a count badge,
+  and the selected (glow) look while our panel is open; clicking it again closes the panel.
+  Clicking it shows a panel of ours over the paged spell area: ONE list of the player's known,
+  castable, non-passive spells that either
 
     a) are on no action bar slot (no rank of the spell anywhere on slots 1-180, and
        C_ActionBar.FindSpellActionButtons finds none of its rank ids), or
@@ -15,14 +18,23 @@
   shows the spell tooltip, a left-drag picks the spell up (out of combat) so it can be dropped on
   a bar, a left-click casts it.
 
+  The panel clips everything it draws to its own rect, which starts below the lowest category
+  tab: 1.4.0 mirrored the book's background over a frame above the tab row, which hid every
+  category tab (only What's Training?'s "?" tab, drawn higher, stayed visible).
+
+  What's Training? (a third-party addon) adds its own "?" tab after the category tabs and covers
+  the pages with its own frame. Its tab click closes our panel (HookScript on its button), and
+  opening ours first closes its page (a click on its tab, which toggles it off).
+
   Taint and combat:
     * Nothing of Blizzard's is written. Its tab system, data provider, categories and paged
       frame are only read; the hooks are hooksecurefunc (SpellBookFrame:SetTab, the tab system's
-      SetTab / SetTabShown / MarkDirty, SetMinimized) and HookScript (OnShow / OnHide of the
-      book, the search box's focus). Blizzard's selected tab is never changed: our tab shows
-      itself selected and our panel covers the page; any Blizzard tab click (SetTab), a click on
-      the still-selected Blizzard tab (a plain catcher button of ours over it), focusing the
-      search box or closing the book closes our panel.
+      SetTab / SetTabShown, SetMinimized) and HookScript (OnShow / OnHide of the book, the search
+      box's focus). No layout method of Blizzard's is called and our tab is not part of its tab
+      row. Blizzard's selected tab is never changed: our tab shows itself selected and our panel
+      covers the page; any Blizzard tab click (SetTab), a click on the still-selected Blizzard
+      tab (a plain, invisible catcher button of ours over it, since that tab is disabled),
+      focusing the search box or closing the book closes our panel.
     * Each entry's icon is a SecureActionButtonTemplate button (type1 = "spell", spell = id),
       from a pool sized to one page. The panel holding them is attached to the spellbook only
       while it is open (SetParent out of combat) and parked on UIParent otherwise, so the book
@@ -64,6 +76,16 @@ local COLS = 3
 local HEADER_H = 51
 local VIEW_W, VIEW_H = 680, 650
 
+-- Forever's category icon tabs (the same art What's Training? copies). Names read from a live
+-- tab win; these are used when a tab carries none, and only if the client knows the atlas.
+local TAB_ART = { normal = "spellbook-Tab-Frame-C60", active = "spellbook-Tab-Frame-Glow-C60",
+    glow = "spellbook-Tab-Frame-glow-gradient-C60" }
+local TAB_W, TAB_H = 44, 32
+local TAB_ICON_W, TAB_ICON_H = 34, 33
+-- Bottom-left corner of the book, on the row of Blizzard's page arrows (BOTTOMRIGHT -75, 40),
+-- left of the first page's grid (x 85).
+local TAB_X, TAB_Y = 28, 40
+
 local MISSING_RGB = { 0.55, 0.10, 0.05 }
 local LOW_RGB = { 0.70, 0.30, 0.00 }
 local GLOW_LOW_RGB = { 1.0, 0.55, 0.1 }
@@ -78,8 +100,10 @@ local S = {
     pendingClose = false, pendingRender = false,
     dirty = true, list = nil, missing = 0, low = 0,
     page = 1, pages = 1, perPage = 0, pool = {}, slots = {},
-    err = nil, hooked = {},
+    err = nil, hooked = {}, wtHooked = false,
 }
+
+local UpdateBadge -- our tab's count badge (defined with the tab)
 
 local function Err(where, err)
     S.err = where .. ": " .. tostring(err)
@@ -305,6 +329,7 @@ local function Compute()
         end
     end
     S.list, S.missing, S.low, S.dirty = out, missing, low, false
+    if UpdateBadge then UpdateBadge() end
     return out
 end
 
@@ -351,52 +376,89 @@ end
 -- Our tab
 -- ---------------------------------------------------------------------------
 
+local function AtlasKnown(atlas)
+    local CT = _G.C_Texture
+    if type(atlas) ~= "string" or type(CT) ~= "table" or type(CT.GetAtlasInfo) ~= "function" then return false end
+    local ok, info = pcall(CT.GetAtlasInfo, atlas)
+    return ok and type(info) == "table"
+end
+
+-- The look of a live category tab: its size, its icon's size and its frame atlases (normal,
+-- selected glow, glow gradient), as far as they can be read. Missing names fall back to TAB_ART.
+local function NativeTabArt(ts)
+    local art = {}
+    local tab = ts and FirstShownTab(ts)
+    if tab then
+        local w, h = Num(CallOf(tab, "GetWidth")), Num(CallOf(tab, "GetHeight"))
+        if w and h and w >= 24 and w <= 64 and h >= 24 and h <= 64 then art.w, art.h = w, h end
+        local icon = FieldOf(tab, "Icon")
+        if type(icon) == "table" then
+            local iw, ih = Num(CallOf(icon, "GetWidth")), Num(CallOf(icon, "GetHeight"))
+            if iw and ih and iw >= 16 and iw <= 48 and ih >= 16 and ih <= 48 then art.iw, art.ih = iw, ih end
+        end
+        local regions = FieldOf(tab, "GetRegions")
+        if type(regions) == "function" then
+            local res = { pcall(regions, tab) }
+            for i = 2, #res do
+                local a = type(res[i]) == "table" and CallOf(res[i], "GetAtlas") or nil
+                if type(a) == "string" then
+                    local l = a:lower()
+                    if l:find("tab%-frame") then
+                        if l:find("gradient") then art.glow = art.glow or a
+                        elseif l:find("glow") then art.active = art.active or a
+                        else art.normal = art.normal or a end
+                    end
+                end
+            end
+        end
+    end
+    for k, v in pairs(TAB_ART) do
+        if not art[k] and AtlasKnown(v) then art[k] = v end
+    end
+    return art
+end
+
 local function SetTabSelected(sel)
     local t = S.tab
     if not t then return end
-    local done = false
-    if not t.fallback and type(t.SetTabSelected) == "function" then
-        done = pcall(t.SetTabSelected, t, sel)
-    end
-    if not done then
-        for _, k in ipairs({ "Left", "Middle", "Right" }) do
-            if t[k] then t[k]:SetShown(not sel) end
-            if t[k .. "Active"] then t[k .. "Active"]:SetShown(sel) end
+    t.selected = sel and true or false
+    if t.style == "forever" then
+        if t.Active then
+            t.Normal:SetShown(not sel)
+            t.Active:SetShown(sel)
+        else
+            t.Normal:SetVertexColor(1, sel and 0.82 or 1, sel and 0 or 1)
         end
-        if t.SelGlow then t.SelGlow:SetShown(sel) end
-        t:SetEnabled(not sel)
+        if t.ActiveGlow then t.ActiveGlow:SetShown(sel) end
+    else
+        t.Active:SetShown(sel)
     end
-    local y = 0
-    if type(t.GetTextYOffset) == "function" then
-        local ok, v = pcall(t.GetTextYOffset, t, sel)
-        y = ok and Num(v) or 0
-    end
-    t.Icon:ClearAllPoints()
-    t.Icon:SetPoint("CENTER", t, "CENTER", 0, y)
 end
 
+UpdateBadge = function()
+    local t = S.tab
+    if not (t and t.Count) then return end
+    local n = S.list and #S.list or 0
+    t.Count:SetText(n > 99 and "99+" or tostring(n))
+    t.Count:SetShown(n > 0)
+end
+
+-- Bottom-left corner of the book. Level: above our panel (PagedSpellsFrame + 40) and above
+-- What's Training?'s page cover (PlayerSpellsFrame.NineSlice - 10), below the border itself.
 local function AnchorTab()
     local t, sb = S.tab, S.sb
     if not (t and sb) then return end
-    local ts = TabSystem(sb)
-    local first = ts and FirstShownTab(ts)
-    local gap = ts and Num(FieldOf(ts, "spacing")) or 1
     t:ClearAllPoints()
-    if first then
-        t:SetPoint("TOPRIGHT", first, "TOPLEFT", -gap, 0)
-        local h = Num(CallOf(first, "GetHeight"))
-        if h and h > 0 then t:SetHeight(h) end
-        S.anchorTo = "left of the first tab"
-    elseif ts then
-        t:SetPoint("TOPRIGHT", ts, "TOPLEFT", -gap, 0)
-        S.anchorTo = "left of the tab row (no tab shown)"
-    else
-        t:SetPoint("TOPLEFT", sb, "TOPLEFT", 8, -19)
-        S.anchorTo = "book top-left (no tab system found)"
-    end
-    local lvl = Num(CallOf(ts or sb, "GetFrameLevel"))
-    if lvl then t:SetFrameLevel(lvl + 2) end
+    t:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", TAB_X, TAB_Y)
+    local pf = FieldOf(sb, "PagedSpellsFrame")
+    local lvl = (Num(CallOf(type(pf) == "table" and pf or sb, "GetFrameLevel")) or 0) + 50
+    local psf = _G.PlayerSpellsFrame
+    local ns = type(psf) == "table" and FieldOf(psf, "NineSlice") or nil
+    local nsl = type(ns) == "table" and Num(CallOf(ns, "GetFrameLevel")) or nil
+    if nsl and nsl - 3 > lvl then lvl = nsl - 3 end
+    t:SetFrameLevel(lvl)
     S.anchored = true
+    S.anchorTo = "book bottom-left, " .. (t.style == "forever" and "Forever tab art" or "plain icon frame")
 end
 
 local function TabTooltip(self)
@@ -408,49 +470,81 @@ local function TabTooltip(self)
     if S.list then
         tt:AddLine(string.format("%d not on your bars, %d at a lower rank", S.missing, S.low), 1, 1, 1)
     end
-    tt:AddLine("Drag a spell onto a bar; click to cast.", 0.7, 0.7, 0.7)
+    tt:AddLine(S.open and "Click to go back to your spells." or "Drag a spell onto a bar; click to cast.",
+        0.7, 0.7, 0.7)
     tt:Show()
 end
 
-local function BuildTab(sb)
-    local ok, t = pcall(CreateFrame, "Button", nil, sb, "TabSystemButtonArtTemplate")
-    if not ok or type(t) ~= "table" then
-        t = CreateFrame("Button", nil, sb)
-        t.fallback = true
-        t:SetSize(52, 32)
-        local bg = t:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(t)
-        bg:SetColorTexture(0, 0, 0, 0.5)
-        t.SelGlow = t:CreateTexture(nil, "OVERLAY")
-        t.SelGlow:SetAllPoints(t)
-        t.SelGlow:SetTexture("Interface\\Buttons\\CheckButtonHilight")
-        t.SelGlow:SetBlendMode("ADD")
-        t:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+local function TabClick()
+    if S.open then
+        if InCombat() and S.panel and S.panel:IsProtected() then
+            BT.CombatError()
+            return
+        end
+        Sound("IG_SPELLBOOK_OPEN")
+        Safe("close", BT.Close)
     else
-        t.isTabOnTop = true
-        if type(t.HandleRotation) == "function" then pcall(t.HandleRotation, t) end
-        local l = t.Left and Num(t.Left:GetWidth()) or 0
-        local r = t.Right and Num(t.Right:GetWidth()) or 0
-        -- The width Blizzard gives a tab with no text (TabSystemButtonMixin:UpdateTabWidth).
-        local w = (l or 0) + (r or 0) + 20
-        t:SetSize(w > 30 and w or 52, 32)
-        if t.Text then t.Text:SetText("") end
+        Safe("open", BT.Open)
     end
+end
+
+local function BuildTab(sb)
+    local art = NativeTabArt(TabSystem(sb))
+    local t = CreateFrame("Button", nil, sb)
+    t:RegisterForClicks("LeftButtonUp")
     t.Icon = t:CreateTexture(nil, "ARTWORK")
     t.Icon:SetTexture(TAB_ICON)
-    t.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    local ts = TabSystem(sb)
-    local first = ts and FirstShownTab(ts)
-    local blizzIcon = first and FieldOf(first, "Icon")
-    local iw = type(blizzIcon) == "table" and Num(CallOf(blizzIcon, "GetWidth")) or nil
-    iw = (iw and iw > 8 and iw < 40) and iw or 20
-    t.Icon:SetSize(iw, iw)
-    t.Arrow = t:CreateTexture(nil, "OVERLAY")
-    t.Arrow:SetSize(iw * 0.6, iw * 0.6)
-    t.Arrow:SetPoint("BOTTOMRIGHT", t.Icon, "BOTTOMRIGHT", 3, -3)
+    if art.normal then
+        -- Forever's icon tab, as its own tabs (and What's Training?'s) are built.
+        t.style = "forever"
+        t:SetSize(art.w or TAB_W, art.h or TAB_H)
+        t.Icon:SetSize(art.iw or TAB_ICON_W, art.ih or TAB_ICON_H)
+        t.Icon:SetPoint("BOTTOM", t, "BOTTOM", -1, 0)
+        local function FrameArt(atlas, y)
+            if not atlas then return nil end
+            local x = t:CreateTexture(nil, "ARTWORK", nil, 1)
+            if not Atlas(x, atlas, true) then x:Hide() return nil end
+            x:SetPoint("BOTTOM", t, "BOTTOM", 0, y)
+            return x
+        end
+        t.Normal = FrameArt(art.normal, 1)
+        t.Active = FrameArt(art.active, 1)
+        t.ActiveGlow = FrameArt(art.glow, 0)
+    end
+    if not t.Normal then
+        -- Fallback: a 36 x 36 icon in the action button frame, a yellow border when selected.
+        t.style = "plain"
+        t:SetSize(36, 36)
+        t.Icon:ClearAllPoints()
+        t.Icon:SetPoint("TOPLEFT", 2, -2)
+        t.Icon:SetPoint("BOTTOMRIGHT", -2, 2)
+        t.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        t.Normal = t:CreateTexture(nil, "ARTWORK", nil, 1)
+        t.Normal:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+        t.Normal:SetSize(66, 66)
+        t.Normal:SetPoint("CENTER", 0, -1)
+        t.Active = t:CreateTexture(nil, "OVERLAY", nil, 1)
+        t.Active:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+        t.Active:SetBlendMode("ADD")
+        t.Active:SetVertexColor(1, 0.82, 0)
+        t.Active:SetAllPoints(t)
+    end
+    t:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    local hl = t:GetHighlightTexture()
+    if hl then
+        hl:ClearAllPoints()
+        hl:SetAllPoints(t.Icon)
+    end
+    t.Arrow = t:CreateTexture(nil, "OVERLAY", nil, 2)
+    t.Arrow:SetSize(14, 14)
+    t.Arrow:SetPoint("BOTTOMRIGHT", t.Icon, "BOTTOMRIGHT", 2, -2)
     if not Atlas(t.Arrow, "bags-greenarrow", false) then t.Arrow:Hide() end
-    if type(t.SetMotionScriptsWhileDisabled) == "function" then t:SetMotionScriptsWhileDisabled(true) end
-    t:SetScript("OnClick", function() Safe("open", BT.Open) end)
+    t.Count = t:CreateFontString(nil, "OVERLAY")
+    Font(t.Count, "NumberFontNormalSmall", "NumberFontNormal", "GameFontHighlightSmall")
+    t.Count:SetPoint("TOPRIGHT", t.Icon, "TOPRIGHT", -1, -2)
+    t.Count:SetJustifyH("RIGHT")
+    t.Count:Hide()
+    t:SetScript("OnClick", TabClick)
     t:SetScript("OnEnter", function(self) Safe("tooltip", TabTooltip, self) end)
     t:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
     S.tab = t
@@ -458,17 +552,11 @@ local function BuildTab(sb)
     AnchorTab()
     -- A plain button of ours over the Blizzard tab that still looks selected while our panel is
     -- open (that tab is disabled, so its own OnClick would not fire): a click closes our panel.
+    -- No textures: it only takes that click.
     local c = CreateFrame("Button", nil, sb)
     c:Hide()
     c:RegisterForClicks("LeftButtonUp")
-    c:SetScript("OnClick", function()
-        if InCombat() and S.panel and S.panel:IsProtected() then
-            BT.CombatError()
-            return
-        end
-        Sound("IG_SPELLBOOK_OPEN")
-        Safe("close", BT.Close)
-    end)
+    c:SetScript("OnClick", TabClick)
     S.catcher = c
 end
 
@@ -686,12 +774,19 @@ local function BuildPanel(sb)
     p:EnableMouseWheel(true)
     p:SetScript("OnMouseWheel", function(_, delta) Safe("wheel", BT.Page, (Num(delta) or 0) > 0 and -1 or 1) end)
 
+    -- Nothing we draw may reach outside the panel's rect (which starts below the category tab
+    -- row): the mirrored book background sits on a child frame, and the panel clips its children.
+    p:SetClipsChildren(true)
+    local bg = CreateFrame("Frame", nil, p)
+    bg:SetAllPoints(p)
+    bg:SetClipsChildren(true)
+    p.bg = bg
     p.mirrors = {}
     for _, k in ipairs({ "BookBGHalved", "BookBGLeft", "BookBGRight" }) do
-        p.mirrors[k] = p:CreateTexture(nil, "BACKGROUND", nil, 1)
+        p.mirrors[k] = bg:CreateTexture(nil, "BACKGROUND", nil, 1)
     end
-    p.mirrors.Bookmark = p:CreateTexture(nil, "BACKGROUND", nil, 2)
-    p.corner = p:CreateTexture(nil, "BACKGROUND", nil, 2)
+    p.mirrors.Bookmark = bg:CreateTexture(nil, "BACKGROUND", nil, 2)
+    p.corner = bg:CreateTexture(nil, "BACKGROUND", nil, 2)
 
     -- Header in SpellBookHeaderTemplate's look.
     local hd = CreateFrame("Frame", nil, p)
@@ -807,22 +902,43 @@ local function Layout()
     end
 end
 
+-- The panel's top, relative to the book's top: the paged frame's top, but below the lowest
+-- category tab (Forever's icon tabs may reach into the page) and never below the first grid's top.
+local function PanelTop(sb, pf)
+    local dy = -50
+    local st = Num(CallOf(sb, "GetTop"))
+    if not st then return dy end
+    local pt = type(pf) == "table" and Num(CallOf(pf, "GetTop")) or nil
+    if pt then dy = pt - st end
+    local ts = TabSystem(sb)
+    local low = ts and Num(CallOf(ts, "GetBottom")) or nil
+    for _, t in ipairs(TabList(ts)) do
+        if type(t) == "table" and CallOf(t, "IsShown") then
+            local b = Num(CallOf(t, "GetBottom"))
+            if b and (not low or b < low) then low = b end
+        end
+    end
+    if low and low - st - 2 < dy then dy = low - st - 2 end
+    local arr = type(pf) == "table" and FieldOf(pf, "ViewFrames") or nil
+    local v = (type(arr) == "table" and arr[1]) or (type(pf) == "table" and FieldOf(pf, "View1")) or nil
+    local vt = type(v) == "table" and Num(CallOf(v, "GetTop")) or nil
+    if vt and dy < vt - st then dy = vt - st end
+    return dy
+end
+
 local function Attach()
     local p, sb = S.panel, S.sb
     p:SetParent(sb)
     p:ClearAllPoints()
     local pf = FieldOf(sb, "PagedSpellsFrame")
-    local dy = -50
-    if type(pf) == "table" then
-        local pt, st = Num(CallOf(pf, "GetTop")), Num(CallOf(sb, "GetTop"))
-        if pt and st then dy = pt - st end
-    end
-    p:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, dy)
+    p:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, PanelTop(sb, pf))
     p:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
     local strata = CallOf(sb, "GetFrameStrata")
     if type(strata) == "string" then p:SetFrameStrata(strata) end
-    local lvl = Num(CallOf(type(pf) == "table" and pf or sb, "GetFrameLevel")) or 0
-    p:SetFrameLevel(lvl + 40)
+    local lvl = (Num(CallOf(type(pf) == "table" and pf or sb, "GetFrameLevel")) or 0) + 40
+    p:SetFrameLevel(lvl)
+    p.bg:SetFrameLevel(lvl)          -- the background under everything else of ours
+    p.header:SetFrameLevel(lvl + 1)
     for k, tex in pairs(p.mirrors) do MirrorTexture(tex, FieldOf(sb, k)) end
     MirrorCorner(p.corner, FieldOf(sb, "BookCornerFlipbook"))
 end
@@ -861,7 +977,8 @@ end
 
 local function SafeRender() Safe("render", Render) end
 
--- Throttled refresh while our panel is open; events only mark the list dirty.
+-- Throttled refresh while the book is shown; events only mark the list dirty. With our panel
+-- open the page is redrawn, otherwise only the list (and our tab's count badge) is recomputed.
 local driver = CreateFrame("Frame")
 driver:Hide()
 local since = 0
@@ -869,7 +986,8 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     since = since + (Num(elapsed) or 0)
     if since < THROTTLE then return end
     since = 0
-    if S.dirty and S.open and not InCombat() then SafeRender() end
+    if not S.dirty or InCombat() or not On() then return end
+    if S.open then SafeRender() else Safe("count", Compute) end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -882,9 +1000,34 @@ function BT.CombatError()
     if type(ui) == "table" and type(ui.AddMessage) == "function" then pcall(ui.AddMessage, ui, msg, 1, 0.1, 0.1) end
 end
 
+local function OnBlizzardTab()
+    if S.open then Safe("close", BT.Close) end
+end
+
+-- What's Training? (third-party): its "?" tab (WhatsTrainingLauncher) toggles its own page
+-- (WhatsTrainingOverlay) over the book. A click on its tab closes our panel; opening ours turns
+-- its page off with a click on its tab. Created at its PLAYER_ENTERING_WORLD, so hooked lazily.
+local function HookWhatsTraining()
+    if S.wtHooked then return end
+    local l = _G.WhatsTrainingLauncher
+    if type(l) == "table" and type(l.HookScript) == "function"
+        and pcall(l.HookScript, l, "OnClick", OnBlizzardTab) then
+        S.wtHooked = true
+    end
+end
+
+local function CloseWhatsTraining()
+    local o, l = _G.WhatsTrainingOverlay, _G.WhatsTrainingLauncher
+    if type(o) == "table" and CallOf(o, "IsShown") == true and type(l) == "table" and type(l.Click) == "function" then
+        pcall(l.Click, l)
+    end
+end
+
 function BT.Open()
     if not (On() and S.sb and S.tab) or S.open then return end
     if InCombat() then BT.CombatError() return end
+    HookWhatsTraining()
+    CloseWhatsTraining() -- before S.open is set, so its click does not close ours
     if not S.panel then BuildPanel(S.sb) end
     S.open, S.pendingClose, S.page, S.dirty = true, false, 1, true
     Attach()
@@ -906,7 +1049,6 @@ function BT.Close()
         Detach()
     end
     S.open, S.pendingClose = false, false
-    driver:Hide()
     SetTabSelected(false)
     if S.catcher then S.catcher:Hide() end
 end
@@ -949,10 +1091,6 @@ end
 -- Hooks and setup
 -- ---------------------------------------------------------------------------
 
-local function OnBlizzardTab()
-    if S.open then Safe("close", BT.Close) end
-end
-
 local function HookOnce(obj, method, fn)
     if type(obj) ~= "table" or type(_G.hooksecurefunc) ~= "function" then return end
     S.hooked[obj] = S.hooked[obj] or {}
@@ -969,9 +1107,15 @@ local function HookBook(sb)
                 AnchorTab()
             end
             S.dirty = true
+            HookWhatsTraining()
+            since = THROTTLE -- count at once
+            driver:Show()
         end)
     end)
-    sb:HookScript("OnHide", function() Safe("hide", BT.Close) end)
+    sb:HookScript("OnHide", function()
+        Safe("hide", BT.Close)
+        driver:Hide()
+    end)
     HookOnce(sb, "SetTab", OnBlizzardTab)
     HookOnce(sb, "SetMinimized", function()
         Safe("minimize", function()
@@ -983,11 +1127,10 @@ local function HookBook(sb)
     local ts = TabSystem(sb)
     if ts then
         HookOnce(ts, "SetTab", OnBlizzardTab)
-        local function Reanchor()
-            Safe("anchor", function() AnchorTab(); if S.open then PlaceCatcher() end end)
-        end
-        HookOnce(ts, "SetTabShown", Reanchor)
-        HookOnce(ts, "MarkDirty", Reanchor)
+        -- Only our catcher follows the tab row; our tab no longer sits in or next to it.
+        HookOnce(ts, "SetTabShown", function()
+            if S.open then Safe("catcher", PlaceCatcher) end
+        end)
     end
     local search = FieldOf(sb, "SearchBox")
     if type(search) == "table" and type(search.HookScript) == "function" then

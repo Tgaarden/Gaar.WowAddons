@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.76"] = "notes for GaarBarsForever 1.4.1: the Missing from bars tab moves to the spellbook's bottom-left corner as a square icon tab in Forever's tab look, with a count; the category tabs no longer vanish while its list is open; What's Training?'s tab and ours close each other",
         ["3.2.75"] = "notes for GaarBarsForever 1.4.0: a Missing from bars tab in the spellbook, left of General: one list of the spells that are on no bar or only at a lower rank, in Blizzard's look; drag to a bar, click to cast; /gbars missing on|off",
         ["3.2.74"] = "notes for GaarMapsForever 1.5.2: the zone level is one line in the same spot under Blizzard's hover name in zone view too: the hovered neighbour's range, else this map's; no zone name from us",
         ["3.2.73"] = "notes for GaarMapsForever 1.5.1: the zone level title in zone view sits lower, so Blizzard's hover label for a neighbouring zone no longer covers it",
@@ -257,6 +258,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarBarsForever = {
+        ["1.4.1"] = "Missing from bars is a square icon tab in the spellbook's bottom-left corner (Forever's tab look, book icon with a green arrow, a count of the entries, glows while open; click again to go back); the category tabs no longer vanish while the list is open; What's Training?'s ? tab closes the list and opening the list closes its page",
         ["1.4.0"] = "Spellbook tab Missing from bars, left of General: one list of your known, castable, non-passive spells that are on no bar (Not on your bars) or only at a lower rank (Bar has Rank 2 · Rank 3 known), in the spellbook's own look with paging; hover for the tooltip, drag to a bar, click to cast; /gbars missing on|off, menu entry, /gbars status line",
         ["1.1.0"] = "Renamed to GaarBarsForever (new folders; settings move over automatically on first login; new /gbars commands, old ones still work)",
         ["1.0.4"] = "the addon's own name in its menu errors",

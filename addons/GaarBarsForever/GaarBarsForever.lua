@@ -23,8 +23,8 @@
     * macroText (on): macro names on the buttons; off hides them (alpha 0, never Hide).
     * outOfRangeHotkey (off): out of range tints only the hotkey text red instead of the icon.
       When on, it overrides rangeColor for the icon.
-    * bookMissingTab (on): a tab of our own left of the spellbook's first tab ("Missing from
-      bars") with one list of the known, castable, non-passive spells that are on no action bar,
+    * bookMissingTab (on): a square icon tab of our own in the spellbook's bottom-left corner
+      ("Missing from bars", Forever's tab look, a count badge) with one list of the known, castable, non-passive spells that are on no action bar,
       or whose bar copy is a lower rank than the one you know. Same look as Blizzard's pages;
       drag an entry to a bar, click it to cast. BookTab.lua, see there.
     * A master switch (/gbars on|off) and one switch per feature (/gbars <feature> on|off), all in
@@ -77,7 +77,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })

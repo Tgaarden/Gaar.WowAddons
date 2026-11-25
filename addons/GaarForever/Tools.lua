@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.74"] = "notes for GaarMapsForever 1.5.2: the zone level is one line in the same spot under Blizzard's hover name in zone view too: the hovered neighbour's range, else this map's; no zone name from us",
         ["3.2.73"] = "notes for GaarMapsForever 1.5.1: the zone level title in zone view sits lower, so Blizzard's hover label for a neighbouring zone no longer covers it",
         ["3.2.72"] = "notes for GaarMapsForever 1.5.0: the zone's level range (Level 35-45, coloured like mob difficulty) on the world map: a title in zone view, under the hover name on the continent map; /gmf levels on|off",
         ["3.2.71"] = "notes for GaarQuestsForever 1.14.0: a +/- button in the quest log header row collapses or expands every zone header at once (/gqf collapse); the tracker's Quests header shows the quest count, Quests 38/40 (/gqf questcount)",
@@ -141,6 +142,7 @@ local CHANGES = {
         ["1.10.2"] = "uses the GaarForever shared library",
     },
     GaarMapsForever = {
+        ["1.5.2"] = "Zone view: one level line, always in the same spot under Blizzard's hover name, no zone name from us; shows the hovered neighbour's range, else the shown zone's",
         ["1.5.1"] = "Zone view: the zone name and level title moved down so Blizzard's hover label for a neighbouring zone no longer draws on top of it",
         ["1.5.0"] = "Zone level range on the world map, Level 35-45, coloured like mob difficulty: a title in zone view and under the hover name on the continent map; classic zone table; /gmf levels on|off, menu entry, /gmf status shows the matched range",
         ["1.4.1"] = "Portrait right-click button fixed: fixed 60x60 size, re-placed and raised above the border every time the map opens, menu errors are shown; /gmf portrait shows its state",

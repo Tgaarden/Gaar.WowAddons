@@ -17,7 +17,7 @@
       windowed map puts the saved position and scale back.
     * Right-click the map's round portrait (top-left) for the addon's menu.
     * Zone levels (on by default): the zone's level range, "Level 35-45", coloured like mob difficulty,
-      as a title in zone view and under Blizzard's hover label on the continent map. /gmf levels on|off.
+      as one line under Blizzard's hover name: the neighbour's range while hovering one, else the shown zone's. /gmf levels on|off.
     * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off, fade <percent> and levels on|off.
     * GaarMapsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -1145,17 +1145,18 @@ local function Yes(v) return v and "yes" or "MISSING" end
 -- ---------------------------------------------------------------------------
 -- Zone levels: "Level 35-45" on the world map (setting zoneLevels)
 --
--- Zone view: our own title (zone name + level line) at the top centre of the map canvas, since Blizzard
--- shows none there. Continent view: while the cursor is over a zone, a level line directly under the
--- name Blizzard's own area label shows (the label frame's Name, found among the map's overlay frames).
+-- One level line, no name text of our own. Continent view: while the cursor is over a zone, the line sits
+-- directly under the name Blizzard's own area label shows (the label frame's Name, found among the map's
+-- overlay frames). Zone view: the same spot (distance below the canvas top measured from that Name while
+-- it shows text, cached; fallback ZL_LINE_TOP), showing the hovered neighbour's range, else the map's own.
 -- The hovered zone comes from C_Map.GetMapInfoAtPosition on the cursor's normalised position, the same
 -- read Blizzard's label uses. Only our own frame and font strings are created; no Blizzard function or
 -- frame is written. Helpers live in one table (LuaJIT's 200-locals-per-chunk limit).
 -- ---------------------------------------------------------------------------
 
--- Zone view: our title sits below Blizzard's hover label (name + second line, ~55 px from the canvas top).
-local ZL_TITLE_TOP = -64
-local ZL = { frame = nil, nameFS = nil, lvlFS = nil, hoverFS = nil, matched = nil, shownId = nil, acc = 0 }
+-- Zone view: the level line's fixed distance below the canvas top, until measured from Blizzard's label.
+local ZL_LINE_TOP = -48
+local ZL = { frame = nil, hoverFS = nil, matched = nil, shownId = nil, acc = 0, lineTop = nil }
 local EN_DASH = "\226\128\147"
 
 local function SafeString(v)
@@ -1207,16 +1208,10 @@ function ZL.Create()
     local f = CreateFrame("Frame", nil, parent)
     f:SetAllPoints(parent)
     f:SetFrameLevel((parent:GetFrameLevel() or 0) + 50)
-    local nameFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    nameFS:SetPoint("TOP", f, "TOP", 0, ZL_TITLE_TOP)
-    nameFS:SetShadowOffset(1, -1)
-    local lvlFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    lvlFS:SetPoint("TOP", nameFS, "BOTTOM", 0, -2)
-    lvlFS:SetShadowOffset(1, -1)
     local hoverFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     hoverFS:SetShadowOffset(1, -1)
-    nameFS:Hide() lvlFS:Hide() hoverFS:Hide()
-    ZL.frame, ZL.nameFS, ZL.lvlFS, ZL.hoverFS = f, nameFS, lvlFS, hoverFS
+    hoverFS:Hide()
+    ZL.frame, ZL.hoverFS = f, hoverFS
     f:SetScript("OnUpdate", function(_, elapsed)
         ZL.acc = ZL.acc + elapsed
         if ZL.acc >= 0.1 then ZL.acc = 0 ZL.Update() end
@@ -1237,8 +1232,38 @@ end
 
 function ZL.HideAll()
     if not ZL.frame then return end
-    ZL.nameFS:Hide() ZL.lvlFS:Hide() ZL.hoverFS:Hide()
+    ZL.hoverFS:Hide()
     ZL.matched = nil
+end
+
+-- Cursor's zone on the shown map: the neighbour's { mapID, name } or nil (nothing, or the map itself).
+function ZL.Hovered(m, mapID)
+    local sc = m.ScrollContainer
+    local over = sc and sc.IsMouseOver and sc:IsMouseOver()
+    if not (over and sc.GetNormalizedCursorPosition and C_Map.GetMapInfoAtPosition) then return nil end
+    local ok, x, y = pcall(sc.GetNormalizedCursorPosition, sc)
+    x, y = ok and Num(x), ok and Num(y)
+    if not (x and y) then return nil end
+    local hover = C_Map.GetMapInfoAtPosition(mapID, x, y)
+    local hid = type(hover) == "table" and Num(hover.mapID)
+    if not hid or hid == mapID then return nil end
+    return hid, hover.name
+end
+
+-- Zone view: measure how far below the canvas top Blizzard's label Name ends, while it shows text (the
+-- cache keeps the line from jumping when the label is empty). Reads positions only.
+function ZL.MeasureLine(label)
+    local name = label and label.Name
+    if type(name) ~= "table" or not name.GetText or not name.GetBottom then return end
+    local okT, t = pcall(name.GetText, name)
+    if not okT or not SafeString(t) or t == "" then return end
+    local okB, bottom = pcall(name.GetBottom, name)
+    local okF, top = pcall(ZL.frame.GetTop, ZL.frame)
+    bottom, top = okB and Num(bottom), okF and Num(top)
+    local sn, sf = Num(name:GetEffectiveScale()), Num(ZL.frame:GetEffectiveScale())
+    if not (bottom and top and sn and sf and sf > 0) then return end
+    local off = (top * sf - bottom * sn) / sf
+    if off > 0 and off < 200 then ZL.lineTop = -off - 2 end
 end
 
 function ZL.Update()
@@ -1249,49 +1274,43 @@ function ZL.Update()
     if not mapID or not ok or type(info) ~= "table" then return ZL.HideAll() end
     local mapType = Num(info.mapType)
     ZL.mapID = mapID
+    local label = ZL.LabelFrame()
+    local lo, hi, src, shownId, shownName
     if mapType == 3 then
-        -- Zone view: own title.
-        ZL.hoverFS:Hide()
-        local lo, hi, src = ZL.Range(mapID, info.name)
-        local name = SafeString(info.name)
-        if not lo or not name then ZL.nameFS:Hide() ZL.lvlFS:Hide() ZL.matched = nil return end
-        local text, r, g, b = ZL.Colored(lo, hi)
-        ZL.nameFS:SetText(name)
-        ZL.nameFS:SetTextColor(1, 0.82, 0)
-        ZL.lvlFS:SetText(text)
-        ZL.lvlFS:SetTextColor(r, g, b)
-        ZL.nameFS:Show() ZL.lvlFS:Show()
-        ZL.matched = string.format("%d %s %d%s%d (%s)", mapID, name, lo, EN_DASH, hi, src)
+        -- Zone view: neighbour under the cursor, else the map's own zone; same spot either way.
+        ZL.MeasureLine(label)
+        local hid, hname = ZL.Hovered(m, mapID)
+        if hid then
+            shownId, shownName = hid, SafeString(hname)
+        else
+            shownId, shownName = mapID, SafeString(info.name)
+        end
     elseif mapType == 2 or mapType == 1 then
         -- Continent view: a level line under Blizzard's hover label.
-        ZL.nameFS:Hide() ZL.lvlFS:Hide()
-        local sc = m.ScrollContainer
-        local over = sc and sc.IsMouseOver and sc:IsMouseOver()
-        local nx, ny
-        if over and sc.GetNormalizedCursorPosition then
-            local ok2, x, y = pcall(sc.GetNormalizedCursorPosition, sc)
-            if ok2 then nx, ny = Num(x), Num(y) end
-        end
-        local hover = nx and ny and C_Map.GetMapInfoAtPosition and C_Map.GetMapInfoAtPosition(mapID, nx, ny)
-        local hid = type(hover) == "table" and Num(hover.mapID)
-        local lo, hi, src
-        if hid then lo, hi, src = ZL.Range(hid, hover.name) end
-        if not lo then ZL.hoverFS:Hide() ZL.matched = hid and (hid .. " (no range)") or nil return end
-        local text, r, g, b = ZL.Colored(lo, hi)
-        local label = ZL.LabelFrame()
-        ZL.hoverFS:ClearAllPoints()
-        if label and label.Name.GetObjectType then
-            ZL.hoverFS:SetPoint("TOP", label.Name, "BOTTOM", 0, -2)
-        else
-            ZL.hoverFS:SetPoint("TOP", ZL.frame, "TOP", 0, -50)
-        end
-        ZL.hoverFS:SetText(text)
-        ZL.hoverFS:SetTextColor(r, g, b)
-        ZL.hoverFS:Show()
-        ZL.matched = string.format("%d %s %d%s%d (%s)", hid, SafeString(hover.name) or "?", lo, EN_DASH, hi, src)
+        local hid, hname = ZL.Hovered(m, mapID)
+        if hid then shownId, shownName = hid, SafeString(hname) end
     else
-        ZL.HideAll()
+        return ZL.HideAll()
     end
+    if shownId then lo, hi, src = ZL.Range(shownId, shownName) end
+    if not lo then
+        ZL.hoverFS:Hide()
+        ZL.matched = shownId and (shownId .. " (no range)") or nil
+        return
+    end
+    local text, r, g, b = ZL.Colored(lo, hi)
+    ZL.hoverFS:ClearAllPoints()
+    if mapType == 3 then
+        ZL.hoverFS:SetPoint("TOP", ZL.frame, "TOP", 0, ZL.lineTop or ZL_LINE_TOP)
+    elseif label and label.Name.GetObjectType then
+        ZL.hoverFS:SetPoint("TOP", label.Name, "BOTTOM", 0, -2)
+    else
+        ZL.hoverFS:SetPoint("TOP", ZL.frame, "TOP", 0, -50)
+    end
+    ZL.hoverFS:SetText(text)
+    ZL.hoverFS:SetTextColor(r, g, b)
+    ZL.hoverFS:Show()
+    ZL.matched = string.format("%d %s %d%s%d (%s)", shownId, shownName or "?", lo, EN_DASH, hi, src)
 end
 
 function ZL.Init()
@@ -1348,7 +1367,7 @@ local function PrintStatus()
             .. string.format(", scale now %d%%", Percent(Num(f:GetScale()) or 1)))
     end
     PortraitStatus()
-    Print("zone levels: " .. OnOff(db and db.zoneLevels) .. ", map id " .. tostring(ZL.mapID or "?") .. ", match: " .. tostring(ZL.matched or "none") .. ", zones in table: " .. tostring(ns and ns.zoneLevels and ns.zoneLevels.count or 0))
+    Print("zone levels: " .. OnOff(db and db.zoneLevels) .. " (one line under the hover name; zone view: hovered neighbour, else this map; line top " .. tostring(ZL.lineTop or (ZL_LINE_TOP .. " fallback")) .. "), map id " .. tostring(ZL.mapID or "?") .. ", match: " .. tostring(ZL.matched or "none") .. ", zones in table: " .. tostring(ns and ns.zoneLevels and ns.zoneLevels.count or 0))
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))

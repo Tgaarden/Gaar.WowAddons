@@ -164,3 +164,9 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Options**
 
 <img src="../../docs/screenshots/GaarMapsForever/6-options.jpg" alt="Options" width="600">
+
+**Zone levels**
+
+<img src="../../docs/screenshots/GaarMapsForever/7-zone-levels.jpg" alt="Zone levels: hover a zone on the continent map" width="600">
+
+Hover a zone on the continent map: its level range, coloured by your level.

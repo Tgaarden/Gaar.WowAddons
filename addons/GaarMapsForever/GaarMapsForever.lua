@@ -1153,6 +1153,8 @@ local function Yes(v) return v and "yes" or "MISSING" end
 -- frame is written. Helpers live in one table (LuaJIT's 200-locals-per-chunk limit).
 -- ---------------------------------------------------------------------------
 
+-- Zone view: our title sits below Blizzard's hover label (name + second line, ~55 px from the canvas top).
+local ZL_TITLE_TOP = -64
 local ZL = { frame = nil, nameFS = nil, lvlFS = nil, hoverFS = nil, matched = nil, shownId = nil, acc = 0 }
 local EN_DASH = "\226\128\147"
 
@@ -1206,7 +1208,7 @@ function ZL.Create()
     f:SetAllPoints(parent)
     f:SetFrameLevel((parent:GetFrameLevel() or 0) + 50)
     local nameFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    nameFS:SetPoint("TOP", f, "TOP", 0, -10)
+    nameFS:SetPoint("TOP", f, "TOP", 0, ZL_TITLE_TOP)
     nameFS:SetShadowOffset(1, -1)
     local lvlFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     lvlFS:SetPoint("TOP", nameFS, "BOTTOM", 0, -2)

@@ -46,6 +46,7 @@ does nothing else. It needs GaarForever, the family hub, and no other addon or l
   bottom-right corner to scale it, from 50% to 200%. Position and scale are saved in their own keys (`zoneMapPoint`, `zoneMapScale`)
   and put back whenever the map is shown. `/gmf lock` locks it as well. Blizzard's opacity option (right-click the tab) is left
   alone, and it does not fade while you move. Skipped in combat and applied once combat ends.
+- **Zone levels** (1.5.0, `/gmf levels on|off`, on by default). The zone's level range, `Level 35–45`, coloured like mob difficulty (the hub's `LevelDifficultyColor`, midpoint of the range against your level). In zone view it is a title at the top centre of the map (zone name, level line below); on a continent map it shows directly under the zone name Blizzard's own hover label shows. Ranges come from `Data/ZoneLevels.lua` (the 40 classic Eastern Kingdoms and Kalimdor zones, by uiMapID, with an English-name fallback), `C_Map.GetMapLevels` only when it answers sanely for a zone not in the table. Cities, instances and zones without a range show nothing. `/gmf status` shows the current map id and the matched range.
 - **Maximized map.** Left to Blizzard: no handle, no grip, 100% scale. Going back to the windowed
   map puts the saved position and scale back.
 
@@ -63,6 +64,7 @@ At 100% and the default position the addon does not touch the map at all.
 | `/gmf zone reset` | Zone map back to its default position and 100% |
 | `/gmf fade on`, `/gmf fade off` | Fade the map while you move, or not |
 | `/gmf fade <10-100>` | Opacity while moving, in percent (default 35) |
+| `/gmf levels on`, `/gmf levels off` | Show the zone's level range on the map, or not |
 | `/gmf status` | Which frames and functions this client has, whether the map is open and maximized, and the current settings |
 
 ## With GaarForever (required)
@@ -71,7 +73,7 @@ Since 1.1.1 this addon lists `GaarForever` (the GaarForever folder) under `## De
 
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a **Maps** submenu with **Lock position & size**, **Reset position & size**, **Scale**
-(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), **Zone map (Shift+M) scale** (75, 100, 125, 150, 200%) and **Reset zone map**, the same
+(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), **Zone level range on the map**, **Zone map (Shift+M) scale** (75, 100, 125, 150, 200%) and **Reset zone map**, the same
 settings as `/gmf lock|unlock`, `/gmf reset`, `/gmf scale`, `/gmf fade on|off` and `/gmf fade
 <percent>` (both go through the same functions). This addon has no minimap button or menu of its
 own, so nothing here changes with or without the hub.
@@ -102,7 +104,7 @@ The hub talks to this addon only through `GaarMapsForeverAPI`:
 - Blizzard's last anchor is remembered, so `/gmf reset` can put it back on the open map.
 - Every name is checked before use, and secret geometry is treated as no geometry.
 - Saved variables are read at `ADDON_LOADED`, never at file scope. Only `locked`, `scale`,
-  `position`, `fade` and `fadeAlpha` are kept.
+  `position`, `fade`, `fadeAlpha` and `zoneLevels` (plus the zone map's two) are kept.
 
 ## Known limit: the cursor on a scaled map
 

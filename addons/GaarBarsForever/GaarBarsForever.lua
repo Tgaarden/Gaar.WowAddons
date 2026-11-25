@@ -23,6 +23,10 @@
     * macroText (on): macro names on the buttons; off hides them (alpha 0, never Hide).
     * outOfRangeHotkey (off): out of range tints only the hotkey text red instead of the icon.
       When on, it overrides rangeColor for the icon.
+    * bookMissingTab (on): a tab of our own left of the spellbook's first tab ("Missing from
+      bars") with one list of the known, castable, non-passive spells that are on no action bar,
+      or whose bar copy is a lower rank than the one you know. Same look as Blizzard's pages;
+      drag an entry to a bar, click it to cast. BookTab.lua, see there.
     * A master switch (/gbars on|off) and one switch per feature (/gbars <feature> on|off), all in
       GaarBarsForeverDB (account-wide), and one menu entry each for the hub.
     * /gbars for help, /gbars status for the hooks found, the buttons handled and whether the
@@ -68,11 +72,12 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ...
+local ADDON_NAME, NS = ...
 ADDON_NAME = ADDON_NAME or "GaarBarsForever"
+NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.3.2"
+local VERSION = "1.4.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -101,6 +106,8 @@ local FEATURES = {
       label = "Out of range: red hotkey instead of red icon" },
     { key = "lowRankWarn", cmd = "rank", default = true,
       label = "Orange ring on low-rank spells (spellbook open)" },
+    { key = "bookMissingTab", cmd = "missing", default = true,
+      label = "Spellbook tab: spells missing from your bars" },
 }
 local FEATURE_BY_CMD = {}
 for _, f in ipairs(FEATURES) do
@@ -1316,6 +1323,11 @@ local function ApplyAll()
     end
     if Enabled() then SafeTick() end
     SafeRefreshRank()
+    local BT = NS.BookTab
+    if BT and type(BT.Apply) == "function" then
+        local ok, err = pcall(BT.Apply)
+        if not ok then Fail("booktab", err) end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1391,6 +1403,13 @@ local function PrintStatus()
         secrets.usable, secrets.range, secrets.cooldown, secrets.setterMissing, secrets.setterFailed))
     Print(string.format("book rings: %d on, %d entries seen (%s)   last error: %s",
         bookInfo.rings, bookInfo.entries, bookInfo.variant, bookInfo.err or "none"))
+    local BT = NS.BookTab
+    if BT and type(BT.StatusLine) == "function" then
+        local ok, line = pcall(BT.StatusLine)
+        Print(ok and tostring(line) or ("missing tab: status failed: " .. tostring(line)))
+    else
+        Print("missing tab: BookTab.lua not loaded")
+    end
     local sample = list[1] and list[1].icon
     local cd = list[1] and list[1].cd
     Print("issecretvalue: " .. YesNo(_G.issecretvalue ~= nil)
@@ -1451,6 +1470,17 @@ local function OnSlash(msg)
         Print("error: " .. tostring(err))
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- Shared with BookTab.lua (loaded after this file, same addon namespace). Plain references to
+-- this file's helpers, so the spellbook tab reads spells and ranks exactly like the rings do.
+-- ---------------------------------------------------------------------------
+
+NS.Bars = {
+    A = A, BF = BF, Print = Print, Fail = Fail, On = On, InCombat = InCombat,
+    Secret = Secret, Num = Num, Str = Str, FieldOf = FieldOf, CallOf = CallOf,
+    SpellName = SpellName, SpellRank = SpellRank, SlotSpellID = SlotSpellID,
+}
 
 -- ---------------------------------------------------------------------------
 -- Public API: GaarBarsForeverAPI

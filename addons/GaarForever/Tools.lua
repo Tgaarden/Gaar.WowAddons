@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.75"] = "notes for GaarBarsForever 1.4.0: a Missing from bars tab in the spellbook, left of General: one list of the spells that are on no bar or only at a lower rank, in Blizzard's look; drag to a bar, click to cast; /gbars missing on|off",
         ["3.2.74"] = "notes for GaarMapsForever 1.5.2: the zone level is one line in the same spot under Blizzard's hover name in zone view too: the hovered neighbour's range, else this map's; no zone name from us",
         ["3.2.73"] = "notes for GaarMapsForever 1.5.1: the zone level title in zone view sits lower, so Blizzard's hover label for a neighbouring zone no longer covers it",
         ["3.2.72"] = "notes for GaarMapsForever 1.5.0: the zone's level range (Level 35-45, coloured like mob difficulty) on the world map: a title in zone view, under the hover name on the continent map; /gmf levels on|off",
@@ -256,6 +257,7 @@ local CHANGES = {
         ["1.0.3"] = "the addon's own name in its chat lines",
     },
     GaarBarsForever = {
+        ["1.4.0"] = "Spellbook tab Missing from bars, left of General: one list of your known, castable, non-passive spells that are on no bar (Not on your bars) or only at a lower rank (Bar has Rank 2 · Rank 3 known), in the spellbook's own look with paging; hover for the tooltip, drag to a bar, click to cast; /gbars missing on|off, menu entry, /gbars status line",
         ["1.1.0"] = "Renamed to GaarBarsForever (new folders; settings move over automatically on first login; new /gbars commands, old ones still work)",
         ["1.0.4"] = "the addon's own name in its menu errors",
         ["1.0.3"] = "the addon's own name in its chat lines",

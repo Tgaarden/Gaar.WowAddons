@@ -56,7 +56,7 @@ local Lib = _G.GaarForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "GaarForever"
-local VERSION = "3.2.74"
+local VERSION = "3.2.75"
 local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 

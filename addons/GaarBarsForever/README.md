@@ -22,6 +22,7 @@ names you can switch off. Every part can be switched on or off on its own. It ne
 | `macroText` | on | Macro names on the buttons. Off hides them (the text is made transparent, never hidden) |
 | `outOfRangeHotkey` | off | Out of range tints only the hotkey text red, not the icon. While on, it overrides `rangeColor` for the icon |
 | `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. The same ring sits on the spellbook entry of the highest rank you know when a bar holds a lower rank of it (Claw Rank 3 in the book gets it when Claw Rank 1 is on the bar), so you see what to drag up; classic `SpellButton1..12` and the paged `PlayerSpellsFrame` are both handled, and the book rings follow page and tab changes. Rings disappear when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
+| `bookMissingTab` | on | A tab of its own in the spellbook, left of the first tab (General), in Blizzard's tab style; tooltip **Missing from bars**. It opens one list, over the spell pages and in the same look (icon frame, name, `Rank 3`, the same grid and paging), of every known, castable, non-passive spell that is on no action bar (**Not on your bars**) or only at a lower rank than the one you know (**Bar has Rank 2 · Rank 3 known**). Hover for the spell tooltip, drag a spell onto a bar, click it to cast. Clicking any Blizzard tab, the search box or closing the book closes the list. Empty: *All your spells are on your bars at their highest rank.* Auto Attack, Auto Shot and Shoot are left out. Opening it is refused in combat; an open list stays as it is in combat and updates afterwards |
 
 - **Order.** Out of range wins over no mana. When neither applies, the icon gets its normal
   colour back.
@@ -88,7 +89,8 @@ one checked first:
 | `/gbars macro on\|off` (or `macroText`) | Macro names |
 | `/gbars rangehotkey on\|off` (or `outOfRangeHotkey`) | Out of range: red hotkey instead of red icon |
 | `/gbars rank on\|off` (or `lowRankWarn`) | Orange ring on low-rank spells while the spellbook is open |
-| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter and the last error caught |
+| `/gbars missing on\|off` (or `bookMissingTab`) | The spellbook tab of spells missing from your bars |
+| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error) and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
 
@@ -128,6 +130,12 @@ The hub talks to this addon only through `GaarBarsForeverAPI`:
   `pcall` (the last error is kept for `/gbars status`), and a secret value is never compared or
   tested.
 - Saved variables are read at `ADDON_LOADED`, never at file scope.
+- **The spellbook tab** (`BookTab.lua`) only reads Blizzard's spellbook: its tab system, categories
+  and pages are never changed and its selected tab is left alone; Blizzard tab clicks are followed
+  with `hooksecurefunc` (`SetTab`) and `HookScript`. The spell icons in the list are the addon's
+  own `SecureActionButtonTemplate` buttons (`type1 = "spell"`), so clicking casts. They are given
+  their spell, shown, hidden and moved only out of combat, and their panel sits in the spellbook
+  only while the tab is open, so the book carries no secure frames of ours otherwise.
 
 ## Names it relies on
 

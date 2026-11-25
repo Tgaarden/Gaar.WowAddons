@@ -16,7 +16,9 @@
     * The maximized map is left to Blizzard: no handle, no grip, 100% scale. Going back to the
       windowed map puts the saved position and scale back.
     * Right-click the map's round portrait (top-left) for the addon's menu.
-    * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off and fade <percent>.
+    * Zone levels (on by default): the zone's level range, "Level 35-45", coloured like mob difficulty,
+      as a title in zone view and under Blizzard's hover label on the continent map. /gmf levels on|off.
+    * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off, fade <percent> and levels on|off.
     * GaarMapsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -43,10 +45,11 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "GaarMapsForever"
+local ADDON_NAME, ns = ...
+ADDON_NAME = ADDON_NAME or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.1"
+local VERSION = "1.5.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -61,11 +64,12 @@ local DEFAULTS = {
     fade = true,
     fadeAlpha = DEFAULT_FADE_ALPHA,
     zoneMapScale = 1,
+    zoneLevels = true,
 }
 
 -- Every key GaarMapsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, scale = true, position = true, fade = true, fadeAlpha = true,
-    zoneMapPoint = true, zoneMapScale = true }
+    zoneMapPoint = true, zoneMapScale = true, zoneLevels = true }
 
 local db                -- GaarMapsForeverDB, bound at ADDON_LOADED (never at file scope)
 local map               -- WorldMapFrame once found
@@ -1138,6 +1142,171 @@ end
 
 local function Yes(v) return v and "yes" or "MISSING" end
 
+-- ---------------------------------------------------------------------------
+-- Zone levels: "Level 35-45" on the world map (setting zoneLevels)
+--
+-- Zone view: our own title (zone name + level line) at the top centre of the map canvas, since Blizzard
+-- shows none there. Continent view: while the cursor is over a zone, a level line directly under the
+-- name Blizzard's own area label shows (the label frame's Name, found among the map's overlay frames).
+-- The hovered zone comes from C_Map.GetMapInfoAtPosition on the cursor's normalised position, the same
+-- read Blizzard's label uses. Only our own frame and font strings are created; no Blizzard function or
+-- frame is written. Helpers live in one table (LuaJIT's 200-locals-per-chunk limit).
+-- ---------------------------------------------------------------------------
+
+local ZL = { frame = nil, nameFS = nil, lvlFS = nil, hoverFS = nil, matched = nil, shownId = nil, acc = 0 }
+local EN_DASH = "\226\128\147"
+
+local function SafeString(v)
+    if type(v) ~= "string" then return nil end
+    if _G.issecretvalue and _G.issecretvalue(v) then return nil end
+    return v
+end
+
+-- Range of a uiMapID: { min, max, source } or nil. The static table first (id, then name), then
+-- C_Map.GetMapLevels only when it answers with sane classic numbers for a zone map.
+function ZL.Range(id, name)
+    id = Num(id)
+    if not id then return nil end
+    local data = type(ns) == "table" and ns.zoneLevels
+    if data then
+        local r = data.byId[id]
+        if r then return r[1], r[2], "id" end
+        name = SafeString(name)
+        if not name then
+            local ok, info = pcall(C_Map.GetMapInfo, id)
+            name = ok and type(info) == "table" and SafeString(info.name) or nil
+        end
+        r = name and data.byName[name]
+        if r then return r[1], r[2], "name" end
+    end
+    if C_Map and C_Map.GetMapLevels then
+        local ok, info = pcall(C_Map.GetMapInfo, id)
+        local mt = ok and type(info) == "table" and Num(info.mapType)
+        if mt == 3 then
+            local ok2, lo, hi = pcall(C_Map.GetMapLevels, id)
+            lo, hi = ok2 and Num(lo), ok2 and Num(hi)
+            if lo and hi and lo > 0 and hi <= 60 and lo <= hi then return lo, hi, "api" end
+        end
+    end
+end
+
+function ZL.Colored(lo, hi)
+    local mine = Num(UnitLevel("player"))
+    local r, g, b = BF.LevelDifficultyColor((lo + hi) / 2, mine)
+    local text = (lo == hi) and ("Level " .. lo) or ("Level " .. lo .. EN_DASH .. hi)
+    return text, r, g, b
+end
+
+function ZL.Create()
+    if ZL.frame then return true end
+    local m = GetMap()
+    local parent = m and m.ScrollContainer
+    if type(parent) ~= "table" or not parent.GetObjectType or InCombat() then return false end
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetAllPoints(parent)
+    f:SetFrameLevel((parent:GetFrameLevel() or 0) + 50)
+    local nameFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    nameFS:SetPoint("TOP", f, "TOP", 0, -10)
+    nameFS:SetShadowOffset(1, -1)
+    local lvlFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    lvlFS:SetPoint("TOP", nameFS, "BOTTOM", 0, -2)
+    lvlFS:SetShadowOffset(1, -1)
+    local hoverFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    hoverFS:SetShadowOffset(1, -1)
+    nameFS:Hide() lvlFS:Hide() hoverFS:Hide()
+    ZL.frame, ZL.nameFS, ZL.lvlFS, ZL.hoverFS = f, nameFS, lvlFS, hoverFS
+    f:SetScript("OnUpdate", function(_, elapsed)
+        ZL.acc = ZL.acc + elapsed
+        if ZL.acc >= 0.1 then ZL.acc = 0 ZL.Update() end
+    end)
+    return true
+end
+
+-- Blizzard's area label frame (has Name and SetLabel), if the map has one; anchoring target only.
+function ZL.LabelFrame()
+    local m = GetMap()
+    local list = m and m.overlayFrames
+    if type(list) == "table" then
+        for _, fr in pairs(list) do
+            if type(fr) == "table" and type(fr.SetLabel) == "function" and type(fr.Name) == "table" then return fr end
+        end
+    end
+end
+
+function ZL.HideAll()
+    if not ZL.frame then return end
+    ZL.nameFS:Hide() ZL.lvlFS:Hide() ZL.hoverFS:Hide()
+    ZL.matched = nil
+end
+
+function ZL.Update()
+    local m = GetMap()
+    if not (db and db.zoneLevels) or not m or not m:IsShown() then return ZL.HideAll() end
+    local mapID = Num(m.GetMapID and m:GetMapID())
+    local ok, info = pcall(C_Map.GetMapInfo, mapID or 0)
+    if not mapID or not ok or type(info) ~= "table" then return ZL.HideAll() end
+    local mapType = Num(info.mapType)
+    ZL.mapID = mapID
+    if mapType == 3 then
+        -- Zone view: own title.
+        ZL.hoverFS:Hide()
+        local lo, hi, src = ZL.Range(mapID, info.name)
+        local name = SafeString(info.name)
+        if not lo or not name then ZL.nameFS:Hide() ZL.lvlFS:Hide() ZL.matched = nil return end
+        local text, r, g, b = ZL.Colored(lo, hi)
+        ZL.nameFS:SetText(name)
+        ZL.nameFS:SetTextColor(1, 0.82, 0)
+        ZL.lvlFS:SetText(text)
+        ZL.lvlFS:SetTextColor(r, g, b)
+        ZL.nameFS:Show() ZL.lvlFS:Show()
+        ZL.matched = string.format("%d %s %d%s%d (%s)", mapID, name, lo, EN_DASH, hi, src)
+    elseif mapType == 2 or mapType == 1 then
+        -- Continent view: a level line under Blizzard's hover label.
+        ZL.nameFS:Hide() ZL.lvlFS:Hide()
+        local sc = m.ScrollContainer
+        local over = sc and sc.IsMouseOver and sc:IsMouseOver()
+        local nx, ny
+        if over and sc.GetNormalizedCursorPosition then
+            local ok2, x, y = pcall(sc.GetNormalizedCursorPosition, sc)
+            if ok2 then nx, ny = Num(x), Num(y) end
+        end
+        local hover = nx and ny and C_Map.GetMapInfoAtPosition and C_Map.GetMapInfoAtPosition(mapID, nx, ny)
+        local hid = type(hover) == "table" and Num(hover.mapID)
+        local lo, hi, src
+        if hid then lo, hi, src = ZL.Range(hid, hover.name) end
+        if not lo then ZL.hoverFS:Hide() ZL.matched = hid and (hid .. " (no range)") or nil return end
+        local text, r, g, b = ZL.Colored(lo, hi)
+        local label = ZL.LabelFrame()
+        ZL.hoverFS:ClearAllPoints()
+        if label and label.Name.GetObjectType then
+            ZL.hoverFS:SetPoint("TOP", label.Name, "BOTTOM", 0, -2)
+        else
+            ZL.hoverFS:SetPoint("TOP", ZL.frame, "TOP", 0, -50)
+        end
+        ZL.hoverFS:SetText(text)
+        ZL.hoverFS:SetTextColor(r, g, b)
+        ZL.hoverFS:Show()
+        ZL.matched = string.format("%d %s %d%s%d (%s)", hid, SafeString(hover.name) or "?", lo, EN_DASH, hi, src)
+    else
+        ZL.HideAll()
+    end
+end
+
+function ZL.Init()
+    if ZL.hooked then return end
+    local m = GetMap()
+    if not m then return end
+    if not ZL.Create() then return end
+    ZL.hooked = true
+end
+
+function ZL.SetEnabled(on)
+    if not db then return end
+    db.zoneLevels = on and true or false
+    if not db.zoneLevels then ZL.HideAll() end
+    Print("zone levels on the map " .. OnOff(db.zoneLevels) .. ".")
+end
+
 local function PositionText()
     local pos = db and db.position
     return pos and string.format("moved (%.0f, %.0f)", pos.x, pos.y) or "default position"
@@ -1160,6 +1329,7 @@ local function PrintHelp()
     Print("/gmf zone reset - zone map back to its default position and 100%")
     Print("Right-click the round portrait in the world map's top-left corner for this addon's menu (lock, reset, scale, fade).")
     Print("/gmf portrait - state of the portrait right-click button (hover it first)")
+    Print("/gmf levels on | /gmf levels off - show the zone's level range, Level 35" .. EN_DASH .. "45, on the world map (now: " .. OnOff(db and db.zoneLevels) .. ")")
     Print("/gmf status - what this client offers and the current settings")
 end
 
@@ -1176,6 +1346,7 @@ local function PrintStatus()
             .. string.format(", scale now %d%%", Percent(Num(f:GetScale()) or 1)))
     end
     PortraitStatus()
+    Print("zone levels: " .. OnOff(db and db.zoneLevels) .. ", map id " .. tostring(ZL.mapID or "?") .. ", match: " .. tostring(ZL.matched or "none") .. ", zones in table: " .. tostring(ns and ns.zoneLevels and ns.zoneLevels.count or 0))
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
@@ -1206,6 +1377,8 @@ local function OnSlash(msg)
         ZoneSetScalePercent(zoneScaleArg)
     elseif msg == "status" then
         PrintStatus()
+    elseif msg == "levels on" or msg == "levels off" then
+        ZL.SetEnabled(msg == "levels on")
     elseif msg == "portrait" then
         PortraitStatus()
     elseif scaleArg then
@@ -1271,6 +1444,9 @@ local function MenuEntries()
           func = function() SetFade(not db.fade) end },
         { text = "Fade opacity", submenu = fades },
         { divider = true },
+        { text = "Zone level range on the map", checkbox = true, checked = function() return db.zoneLevels end,
+          func = function() ZL.SetEnabled(not db.zoneLevels) end },
+        { divider = true },
         { text = "Zone map (Shift+M) scale", submenu = zones },
         { text = "Reset zone map", func = ZoneReset },
     }
@@ -1319,6 +1495,7 @@ local function BindSavedVariables()
     end
     if type(db.locked) ~= "boolean" then db.locked = false end
     if type(db.fade) ~= "boolean" then db.fade = true end
+    if type(db.zoneLevels) ~= "boolean" then db.zoneLevels = true end
     db.scale = Clamp(Num(tonumber(db.scale)) or 1, MIN_SCALE, MAX_SCALE)
     db.fadeAlpha = Clamp(Num(tonumber(db.fadeAlpha)) or DEFAULT_FADE_ALPHA, MIN_FADE, MAX_FADE)
     local pos = db.position
@@ -1342,14 +1519,16 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if arg1 == ADDON_NAME then
             BindSavedVariables()
             HookBlizzard()
+            ZL.Init()
             HookZone() -- immediately, if Blizzard_BattlefieldMap is already loaded
         elseif db and not hooked then
             -- In case the map arrives with a Blizzard addon loaded after us.
             HookBlizzard()
         end
+        if db and not ZL.hooked and arg1 == "Blizzard_WorldMap" then ZL.Init() end
         if db and arg1 == "Blizzard_BattlefieldMap" then HookZone() end
     elseif event == "PLAYER_LOGIN" then
-        if db then HookBlizzard() HookZone() end
+        if db then HookBlizzard() HookZone() ZL.Init() end
         if AddOnLoaded("GaarMap") then
             Print("GaarMap is loaded too and also scales and fades the world map; use one of the two.")
         end
@@ -1361,6 +1540,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if zSizing then ZoneStopSizing() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         if portraitPending then CreatePortraitButton() end
+        if not ZL.hooked then ZL.Init() end
         if pendingApply or (map and map:IsShown()) then
             pendingApply = false
             ApplyLayout()

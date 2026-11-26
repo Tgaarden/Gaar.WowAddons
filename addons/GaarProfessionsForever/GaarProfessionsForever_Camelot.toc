@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: GaarProfessionsForever
+## Notes: Profession window helpers: a +/- button beside Filter that collapses or expands every recipe category at once, and a "Have Part of Materials" filter (recipes where you have at least one of the reagents). /gprof
+## Category: Gaar Forever
+## Category-enUS: Gaar Forever
+## Author: Gaar
+## Version: 1.0.0
+## X-Donate: https://buymeacoffee.com/tgaarden
+## IconTexture: Interface\Icons\Trade_BlackSmithing
+## Dependencies: GaarForever
+## SavedVariables: GaarProfessionsForeverDB
+
+GaarProfessionsForever.lua

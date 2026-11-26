@@ -40,7 +40,8 @@ of the code.
 | `GaarBarsForever` | Not part of the suite, Forever only, needs `GaarForever`: clearer action buttons - red out of range, blue without mana, big cooldown numbers, short hotkey labels, macro names on or off, a spellbook tab of the spells missing from your bars; `/gbars off` gives the buttons back exactly as Blizzard draws them | `/gbars` |
 | `GaarLootForever` | Not part of the suite, Forever only, needs `GaarForever`: on a group loot roll, a small number on the Need, Greed and Pass buttons counting how many in the group chose each for that roll; hover a button to see who ("Need: Elex, Bob"); a small movable summary panel of the last rolls (who chose what, the numbers rolled, the winner, auto-hides 60 s after) for after the roll frame has closed. Read from the loot chat lines (the client's own `LOOT_ROLL_*` strings, so any locale) and the loot history where the client fills it; counts, names and summary each switchable; `/glf test` previews it | `/glf` |
 | `GaarGroupForever` | Not part of the suite, Forever only, needs `GaarForever`: a small movable bar that shows only while you are in a party (hidden solo and in a raid): Tank / DPS / Healer buttons that set your group role (`UnitSetRole`) and remember it per character, and leader shortcuts for a ready check, a role check and a pull countdown (left-click 5 s, right-click 3 / 5 / 10 s; the game's own countdown, else typed to party chat on your click); tooltips on every button; lockable, scalable | `/ggf` |
-| `GaarForever` | The hub of the Gaar...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all eighteen: the shared library (global `GaarForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Gaar Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. Since 3.1 also a chat line per addon after an update saying what changed (`/gf news`), per-character settings for addons on the library's settings (`/gf profile`), since 3.2.1 every addon's settings exported and imported as one string (`/gf export all`, `/gf import`), and an API self-test to copy and send (`/gf selftest`). No feature code of its own | `/gf`, minimap button, Options |
+| `GaarProfessionsForever` | Not part of the suite, Forever only, needs `GaarForever`: a +/- button right of the profession window's Filter button that collapses or expands every recipe category at once (Blizzard's own collapse calls on the retail `ProfessionsFrame`, `CollapseTradeSkillSubClass(0)` on a classic `TradeSkillFrame`), and a "Have Part of Materials" checkbox in the Filter menu: only recipes where you have at least 1 of at least one reagent in your bags; `/gprof status` says which profession window the client has | `/gprof` |
+| `GaarForever` | The hub of the Gaar...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all nineteen: the shared library (global `GaarForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Gaar Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. Since 3.1 also a chat line per addon after an update saying what changed (`/gf news`), per-character settings for addons on the library's settings (`/gf profile`), since 3.2.1 every addon's settings exported and imported as one string (`/gf export all`, `/gf import`), and an API self-test to copy and send (`/gf selftest`). No feature code of its own | `/gf`, minimap button, Options |
 
 The `Gaar...Forever` addons were formerly **Better...Forever** (renamed in hub 3.2), folders
 included (`addons/GaarForever`, `addons/GaarBagsForever`, ...). For the transition each old
@@ -373,9 +374,9 @@ Unlock, Alt + drag, reset; position saved. `/gbuff` for help, `on`, `off`, `grou
 class. It ships a `_Camelot` TOC and a plain fallback TOC, both at 16001. Details in
 [`addons/GaarBuffsForever/README.md`](addons/GaarBuffsForever/README.md).
 
-## GaarMerchantForever, GaarTooltipsForever, GaarMailForever, GaarXPForever, GaarChatForever, GaarBarsForever, GaarLootForever, GaarGroupForever
+## GaarMerchantForever, GaarTooltipsForever, GaarMailForever, GaarXPForever, GaarChatForever, GaarBarsForever, GaarLootForever, GaarGroupForever, GaarProfessionsForever
 
-Eight smaller Forever-only addons, each with one master switch and a switch per feature
+Nine smaller Forever-only addons, each with one master switch and a switch per feature
 (`/<cmd> <feature> on|off`), an API table for the hub and a `_Camelot` TOC plus a plain fallback
 TOC, both at 16001:
 
@@ -401,8 +402,11 @@ TOC, both at 16001:
   [`addons/GaarLootForever/README.md`](addons/GaarLootForever/README.md)
 - **GaarGroupForever** (`/ggf`): a party-only bar with Tank / DPS / Healer role buttons and leader
   shortcuts (ready check, role check, pull countdown). [`addons/GaarGroupForever/README.md`](addons/GaarGroupForever/README.md)
+- **GaarProfessionsForever** (`/gprof`): a +/- button beside the profession window's Filter button
+  that collapses or expands every recipe category, and a "Have Part of Materials" filter.
+  [`addons/GaarProfessionsForever/README.md`](addons/GaarProfessionsForever/README.md)
 
-## GaarForever: the hub of all eighteen
+## GaarForever: the hub of all nineteen
 
 Named `BetterGaarForever` until 2.8. Not part of the Gaar suite and not listed in `GaarUI`, but
 **every Gaar...Forever addon requires it**: each lists `## Dependencies: GaarForever` in both
@@ -424,7 +428,7 @@ code of its own; the addons keep their logic, their saved variables and their sl
   headers for submenus - so the page and the minimap menu always match. `/gf options [name]`.
 - **One minimap button** whose menu has a submenu per addon: **Bags**, **Quests**, **Maps**,
   **Castbars**, **Plates**, **GPS**, **Frames**, **Windows**, **Fishing**, **Buffs**,
-  **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat**, **Bars**, **Loot** and **Group**. While it is loaded,
+  **Merchant**, **Tooltips**, **Mail**, **XP**, **Chat**, **Bars**, **Loot**, **Group** and **Professions**. While it is loaded,
   `GaarQuestsForever`'s own minimap button is hidden for the session.
 
 Each addon exports a small global API (`GaarBagsForeverAPI` ... `GaarLootForeverAPI`:

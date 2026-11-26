@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.78"] = "notes for the new GaarProfessionsForever 1.0.0: a Professions row in the menu and on the Options page (/gprof)",
         ["3.2.77"] = "notes for GaarBarsForever 1.5.0: flyouts on action buttons: drop a spell, item or macro on the + a button shows and it opens a flyout of up to 12 (click or its key, then 1-9, 0, -, = cast; works in combat); right-click or drag out to remove; /gbars flyout on|off and dir up|down|left|right",
         ["3.2.76"] = "notes for GaarBarsForever 1.4.1: the Missing from bars tab moves to the spellbook's bottom-left corner as a square icon tab in Forever's tab look, with a count; the category tabs no longer vanish while its list is open; What's Training?'s tab and ours close each other",
         ["3.2.75"] = "notes for GaarBarsForever 1.4.0: a Missing from bars tab in the spellbook, left of General: one list of the spells that are on no bar or only at a lower rank, in Blizzard's look; drag to a bar, click to cast; /gbars missing on|off",
@@ -220,6 +221,9 @@ local CHANGES = {
         ["1.3.0"] = "role modules: Tank (pull marker, lost aggro, healer mana before pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out of range, PvP flag), DPS (assist tank, wrong target, aggro, CC markers, interrupt alert); options in the menu, /ggf tank|healer|dps",
         ["1.1.0"] = "Test mode entry in the menu (shows the bar solo, this session only)",
         ["1.0.0"] = "new: a small party bar (only in a party) with Tank / DPS / Healer role buttons and leader shortcuts for ready check, role check and pull countdown (/ggf)",
+    },
+    GaarProfessionsForever = {
+        ["1.0.0"] = "new: a +/- button beside the profession window's Filter button collapses or expands every recipe category, and the Filter menu gets \"Have Part of Materials\" (recipes where you have at least one of the reagents); /gprof collapse, /gprof partial on|off, /gprof status",
     },
     GaarMerchantForever = {
         ["1.2.0"] = "right-click merchant portrait: opens the addon's menu",

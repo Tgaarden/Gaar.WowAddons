@@ -27,11 +27,13 @@
       ("Missing from bars", Forever's tab look, a count badge) with one list of the known, castable, non-passive spells that are on no action bar,
       or whose bar copy is a lower rank than the one you know. Same look as Blizzard's pages;
       drag an entry to a bar, click it to cast. BookTab.lua, see there.
-    * flyouts (on): drop a spell, item or macro on the "+" a button shows while the cursor holds
-      one, and that button opens a flyout of up to 12 entries (click or its key opens it, 1-9, 0,
-      -, = cast; works in combat through secure handlers of our own, never Blizzard's).
-      /gbars flyout dir up|down|left|right. Off while FallensFlyouts is loaded. Flyouts.lua, see
-      there.
+    * flyouts (on): flyouts of up to 12 spells, items or macros, each carried on the bars by a
+      macro of its own ("GF <name>"); drop on the "+" a button shows while the cursor holds one to
+      make or grow one, or edit them in the editor (/gbars flyouts, FlyoutEditor.lua). Click or
+      the button's key opens it, 1-9, 0, -, = cast, the same key again casts entry 1; works in
+      combat through secure handlers of our own, never Blizzard's. /gbars flyout dir
+      up|down|left|right, /gbars flyout samekey on|off. Off while FallensFlyouts is loaded.
+      Flyouts.lua, see there.
     * A master switch (/gbars on|off) and one switch per feature (/gbars <feature> on|off), all in
       GaarBarsForeverDB (account-wide), and one menu entry each for the hub.
     * /gbars for help, /gbars status for the hooks found, the buttons handled and whether the
@@ -82,7 +84,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.5.2"
+local VERSION = "1.6.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -123,7 +125,7 @@ for _, f in ipairs(FEATURES) do
 end
 
 -- Every key GaarBarsForeverDB may hold.
-local SAVED_KEYS = { enabled = true, flyoutDir = true }
+local SAVED_KEYS = { enabled = true, flyoutDir = true, flyoutSameKeyCast = true }
 for _, f in ipairs(FEATURES) do SAVED_KEYS[f.key] = true end
 
 local ACTION_PREFIXES = {
@@ -1391,7 +1393,10 @@ local function PrintHelp()
         Print(string.format("/gbars %s on|off - %s (now %s, default %s)", f.cmd, f.label,
             db[f.key] and "on" or "off", f.default and "on" or "off"))
     end
+    Print("/gbars flyouts - the flyout editor")
     Print("/gbars flyout dir up|down|left|right - which way flyouts open (now " .. tostring(db.flyoutDir or "up") .. ")")
+    Print("/gbars flyout samekey on|off - a flyout button's key again while it is open casts entry 1 (now "
+        .. (db.flyoutSameKeyCast == false and "off" or "on") .. ")")
     Print("/gbars status - the hooks found, the buttons handled and whether the client hid any values")
 end
 
@@ -1478,9 +1483,22 @@ local function OnSlash(msg)
             PrintStatus()
         elseif FEATURE_BY_CMD[cmd] then
             local f = FEATURE_BY_CMD[cmd]
-            if f.key == "flyouts" and arg:match("^dir") then
+            if f.key == "flyouts" and cmd == "flyouts" and arg == "" then
+                -- "/gbars flyouts" opens the editor ("/gbars flyout" still toggles the feature).
+                if type(NS.Bars.OpenFlyoutEditor) == "function" then
+                    NS.Bars.OpenFlyoutEditor()
+                else
+                    Print("flyouts: FlyoutEditor.lua not loaded")
+                end
+            elseif f.key == "flyouts" and arg:match("^dir") then
                 if NS.Flyouts and type(NS.Flyouts.SlashDir) == "function" then
                     NS.Flyouts.SlashDir(arg)
+                else
+                    Print("flyouts: Flyouts.lua not loaded")
+                end
+            elseif f.key == "flyouts" and arg:match("^samekey") then
+                if NS.Flyouts and type(NS.Flyouts.SlashSameKey) == "function" then
+                    NS.Flyouts.SlashSameKey(arg)
                 else
                     Print("flyouts: Flyouts.lua not loaded")
                 end
@@ -1582,6 +1600,7 @@ local function BindSavedVariables()
     end
     local dirs = { up = true, down = true, left = true, right = true }
     if not dirs[db.flyoutDir] then db.flyoutDir = "up" end
+    if type(db.flyoutSameKeyCast) ~= "boolean" then db.flyoutSameKeyCast = true end
 end
 
 local function Setup()

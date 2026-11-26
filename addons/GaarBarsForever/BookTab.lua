@@ -14,6 +14,11 @@
     b) sit on a bar only at a lower rank than the highest rank known ("Bar has Rank 2 · Rank 3
        known").
 
+  Right of our tab, on the same row, sits a small button of ours that opens the flyout editor
+  (FlyoutEditor.lua, the same as /gbars flyouts); it shows while the flyouts feature is on.
+  Spells and macros inside flyouts whose macro is on a bar count as on the bars
+  (B.FlyoutBarEntries, Flyouts.lua).
+
   The entries look like Blizzard's spellbook items (same atlases, fonts, grid and paging). Hover
   shows the spell tooltip, a left-drag picks the spell up (out of combat) so it can be dropped on
   a bar, a left-click casts it.
@@ -104,6 +109,12 @@ local S = {
 }
 
 local UpdateBadge -- our tab's count badge (defined with the tab)
+
+-- The flyout editor's button next to our tab: shown while the flyouts feature is on.
+function BT.FlyoutButtonShown()
+    local fb = S.flyBtn
+    if fb then fb:SetShown(type(B.On) == "function" and B.On("flyouts") == true) end
+end
 
 local function Err(where, err)
     S.err = where .. ": " .. tostring(err)
@@ -563,6 +574,39 @@ local function BuildTab(sb)
     t:SetScript("OnEnter", function(self) Safe("tooltip", TabTooltip, self) end)
     t:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
     S.tab = t
+    -- The flyout editor's button: a small icon right of our tab (a child of it, so it shows and
+    -- hides with it), on the page arrows' row, left of the grid.
+    local fb = CreateFrame("Button", nil, t)
+    fb:SetSize(26, 26)
+    fb:SetPoint("LEFT", t, "RIGHT", 6, 0)
+    fb:RegisterForClicks("LeftButtonUp")
+    fb.Icon = fb:CreateTexture(nil, "ARTWORK")
+    fb.Icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
+    fb.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    fb.Icon:SetAllPoints(fb)
+    fb.Border = fb:CreateTexture(nil, "ARTWORK", nil, 1)
+    fb.Border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+    fb.Border:SetSize(48, 48)
+    fb.Border:SetPoint("CENTER", 0, -1)
+    fb.Arrow = fb:CreateTexture(nil, "OVERLAY", nil, 2)
+    fb.Arrow:SetSize(14, 7)
+    fb.Arrow:SetPoint("TOP", fb, "TOP", 0, -1)
+    if not Atlas(fb.Arrow, "UI-HUD-ActionBar-Flyout", false) then fb.Arrow:Hide() end
+    fb:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    fb:SetScript("OnClick", function()
+        if type(B.OpenFlyoutEditor) == "function" then Safe("flyout editor", B.OpenFlyoutEditor) end
+    end)
+    fb:SetScript("OnEnter", function(self)
+        local tt = _G.GameTooltip
+        if not tt then return end
+        tt:SetOwner(self, "ANCHOR_RIGHT")
+        tt:SetText("Flyouts")
+        tt:AddLine("Make and edit your flyouts (/gbars flyouts).", 0.7, 0.7, 0.7)
+        tt:Show()
+    end)
+    fb:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    S.flyBtn = fb
+    BT.FlyoutButtonShown()
     SetTabSelected(false)
     AnchorTab()
     -- A plain button of ours over the Blizzard tab that still looks selected while our panel is
@@ -1081,6 +1125,7 @@ end
 -- Settings changed (from the main file's ApplyAll): show or hide the tab.
 function BT.Apply()
     if not S.tab then return end
+    BT.FlyoutButtonShown()
     if On() then
         S.tab:Show()
         AnchorTab()

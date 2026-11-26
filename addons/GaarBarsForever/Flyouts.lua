@@ -20,7 +20,8 @@
       button; an action of any other kind falls back to its slot ("slot:<n>"). Items you have
       none of are left out of the open flyout (decided out of combat) but stay in the data.
     * Right-clicking a button with a flyout casts the flyout's first entry without opening it
-      (works in combat; nothing happens when that entry is an item you have none of).
+      (works in combat; nothing happens when that entry is an item you have none of, as decided
+      out of combat). /gbars status says on how many overlays the right-click action is set.
     * /gbars flyout on|off (the `flyouts` switch, default on), /gbars flyout dir up|down|left|right
       (account-wide, default up), a line in /gbars status. Off while FallensFlyouts is loaded.
 
@@ -34,11 +35,19 @@
       SecureActionButtonTemplate entries (type1 = spell / item / macro / action). Each entry's
       OnClick is wrapped (SecureHandlerWrapScript) so a left release closes the flyout after the
       cast. The entries cast on release (useOnKeyDown = false), so a drag never casts.
-    * One overlay (SecureHandlerClickTemplate) over each Blizzard button that may show a flyout,
-      a child of that button. Only a live overlay is shown and bound: its click runs "toggle",
-      and the button's own keys (GetBindingKey of its ACTIONBUTTONn / MULTIACTIONBARmBUTTONn
-      binding) are override-click bindings to it. The Blizzard button's attributes, scripts and
-      bindings are never touched; with no live overlay, the button is exactly Blizzard's.
+    * One overlay (SecureActionButtonTemplate) over each Blizzard button that may show a flyout,
+      a child of that button. Only a live overlay is shown and bound; the button's own keys
+      (GetBindingKey of its ACTIONBUTTONn / MULTIACTIONBARmBUTTONn binding) are override-click
+      bindings to it (LeftButton). Its OnClick is wrapped (SecureHandlerWrapScript): a left
+      click (or a key) runs "toggle" and returns false, so the secure action never runs; a right
+      click closes any open flyout and lets the secure action run: type2 / spell2 / item2 /
+      macro2 / action2, the slot's entry 1. Those come from the header's first<slot>type /
+      first<slot>value (filled out of combat) and are put on the overlay by "setfirst", run from
+      "sync" (so they follow the main bar's page in combat) and again right before the right
+      click's action. A restricted handle has no :Click(), so the action must sit on the overlay
+      itself. useOnKeyDown = false: the action runs on the release, whatever
+      ActionButtonUseKeyDown says. The Blizzard button's attributes, scripts and bindings are
+      never touched; with no live overlay, the button is exactly Blizzard's.
     * The main bar pages (stances, forms, stealth, shift-page): a state driver on the header
       ("[bar:2]2 ... [bonusbar:1]7 ... 1") runs "sync" on every page change, so in combat the
       overlay over ActionButtonN follows the slot the bar shows. /gbars status says whether that
@@ -168,6 +177,7 @@ SNIP.sync = [[
             o:ClearBindings()
             if slot and slot > 0 and self:GetAttribute("has" .. slot) then
                 o:SetAttribute("curslot", slot)
+                self:RunAttribute("setfirst", j, slot)
                 o:Show()
                 local me = o:GetAttribute("myname")
                 local nk = o:GetAttribute("nkeys") or 0
@@ -177,6 +187,7 @@ SNIP.sync = [[
                 end
             else
                 o:SetAttribute("curslot", 0)
+                self:RunAttribute("setfirst", j, 0)
                 o:Hide()
             end
         end
@@ -198,20 +209,43 @@ SNIP.refresh = [[
     if (self:GetAttribute("open") or 0) ~= 0 then self:RunAttribute("bindopen") end
 ]]
 
--- Right click casts the flyout's first entry (the list's entry 1, when it is shown) without
--- opening the flyout; left click and the keys toggle it.
-SNIP.overlayClick = [[
-    local h = self:GetFrameRef("h")
+-- Header: ... = overlay index, slot. Put the slot's entry 1 on that overlay as its right-click
+-- action (type2 + spell2 / item2 / macro2 / action2), or clear it (no slot, or entry 1 is an
+-- item you have none of: then right click does nothing).
+SNIP.setfirst = [[
+    local j, slot = ...
+    local o = self:GetFrameRef("ov" .. (j or 0))
+    if not o then return end
+    local t, v
+    if slot and slot > 0 then
+        t = self:GetAttribute("first" .. slot .. "type")
+        v = self:GetAttribute("first" .. slot .. "value")
+    end
+    if not t or v == nil then t, v = nil, nil end
+    o:SetAttribute("spell2", nil)
+    o:SetAttribute("item2", nil)
+    o:SetAttribute("macro2", nil)
+    o:SetAttribute("action2", nil)
+    o:SetAttribute("type2", t)
+    if t then o:SetAttribute(t .. "2", v) end
+]]
+
+-- Overlay OnClick wrap (header environment, self = the overlay). Right click: close any open
+-- flyout, make sure the action is the current slot's entry 1, and let the secure action run.
+-- Anything else (left click, the keys): toggle the flyout and cancel the secure action.
+SNIP.overlayPre = [[
+    local h = owner or self:GetFrameRef("h")
     local slot = self:GetAttribute("curslot") or 0
+    local ovid = self:GetAttribute("ovid")
     if button == "RightButton" then
-        if h and slot > 0 and h:GetAttribute("first" .. slot) then
+        if h then
             h:RunAttribute("close")
-            local b = h:GetFrameRef("first" .. slot)
-            if b then b:Click("LeftButton") end
+            h:RunAttribute("setfirst", ovid, slot)
         end
         return
     end
-    if h and slot > 0 then h:RunAttribute("toggle", slot, self:GetAttribute("ovid")) end
+    if h and slot > 0 and not down then h:RunAttribute("toggle", slot, ovid) end
+    return false
 ]]
 
 SNIP.catcherClick = [[
@@ -794,6 +828,7 @@ function H.EnsureHeader()
     h:SetAttribute("bindopen", SNIP.bindopen)
     h:SetAttribute("toggle", SNIP.toggle)
     h:SetAttribute("sync", SNIP.sync)
+    h:SetAttribute("setfirst", SNIP.setfirst)
     h:SetAttribute("_onstate-page", SNIP.page)
 
     local c = CreateFrame("Button", "GaarBarsForeverFlyoutCatcher", _G.UIParent, "SecureHandlerClickTemplate")
@@ -932,18 +967,23 @@ function H.EnsureFly(slot)
     return f
 end
 
+-- The value of an entry's action attribute (spell / item / macro / action).
+function H.ActionValue(e)
+    if e.t == "item" then return "item:" .. e.id end
+    if e.t == "macro" then return e.name end
+    return e.id
+end
+
 function H.SetEntryAction(b, e)
     for _, k in ipairs({ "spell", "item", "macro", "action" }) do b:SetAttribute(k, nil) end
     b:SetAttribute("type1", e.t)
-    if e.t == "spell" then
-        b:SetAttribute("spell", e.id)
-    elseif e.t == "item" then
-        b:SetAttribute("item", "item:" .. e.id)
-    elseif e.t == "macro" then
-        b:SetAttribute("macro", e.name)
-    elseif e.t == "action" then
-        b:SetAttribute("action", e.id)
-    end
+    b:SetAttribute(e.t, H.ActionValue(e))
+end
+
+-- The right-click action of `slot` for the overlays (SNIP.setfirst reads it): entry 1, or nil.
+function H.SetFirst(slot, e)
+    S.header:SetAttribute("first" .. slot .. "type", e and e.t or nil)
+    S.header:SetAttribute("first" .. slot .. "value", e and H.ActionValue(e) or nil)
 end
 
 -- Fill a slot's flyout from its list, sized and scaled from `btn` (the button that shows it).
@@ -980,9 +1020,8 @@ function H.FillFly(slot, list, btn)
     end
     -- Right click on the button casts list entry 1: only when it is the first one shown (an item
     -- you have none of leaves the flyout, and then right click does nothing).
-    local first = n > 0 and f.e[1] and f.e[1].listIndex == 1 and f.e[1] or nil
-    if first then _G.SecureHandlerSetFrameRef(S.header, "first" .. slot, first) end
-    S.header:SetAttribute("first" .. slot, first and true or nil)
+    local first = n > 0 and f.e[1] and f.e[1].listIndex == 1 and f.e[1].entry or nil
+    H.SetFirst(slot, first)
     for i = n + 1, #f.e do
         local b = f.e[i]
         b.entry, b.listIndex = nil, nil
@@ -1049,6 +1088,7 @@ function H.OverlayTooltip(o)
     local slot = Num(o:GetAttribute("curslot"))
     if slot and slot > 0 and type(tt.SetAction) == "function" then pcall(tt.SetAction, tt, slot) end
     tt:AddLine("Flyout: click or press its key to open, then 1-" .. #KEYS .. ".", 0.6, 0.6, 0.6)
+    tt:AddLine("Right-click casts the first entry.", 0.6, 0.6, 0.6)
     tt:Show()
 end
 
@@ -1081,15 +1121,17 @@ function H.EnsureOverlay(btn)
     if o then return o end
     local j = #S.ovs + 1
     local name = "GaarBarsForeverFlyoutOverlay" .. j
-    o = CreateFrame("Button", name, btn, "SecureHandlerClickTemplate")
+    o = CreateFrame("Button", name, btn, "SecureActionButtonTemplate")
     o:SetAllPoints(btn)
     o:SetFrameLevel((Num(CallOf(btn, "GetFrameLevel")) or 0) + 6)
+    -- Release only, for both buttons (and the keys, which click LeftButton); useOnKeyDown = false
+    -- makes the secure action run on that release whatever ActionButtonUseKeyDown says.
     o:RegisterForClicks("AnyUp")
     o:RegisterForDrag("LeftButton")
+    o:SetAttribute("useOnKeyDown", false)
     o:SetAttribute("ovid", j)
     o:SetAttribute("myname", name)
     o:SetAttribute("curslot", 0)
-    o:SetAttribute("_onclick", SNIP.overlayClick)
     o:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     o.arrow = o:CreateTexture(nil, "OVERLAY", nil, 2)
     o.btn = btn
@@ -1099,6 +1141,7 @@ function H.EnsureOverlay(btn)
     o:SetScript("OnReceiveDrag", function(self) H.Safe("place", H.OverlayDrop, self) end)
     _G.SecureHandlerSetFrameRef(o, "h", S.header)
     _G.SecureHandlerSetFrameRef(S.header, "ov" .. j, o)
+    _G.SecureHandlerWrapScript(o, "OnClick", S.header, SNIP.overlayPre)
     o:Hide()
     S.ovs[j] = o
     S.ovByButton[btn] = o
@@ -1242,12 +1285,16 @@ function H.Teardown()
         pcall(_G.UnregisterStateDriver, S.header, "page")
     end
     S.driverOn = false
-    for slot in pairs(S.active) do S.header:SetAttribute("has" .. slot, nil) end
+    for slot in pairs(S.active) do
+        S.header:SetAttribute("has" .. slot, nil)
+        H.SetFirst(slot, nil)
+    end
     S.active, S.live = {}, 0
     for _, o in ipairs(S.ovs) do
         o:SetAttribute("mainid", nil)
         o:SetAttribute("fixedslot", nil)
         o:SetAttribute("curslot", 0)
+        for _, k in ipairs({ "type2", "spell2", "item2", "macro2", "action2" }) do o:SetAttribute(k, nil) end
         o:Hide()
         if type(_G.ClearOverrideBindings) == "function" then _G.ClearOverrideBindings(o) end
     end
@@ -1302,6 +1349,7 @@ function H.Build()
     for slot in pairs(S.active) do
         if not slots[slot] then
             h:SetAttribute("has" .. slot, nil)
+            H.SetFirst(slot, nil)
             if S.flys[slot] then S.flys[slot]:Hide() end
         end
     end
@@ -1446,6 +1494,27 @@ function FL.StatusLine()
         .. "%d buttons with an overlay" .. D .. "opens %s" .. D .. "paging %s%s" .. D .. "last error: %s",
         on and "on" or "off", saved, entries, onBars, S.live, H.Dir(), S.pagingNote,
         S.pending and D .. "waits for combat to end" or "", S.err or "none")
+end
+
+-- "right-click: entry 1 set on N of M shown overlays" (the overlays' type2, as they are now).
+function FL.RightClickLine()
+    local shown, set, kinds = 0, 0, {}
+    for _, o in ipairs(S.ovs) do
+        if o:IsShown() then
+            shown = shown + 1
+            local t = Str(o:GetAttribute("type2"))
+            if t then
+                set = set + 1
+                kinds[t] = (kinds[t] or 0) + 1
+            end
+        end
+    end
+    local parts = {}
+    for _, k in ipairs({ "spell", "item", "macro", "action" }) do
+        if kinds[k] then parts[#parts + 1] = kinds[k] .. " " .. k end
+    end
+    return string.format("right-click: entry 1 set on %d of %d shown overlays%s", set, shown,
+        #parts > 0 and " (" .. table.concat(parts, ", ") .. ")" or "")
 end
 
 -- ---------------------------------------------------------------------------

@@ -47,8 +47,9 @@ Settings are saved account-wide in `GaarBarsForeverDB`: `enabled`, one key per f
   to 12 entries; a duplicate is ignored.
 - **Opening and casting.** A button with a flyout has a small arrow. Clicking it, or pressing its
   key, opens the flyout and casts nothing. Right-clicking the button casts the flyout's first entry
-  directly, without opening it (also in combat; nothing happens if that entry is an item you have
-  none of). While it is open, `1`-`9`, `0`, `-` and `=` cast entry
+  directly, without opening it (in and out of combat, also when a stance, form or stealth pages
+  the main bar; nothing happens if that entry is an item you have none of, as checked out of
+  combat). `/gbars status` says on how many buttons the right-click is set. While it is open, `1`-`9`, `0`, `-` and `=` cast entry
   1-12, and clicking an entry casts it; then the flyout closes. Escape, clicking the button again
   or clicking elsewhere closes it. All of this works in combat.
 - **Missing from bars.** Spells (and macros that cast a spell) inside a flyout on a button that is on
@@ -71,9 +72,13 @@ Settings are saved account-wide in `GaarBarsForeverDB`: `enabled`, one key per f
   The flyouts stay saved. With no flyouts at all nothing of this is even created.
 - **How it stays secure.** A header of ours (`SecureHandlerStateTemplate`) runs restricted
   snippets that show and hide the flyout and bind `1`-`=` and Escape with `SetBindingClick` while
-  it is open. Over each button with a flyout sits a `SecureHandlerClickTemplate` overlay of ours
-  (a child of the button); the button's keys are override-click bindings to that overlay. A state
-  driver on the main bar's page conditions moves the overlays with the page in combat. The
+  it is open. Over each button with a flyout sits a `SecureActionButtonTemplate` overlay of ours
+  (a child of the button); the button's keys are override-click bindings to that overlay. Its
+  click is wrapped (`SecureHandlerWrapScript`): a left click or a key opens or closes the flyout
+  and cancels the secure action; a right click closes any open flyout and lets the overlay's own
+  right-click action run (`type2` with `spell2` / `item2` / `macro2`, the flyout's entry 1, on
+  release). A state driver on the main bar's page conditions moves the overlays, and their
+  right-click action, with the page in combat. The
   entries are `SecureActionButtonTemplate` buttons (`type1` spell / item / macro), cast on
   release. Frames, attributes and bindings are set only out of combat; anything that changes in
   combat waits for `PLAYER_REGEN_ENABLED`. Blizzard's buttons keep their own attributes, scripts
@@ -135,7 +140,7 @@ one checked first:
 | `/gbars missing on\|off` (or `bookMissingTab`) | The spellbook tab of spells missing from your bars |
 | `/gbars flyout on\|off` (or `flyouts`) | Flyouts on action buttons |
 | `/gbars flyout dir up\|down\|left\|right` | Which way flyouts open (all of them; default up) |
-| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars, buttons with an overlay, direction, whether the main bar's paging matches) and the last error caught |
+| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars, buttons with an overlay, direction, whether the main bar's paging matches, and on how many shown overlays right-click casts entry 1) and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
 

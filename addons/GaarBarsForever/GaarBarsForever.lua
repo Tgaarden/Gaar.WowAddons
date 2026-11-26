@@ -82,7 +82,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.5.1"
+local VERSION = "1.5.2"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -1427,6 +1427,10 @@ local function PrintStatus()
     if FO and type(FO.StatusLine) == "function" then
         local ok, line = pcall(FO.StatusLine)
         Print(ok and tostring(line) or ("flyouts: status failed: " .. tostring(line)))
+        if type(FO.RightClickLine) == "function" then
+            local okR, lineR = pcall(FO.RightClickLine)
+            Print(okR and tostring(lineR) or ("right-click: status failed: " .. tostring(lineR)))
+        end
     else
         Print("flyouts: Flyouts.lua not loaded")
     end

@@ -286,6 +286,46 @@ G.C_Item.GetItemCount = function() return 3 end
 FL.Refresh()
 check(o61.attrs.type2 == "item" and o61.attrs.item2 == "item:900", "item now owned: type2 item, item2 item:900")
 
+-- ---------------------------------------------------------------------------
+-- A druid in cat form (main bar page 7, slots 73-84): flyouts on slot 75 (ActionButton3 on page
+-- 7) and slot 61 (MultiBarBottomLeftButton1, also ActionButton1 on page 6). Two flyouts on bars,
+-- three overlays (ActionButton1's only shows on page 6), as /gbars status reported in game.
+-- ---------------------------------------------------------------------------
+G.GaarBarsForeverCharDB.flyouts = {
+    ["spell:700"] = { { t = "spell", id = 700 }, { t = "spell", id = 701 } },
+    ["item:900"] = { { t = "item", id = 900 }, { t = "spell", id = 901 } },
+}
+actions = { [75] = { "spell", 700 }, [61] = { "item", 900 }, [62] = { "macro", 7 } }
+for i = 1, 12 do G["ActionButton" .. i].action = 72 + i end
+G.SecureCmdOptionParse = function() return "7" end
+FL.Refresh()
+local o3 = OverlayOf(G.ActionButton3)
+local st = FL.StatusLine()
+check(st:find("2 on bars", 1, true) and st:find("3 buttons with an overlay (2 shown now)", 1, true)
+    and st:find("paging ok (page 7)", 1, true), "page 7 status: " .. st)
+check(o3 and o3.shown and o3.attrs.curslot == 75, "page 7: ActionButton3 overlay live on slot 75")
+check(o3.attrs.type2 == "spell" and o3.attrs.spell2 == 700, "page 7: type2/spell2 = 700")
+check(not o1.shown and o1.attrs.type2 == nil, "page 7: ActionButton1's overlay (page 6 alias of slot 61) hidden, no type2")
+check(not o62.shown and o62.attrs.type2 == nil, "macro flyout gone: its overlay hidden, type2 cleared")
+check(Click(o3, "RightButton") == "cast spell=700", "page 7: right-click casts spell 700")
+check(Click(o3, "LeftButton") == "cancelled" and h.attrs.open == 75, "page 7: left click opens slot 75's flyout")
+check(h.bindings["1"] and h.bindings["1"][1] == "GaarBarsForeverFlyout75Entry1", "page 7: key 1 casts entry 1")
+check(Click(o3, "RightButton") == "cast spell=700" and h.attrs.open == 0, "page 7: right-click closes and casts")
+check(FL.RightClickLine() == "right-click: entry 1 set on 2 of 2 shown overlays (1 spell, 1 item)",
+    "page 7 right-click line: " .. FL.RightClickLine())
+-- Leaving cat form in combat (page 1): slot 3 has no flyout, so ActionButton3's overlay hides.
+combat = true
+Run(h, h, ", stateid, newstate", h.attrs["_onstate-page"], "page", "1")
+check(not o3.shown and o3.attrs.type2 == nil, "combat, page 1: ActionButton3 overlay hidden, type2 cleared")
+check(Click(o3, "RightButton") == "no action", "combat, page 1: nothing cast (overlay hidden anyway)")
+Run(h, h, ", stateid, newstate", h.attrs["_onstate-page"], "page", "6")
+check(o1.shown and o1.attrs.curslot == 61 and o1.attrs.type2 == "item" and o1.attrs.item2 == "item:900",
+    "combat, page 6: ActionButton1 overlay shows slot 61 with its item")
+Run(h, h, ", stateid, newstate", h.attrs["_onstate-page"], "page", "7")
+check(o3.shown and o3.attrs.spell2 == 700 and not o1.shown, "combat, back to cat (page 7): spell2 = 700 again")
+check(Click(o3, "RightButton") == "cast spell=700", "combat, page 7: right-click casts spell 700")
+combat = false
+
 -- Flyouts off: everything cleared.
 NS.Bars.On = function() return false end
 FL.Refresh()

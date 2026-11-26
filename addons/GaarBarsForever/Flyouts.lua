@@ -1490,9 +1490,15 @@ function FL.StatusLine()
     end
     local onBars = 0
     for _ in pairs(S.active) do onBars = onBars + 1 end
+    -- A main bar button gets an overlay for every page that has a flyout at its position (slots
+    -- 13-72 are also the side bars' slots), so overlays can outnumber flyouts; only the ones
+    -- whose slot the bar shows now are shown.
+    local shownOvs = 0
+    for _, o in ipairs(S.ovs) do if o:IsShown() then shownOvs = shownOvs + 1 end end
     return string.format("flyouts: %s" .. D .. "%d saved (%d entries)" .. D .. "%d on bars" .. D
-        .. "%d buttons with an overlay" .. D .. "opens %s" .. D .. "paging %s%s" .. D .. "last error: %s",
-        on and "on" or "off", saved, entries, onBars, S.live, H.Dir(), S.pagingNote,
+        .. "%d buttons with an overlay (%d shown now)" .. D .. "opens %s" .. D .. "paging %s%s" .. D
+        .. "last error: %s",
+        on and "on" or "off", saved, entries, onBars, S.live, shownOvs, H.Dir(), S.pagingNote,
         S.pending and D .. "waits for combat to end" or "", S.err or "none")
 end
 

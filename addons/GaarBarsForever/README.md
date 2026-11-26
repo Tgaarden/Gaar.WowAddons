@@ -140,7 +140,7 @@ one checked first:
 | `/gbars missing on\|off` (or `bookMissingTab`) | The spellbook tab of spells missing from your bars |
 | `/gbars flyout on\|off` (or `flyouts`) | Flyouts on action buttons |
 | `/gbars flyout dir up\|down\|left\|right` | Which way flyouts open (all of them; default up) |
-| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars, buttons with an overlay, direction, whether the main bar's paging matches, and on how many shown overlays right-click casts entry 1) and the last error caught |
+| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars, buttons with an overlay and how many of them are shown now, direction, whether the main bar's paging matches, and on how many shown overlays right-click casts entry 1) and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
 

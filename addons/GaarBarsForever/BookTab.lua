@@ -261,6 +261,20 @@ local function BarScan()
         or (type(_G.HasAction) == "function" and _G.HasAction) or nil
     local info = (type(_G.GetActionInfo) == "function" and _G.GetActionInfo)
         or (type(CAB) == "table" and type(CAB.GetActionInfo) == "function" and CAB.GetActionInfo) or nil
+    local function Record(sid)
+        if not sid then return end
+        ids[sid] = true
+        local name = SpellName(sid)
+        if not name then return end
+        local e = byName[name]
+        if not e then e = {}; byName[name] = e end
+        local r = SpellRank(sid)
+        if r then
+            if not e.max or r > e.max then e.max = r end
+        else
+            e.unranked = true
+        end
+    end
     if not info then return ids, byName end
     for slot = 1, MAX_ACTION_SLOT do
         local okH, h = true, true
@@ -275,19 +289,20 @@ local function BarScan()
                     local okM, m = pcall(_G.GetMacroSpell, id)
                     if okM and not Secret(m) then sid = Num(m) end
                 end
-                if sid then
-                    ids[sid] = true
-                    local name = SpellName(sid)
-                    if name then
-                        local e = byName[name]
-                        if not e then e = {}; byName[name] = e end
-                        local r = SpellRank(sid)
-                        if r then
-                            if not e.max or r > e.max then e.max = r end
-                        else
-                            e.unranked = true
-                        end
-                    end
+                Record(sid)
+            end
+        end
+    end
+    -- Spells and macros inside flyouts on buttons that are on the bars count as on the bars.
+    if type(B.FlyoutBarEntries) == "function" then
+        local okF, entries = pcall(B.FlyoutBarEntries)
+        if okF and type(entries) == "table" then
+            for _, e in ipairs(entries) do
+                if e.t == "spell" then
+                    Record(Num(e.id))
+                elseif e.t == "macro" and type(_G.GetMacroSpell) == "function" then
+                    local okM, m = pcall(_G.GetMacroSpell, e.name)
+                    if okM and not Secret(m) then Record(Num(m)) end
                 end
             end
         end
@@ -1075,6 +1090,9 @@ function BT.Apply()
         S.tab:Hide()
     end
 end
+
+-- Flyouts changed (Flyouts.lua): the list has to be recomputed.
+function B.MissingDirty() S.dirty = true end
 
 function BT.StatusLine()
     if On() and not InCombat() then Safe("status", Compute) end

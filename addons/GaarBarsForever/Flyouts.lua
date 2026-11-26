@@ -19,6 +19,8 @@
       ("spell:<id>", "item:<id>", "macro:<name>"), so a flyout follows its ability to another
       button; an action of any other kind falls back to its slot ("slot:<n>"). Items you have
       none of are left out of the open flyout (decided out of combat) but stay in the data.
+    * Right-clicking a button with a flyout casts the flyout's first entry without opening it
+      (works in combat; nothing happens when that entry is an item you have none of).
     * /gbars flyout on|off (the `flyouts` switch, default on), /gbars flyout dir up|down|left|right
       (account-wide, default up), a line in /gbars status. Off while FallensFlyouts is loaded.
 
@@ -196,9 +198,19 @@ SNIP.refresh = [[
     if (self:GetAttribute("open") or 0) ~= 0 then self:RunAttribute("bindopen") end
 ]]
 
+-- Right click casts the flyout's first entry (the list's entry 1, when it is shown) without
+-- opening the flyout; left click and the keys toggle it.
 SNIP.overlayClick = [[
     local h = self:GetFrameRef("h")
     local slot = self:GetAttribute("curslot") or 0
+    if button == "RightButton" then
+        if h and slot > 0 and h:GetAttribute("first" .. slot) then
+            h:RunAttribute("close")
+            local b = h:GetFrameRef("first" .. slot)
+            if b then b:Click("LeftButton") end
+        end
+        return
+    end
     if h and slot > 0 then h:RunAttribute("toggle", slot, self:GetAttribute("ovid")) end
 ]]
 
@@ -966,6 +978,11 @@ function H.FillFly(slot, list, btn)
             b:Show()
         end
     end
+    -- Right click on the button casts list entry 1: only when it is the first one shown (an item
+    -- you have none of leaves the flyout, and then right click does nothing).
+    local first = n > 0 and f.e[1] and f.e[1].listIndex == 1 and f.e[1] or nil
+    if first then _G.SecureHandlerSetFrameRef(S.header, "first" .. slot, first) end
+    S.header:SetAttribute("first" .. slot, first and true or nil)
     for i = n + 1, #f.e do
         local b = f.e[i]
         b.entry, b.listIndex = nil, nil
@@ -1318,7 +1335,33 @@ function H.Build()
 end
 
 -- Rebuild from the saved data (out of combat; in combat it waits for the fight to end).
+-- What BookTab needs: the spell and macro entries of every flyout whose button is on a bar now
+-- (nothing while flyouts are off or blocked). Items and plain slots are left out.
+function FL.BarEntries()
+    local out = {}
+    if not H.Active() then return out end
+    local data = H.Data()
+    if next(data) == nil then return out end
+    for slot = 1, MAX_SLOT do
+        if H.HasAction(slot) then
+            local list = H.ListForSlot(slot, data)
+            if list then
+                for _, e in ipairs(list) do
+                    if e.t == "spell" then
+                        out[#out + 1] = { t = "spell", id = e.id }
+                    elseif e.t == "macro" then
+                        out[#out + 1] = { t = "macro", name = e.name }
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+B.FlyoutBarEntries = FL.BarEntries
+
 function FL.Refresh()
+    if type(B.MissingDirty) == "function" then pcall(B.MissingDirty) end
     S.dirty = false
     if not S.loaded then return end
     if InCombat() then
@@ -1425,6 +1468,7 @@ S.clock:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 function H.MarkDirty()
+    if type(B.MissingDirty) == "function" then pcall(B.MissingDirty) end
     S.dirty = true
     S.clock:Show()
 end

@@ -1,29 +1,46 @@
 --[[
-  GaarBarsForever - Flyouts.lua: flyouts on action buttons (the `flyouts` feature).
+  GaarBarsForever - Flyouts.lua: flyouts on action buttons (the `flyouts` feature), "Flyouts v2".
 
   What it does:
+    * A flyout is an object of its own: an id, a name, an icon (nil = entry 1's icon) and an
+      ordered list of up to 12 entries (spells, items, macros). Saved per character in
+      GaarBarsForeverCharDB.flyouts2 (id -> flyout).
+    * Each flyout is carried on the bars by its own macro ("GF <name>", at most 16 characters),
+      created and kept up to date out of combat with CreateMacro / EditMacro: a character macro,
+      an account macro when those are full, a chat line when both are full. Its body is
+      "#showtooltip" plus a line that casts or uses entry 1, so the button still does something
+      sensible with the addon off; its icon is the flyout's icon.
+    * An action slot "has a flyout" when it holds one of those macros: by the macro's name
+      (GetActionText), else by the macro index -> flyout id map in GaarBarsForeverCharDB
+      (flyoutMacros), which is re-resolved by name whenever the macros change (UPDATE_MACROS;
+      macros are re-indexed when one is created, renamed or deleted). A plain Travel Form on
+      another button is a normal button. Moving the macro moves the flyout.
     * While the cursor holds a spell, an item or a macro (out of combat), a small "+" sits on
-      every action bar button that has an action. Dropping on the "+" adds the thing to that
-      button's flyout; the first drop creates the flyout with the button's own action as entry 1.
-      Up to 12 entries, duplicates ignored.
+      every bar button that has an action. Dropped on the "+" of a flyout's button, the thing is
+      added to that flyout. Dropped on the "+" of any other button, a NEW flyout is made: entry 1
+      = the button's action, entry 2 = the dropped thing, named after entry 1, with entry 1's
+      icon; its macro replaces the button's action (PickupMacro + PlaceAction, cursor cleared).
     * A button with a flyout gets a small arrow. Clicking it, or pressing its key, opens the
       flyout and casts nothing. While it is open, 1-9, 0, - and = cast entry 1-12; clicking an
       entry casts it too. Casting, Escape, clicking the button again or clicking elsewhere closes
-      it. All of this works in combat.
-    * The entries look like the game's own flyout buttons: icon frame, cooldown swipe, red when
-      out of range, blue without mana, grey when unusable, the item count, the key that casts it.
-    * Out of combat: right-click an entry, or drag it out, to remove it (dragging puts it on the
-      cursor). One entry left removes the flyout and the button is a plain button again. In
-      combat a short chat line says it has to wait.
-    * Saved per character in GaarBarsForeverCharDB.flyouts, keyed by the button's action
-      ("spell:<id>", "item:<id>", "macro:<name>"), so a flyout follows its ability to another
-      button; an action of any other kind falls back to its slot ("slot:<n>"). Items you have
-      none of are left out of the open flyout (decided out of combat) but stay in the data.
+      it. Pressing the button's own key again while its flyout is open casts entry 1 and closes it
+      (flyoutSameKeyCast, default on; off: the key closes it). All of this works in combat.
     * Right-clicking a button with a flyout casts the flyout's first entry without opening it
       (works in combat; nothing happens when that entry is an item you have none of, as decided
       out of combat). /gbars status says on how many overlays the right-click action is set.
+    * The entries look like the game's own flyout buttons: icon frame, cooldown swipe, red when
+      out of range, blue without mana, grey when unusable, the item count, the key that casts it.
+    * Out of combat: right-click an entry, or drag it out, to remove it (dragging puts it on the
+      cursor). A flyout is kept however few entries it has; it is deleted only in the editor
+      (FlyoutEditor.lua, /gbars flyouts). In combat a short chat line says it has to wait.
+    * Flyouts of 1.5.x ("v1", keyed by the button's action) are converted once, out of combat:
+      each becomes a v2 flyout with its own macro, and every bar slot (1-180, paged main bar
+      slots included) that holds that action and showed that flyout gets the macro instead. The
+      old data is kept in GaarBarsForeverCharDB.flyoutsV1Backup; the result is said once in chat
+      and in /gbars status.
     * /gbars flyout on|off (the `flyouts` switch, default on), /gbars flyout dir up|down|left|right
-      (account-wide, default up), a line in /gbars status. Off while FallensFlyouts is loaded.
+      (account-wide, default up), /gbars flyout samekey on|off, a line in /gbars status. Off
+      while FallensFlyouts is loaded.
 
   The secure part (it must work in combat, where addon code may not show, hide, bind or set
   attributes on secure frames):
@@ -31,23 +48,27 @@
       snippets: "toggle" (anchor the slot's flyout to the clicked overlay, show it, bind 1-12 and
       Escape with SetBindingClick on the header), "close" (hide it, ClearBindings) and "sync"
       (which overlays are live, and their key bindings).
-    * One flyout frame per action slot that has a flyout (protected, parked on UIParent), with
-      SecureActionButtonTemplate entries (type1 = spell / item / macro / action). Each entry's
-      OnClick is wrapped (SecureHandlerWrapScript) so a left release closes the flyout after the
-      cast. The entries cast on release (useOnKeyDown = false), so a drag never casts.
+    * One flyout frame per action slot that holds a flyout's macro (protected, parked on
+      UIParent), with SecureActionButtonTemplate entries (type1 = spell / item / macro / action).
+      Each entry's OnClick is wrapped (SecureHandlerWrapScript) so a left release closes the
+      flyout after the cast. The entries cast on release (useOnKeyDown = false), so a drag never
+      casts.
     * One overlay (SecureActionButtonTemplate) over each Blizzard button that may show a flyout,
       a child of that button. Only a live overlay is shown and bound; the button's own keys
       (GetBindingKey of its ACTIONBUTTONn / MULTIACTIONBARmBUTTONn binding) are override-click
-      bindings to it (LeftButton). Its OnClick is wrapped (SecureHandlerWrapScript): a left
-      click (or a key) runs "toggle" and returns false, so the secure action never runs; a right
-      click closes any open flyout and lets the secure action run: type2 / spell2 / item2 /
-      macro2 / action2, the slot's entry 1. Those come from the header's first<slot>type /
-      first<slot>value (filled out of combat) and are put on the overlay by "setfirst", run from
-      "sync" (so they follow the main bar's page in combat) and again right before the right
-      click's action. A restricted handle has no :Click(), so the action must sit on the overlay
-      itself. useOnKeyDown = false: the action runs on the release, whatever
-      ActionButtonUseKeyDown says. The Blizzard button's attributes, scripts and bindings are
-      never touched; with no live overlay, the button is exactly Blizzard's.
+      bindings to it with the button name "Keybind", so its wrap can tell a key from the mouse
+      (a wrap's preBody gets the click's button; GetMouseButtonClicked cannot tell a binding
+      click apart). Its OnClick is wrapped (SecureHandlerWrapScript): a left click or a key runs
+      "toggle" and returns false, so the secure action never runs; the key while this slot's
+      flyout is open (and flyoutSameKeyCast on) closes it and returns "RightButton", so the
+      overlay's right-click action runs; a right click closes any open flyout and lets the
+      secure action run: type2 / spell2 / item2 / macro2 / action2, the slot's entry 1. Those
+      come from the header's first<slot>type / first<slot>value (filled out of combat) and are
+      put on the overlay by "setfirst", run from "sync" (so they follow the main bar's page in
+      combat) and again right before the action. A restricted handle has no :Click(), so the
+      action must sit on the overlay itself. useOnKeyDown = false: the action runs on the
+      release, whatever ActionButtonUseKeyDown says. The Blizzard button's attributes, scripts
+      and bindings are never touched; with no live overlay, the button is exactly Blizzard's.
     * The main bar pages (stances, forms, stealth, shift-page): a state driver on the header
       ("[bar:2]2 ... [bonusbar:1]7 ... 1") runs "sync" on every page change, so in combat the
       overlay over ActionButtonN follows the slot the bar shows. /gbars status says whether that
@@ -55,8 +76,9 @@
       slot the bar showed out of combat.
     * A full-screen catcher button (BACKGROUND strata, only while a flyout is open) closes it on
       a click in the world; out of combat, GLOBAL_MOUSE_DOWN elsewhere closes it too.
-    * Frames, attributes, frame refs, wraps and bindings are set only out of combat; anything
-      that changes in combat waits for PLAYER_REGEN_ENABLED. No COMBAT_LOG event is used.
+    * Frames, attributes, frame refs, wraps, bindings, macros and bar slots are changed only out
+      of combat; anything that changes in combat waits for PLAYER_REGEN_ENABLED. No COMBAT_LOG
+      event is used. GetTime is not used in restricted code (it is not there).
     * Secret values are never compared: reads go through the main file's Secret / Num / FieldOf /
       CallOf helpers, and a secret answer only goes into a widget setter that takes it.
 ]]
@@ -77,6 +99,7 @@ local TICK = 0.2
 local COMBAT_MSG = "flyouts can only be changed out of combat."
 local KEYS = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=" }
 local DIRS = { up = "UP", down = "DOWN", left = "LEFT", right = "RIGHT" }
+local MACRO = { prefix = "GF ", nameMax = 16, bodyMax = 255, qmark = 134400, nameMaxFlyout = 40 }
 
 -- The main bar's page as macro conditions: the same order Blizzard pages it (a page picked with
 -- shift-N or the arrows wins over a stance / form bar; override, vehicle and possess bars hide
@@ -183,7 +206,7 @@ SNIP.sync = [[
                 local nk = o:GetAttribute("nkeys") or 0
                 for k = 1, nk do
                     local key = o:GetAttribute("key" .. k)
-                    if key and me then o:SetBindingClick(false, key, me, "LeftButton") end
+                    if key and me then o:SetBindingClick(false, key, me, "Keybind") end
                 end
             else
                 o:SetAttribute("curslot", 0)
@@ -232,7 +255,10 @@ SNIP.setfirst = [[
 
 -- Overlay OnClick wrap (header environment, self = the overlay). Right click: close any open
 -- flyout, make sure the action is the current slot's entry 1, and let the secure action run.
--- Anything else (left click, the keys): toggle the flyout and cancel the secure action.
+-- The button's key ("Keybind", from the override binding) while this slot's flyout is open and
+-- the header's "samekey" is on: close it and run the right-click action instead (a preBody may
+-- return the button to use). Anything else (left click, the keys): toggle the flyout and cancel
+-- the secure action.
 SNIP.overlayPre = [[
     local h = owner or self:GetFrameRef("h")
     local slot = self:GetAttribute("curslot") or 0
@@ -244,7 +270,14 @@ SNIP.overlayPre = [[
         end
         return
     end
-    if h and slot > 0 and not down then h:RunAttribute("toggle", slot, ovid) end
+    if h and slot > 0 and not down then
+        if button == "Keybind" and h:GetAttribute("samekey") and (h:GetAttribute("open") or 0) == slot then
+            h:RunAttribute("close")
+            h:RunAttribute("setfirst", ovid, slot)
+            return "RightButton"
+        end
+        h:RunAttribute("toggle", slot, ovid)
+    end
     return false
 ]]
 
@@ -266,14 +299,20 @@ SNIP.entryPost = [[
 -- State
 -- ---------------------------------------------------------------------------
 
-local FL = {}          -- public: Apply, Refresh, StatusLine, SlashDir
+local FL = {}          -- public: Apply, Refresh, StatusLine, SlashDir, SlashSameKey, editor API
 NS.Flyouts = FL
+B.Flyouts = FL
 
 local H = {}           -- helpers
 
 local S = {
     loaded = false, pending = false, dirty = false, err = nil,
     header = nil, catcher = nil, clock = nil,
+    world = false,      -- PLAYER_ENTERING_WORLD seen: macros and bars can be read and changed
+    byMacro = {},       -- macro name -> flyout
+    slotFly = {},       -- slot -> flyout, as last built
+    applied = {},       -- flyout id -> macro name/icon/body last written or found
+    fullWarned = {},    -- flyout id -> "no free macro slot" said this session
     flys = {},          -- slot -> flyout frame
     ovs = {},           -- overlay list (index = its "ovid")
     ovByButton = {},    -- Blizzard button -> overlay
@@ -324,14 +363,34 @@ function H.Dir()
     return DIRS[d] and d or "up"
 end
 
-function H.Data()
+-- Same key casts entry 1 while the flyout is open (account-wide, default on).
+function H.SameKey()
+    local db = H.DB()
+    return not (db and db.flyoutSameKeyCast == false)
+end
+
+function H.CharDB()
     local d = _G.GaarBarsForeverCharDB
     if type(d) ~= "table" then
         d = {}
         _G.GaarBarsForeverCharDB = d
     end
-    if type(d.flyouts) ~= "table" then d.flyouts = {} end
-    return d.flyouts
+    return d
+end
+
+-- The v2 flyouts: id -> { id, name, icon, macro, macroIndex, entries }.
+function H.Store()
+    local d = H.CharDB()
+    if type(d.flyouts2) ~= "table" then d.flyouts2 = {} end
+    return d.flyouts2
+end
+
+-- The flyouts in id order.
+function H.Sorted()
+    local out = {}
+    for _, f in pairs(H.Store()) do out[#out + 1] = f end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
 end
 
 function H.Atlas(tex, name)
@@ -416,8 +475,9 @@ function H.SlotEntry(slot)
     return { t = "action", id = slot }
 end
 
--- The flyout list for a slot (by its action, else by the slot), and the slot's own entry.
-function H.ListForSlot(slot, data)
+-- 1.5.x (v1) data: the flyout list a slot showed (by its action, else by the slot), and the
+-- slot's own entry. Only the conversion to v2 uses it.
+function H.V1ListForSlot(slot, data)
     local own = H.SlotEntry(slot)
     local list = data[H.Key(own)]
     if not list and own.t ~= "action" then list = data["slot:" .. slot] end
@@ -442,7 +502,8 @@ function H.CursorEntry()
     elseif kind == "macro" then
         local idx = Num(H.Plain(a))
         local name = idx and H.MacroName(idx)
-        if name then return { t = "macro", name = name } end
+        -- A flyout's own macro is not an entry (it is what a flyout is carried by).
+        if name and not S.byMacro[name] then return { t = "macro", name = name } end
     end
     return nil
 end
@@ -520,7 +581,7 @@ function H.EntryIcon(e)
             if ok then tex = t end
         end
     end
-    if tex == nil then return "Interface\\Icons\\INV_Misc_QuestionMark" end
+    if tex == nil then return MACRO.qmark end
     return tex
 end
 
@@ -547,6 +608,313 @@ end
 
 function FL.CombatMsg() H.Print(COMBAT_MSG) end
 
+-- Cut a string to at most n bytes without splitting a UTF-8 character.
+function H.Cut(s, n)
+    if #s <= n then return s end
+    s = s:sub(1, n)
+    local last = s:find("[\192-\255][\128-\191]*$")
+    if last then
+        local lead = s:byte(last)
+        local need = (lead >= 240 and 4) or (lead >= 224 and 3) or 2
+        if #s - last + 1 < need then s = s:sub(1, last - 1) end
+    end
+    return s
+end
+
+function H.Copy(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, x in pairs(v) do out[k] = H.Copy(x) end
+    return out
+end
+
+-- Valid entries only, at most 12, no duplicates.
+function H.CleanEntries(list)
+    local clean = {}
+    if type(list) ~= "table" then return clean end
+    for _, e in ipairs(list) do
+        if type(e) == "table" and #clean < MAX_ENTRIES then
+            local x
+            if (e.t == "spell" or e.t == "item" or e.t == "action") and type(e.id) == "number" then
+                x = { t = e.t, id = e.id }
+            elseif e.t == "macro" and type(e.name) == "string" and e.name ~= "" then
+                x = { t = "macro", name = e.name }
+            end
+            if x then
+                local dup = false
+                for _, y in ipairs(clean) do
+                    if H.SameEntry(x, y) then dup = true break end
+                end
+                if not dup then clean[#clean + 1] = x end
+            end
+        end
+    end
+    return clean
+end
+
+-- Saved data from an older or hand-edited file.
+function H.Sanitize()
+    local store, top = H.Store(), 0
+    for k, f in pairs(store) do
+        if type(k) ~= "number" or type(f) ~= "table" then
+            store[k] = nil
+        else
+            f.id = k
+            f.name = (type(f.name) == "string" and f.name ~= "") and f.name or ("Flyout " .. k)
+            if type(f.macro) ~= "string" or f.macro == "" then f.macro = nil end
+            if type(f.icon) ~= "number" and type(f.icon) ~= "string" then f.icon = nil end
+            if type(f.macroIndex) ~= "number" then f.macroIndex = nil end
+            f.entries = H.CleanEntries(f.entries)
+            if k > top then top = k end
+        end
+    end
+    local d = H.CharDB()
+    if type(d.flyoutNextId) ~= "number" or d.flyoutNextId <= top then d.flyoutNextId = top + 1 end
+end
+
+function H.NewFlyout(name, entries)
+    local d, store = H.CharDB(), H.Store()
+    local id = math.max(Num(d.flyoutNextId) or 1, 1)
+    while store[id] do id = id + 1 end
+    d.flyoutNextId = id + 1
+    name = (type(name) == "string" and name ~= "") and name or ("Flyout " .. id)
+    local f = { id = id, name = H.Cut(name, MACRO.nameMaxFlyout), entries = entries or {} }
+    store[id] = f
+    return f
+end
+
+-- An entry's name, icon and rank text (for the editor, names and macros).
+function H.EntryName(e)
+    if type(e) ~= "table" then return nil end
+    if e.t == "spell" then
+        return (type(B.SpellName) == "function" and B.SpellName(e.id)) or ("Spell " .. e.id)
+    elseif e.t == "item" then
+        local n
+        local C = _G.C_Item
+        if type(C) == "table" and type(C.GetItemNameByID) == "function" then
+            local ok, v = pcall(C.GetItemNameByID, e.id)
+            n = ok and Str(v) or nil
+        end
+        if not n and type(_G.GetItemInfo) == "function" then
+            local ok, v = pcall(_G.GetItemInfo, e.id)
+            n = ok and Str(v) or nil
+        end
+        return n or ("Item " .. e.id)
+    elseif e.t == "macro" then
+        return e.name
+    end
+    return "Action " .. tostring(e.id)
+end
+
+function H.EntryRank(e)
+    if type(e) == "table" and e.t == "spell" and type(B.SpellRank) == "function" then
+        local r = B.SpellRank(e.id)
+        if r then return "Rank " .. r end
+    end
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- The flyout macros (created and changed out of combat only)
+-- ---------------------------------------------------------------------------
+
+function H.MacroIndex(name)
+    if type(name) ~= "string" or type(_G.GetMacroIndexByName) ~= "function" then return nil end
+    local ok, i = pcall(_G.GetMacroIndexByName, name)
+    i = ok and Num(H.Plain(i)) or nil
+    return (i and i > 0) and i or nil
+end
+
+function H.MacroLimits()
+    local C = type(_G.Constants) == "table" and _G.Constants.MacroConsts or nil
+    local acc = (type(C) == "table" and Num(C.MAX_ACCOUNT_MACROS)) or Num(_G.MAX_ACCOUNT_MACROS) or 120
+    local chr = (type(C) == "table" and Num(C.MAX_CHARACTER_MACROS)) or Num(_G.MAX_CHARACTER_MACROS) or 18
+    return acc, chr
+end
+
+-- Macro name -> flyout, and the macro index -> flyout id map in the saved data; read only, so
+-- it may run in combat. Macros are re-indexed when one is created, renamed or deleted.
+function H.Reresolve()
+    local byMacro, map = {}, {}
+    for id, f in pairs(H.Store()) do
+        if f.macro then
+            byMacro[f.macro] = f
+            local i = H.MacroIndex(f.macro)
+            f.macroIndex = i
+            if i then map[i] = id end
+        end
+    end
+    S.byMacro = byMacro
+    H.CharDB().flyoutMacros = map
+end
+
+-- The flyout whose macro a slot holds, else nil.
+function H.SlotFlyout(slot)
+    if type(_G.GetActionInfo) ~= "function" then return nil end
+    local ok, kind, id = pcall(_G.GetActionInfo, slot)
+    if not ok or Secret(kind) or kind ~= "macro" then return nil end
+    if type(_G.GetActionText) == "function" then
+        local okT, txt = pcall(_G.GetActionText, slot)
+        local name = okT and Str(txt) or nil
+        if name then return S.byMacro[name] end
+    end
+    -- No name: the slot's macro index through the saved map (checked against the macro's name).
+    local n = not Secret(id) and Num(id) or nil
+    local map = H.CharDB().flyoutMacros
+    local fid = n and type(map) == "table" and map[n] or nil
+    local f = fid and H.Store()[fid] or nil
+    if f and f.macro and H.MacroName(n) == f.macro then return f end
+    return nil
+end
+
+-- What the macro should hold: the flyout's icon (entry 1's when none is chosen) and a body that
+-- casts or uses entry 1.
+function H.MacroIcon(f)
+    if f.icon ~= nil then return f.icon end
+    if f.entries[1] then return H.EntryIcon(f.entries[1]) end
+    return MACRO.qmark
+end
+
+function H.MacroBodyOf(name)
+    if type(_G.GetMacroBody) == "function" then
+        local ok, body = pcall(_G.GetMacroBody, name)
+        if ok and type(body) == "string" then return body end
+    end
+    if type(_G.GetMacroInfo) == "function" then
+        local ok, _, _, body = pcall(_G.GetMacroInfo, name)
+        if ok and type(body) == "string" then return body end
+    end
+    return nil
+end
+
+function H.MacroBody(f)
+    local e, line = f.entries[1], nil
+    if e and e.t == "spell" then
+        local n = type(B.SpellName) == "function" and B.SpellName(e.id) or nil
+        if n then line = "/cast " .. n end
+    elseif e and e.t == "item" then
+        line = "/use item:" .. e.id
+    elseif e and e.t == "macro" then
+        local body = H.MacroBodyOf(e.name)
+        if body then
+            body = body:gsub("^#show[^\n]*\n?", "")
+            body = body:gsub("%s+$", "")
+            if body ~= "" then line = body end
+        end
+    end
+    local text = "#showtooltip"
+    if line and #text + 1 + #line <= MACRO.bodyMax then text = text .. "\n" .. line end
+    return text
+end
+
+-- "GF <name>", at most 16 bytes, not the name of another flyout's macro or any other macro.
+function H.UniqueMacroName(base, self)
+    base = tostring(base or "Flyout"):gsub("[\r\n]", " ")
+    local function Taken(n)
+        for _, g in pairs(H.Store()) do
+            if g ~= self and g.macro == n then return true end
+        end
+        if self and self.macro == n then return false end
+        return H.MacroIndex(n) ~= nil
+    end
+    local stem = MACRO.prefix .. base
+    local cand = H.Cut(stem, MACRO.nameMax)
+    local k = 2
+    while Taken(cand) and k < 100 do
+        local suf = tostring(k)
+        cand = H.Cut(stem, MACRO.nameMax - #suf) .. suf
+        k = k + 1
+    end
+    return cand
+end
+
+-- A new macro: a character macro, else an account macro; nil (and one chat line per flyout and
+-- session) when both are full.
+function H.CreateMacro(f, name, icon, body)
+    if type(_G.CreateMacro) ~= "function" then return nil end
+    local nAcc, nChar = 0, 0
+    if type(_G.GetNumMacros) == "function" then
+        local ok, a, c = pcall(_G.GetNumMacros)
+        if ok then nAcc, nChar = Num(H.Plain(a)) or 0, Num(H.Plain(c)) or 0 end
+    end
+    local maxAcc, maxChar = H.MacroLimits()
+    local tries = {}
+    if nChar < maxChar then tries[#tries + 1] = true end
+    if nAcc < maxAcc then tries[#tries + 1] = false end
+    for _, perChar in ipairs(tries) do
+        local ok, idx = pcall(_G.CreateMacro, name, icon, body, perChar)
+        idx = ok and Num(H.Plain(idx)) or nil
+        if idx and idx > 0 then return idx end
+    end
+    if not S.fullWarned[f.id] then
+        S.fullWarned[f.id] = true
+        H.Print("no free macro slot: your character and account macros are both full, so flyout \""
+            .. f.name .. "\" has no macro and cannot sit on a bar. Delete a macro (/macro) to make room.")
+    end
+    return nil
+end
+
+-- Make sure the flyout's macro exists and holds the right name, icon and body. Returns its
+-- index, or nil. Out of combat only (and only once the game has loaded the macros).
+function H.EnsureMacro(f)
+    if InCombat() or not S.world then return nil end
+    local icon, body = H.MacroIcon(f), H.MacroBody(f)
+    local idx = f.macro and H.MacroIndex(f.macro) or nil
+    if not idx then
+        local name = H.UniqueMacroName(f.name, f)
+        idx = H.CreateMacro(f, name, icon, body)
+        if not idx then return nil end
+        f.macro = name
+        S.applied[f.id] = name .. "\n" .. tostring(icon) .. "\n" .. body
+        H.Reresolve()
+        return H.MacroIndex(name) or idx
+    end
+    local sig = f.macro .. "\n" .. tostring(icon) .. "\n" .. body
+    if S.applied[f.id] == sig then return idx end
+    local curIcon, curBody
+    if type(_G.GetMacroInfo) == "function" then
+        local ok, _, ic, bd = pcall(_G.GetMacroInfo, idx)
+        if ok then curIcon, curBody = H.Plain(ic), H.Plain(bd) end
+    end
+    local same = type(curBody) == "string" and curBody:gsub("%s+$", "") == body and curIcon == icon
+    if not same and type(_G.EditMacro) == "function" then pcall(_G.EditMacro, idx, f.macro, icon, body) end
+    S.applied[f.id] = sig
+    return H.MacroIndex(f.macro) or idx
+end
+
+function H.EnsureMacros()
+    if not S.world then return end
+    for _, f in ipairs(H.Sorted()) do H.EnsureMacro(f) end
+    H.Reresolve()
+end
+
+-- Put the flyout's macro into an action slot (the slot's old action is dropped from the cursor).
+function H.PlaceMacro(f, slot)
+    if InCombat() or type(_G.PickupMacro) ~= "function" or type(_G.PlaceAction) ~= "function" then return false end
+    local i = H.MacroIndex(f.macro)
+    if not i then return false end
+    H.ClearCursor()
+    local ok = pcall(_G.PickupMacro, i)
+    if ok then ok = pcall(_G.PlaceAction, slot) end
+    H.ClearCursor()
+    return ok and true or false
+end
+
+-- Add an entry: "added", "dup" or "full" (with a chat line).
+function H.AddEntry(f, e)
+    for _, x in ipairs(f.entries) do
+        if H.SameEntry(x, e) then return "dup" end
+    end
+    if #f.entries >= MAX_ENTRIES then
+        H.Print("flyout \"" .. f.name .. "\" is full (" .. MAX_ENTRIES .. " entries).")
+        return "full"
+    end
+    f.entries[#f.entries + 1] = e
+    return "added"
+end
+
+-- The "+" on a bar button: add the cursor's thing to that button's flyout, or make a new flyout
+-- of the button's action and the cursor's thing whose macro then takes the button's place.
 function H.AddToButton(btn)
     if InCombat() then FL.CombatMsg() return end
     if not H.Active() then return end
@@ -554,68 +922,223 @@ function H.AddToButton(btn)
     if not e then return end
     local slot = H.ButtonSlot(btn)
     if not slot or not H.HasAction(slot) then return end
-    local data = H.Data()
-    local list, own = H.ListForSlot(slot, data)
-    if not list then
-        if H.SameEntry(own, e) then H.ClearCursor() return end
-        list = { own }
-        data[H.Key(own)] = list
-    end
-    for _, x in ipairs(list) do
-        if H.SameEntry(x, e) then H.ClearCursor() return end
-    end
-    if #list >= MAX_ENTRIES then
-        H.Print("this flyout is full (" .. MAX_ENTRIES .. " entries).")
+    H.Reresolve()
+    local f = H.SlotFlyout(slot)
+    if f then
+        if H.AddEntry(f, e) ~= "full" then H.ClearCursor() end
+        FL.Refresh()
         return
     end
-    list[#list + 1] = e
+    local own = H.SlotEntry(slot)
+    if own.t == "action" then
+        H.Print("this button's action cannot go into a flyout (only spells, items and macros can).")
+        return
+    end
+    if H.SameEntry(own, e) then H.ClearCursor() return end
+    local nf = H.NewFlyout(H.EntryName(own), { own, e })
+    if not H.EnsureMacro(nf) then
+        H.Store()[nf.id] = nil -- no macro, no flyout; the cursor keeps its thing
+        return
+    end
     H.ClearCursor()
+    H.PlaceMacro(nf, slot)
+    H.Print("new flyout \"" .. nf.name .. "\" (2 entries), macro " .. nf.macro .. ". /gbars flyouts edits it.")
     FL.Refresh()
 end
 
--- Remove entry `index` of the list shown at `slot`; one entry left removes the flyout.
+-- Remove entry `index` of the list shown at `slot`. The flyout stays, whatever is left.
 function H.RemoveEntry(slot, index)
     if InCombat() then FL.CombatMsg() return false end
     local list = S.active[slot]
     if not list or not list[index] then return false end
     table.remove(list, index)
-    if #list <= 1 then
-        local data = H.Data()
-        for k, v in pairs(data) do
-            if v == list then data[k] = nil end
-        end
-    end
     FL.Refresh()
     return true
 end
 
--- Saved data from an older or hand-edited file: keep valid entries, at most 12, no duplicates,
--- and only lists of two or more.
-function H.Sanitize()
-    local data = H.Data()
-    for k, list in pairs(data) do
-        local clean = {}
-        if type(k) == "string" and type(list) == "table" then
-            for _, e in ipairs(list) do
-                if type(e) == "table" and #clean < MAX_ENTRIES then
-                    local x
-                    if (e.t == "spell" or e.t == "item" or e.t == "action") and type(e.id) == "number" then
-                        x = { t = e.t, id = e.id }
-                    elseif e.t == "macro" and type(e.name) == "string" and e.name ~= "" then
-                        x = { t = "macro", name = e.name }
-                    end
-                    if x then
-                        local dup = false
-                        for _, y in ipairs(clean) do
-                            if H.SameEntry(x, y) then dup = true break end
-                        end
-                        if not dup then clean[#clean + 1] = x end
-                    end
-                end
+-- ---------------------------------------------------------------------------
+-- 1.5.x flyouts (v1, keyed by the button's action) -> v2, once, out of combat
+-- ---------------------------------------------------------------------------
+
+function H.MigrateV1()
+    local d = H.CharDB()
+    if d.flyoutsV1Done or InCombat() or not S.world then return end
+    local v1 = d.flyouts
+    if type(v1) ~= "table" or next(v1) == nil then
+        d.flyouts = nil
+        d.flyoutsV1Done = true
+        d.flyoutsV1Result = "nothing to convert"
+        return
+    end
+    d.flyoutsV1Backup = H.Copy(v1)
+    -- The lists v1 showed (two or more entries), and the slots that showed each, by the slot's
+    -- own action: every slot 1-180, the main bar's paged slots (73-120 ...) included.
+    local lists, keys = {}, {}
+    for k, list in pairs(v1) do
+        local clean = type(k) == "string" and H.CleanEntries(list) or {}
+        if #clean >= 2 then
+            lists[k] = clean
+            keys[#keys + 1] = k
+        end
+    end
+    table.sort(keys)
+    local slotsOf = {}
+    for slot = 1, MAX_SLOT do
+        if H.HasAction(slot) then
+            local list, own = H.V1ListForSlot(slot, v1)
+            local key = H.Key(own)
+            -- Only a slot that holds the flyout's own action (not one keyed by its slot: that
+            -- action cannot be cast from a macro, so it stays).
+            if list and own.t ~= "action" and v1[key] == list and lists[key] then
+                slotsOf[key] = slotsOf[key] or {}
+                table.insert(slotsOf[key], slot)
             end
         end
-        data[k] = #clean >= 2 and clean or nil
     end
+    local n, placed, noMacro = 0, 0, 0
+    for _, k in ipairs(keys) do
+        local list = lists[k]
+        local f = H.NewFlyout(H.EntryName(list[1]), list)
+        n = n + 1
+        if H.EnsureMacro(f) then
+            for _, slot in ipairs(slotsOf[k] or {}) do
+                if H.PlaceMacro(f, slot) then placed = placed + 1 end
+            end
+        else
+            noMacro = noMacro + 1
+        end
+    end
+    d.flyouts = nil
+    d.flyoutsV1Done = true
+    local msg = string.format("converted %d flyout%s (%d bar button%s now hold their macro)",
+        n, n == 1 and "" or "s", placed, placed == 1 and "" or "s")
+    if noMacro > 0 then msg = msg .. string.format("; %d without a macro (macro slots full)", noMacro) end
+    d.flyoutsV1Result = msg
+    H.Reresolve()
+    H.Print("flyouts v2: " .. msg .. ". /gbars flyouts opens the editor.")
+end
+
+-- ---------------------------------------------------------------------------
+-- For the editor (FlyoutEditor.lua). Every change is out of combat only.
+-- ---------------------------------------------------------------------------
+
+function FL.CanEdit() return not InCombat() end
+function FL.List() return H.Sorted() end
+function FL.Get(id) return id and H.Store()[id] or nil end
+function FL.EntryIcon(e) return H.EntryIcon(e) end
+function FL.EntryName(e) return H.EntryName(e) end
+function FL.EntryRank(e) return H.EntryRank(e) end
+function FL.Icon(f) return H.MacroIcon(f) end
+function FL.EntryTooltip(owner, e) H.Safe("tooltip", H.ShowEntryTooltip, owner, e, nil) end
+
+-- How many bar slots hold the flyout's macro now.
+function FL.SlotCount(f)
+    local n = 0
+    if not f or not f.macro then return 0 end
+    for slot = 1, MAX_SLOT do
+        if H.HasAction(slot) and H.SlotFlyout(slot) == f then n = n + 1 end
+    end
+    return n
+end
+
+function H.Editable()
+    if InCombat() then FL.CombatMsg() return false end
+    return true
+end
+
+function FL.New()
+    if not H.Editable() then return nil end
+    local f = H.NewFlyout(nil, {})
+    if S.world and not H.EnsureMacro(f) then
+        H.Store()[f.id] = nil
+        return nil
+    end
+    FL.Refresh()
+    return f
+end
+
+function FL.Delete(id)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    if not f then return false end
+    local i = f.macro and H.MacroIndex(f.macro)
+    if i and type(_G.DeleteMacro) == "function" then pcall(_G.DeleteMacro, i) end
+    H.Store()[id] = nil
+    S.applied[id], S.fullWarned[id] = nil, nil
+    H.Reresolve()
+    FL.Refresh()
+    return true
+end
+
+function FL.Rename(id, name)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    name = type(name) == "string" and name:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if not f or name == "" or name == f.name then return false end
+    f.name = H.Cut(name, MACRO.nameMaxFlyout)
+    local i = f.macro and H.MacroIndex(f.macro)
+    if i and type(_G.EditMacro) == "function" then
+        local newName = H.UniqueMacroName(f.name, f)
+        if pcall(_G.EditMacro, i, newName, H.MacroIcon(f), H.MacroBody(f)) then f.macro = newName end
+        S.applied[id] = nil
+    end
+    H.Reresolve()
+    FL.Refresh()
+    return true
+end
+
+-- icon nil: use entry 1's icon.
+function FL.SetIcon(id, icon)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    if not f then return false end
+    f.icon = icon
+    FL.Refresh()
+    return true
+end
+
+function FL.RemoveAt(id, index)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    if not f or not f.entries[index] then return false end
+    table.remove(f.entries, index)
+    FL.Refresh()
+    return true
+end
+
+function FL.Move(id, index, delta)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    local j = index + (delta or 0)
+    if not f or not f.entries[index] or not f.entries[j] then return false end
+    f.entries[index], f.entries[j] = f.entries[j], f.entries[index]
+    FL.Refresh()
+    return true
+end
+
+-- Add what the cursor holds (a spell, an item or a macro) to the flyout.
+function FL.AddCursor(id)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    local e = H.CursorEntry()
+    if not f or not e then return false end
+    if H.AddEntry(f, e) ~= "full" then H.ClearCursor() end
+    FL.Refresh()
+    return true
+end
+
+-- Put the flyout's macro on the cursor, to drop on any bar button.
+function FL.Pickup(id)
+    if not H.Editable() then return false end
+    local f = FL.Get(id)
+    if not f then return false end
+    local i = f.macro and H.MacroIndex(f.macro) or H.EnsureMacro(f)
+    if not i or type(_G.PickupMacro) ~= "function" then return false end
+    return (pcall(_G.PickupMacro, i))
+end
+
+function H.NotifyEditor()
+    if type(B.FlyoutEditorRefresh) == "function" then pcall(B.FlyoutEditorRefresh) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -919,9 +1442,14 @@ function H.EntryRemove(b, pickup)
 end
 
 function H.EntryTooltip(b)
-    local e, tt = b.entry, _G.GameTooltip
+    if not b.entry then return end
+    H.ShowEntryTooltip(b, b.entry, not InCombat() and "Right-click or drag out to remove." or nil)
+end
+
+function H.ShowEntryTooltip(owner, e, hint)
+    local tt = _G.GameTooltip
     if not e or not tt then return end
-    tt:SetOwner(b, "ANCHOR_RIGHT")
+    tt:SetOwner(owner, "ANCHOR_RIGHT")
     local ok = false
     if e.t == "spell" and type(tt.SetSpellByID) == "function" then
         ok = pcall(tt.SetSpellByID, tt, e.id)
@@ -940,7 +1468,7 @@ function H.EntryTooltip(b)
             end
         end
     end
-    if not InCombat() then tt:AddLine("Right-click or drag out to remove.", 0.6, 0.6, 0.6) end
+    if hint then tt:AddLine(hint, 0.6, 0.6, 0.6) end
     tt:Show()
 end
 
@@ -1087,8 +1615,11 @@ function H.OverlayTooltip(o)
     end
     local slot = Num(o:GetAttribute("curslot"))
     if slot and slot > 0 and type(tt.SetAction) == "function" then pcall(tt.SetAction, tt, slot) end
-    tt:AddLine("Flyout: click or press its key to open, then 1-" .. #KEYS .. ".", 0.6, 0.6, 0.6)
-    tt:AddLine("Right-click casts the first entry.", 0.6, 0.6, 0.6)
+    local f = slot and S.slotFly[slot]
+    if f then tt:AddLine("Flyout: " .. f.name, 1, 0.82, 0) end
+    tt:AddLine("Click or press its key to open, then 1-" .. #KEYS .. ".", 0.6, 0.6, 0.6)
+    if H.SameKey() then tt:AddLine("Its key again casts the first entry.", 0.6, 0.6, 0.6) end
+    tt:AddLine("Right-click casts the first entry. /gbars flyouts edits it.", 0.6, 0.6, 0.6)
     tt:Show()
 end
 
@@ -1182,8 +1713,16 @@ function H.PlusTooltip(p)
     local tt = _G.GameTooltip
     if not tt then return end
     tt:SetOwner(p, "ANCHOR_RIGHT")
-    tt:SetText("Add to flyout", 1, 1, 1)
-    tt:AddLine("Drop here to add it to this button's flyout (up to " .. MAX_ENTRIES .. ").", 0.8, 0.8, 0.8, true)
+    local slot = p.btn and H.ButtonSlot(p.btn)
+    local f = slot and H.SlotFlyout(slot)
+    if f then
+        tt:SetText("Add to flyout \"" .. f.name .. "\"", 1, 1, 1)
+        tt:AddLine("Drop here to add it to this flyout (up to " .. MAX_ENTRIES .. ").", 0.8, 0.8, 0.8, true)
+    else
+        tt:SetText("New flyout", 1, 1, 1)
+        tt:AddLine("Drop here to make a flyout of this button's action and the dropped one. Its macro takes"
+            .. " the button's place.", 0.8, 0.8, 0.8, true)
+    end
     tt:Show()
 end
 
@@ -1192,6 +1731,7 @@ function H.EnsurePlus(btn)
     if p then return p end
     if InCombat() then return nil end
     p = CreateFrame("Button", nil, btn)
+    p.btn = btn
     local w = Num(CallOf(btn, "GetWidth"))
     w = (w and w > 10) and w or 36
     local s = math.max(12, math.min(20, math.floor(w * 0.42 + 0.5)))
@@ -1278,6 +1818,7 @@ end
 
 function H.Teardown()
     H.HidePlus()
+    S.slotFly = {}
     if not S.header then return end
     if InCombat() then S.pending = true return end
     H.Exec(S.header, [[ self:RunAttribute("close") ]])
@@ -1289,7 +1830,7 @@ function H.Teardown()
         S.header:SetAttribute("has" .. slot, nil)
         H.SetFirst(slot, nil)
     end
-    S.active, S.live = {}, 0
+    S.active, S.live, S.slotFly = {}, 0, {}
     for _, o in ipairs(S.ovs) do
         o:SetAttribute("mainid", nil)
         o:SetAttribute("fixedslot", nil)
@@ -1303,17 +1844,19 @@ function H.Teardown()
 end
 
 function H.Build()
-    local data = H.Data()
-    local slots, any = {}, false
+    H.Reresolve()
+    local slots, slotFly, any = {}, {}, false
     for slot = 1, MAX_SLOT do
         if H.HasAction(slot) then
-            local list = H.ListForSlot(slot, data)
-            if list and #list >= 2 then
-                slots[slot] = list
+            local f = H.SlotFlyout(slot)
+            if f and #f.entries >= 1 then
+                slots[slot] = f.entries
+                slotFly[slot] = f
                 any = true
             end
         end
     end
+    S.slotFly = slotFly
     -- Nothing was ever built and nothing is needed: the bars stay exactly Blizzard's.
     if not any and not S.header then return end
     local h = H.EnsureHeader()
@@ -1375,6 +1918,7 @@ function H.Build()
     S.live = live
     h:SetAttribute("novs", #S.ovs)
     h:SetAttribute("dir", DIRS[H.Dir()])
+    h:SetAttribute("samekey", H.SameKey())
     h:SetAttribute("page", page)
     if not S.driverOn and type(_G.RegisterStateDriver) == "function" then
         S.driverOn = pcall(_G.RegisterStateDriver, h, "page", S.cond) and true or false
@@ -1382,19 +1926,19 @@ function H.Build()
     H.Exec(h, SNIP.refresh)
 end
 
--- Rebuild from the saved data (out of combat; in combat it waits for the fight to end).
--- What BookTab needs: the spell and macro entries of every flyout whose button is on a bar now
+-- What BookTab needs: the spell and macro entries of every flyout whose macro is on a bar now
 -- (nothing while flyouts are off or blocked). Items and plain slots are left out.
 function FL.BarEntries()
     local out = {}
-    if not H.Active() then return out end
-    local data = H.Data()
-    if next(data) == nil then return out end
+    if not H.Active() or next(H.Store()) == nil then return out end
+    if next(S.byMacro) == nil then H.Reresolve() end
+    local seen = {}
     for slot = 1, MAX_SLOT do
         if H.HasAction(slot) then
-            local list = H.ListForSlot(slot, data)
-            if list then
-                for _, e in ipairs(list) do
+            local f = H.SlotFlyout(slot)
+            if f and not seen[f] then
+                seen[f] = true
+                for _, e in ipairs(f.entries) do
                     if e.t == "spell" then
                         out[#out + 1] = { t = "spell", id = e.id }
                     elseif e.t == "macro" then
@@ -1408,21 +1952,27 @@ function FL.BarEntries()
 end
 B.FlyoutBarEntries = FL.BarEntries
 
+-- Rebuild from the saved data (out of combat; in combat it waits for the fight to end): the v1
+-- conversion (once), the macros, then the secure frames.
 function FL.Refresh()
     if type(B.MissingDirty) == "function" then pcall(B.MissingDirty) end
     S.dirty = false
     if not S.loaded then return end
     if InCombat() then
         S.pending = true
+        H.NotifyEditor()
         return
     end
     S.pending = false
     if H.Active() then
+        H.Safe("convert", H.MigrateV1)
+        H.Safe("macros", H.EnsureMacros)
         H.Safe("build", H.Build)
     else
         H.Safe("teardown", H.Teardown)
     end
     H.Safe("plus", H.UpdatePlus)
+    H.NotifyEditor()
 end
 
 function FL.Apply() FL.Refresh() end
@@ -1477,29 +2027,58 @@ function FL.SlashDir(arg)
     H.Print("flyouts open " .. d .. ".")
 end
 
+function H.SameKeyText()
+    return H.SameKey() and "casts entry 1" or "closes"
+end
+
+-- "/gbars flyout samekey on|off"; `arg` is what follows "flyout".
+function FL.SlashSameKey(arg)
+    local v = (arg or ""):match("^samekey%s*(%a*)$")
+    local usage = "/gbars flyout samekey on|off - the button's key again while its flyout is open casts entry 1 (on) or closes it (off)"
+    if not v or v == "" then
+        H.Print("same key while open: " .. H.SameKeyText() .. ". " .. usage)
+        return
+    end
+    if v ~= "on" and v ~= "off" then H.Print(usage) return end
+    local db = H.DB()
+    if not db then return end
+    db.flyoutSameKeyCast = (v == "on")
+    FL.Refresh()
+    H.Print("same key while open: " .. H.SameKeyText() .. "." .. (InCombat() and " (after combat)" or ""))
+end
+
 function FL.StatusLine()
     local D = " \194\183 "
     if H.Blocked() then return "flyouts: off" .. D .. BLOCKER .. " is loaded, so ours stays off" end
     local on = type(B.On) == "function" and B.On(FEATURE) == true
     local saved, entries = 0, 0
     if S.loaded then
-        for _, list in pairs(H.Data()) do
+        for _, f in pairs(H.Store()) do
             saved = saved + 1
-            entries = entries + #list
+            entries = entries + #f.entries
         end
     end
-    local onBars = 0
-    for _ in pairs(S.active) do onBars = onBars + 1 end
+    -- Flyouts whose macro is on a bar, and the bar slots that hold one.
+    local onBars, slotsOn, seen = 0, 0, {}
+    for _, f in pairs(S.slotFly) do
+        slotsOn = slotsOn + 1
+        if not seen[f] then
+            seen[f] = true
+            onBars = onBars + 1
+        end
+    end
+    local d = S.loaded and H.CharDB() or {}
+    local v1 = d.flyoutsV1Done and (d.flyoutsV1Result or "done") or "not yet (runs out of combat)"
     -- A main bar button gets an overlay for every page that has a flyout at its position (slots
     -- 13-72 are also the side bars' slots), so overlays can outnumber flyouts; only the ones
     -- whose slot the bar shows now are shown.
     local shownOvs = 0
     for _, o in ipairs(S.ovs) do if o:IsShown() then shownOvs = shownOvs + 1 end end
-    return string.format("flyouts: %s" .. D .. "%d saved (%d entries)" .. D .. "%d on bars" .. D
-        .. "%d buttons with an overlay (%d shown now)" .. D .. "opens %s" .. D .. "paging %s%s" .. D
-        .. "last error: %s",
-        on and "on" or "off", saved, entries, onBars, S.live, shownOvs, H.Dir(), S.pagingNote,
-        S.pending and D .. "waits for combat to end" or "", S.err or "none")
+    return string.format("flyouts: %s" .. D .. "%d saved (%d entries)" .. D .. "%d on bars (%d slots)" .. D
+        .. "%d buttons with an overlay (%d shown now)" .. D .. "opens %s" .. D .. "same key: %s" .. D
+        .. "v1: %s" .. D .. "paging %s%s" .. D .. "last error: %s",
+        on and "on" or "off", saved, entries, onBars, slotsOn, S.live, shownOvs, H.Dir(), H.SameKeyText(),
+        v1, S.pagingNote, S.pending and D .. "waits for combat to end" or "", S.err or "none")
 end
 
 -- "right-click: entry 1 set on N of M shown overlays" (the overlays' type2, as they are now).
@@ -1565,11 +2144,21 @@ events:SetScript("OnEvent", function(_, event, arg1)
             if arg1 == (ADDON_NAME or "GaarBarsForever") then
                 S.loaded = true
                 H.Sanitize()
+                H.Reresolve()
             elseif arg1 == BLOCKER and S.loaded then
                 H.MarkDirty()
             end
         elseif not S.loaded then
             return
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- From here the macros and the bars can be read and changed (conversion, macros).
+            S.world = true
+            H.Reresolve()
+            if InCombat() then S.pending = true else H.MarkDirty() end
+        elseif event == "UPDATE_MACROS" then
+            -- Macros were created, renamed, deleted or re-indexed: find ours again by name.
+            H.Reresolve()
+            if InCombat() then S.pending = true else H.MarkDirty() end
         elseif event == "PLAYER_REGEN_DISABLED" then
             H.HidePlus()
         elseif event == "PLAYER_REGEN_ENABLED" then

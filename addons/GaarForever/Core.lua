@@ -56,7 +56,7 @@ local Lib = _G.GaarForever
 local Tools = type(ns) == "table" and ns.Tools or nil -- Tools.lua (3.1); nil if it failed to load
 
 local TITLE = "GaarForever"
-local VERSION = "3.2.77"
+local VERSION = "3.2.78"
 local PREFIX = "|cff33ff99GaarForever|r: "
 local EN_DASH = "\226\128\147"
 
@@ -86,6 +86,7 @@ local ADDONS = {
     { key = "bars", label = "Bars", name = "GaarBarsForever", api = "GaarBarsForeverAPI", slash = "/gbars", oldSlash = "/bbars" },
     { key = "loot", label = "Loot", name = "GaarLootForever", api = "GaarLootForeverAPI", slash = "/glf", oldSlash = "/bloot" },
     { key = "group", label = "Group", name = "GaarGroupForever", api = "GaarGroupForeverAPI", slash = "/ggf", charDb = "GaarGroupForeverCharDB", keep = { char = { mode = true } } },
+    { key = "professions", label = "Professions", name = "GaarProfessionsForever", api = "GaarProfessionsForeverAPI", slash = "/gprof" },
 }
 for _, a in ipairs(ADDONS) do
     a.title = Lib.DisplayName(a.name)

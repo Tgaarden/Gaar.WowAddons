@@ -101,6 +101,12 @@
         "type": "requiredDependency"
       }
     ],
+    "GaarProfessionsForever": [
+      {
+        "slug": "gaarforever",
+        "type": "requiredDependency"
+      }
+    ],
     "GaarQuestsForever": [
       {
         "slug": "gaarforever",

@@ -9,7 +9,8 @@
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). It makes
 Blizzard's own action buttons easier to read: a red icon when the action is out of range, a blue
 icon when you lack the mana, energy or rage, big cooldown numbers, short hotkey labels, and macro
-names you can switch off. Every part can be switched on or off on its own. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
+names you can switch off, plus flyouts: drop spells, items or macros on a button and it opens a
+flyout of up to 12 that you cast from with 1-9, 0, -, =. Every part can be switched on or off on its own. It needs GaarForever, the family hub, and no other addon or library, and it is not part of the Gaar suite.
 
 ## What it does
 
@@ -23,6 +24,7 @@ names you can switch off. Every part can be switched on or off on its own. It ne
 | `outOfRangeHotkey` | off | Out of range tints only the hotkey text red, not the icon. While on, it overrides `rangeColor` for the icon |
 | `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. The same ring sits on the spellbook entry of the highest rank you know when a bar holds a lower rank of it (Claw Rank 3 in the book gets it when Claw Rank 1 is on the bar), so you see what to drag up; classic `SpellButton1..12` and the paged `PlayerSpellsFrame` are both handled, and the book rings follow page and tab changes. Rings disappear when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
 | `bookMissingTab` | on | A square icon tab of its own in the spellbook's bottom-left corner, level with the page arrows, in the look of Forever's category icon tabs (a book with a green arrow, the number of entries on it, a glow while open; click it again to go back); tooltip **Missing from bars**. It opens one list, over the spell pages and in the same look (icon frame, name, `Rank 3`, the same grid and paging), of every known, castable, non-passive spell that is on no action bar (**Not on your bars**) or only at a lower rank than the one you know (**Bar has Rank 2 · Rank 3 known**). Hover for the spell tooltip, drag a spell onto a bar, click it to cast. Clicking any Blizzard tab, What's Training?'s **?** tab, the search box or closing the book closes the list; opening the list closes What's Training?'s page. The list never covers the category tab row. Empty: *All your spells are on your bars at their highest rank.* Auto Attack, Auto Shot and Shoot are left out. Opening it is refused in combat; an open list stays as it is in combat and updates afterwards |
+| `flyouts` | on | Flyouts on any action button, see [Flyouts](#flyouts) below. `/gbars flyout on\|off`; `/gbars flyout dir up\|down\|left\|right` (default up) |
 
 - **Order.** Out of range wins over no mana. When neither applies, the icon gets its normal
   colour back.
@@ -34,7 +36,43 @@ names you can switch off. Every part can be switched on or off on its own. It ne
 - **Master switch.** `/gbars off` hands every button back exactly as Blizzard draws it: colours,
   hotkey text and colour, macro names and the cooldown's own numbers.
 
-Settings are saved account-wide in `GaarBarsForeverDB`: `enabled` and one key per feature above.
+Settings are saved account-wide in `GaarBarsForeverDB`: `enabled`, one key per feature above and
+`flyoutDir`. The flyouts themselves are saved per character in `GaarBarsForeverCharDB`.
+
+## Flyouts
+
+- **Adding.** While the cursor holds a spell, an item or a macro (out of combat), a small **+**
+  sits on every action bar button that has an action. Drop it on the **+** and it goes into that
+  button's flyout; the first drop creates the flyout with the button's own action as entry 1. Up
+  to 12 entries; a duplicate is ignored.
+- **Opening and casting.** A button with a flyout has a small arrow. Clicking it, or pressing its
+  key, opens the flyout and casts nothing. While it is open, `1`-`9`, `0`, `-` and `=` cast entry
+  1-12, and clicking an entry casts it; then the flyout closes. Escape, clicking the button again
+  or clicking elsewhere closes it. All of this works in combat.
+- **Look.** Like the game's own flyouts: icons with the cooldown swipe, red out of range, blue
+  without mana, grey when unusable, the item count and the key that casts each entry.
+- **Removing** (out of combat; in combat a chat line says so): right-click an entry, or drag it
+  out (it lands on the cursor). With one entry left the flyout is removed and the button is a
+  plain button again.
+- **Saved per character**, keyed by the button's action (`spell:<id>`, `item:<id>`,
+  `macro:<name>`), so a flyout follows its ability when you move it to another button; any other
+  kind of action is keyed by its slot. Items you have none of are left out of the open flyout
+  (checked out of combat) but stay saved.
+- **Bars and keys.** The main bar (`ActionButton1-12`, also when a stance, form or stealth pages it)
+  and `MultiBarBottomLeft/BottomRight/Right/Left`, `MultiBar5-7`. The keys are the ones bound to
+  the button (`ACTIONBUTTONn`, `MULTIACTIONBARmBUTTONn`).
+- **Off** (`/gbars flyout off`, `/gbars off`, or while the addon `FallensFlyouts` is loaded, which
+  `/gbars status` then says): no overlay, binding or **+**; the buttons are exactly Blizzard's.
+  The flyouts stay saved. With no flyouts at all nothing of this is even created.
+- **How it stays secure.** A header of ours (`SecureHandlerStateTemplate`) runs restricted
+  snippets that show and hide the flyout and bind `1`-`=` and Escape with `SetBindingClick` while
+  it is open. Over each button with a flyout sits a `SecureHandlerClickTemplate` overlay of ours
+  (a child of the button); the button's keys are override-click bindings to that overlay. A state
+  driver on the main bar's page conditions moves the overlays with the page in combat. The
+  entries are `SecureActionButtonTemplate` buttons (`type1` spell / item / macro), cast on
+  release. Frames, attributes and bindings are set only out of combat; anything that changes in
+  combat waits for `PLAYER_REGEN_ENABLED`. Blizzard's buttons keep their own attributes, scripts
+  and bindings.
 
 ## How it works
 
@@ -90,7 +128,9 @@ one checked first:
 | `/gbars rangehotkey on\|off` (or `outOfRangeHotkey`) | Out of range: red hotkey instead of red icon |
 | `/gbars rank on\|off` (or `lowRankWarn`) | Orange ring on low-rank spells while the spellbook is open |
 | `/gbars missing on\|off` (or `bookMissingTab`) | The spellbook tab of spells missing from your bars |
-| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error) and the last error caught |
+| `/gbars flyout on\|off` (or `flyouts`) | Flyouts on action buttons |
+| `/gbars flyout dir up\|down\|left\|right` | Which way flyouts open (all of them; default up) |
+| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars, buttons with an overlay, direction, whether the main bar's paging matches) and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
 
@@ -121,7 +161,8 @@ The hub talks to this addon only through `GaarBarsForeverAPI`:
 
 - Action buttons are secure. Blizzard code is only followed, never replaced: `hooksecurefunc`
   only. No Blizzard function, script or table is written, no protected function is called, and no
-  button is shown, hidden, moved or given an attribute.
+  button is shown, hidden, moved or given an attribute. Flyouts use secure frames of the addon's
+  own (see [Flyouts](#flyouts)).
 - Only visual properties of non-secure regions change: the icon's vertex colour, the hotkey's
   text and colour, the macro name's alpha and the cooldown's own countdown numbers, plus textures,
   font strings and one plain frame per button that the addon creates itself, out of combat (a

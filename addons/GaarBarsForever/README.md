@@ -46,9 +46,14 @@ Settings are saved account-wide in `GaarBarsForeverDB`: `enabled`, one key per f
   button's flyout; the first drop creates the flyout with the button's own action as entry 1. Up
   to 12 entries; a duplicate is ignored.
 - **Opening and casting.** A button with a flyout has a small arrow. Clicking it, or pressing its
-  key, opens the flyout and casts nothing. While it is open, `1`-`9`, `0`, `-` and `=` cast entry
+  key, opens the flyout and casts nothing. Right-clicking the button casts the flyout's first entry
+  directly, without opening it (also in combat; nothing happens if that entry is an item you have
+  none of). While it is open, `1`-`9`, `0`, `-` and `=` cast entry
   1-12, and clicking an entry casts it; then the flyout closes. Escape, clicking the button again
   or clicking elsewhere closes it. All of this works in combat.
+- **Missing from bars.** Spells (and macros that cast a spell) inside a flyout on a button that is on
+  a bar count as being on your bars in the spellbook's *Missing from bars* tab, with the same rank
+  rules as for bar slots. Ignored while flyouts are off.
 - **Look.** Like the game's own flyouts: icons with the cooldown swipe, red out of range, blue
   without mana, grey when unusable, the item count and the key that casts each entry.
 - **Removing** (out of combat; in combat a chat line says so): right-click an entry, or drag it
@@ -220,3 +225,19 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Options**
 
 <img src="../../docs/screenshots/GaarBarsForever/5-options.jpg" alt="Options" width="600">
+
+**Missing tab**
+
+<img src="../../docs/screenshots/GaarBarsForever/6-missing-tab.jpg" alt="Missing tab" width="600">
+
+**Missing list**
+
+<img src="../../docs/screenshots/GaarBarsForever/7-missing-list.jpg" alt="Missing list" width="600">
+
+**Flyout**
+
+<img src="../../docs/screenshots/GaarBarsForever/8-flyout.jpg" alt="Flyout" width="600">
+
+**Flyout 2**
+
+<img src="../../docs/screenshots/GaarBarsForever/9-flyout-2.jpg" alt="Flyout 2" width="600">

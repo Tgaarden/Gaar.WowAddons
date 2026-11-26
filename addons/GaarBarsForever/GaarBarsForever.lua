@@ -27,6 +27,11 @@
       ("Missing from bars", Forever's tab look, a count badge) with one list of the known, castable, non-passive spells that are on no action bar,
       or whose bar copy is a lower rank than the one you know. Same look as Blizzard's pages;
       drag an entry to a bar, click it to cast. BookTab.lua, see there.
+    * flyouts (on): drop a spell, item or macro on the "+" a button shows while the cursor holds
+      one, and that button opens a flyout of up to 12 entries (click or its key opens it, 1-9, 0,
+      -, = cast; works in combat through secure handlers of our own, never Blizzard's).
+      /gbars flyout dir up|down|left|right. Off while FallensFlyouts is loaded. Flyouts.lua, see
+      there.
     * A master switch (/gbars on|off) and one switch per feature (/gbars <feature> on|off), all in
       GaarBarsForeverDB (account-wide), and one menu entry each for the hub.
     * /gbars for help, /gbars status for the hooks found, the buttons handled and whether the
@@ -77,7 +82,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.4.1"
+local VERSION = "1.5.0"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -108,6 +113,8 @@ local FEATURES = {
       label = "Orange ring on low-rank spells (spellbook open)" },
     { key = "bookMissingTab", cmd = "missing", default = true,
       label = "Spellbook tab: spells missing from your bars" },
+    { key = "flyouts", cmd = "flyout", default = true,
+      label = "Flyouts on action buttons (drop on the +)" },
 }
 local FEATURE_BY_CMD = {}
 for _, f in ipairs(FEATURES) do
@@ -116,7 +123,7 @@ for _, f in ipairs(FEATURES) do
 end
 
 -- Every key GaarBarsForeverDB may hold.
-local SAVED_KEYS = { enabled = true }
+local SAVED_KEYS = { enabled = true, flyoutDir = true }
 for _, f in ipairs(FEATURES) do SAVED_KEYS[f.key] = true end
 
 local ACTION_PREFIXES = {
@@ -1328,6 +1335,11 @@ local function ApplyAll()
         local ok, err = pcall(BT.Apply)
         if not ok then Fail("booktab", err) end
     end
+    local FO = NS.Flyouts
+    if FO and type(FO.Apply) == "function" then
+        local ok, err = pcall(FO.Apply)
+        if not ok then Fail("flyouts", err) end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1379,6 +1391,7 @@ local function PrintHelp()
         Print(string.format("/gbars %s on|off - %s (now %s, default %s)", f.cmd, f.label,
             db[f.key] and "on" or "off", f.default and "on" or "off"))
     end
+    Print("/gbars flyout dir up|down|left|right - which way flyouts open (now " .. tostring(db.flyoutDir or "up") .. ")")
     Print("/gbars status - the hooks found, the buttons handled and whether the client hid any values")
 end
 
@@ -1409,6 +1422,13 @@ local function PrintStatus()
         Print(ok and tostring(line) or ("missing tab: status failed: " .. tostring(line)))
     else
         Print("missing tab: BookTab.lua not loaded")
+    end
+    local FO = NS.Flyouts
+    if FO and type(FO.StatusLine) == "function" then
+        local ok, line = pcall(FO.StatusLine)
+        Print(ok and tostring(line) or ("flyouts: status failed: " .. tostring(line)))
+    else
+        Print("flyouts: Flyouts.lua not loaded")
     end
     local sample = list[1] and list[1].icon
     local cd = list[1] and list[1].cd
@@ -1454,7 +1474,13 @@ local function OnSlash(msg)
             PrintStatus()
         elseif FEATURE_BY_CMD[cmd] then
             local f = FEATURE_BY_CMD[cmd]
-            if arg == "on" or arg == "off" then
+            if f.key == "flyouts" and arg:match("^dir") then
+                if NS.Flyouts and type(NS.Flyouts.SlashDir) == "function" then
+                    NS.Flyouts.SlashDir(arg)
+                else
+                    Print("flyouts: Flyouts.lua not loaded")
+                end
+            elseif arg == "on" or arg == "off" then
                 SetFeature(f, arg == "on")
             elseif arg == "" then
                 SetFeature(f, not db[f.key])
@@ -1472,7 +1498,7 @@ local function OnSlash(msg)
 end
 
 -- ---------------------------------------------------------------------------
--- Shared with BookTab.lua (loaded after this file, same addon namespace). Plain references to
+-- Shared with BookTab.lua and Flyouts.lua (loaded after this file, same addon namespace). Plain references to
 -- this file's helpers, so the spellbook tab reads spells and ranks exactly like the rings do.
 -- ---------------------------------------------------------------------------
 
@@ -1480,6 +1506,7 @@ NS.Bars = {
     A = A, BF = BF, Print = Print, Fail = Fail, On = On, InCombat = InCombat,
     Secret = Secret, Num = Num, Str = Str, FieldOf = FieldOf, CallOf = CallOf,
     SpellName = SpellName, SpellRank = SpellRank, SlotSpellID = SlotSpellID,
+    DB = function() return db end,
 }
 
 -- ---------------------------------------------------------------------------
@@ -1549,6 +1576,8 @@ local function BindSavedVariables()
     for _, f in ipairs(FEATURES) do
         if type(db[f.key]) ~= "boolean" then db[f.key] = f.default end
     end
+    local dirs = { up = true, down = true, left = true, right = true }
+    if not dirs[db.flyoutDir] then db.flyoutDir = "up" end
 end
 
 local function Setup()

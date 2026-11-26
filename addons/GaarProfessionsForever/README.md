@@ -89,5 +89,6 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 
 ## Screenshots
 
-None yet. They go in `docs/screenshots/GaarProfessionsForever/` (numbered, e.g.
-`1-collapse-button.jpg`, `2-filter-menu.jpg`), shown here like the other addons' READMEs.
+**Filter menu**
+
+<img src="../../docs/screenshots/GaarProfessionsForever/1-filter-partial.jpg" alt="Filter menu with Have Part of Materials" width="600">

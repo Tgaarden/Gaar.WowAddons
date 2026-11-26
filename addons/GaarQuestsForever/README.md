@@ -448,3 +448,15 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Options**
 
 <img src="../../docs/screenshots/GaarQuestsForever/3-options.jpg" alt="Options" width="600">
+
+**Collapse all**
+
+<img src="../../docs/screenshots/GaarQuestsForever/4-collapse-all.jpg" alt="Collapse all" width="600">
+
+**Expand all**
+
+<img src="../../docs/screenshots/GaarQuestsForever/5-expand-all.jpg" alt="Expand all" width="600">
+
+**Tracker count**
+
+<img src="../../docs/screenshots/GaarQuestsForever/6-tracker-count.jpg" alt="Tracker count" width="600">

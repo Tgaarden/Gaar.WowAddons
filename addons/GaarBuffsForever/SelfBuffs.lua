@@ -75,7 +75,7 @@ local KEYWORDS = {
     foodCue = { "use:", "eating", "well fed", "seated", "%f[%w]eat" },
     -- Campfire: anywhere in the aura's name or tooltip ...
     fire = { "campfire", "camp fire", "cozy fire", "cosy fire", "bonfire", "near a fire",
-        "near the fire", "by the fire", "warmth of the fire" },
+        "near the fire", "by the fire", "warmth of the fire", "camp benefit", "camp bonus" },
     -- ... or the word "fire" in the aura's name only, unless the name is one of these.
     fireName = { "%f[%w]fire%f[%W]" },
     fireNotName = { "inner fire", "fire shield", "fire resistance", "fire ward", "fire power",

@@ -216,6 +216,10 @@ eq("campfire in tooltip", C("Warmth", "you are resting near a fire.", nil), "fir
 eq("fire word in name", C("Fire Glow", "resting.", nil), "fire")
 eq("inner fire is not a campfire", C("Inner Fire", "increased armor.", nil), nil)
 eq("fire shield is not a campfire", C("Fire Shield", "deals fire damage.", nil), nil)
+local CAMP_TIP = "Gained the following camp benefits: Mana Well: Restores 20 Mana every 5 seconds."
+eq("camp benefits is the campfire", C("Camp Benefits", CAMP_TIP, nil), "fire")
+eq("camp benefits, upper case", C("CAMP BENEFITS", CAMP_TIP, nil), "fire")
+ok("camp benefits is not xp food", not SB.IsXpFoodText(CAMP_TIP))
 eq("mark of the wild", C("Mark of the Wild", "increases armor by 105.", nil), nil)
 eq("well fed without xp", C("Well Fed", "well fed\nstamina increased by 6.", nil), nil)
 ok("food tooltip", SB.IsXpFoodText("forever feast\nuse: restores 1000 health over 30 sec. if you spend at least 10 seconds eating you will become well fed and gain 10% bonus experience for 15 min."))

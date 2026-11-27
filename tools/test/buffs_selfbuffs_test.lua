@@ -296,7 +296,8 @@ ok("fire learned", learned.fireAuras[90002] == "Campfire")
 ok("food learned", learned.foods[300] == "Forever Feast" and learned.foods[200] == "Small Feast")
 ok("xp row shows time", xpRow.view.look == "active" and xpRow.view.text:match("^%d+:%d%d$") ~= nil)
 ok("fire row active", fireRow.view.look == "active")
-ok("food still clickable while buffed", xpRow.attrs.type == "item")
+ok("food row hidden while buffed", xpRow.shown == false)
+ok("hidden row is not bound", xpRow.attrs.type == nil)
 local announced = 0
 for _, p in ipairs(printed) do if p:find("learned XP food buff spell ID: 90001") then announced = announced + 1 end end
 eq("learned once in chat", announced, 1)
@@ -362,7 +363,7 @@ eq("click direction unchanged in combat", xpRow.clicks, "AnyUp")
 Slash("self fire off")
 pcall(Tick)
 eq("toggle in combat: no protected calls", #S.violations, 0)
-ok("fire row still shown until combat ends", fireRow.shown)
+ok("fire row still hidden until combat ends (no Show/Hide in combat)", fireRow.shown == false)
 
 -- 6. After combat: re-read, rebind, relayout -------------------------------------------------
 S.combat = false
@@ -386,6 +387,32 @@ ok("strip hidden when both off", panel.shown == false)
 Slash("self on")
 Tick()
 ok("strip back", panel.shown == true)
+
+-- 6b. A row shows only while its buff is missing or greyed out --------------------------------
+S.combat = false
+S.auras = {
+    { spellId = 90001, name = "Well Fed", icon = 136000, expirationTime = S.now + 900, auraInstanceID = 21, tip = { "Experience gained increased by 10%." } },
+    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 60, auraInstanceID = 22, tip = { "Spirit increased." } },
+}
+Fire("UNIT_AURA", "player")
+Tick()
+ok("both active: xp row hidden", xpRow.shown == false)
+ok("both active: campfire row hidden", fireRow.shown == false)
+ok("both active: strip hidden with its backdrop", panel.shown == false)
+S.auras = { S.auras[2] }                 -- only the campfire is up
+Fire("UNIT_AURA", "player")
+Tick()
+ok("one active: xp row shown", xpRow.shown == true)
+ok("one active: campfire row hidden", fireRow.shown == false)
+ok("one active: strip shown", panel.shown == true)
+eq("one active: strip is one row high", panel.h, 18 + 12)
+eq("one active: the row sits at the top", xpRow.point and xpRow.point[5], -6)
+S.auras = {}                             -- none active
+Fire("UNIT_AURA", "player")
+Tick()
+ok("none active: xp row shown", xpRow.shown == true)
+ok("none active: campfire row shown", fireRow.shown == true)
+eq("none active: strip is two rows high", panel.h, 2 * 18 + 12)
 
 -- 7. Status, help, menu ---------------------------------------------------------------------
 printed = {}

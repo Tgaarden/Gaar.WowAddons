@@ -95,7 +95,8 @@ Right-click the empty background of the buff box (not the spell rows) to open th
 ## Self buffs (every class)
 
 New in 1.11, in `SelfBuffs.lua`. Two rows in a small strip, by default just left of the buff box
-(Alt + drag moves it, `/gbuff self reset` puts it back). It is about you alone, so it works on
+(Alt + drag moves it, `/gbuff self reset` puts it back). A row shows only while its buff is missing
+or greyed out: with both buffs up the strip is hidden, with one up it shrinks to the other row. It is about you alone, so it works on
 every class, warriors, rogues, hunters and warlocks too.
 
 | Row | Buff on | Buff missing | Can't click |
@@ -104,8 +105,8 @@ every class, warriors, rogues, hunters and warlocks too.
 | **Campfire** | green border, the buff's icon and time left | red border, `missing` in red | grey icon, `no Cooking`, tooltip **Requires Cooking (Basic Campfire)** |
 
 - **Click the XP food row** to eat an XP food from your bags (a secure button, `type` `item`, the
-  food's name). With several, the one you have most of. It still works while the buff is on, to
-  top it up. The tooltip says which food and how many you have.
+  food's name). With several, the one you have most of. The row is hidden while the buff is on,
+  so top it up after it runs out. The tooltip says which food and how many you have.
 - **Click the campfire row** to cast Basic Campfire (`type` `spell`), only when you know it.
 - **Detection by keyword.** The exact names and IDs on WoW Forever are not known, so the addon
   reads your buffs' tooltips and your bag items' tooltips (out of combat) and matches words. All
@@ -128,8 +129,8 @@ every class, warriors, rogues, hunters and warlocks too.
 - **In combat** the game hides your buffs. A buff is still matched by a learned spell ID when the
   ID can be read; otherwise the rows freeze: what was there before the fight stays, the time
   still counts down, and a buff that runs out shows `missing`. The buttons and the strip only
-  change out of combat; what changes in combat (an option, the food you ate) is applied when
-  combat ends.
+  change out of combat; what changes in combat (an option, the food you ate, a row showing or
+  hiding) is applied when combat ends.
 - **Options:** `/gbuff self [on|off]` (both rows), `/gbuff self food [on|off]`,
   `/gbuff self fire [on|off]`, and two checkboxes in the menu (`Self buff: XP food`,
   `Self buff: campfire`). Both are on by default; `/gbuff off` hides the strip too.

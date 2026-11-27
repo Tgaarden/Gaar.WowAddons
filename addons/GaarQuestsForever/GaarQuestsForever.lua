@@ -2238,8 +2238,8 @@ local function SetAutoAccept(on)
 end
 
 -- ---------------------------------------------------------------------------
--- Collapse all (1.14): one +/- button in the quest log's header row, between the search box and
--- the "Quests: n/m" count. Minus (some zone header is open) collapses every header; plus (all are
+-- Collapse all (1.14): one +/- button inside the quest log's search box, at its right end
+-- (left of the clear X while text is typed). Minus (some zone header is open) collapses every header; plus (all are
 -- collapsed) expands them all. Only Blizzard's own collapse functions are called, from the
 -- button's click; the quest log is not protected. Nothing of Blizzard's is replaced.
 -- ---------------------------------------------------------------------------
@@ -2312,32 +2312,6 @@ function CollapseAll.Frames()
     end
 end
 
--- The "Quests: n/m" fontstring (or the frame holding it): a named field if there is one, else the
--- first visible fontstring under the frame whose text has the shape "<word>: 38/40".
-function CollapseAll.CountFrame(f)
-    for _, key in ipairs({ "QuestCount", "questCount", "QuestCountFrame", "Count", "CountText" }) do
-        local c = f[key]
-        if type(c) == "table" and type(c.SetPoint) == "function" then return c end
-    end
-    local function Matches(region)
-        if type(region) ~= "table" or type(region.GetObjectType) ~= "function" then return false end
-        if region:GetObjectType() ~= "FontString" then return false end
-        local ok, t = pcall(region.GetText, region)
-        return ok and type(t) == "string" and not IsSecret(t) and t:match("%d+%s*/%s*%d+") ~= nil
-    end
-    local parents = { f, f:GetParent() }
-    for _, p in ipairs(parents) do
-        if type(p) == "table" and type(p.GetRegions) == "function" then
-            for _, r in ipairs({ p:GetRegions() }) do if Matches(r) then return r end end
-            for _, child in ipairs({ p:GetChildren() }) do
-                if type(child.GetRegions) == "function" then
-                    for _, r in ipairs({ child:GetRegions() }) do if Matches(r) then return r end end
-                end
-            end
-        end
-    end
-end
-
 function CollapseAll.Refresh()
     local btn = CollapseAll.button
     if not btn then return end
@@ -2352,17 +2326,20 @@ function CollapseAll.Refresh()
     btn:Show()
 end
 
+-- Inside the search box at its right end, vertically centred. While Blizzard's clear "X" is shown
+-- (text typed) the button sits just left of it. Only our own button is anchored; the box is not touched.
 function CollapseAll.Place()
-    local btn, f, box = CollapseAll.button, CollapseAll.frame, CollapseAll.box
-    if not (btn and f and box) then return end
+    local btn, box = CollapseAll.button, CollapseAll.box
+    if not (btn and box) then return end
+    local clear = box.clearButton or box.ClearButton
+    local shown = type(clear) == "table" and type(clear.IsShown) == "function" and clear:IsShown() == true
     btn:ClearAllPoints()
-    local count = CollapseAll.CountFrame(f)
-    if count then
-        btn:SetPoint("RIGHT", count, "LEFT", -4, 0)
-        CollapseAll.state = "anchored left of the quest count"
+    if shown then
+        btn:SetPoint("RIGHT", clear, "LEFT", 0, 0)
+        CollapseAll.state = "inside the search box, left of the clear button"
     else
-        btn:SetPoint("LEFT", box, "RIGHT", 2, 0)
-        CollapseAll.state = "anchored right of the search box (no quest count found)"
+        btn:SetPoint("RIGHT", box, "RIGHT", -4, 0)
+        CollapseAll.state = "inside the search box, right end"
     end
 end
 
@@ -2371,9 +2348,9 @@ function CollapseAll.Build()
     if not (db and db.collapseAllButton) then return false end
     local f, box = CollapseAll.Frames()
     if not f then CollapseAll.state = "quest log not loaded yet" return false end
-    local btn = CreateFrame("Button", nil, f)
-    btn:SetSize(17, 17)
-    btn:SetFrameLevel((box.GetFrameLevel and box:GetFrameLevel() or f:GetFrameLevel()) + 2)
+    local btn = CreateFrame("Button", nil, box)
+    btn:SetSize(14, 14)
+    btn:SetFrameLevel((box.GetFrameLevel and box:GetFrameLevel() or f:GetFrameLevel()) + 5)
     btn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight", "ADD")
     btn:RegisterForClicks("LeftButtonUp")
     btn:SetScript("OnClick", function(self)
@@ -2393,6 +2370,13 @@ function CollapseAll.Build()
     if type(f.HookScript) == "function" then
         pcall(f.HookScript, f, "OnShow", function() CollapseAll.Place() CollapseAll.Refresh() end)
     end
+    local function Replace() CollapseAll.Place() end
+    local clear = box.clearButton or box.ClearButton
+    if type(clear) == "table" and type(clear.HookScript) == "function" then
+        pcall(clear.HookScript, clear, "OnShow", Replace)
+        pcall(clear.HookScript, clear, "OnHide", Replace)
+    end
+    if type(box.HookScript) == "function" then pcall(box.HookScript, box, "OnTextChanged", Replace) end
     return true
 end
 
@@ -2453,7 +2437,7 @@ end
 function CollapseAll.Set(on)
     db.collapseAllButton = on and true or false
     pcall(CollapseAll.Update)
-    Print("collapse-all button " .. (on and "on: a +/- button in the quest log's header row collapses or expands every zone header."
+    Print("collapse-all button " .. (on and "on: a +/- button in the quest log's search box collapses or expands every zone header."
         or "off.") )
 end
 
@@ -3224,7 +3208,7 @@ local function PrintHelp()
         .. ((db and db.autoWatch or not db and DEFAULTS.autoWatch) and "on" or "off") .. ")")
     Print("/gqf autoaccept - toggle accepting quests automatically when their window opens; hold Shift to skip; never turns in or picks gossip (now: "
         .. ((db and db.autoAccept) and "on" or "off") .. ")")
-    Print("/gqf collapse - toggle the +/- button in the quest log's header row that collapses or expands every zone header (now: "
+    Print("/gqf collapse - toggle the +/- button in the quest log's search box that collapses or expands every zone header (now: "
         .. ((db and db.collapseAllButton) and "on" or "off") .. ")")
     Print("/gqf questcount - toggle the quest count on the tracker's Quests header, e.g. Quests 38/40 (now: "
         .. ((db and db.trackerQuestCount) and "on" or "off") .. ")")
@@ -3440,7 +3424,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.15.0"
+local VERSION = "1.15.1"
 A.version = VERSION
 
 local function ApiEntries()

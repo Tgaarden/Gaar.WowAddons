@@ -28,6 +28,11 @@
     * Dungeon filter (1.10, default off, /gqf dungeon on): inside a dungeon or raid instance only
       the quests of that instance are watched (in the order above); the rest are un-watched. No
       matching quest: the normal behaviour. See "Dungeon filter" below auto-watch.
+    * Quest filter (1.15, Filters.lua, default off): only completed / only uncompleted quests,
+      and/or hide quests tagged Dungeon or Raid, in the quest log list and in this section. Here
+      filtered quests are hidden exactly like the ones past the limit (and do not count towards
+      it); with auto-watch on they are also left out of its ranking. "Hide dungeon & raid quests"
+      pauses while the dungeon filter applies. See the top of Filters.lua.
 
   How, and why it is taint-safe (the Quests section carries quest item buttons, and the click
   on one calls the protected UseQuestLogSpecialItem):
@@ -101,6 +106,11 @@ local TITLE = "GaarQuestsForever"
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarQuestsForever", { title = "GaarQuestsForever" })
+-- The addon's private table, shared with Filters.lua (loaded after this file): A.ns.core is set
+-- at the end of this file, A.ns.filters by Filters.lua; only read at runtime. A field of A, not a
+-- local: this file is at LuaJIT's 200-locals limit for the main chunk.
+A.ns = select(2, ...)
+if type(A.ns) ~= "table" then A.ns = {} end
 
 local MIN_MAX, MAX_MAX = 1, 50 -- MAX_MAX doubles as "All" in the menu
 local COMPLETED_MODES = { top = true, level = true, bottom = true }
@@ -121,6 +131,8 @@ local DEFAULTS = {
     autoAccept = false,
     collapseAllButton = true,
     trackerQuestCount = true,
+    questFilter = "all",          -- quest filter (1.15, Filters.lua): all | completed | uncompleted
+    hideInstanceQuests = false,   -- quest filter: hide quests tagged Dungeon or Raid
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
@@ -128,7 +140,7 @@ local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
     hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true, dungeonFilter = true,
     dungeonRestore = true, autoAccept = true, collapseAllButton = true,
-    trackerQuestCount = true }
+    trackerQuestCount = true, questFilter = true, hideInstanceQuests = true }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -968,6 +980,7 @@ end
 
 -- Hands the section back to Blizzard exactly as it laid it out.
 local function RestoreAll()
+    A.ns.trackerFiltered = nil
     if not tracker then return end
     pcall(RestoreAnchors)
     Restore({})
@@ -1034,11 +1047,19 @@ local function ApplyLayout()
 
     -- Shown: Blizzard's fixed blocks, then the quests in our order, at most N. Blizzard only drew
     -- what fits its own height, so everything shown fits it too.
+    -- The quest filter (Filters.lua): filtered quests are hidden exactly like the ones past the
+    -- limit, and do not count towards it.
     local visible, hide = {}, {}
     for _, b in ipairs(fixed) do visible[#visible + 1] = b end
+    local filters = A.ns.filters
+    local filtered = filters and filters.Tester() or nil
     local shownQuests = 0
+    A.ns.trackerFiltered = filtered and 0 or nil
     for _, d in ipairs(sortable) do
-        if shownQuests < db.max then
+        if filtered and filtered(d.id, d.complete) then
+            hide[d.block] = true
+            A.ns.trackerFiltered = A.ns.trackerFiltered + 1
+        elseif shownQuests < db.max then
             visible[#visible + 1] = d.block
             shownQuests = shownQuests + 1
         else
@@ -1504,6 +1525,14 @@ function AutoWatch.Run()
         Dungeon.state = "error: " .. tostring(walk)
         walk = nil
     end
+    -- The quest filter (Filters.lua): filtered quests are not ranked, so they are un-watched and
+    -- the room goes to quests that are shown.
+    local narrowed
+    if A.ns.filters then
+        local okF, list = pcall(A.ns.filters.Narrow, walk or pool)
+        if okF then narrowed = list end
+    end
+    if narrowed then walk = narrowed end
     local target = AutoWatch.Plan(snap, pool, watched, now, walk)
     if AutoWatch.Apply(pool, target, watched, now) then
         state("changed the watch list; checking Blizzard's new layout")
@@ -1512,7 +1541,11 @@ function AutoWatch.Run()
     else
         state("settled")
     end
-    if walk then AutoWatch.state = AutoWatch.state .. " (dungeon filter: " .. #walk .. " quests ranked)" end
+    if narrowed then
+        AutoWatch.state = AutoWatch.state .. " (quest filter: " .. #walk .. " quests ranked)"
+    elseif walk then
+        AutoWatch.state = AutoWatch.state .. " (dungeon filter: " .. #walk .. " quests ranked)"
+    end
 end
 
 -- Edit Mode: the watch list is left alone while it is open (Run checks), and looked at again when
@@ -2567,6 +2600,8 @@ local function OptionEntries()
         { text = "Dungeon filter", checkbox = true, checked = function() return db.dungeonFilter end,
           func = function() SetDungeonFilter(not db.dungeonFilter) end },
     }
+    -- The same entries as in the quest log's gear menu (Filters.lua), on the same saved settings.
+    if A.ns.filters then list[#list + 1] = { text = "Quest log filter", submenu = A.ns.filters.MenuEntries() } end
     local maxItems = {}
     for _, n in ipairs(MENU_MAX) do
         maxItems[#maxItems + 1] = { text = MaxLabel(n), radio = true,
@@ -2783,6 +2818,7 @@ local function StateLine()
         .. " \194\183 completed: " .. db.completed
         .. (db.autoWatch and " \194\183 auto-watch" or "")
         .. (db.dungeonFilter and " \194\183 dungeon filter" or "")
+        .. ((A.ns.filters and A.ns.filters.StateWord()) and (" \194\183 " .. A.ns.filters.StateWord()) or "")
         .. " \194\183 bg " .. (BackdropDB().enabled and (AlphaPercent() .. "%") or "off")
 end
 
@@ -3194,6 +3230,7 @@ local function PrintHelp()
         .. ((db and db.trackerQuestCount) and "on" or "off") .. ")")
     Print("/gqf dungeon on | off - inside a dungeon or raid, watch only that instance's quests (now: "
         .. ((db and db.dungeonFilter) and "on" or "off") .. ")")
+    if A.ns.filters and db then A.ns.filters.Usage() end
     Print("/gqf on | off - switch the addon on or off; off is Blizzard's own tracker (now: "
         .. ((db and db.enabled) and "on" or "off") .. ")")
     Print("/gqf bg on | off | <0-100> - dark backdrop behind the tracker, on/off or its opacity in percent (now: "
@@ -3249,6 +3286,14 @@ local function PrintStatus()
         for _, line in ipairs(dungeonLines) do Print(line) end
     else
         Print("dungeon filter: " .. (db.dungeonFilter and "on" or "off") .. " - error: " .. tostring(dungeonLines))
+    end
+    if A.ns.filters then
+        local okF, filterLines = pcall(A.ns.filters.StatusLines)
+        if okF then
+            for _, line in ipairs(filterLines) do Print(line) end
+        else
+            Print("quest filter: error: " .. tostring(filterLines))
+        end
     end
     local order
     if not db.enabled then
@@ -3368,6 +3413,8 @@ local function OnSlash(msg)
         SaveMinimapHidden(not MinimapDB().hide)
     elseif msg == "minimap reset" then
         ResetMinimapButton()
+    elseif msg == "filter" or msg:match("^filter ") then
+        if A.ns.filters then A.ns.filters.Slash(msg:match("^filter%s*(.*)$")) end
     elseif msg == "status" then
         PrintStatus()
     else
@@ -3393,7 +3440,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.14.0"
+local VERSION = "1.15.0"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3439,6 +3486,8 @@ local function BindSavedVariables()
     if type(db.autoAccept) ~= "boolean" then db.autoAccept = DEFAULTS.autoAccept end
     if type(db.collapseAllButton) ~= "boolean" then db.collapseAllButton = DEFAULTS.collapseAllButton end
     if type(db.trackerQuestCount) ~= "boolean" then db.trackerQuestCount = DEFAULTS.trackerQuestCount end
+    if db.questFilter ~= "completed" and db.questFilter ~= "uncompleted" then db.questFilter = DEFAULTS.questFilter end
+    if type(db.hideInstanceQuests) ~= "boolean" then db.hideInstanceQuests = DEFAULTS.hideInstanceQuests end
     Dungeon.CleanRestore()
     MinimapDB()
     BackdropDB()
@@ -3463,10 +3512,12 @@ events:SetScript("OnEvent", function(_, event, arg1)
             pcall(RegisterGpsMenu)
             pcall(AutoWatch.HookEditMode)
             pcall(CollapseAll.Update)
+            if A.ns.filters then pcall(A.ns.filters.Setup) end
             MarkBackdrop()
             Schedule()
         elseif db and (arg1 == "Blizzard_WorldMap" or arg1 == "Blizzard_QuestLog") then
             pcall(CollapseAll.Update)
+            if A.ns.filters then pcall(A.ns.filters.Setup) end
         elseif db and arg1 == "Blizzard_ObjectiveTracker" then
             pcall(HookTrackerHeaders)
             pcall(CollapseAll.ApplyTrackerCount)
@@ -3488,6 +3539,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if db then pcall(RegisterGpsMenu) end
         if db then pcall(HookTrackerHeaders) end
         if db then pcall(CollapseAll.Update) end
+        if db and A.ns.filters then pcall(A.ns.filters.Setup) end
+        if db and A.ns.filters and event == "PLAYER_ENTERING_WORLD" then pcall(A.ns.filters.OnZoneChanged) end
         pcall(AutoWatch.HookEditMode)
         Schedule()
     elseif event == "QUEST_LOG_UPDATE" then
@@ -3497,6 +3550,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- Fires on every sub-zone change: only worth a pass when the order depends on the zone.
         if db and db.sort == "zone" then Schedule() end
     else
+        -- Entering or leaving an instance pauses or resumes "Hide dungeon & raid quests".
+        if db and A.ns.filters and event == "ZONE_CHANGED_NEW_AREA" then pcall(A.ns.filters.OnZoneChanged) end
         Schedule()
     end
 end)
@@ -3519,3 +3574,21 @@ SLASH_GAARQUESTSFOREVER2 = "/gaarquestsforever"
 SLASH_GAARQUESTSFOREVER3 = "/bqf" -- the command before the Gaar rename
 SLASH_GAARQUESTSFOREVER4 = "/betterquestsforever"
 SlashCmdList.GAARQUESTSFOREVER = OnSlash
+
+-- What Filters.lua (the quest filter, loaded after this file) uses of this file. Read at runtime.
+A.ns.core = {
+    Title = TITLE,
+    DB = function() return db end,
+    IsSecret = IsSecret,
+    Print = Print,
+    InCombat = InCombat,
+    RenderMenu = RenderMenu,
+    ApplyNow = function() ApplyNow() end,
+    -- Tagged Dungeon or Raid (also Heroic, Raid10/25); not Group or Elite. Guarded, see Dungeon.Tags.
+    IsInstanceQuest = function(questID) return Dungeon.IsGroupQuest(questID) end,
+    -- The dungeon filter is on and the player is inside a dungeon or raid instance.
+    DungeonFilterApplies = function()
+        return db ~= nil and db.enabled and db.dungeonFilter and (Dungeon.Instance()) ~= nil or false
+    end,
+    TrackerFiltered = function() return A.ns.trackerFiltered end,
+}

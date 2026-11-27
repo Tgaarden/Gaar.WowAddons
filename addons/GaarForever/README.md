@@ -48,6 +48,31 @@ The hub carries no bag, quest, map, cast bar, nameplate, waypoint, unit-frame, w
 buff, merchant, tooltip, mail, XP, chat or action-bar code of its own. Each addon keeps its logic,
 its settings (`GaarBagsForeverDB`, `GaarQuestsForeverDB` and so on) and its slash command.
 
+## All Gaar…Forever addons
+
+| Addon | What it does |
+|---|---|
+| [GaarBagsForever](https://www.curseforge.com/wow/addons/gaarbagsforever) | Movable backpack with Clean Up Bags, item counts and gold across characters, and Alt-click item locks. |
+| [GaarBarsForever](https://www.curseforge.com/wow/addons/gaarbarsforever) | Clearer action buttons: out-of-range and no-mana colours, big cooldown numbers, short hotkeys, spellbook tab of missing spells. |
+| [GaarBuffsForever](https://www.curseforge.com/wow/addons/gaarbuffsforever) | Buff check and dispel panel for druids, paladins, shamans, priests and mages, with one-click buffing. |
+| [GaarCastbarsForever](https://www.curseforge.com/wow/addons/gaarcastbarsforever) | Movable cast bars for player, target, focus and pet, plus a swing timer. |
+| [GaarChatForever](https://www.curseforge.com/wow/addons/gaarchatforever) | Switchable chat tweaks: short channel names, class colours, timestamps, copyable links, whisper sound and a message feed. |
+| [GaarFishingForever](https://www.curseforge.com/wow/addons/gaarfishingforever) | Double right-click to cast and reel in, session stats, and an optional Fishing 1-300 route. |
+| [GaarForever](https://www.curseforge.com/wow/addons/gaarforever) | The hub: shared library, minimap button, options pages, per-character settings and export/import. |
+| [GaarFramesForever](https://www.curseforge.com/wow/addons/gaarframesforever) | X-Perl-style unit frames for player, target, target of target, focus, pet and party. |
+| [GaarGpsForever](https://www.curseforge.com/wow/addons/gaargpsforever) | One waypoint with arrow and distance, corpse routing, gather points, and graveyard and flight path pins. |
+| [GaarGroupForever](https://www.curseforge.com/wow/addons/gaargroupforever) | Party helper: role pick, ready/role check, pull countdown, markers and pre-pull check. |
+| [GaarLootForever](https://www.curseforge.com/wow/addons/gaarlootforever) | Shows who chose Need, Greed or Pass on group loot rolls, plus a summary of the last rolls. |
+| [GaarMailForever](https://www.curseforge.com/wow/addons/gaarmailforever) | Mailbox helpers: Open All, recipient dropdown, Alt-click to attach items, and a new-mail notice. |
+| [GaarMapsForever](https://www.curseforge.com/wow/addons/gaarmapsforever) | Move, scale and fade the world and zone maps; NPC icons and turn-in markers. |
+| [GaarMerchantForever](https://www.curseforge.com/wow/addons/gaarmerchantforever) | Sells grey items and repairs gear at merchants, optionally from guild funds. |
+| [GaarPlatesForever](https://www.curseforge.com/wow/addons/gaarplatesforever) | Cleaner enemy nameplates: flat health bar, threat colours, cast bar, your debuffs. |
+| [GaarProfessionsForever](https://www.curseforge.com/wow/addons/gaarprofessionsforever) | Profession window helpers: collapse/expand all categories and a Have Part of Materials filter. |
+| [GaarQuestsForever](https://www.curseforge.com/wow/addons/gaarquestsforever) | Sorts and auto-watches quests in the tracker, auto-accepts, and filters the quest log. |
+| [GaarTooltipsForever](https://www.curseforge.com/wow/addons/gaartooltipsforever) | Richer tooltips: vendor price, item ID, item level, stat diff, and unit details. |
+| [GaarWindowsForever](https://www.curseforge.com/wow/addons/gaarwindowsforever) | Move and scale Blizzard's windows: drag the title bar, Ctrl + mouse wheel to scale. |
+| [GaarXPForever](https://www.curseforge.com/wow/addons/gaarxpforever) | XP panel with rested XP, XP per hour, time to level, and quest XP in tooltips. |
+
 ## Install
 
 Put the `GaarForever` folder in `Interface/AddOns`, next to the Gaar...Forever addons you use.

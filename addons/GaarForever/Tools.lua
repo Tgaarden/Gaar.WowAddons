@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.88"] = "notes for GaarQuestsForever 1.15.1: the collapse/expand-all +/- button now sits inside the quest log search box at its right end (left of the clear X while typing), no longer overlapping the quest count",
         ["3.2.87"] = "notes for GaarQuestsForever 1.15.0: quest filter in the quest log's gear menu and the tracker menu - only completed or only uncompleted quests, hide dungeon & raid quests; applies to the quest log and the tracker (/gqf filter)",
         ["3.2.86"] = "notes for GaarMapsForever 1.8.0: a yellow ? on the continent and world maps for every quest ready to turn in, at its turn-in point (/gmf turnins on|off); level ranges for Riverglades, Shen'dralas and Mount Hyjal",
         ["3.2.85"] = "notes for GaarMapsForever 1.7.0: a built-in seed of NPC places for the tracked pins (empty for now, filled from our own exports) and /gmf pins export, a copyable window with your learned places",

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.93"] = "notes for GaarGroupForever 1.6.0: threat bars at the bottom of the group bar - one bar per party member with their threat % on your target (or your target's target), highest first, in class colour, aggro marked (/ggf threat on|off)",
         ["3.2.92"] = "notes for GaarQuestsForever 1.16.0: the quest filter's dungeon & raid checkbox is now a 3-way choice - all quests, only dungeon & raid quests, or no dungeon & raid quests (/gqf filter dungeons all|only|none); your old setting carries over",
         ["3.2.91"] = "Removed the old Better...Forever settings-bridge folders from the download (rename migration period over).",
         ["3.2.90"] = "Release with CurseForge required-dependency on GaarForever and suite links in every description.",
@@ -237,6 +238,7 @@ local CHANGES = {
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     GaarGroupForever = {
+        ["1.6.0"] = "Threat bars at the bottom of the bar, in a party: one bar per member (you included) with the threat % on your target, or on your target's target when you target a friend (the tank), highest first, in class colour, name and %, the member with aggro marked gold with the tank shield. Hidden (and the bar shrinks) solo or with no attackable mob. When the game hides threat in combat the bars still show, unsorted. Option Threat bars, /ggf threat on|off|toggle",
         ["1.4.0"] = "instance info: all vanilla 5-man dungeons with recommended levels vs yours and the party's, boss list ticked as bosses die, notable loot for your class (hover a boss; /ggf info [name] for any dungeon); Info button and Show instance info option",
         ["1.3.0"] = "role modules: Tank (pull marker, lost aggro, healer mana before pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out of range, PvP flag), DPS (assist tank, wrong target, aggro, CC markers, interrupt alert); options in the menu, /ggf tank|healer|dps",
         ["1.1.0"] = "Test mode entry in the menu (shows the bar solo, this session only)",

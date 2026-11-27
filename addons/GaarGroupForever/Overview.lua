@@ -237,6 +237,7 @@ function D.Layout()
         heights[i + 1] = frames[i] and h and h > 0 and h or false
     end
     local ys, total = D.Stack(MT.roleBottom + MT.gap, heights, MT.gap, MT.bottom)
+    D.lastYs, D.lastTotal = ys, total -- Threat.lua places its (last) panel from these in combat
     if #vis > 0 then
         local bw = math.floor((w - (#vis - 1) * MT.gap) / #vis)
         for i, spec in ipairs(vis) do

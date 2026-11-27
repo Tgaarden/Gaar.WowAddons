@@ -304,6 +304,19 @@ M.ResetPos()
 M.SetShow(false); M.SetShow(true) -- /ggf hide|show
 if R.Slash then R.Slash("healer", "test"); R.Slash("dps", "test"); R.Slash("tank", "test") end
 pump(3)
+-- threat section (1.6.0) in combat: a hostile target appears and goes, the option flips
+do
+    local canAttack, uex, threat = G.UnitCanAttack, G.UnitExists, G.UnitDetailedThreatSituation
+    G.UnitCanAttack = function(_, u) return u == "target" end
+    G.UnitExists = function(u) return u == "target" or uex(u) end
+    G.UnitDetailedThreatSituation = function(u) return u == "party2", u == "party2" and 3 or 0, u == "party2" and 100 or 30 end
+    fire("PLAYER_TARGET_CHANGED"); fire("UNIT_THREAT_LIST_UPDATE", "target"); pump(3)
+    eq(M.Threat.want, true, "threat section wanted in combat")
+    M.OnSlash("threat off"); M.OnSlash("threat on"); pump(1)
+    G.UnitCanAttack, G.UnitExists, G.UnitDetailedThreatSituation = canAttack, uex, threat
+    fire("PLAYER_TARGET_CHANGED"); pump(2)
+    eq(M.Threat.want, false, "threat section gone with the target")
+end
 state.group = false; state.units = {}; fire("GROUP_ROSTER_UPDATE"); pump(3) -- left the party in combat
 eq(M.bar:IsShown(), false, "bar hidden in combat")
 eq(tank.shown, true, "secure frame left alone in combat")

@@ -6,7 +6,6 @@
   "gameVersionNames": [
     "1.60.1"
   ],
-  "_comment_bridges": "bridges: new folder -> old folder. While an entry is here, the release zip of that addon also carries addons/<old>/ (its settings bridge: a TOC with the old saved variables, so the first login moves them over). Remove the entries and the Better...Forever folders after the transition (about two weeks, at most a month).",
   "_comment_relations": "relations: addon -> CurseForge project relations sent with every upload (slug = CurseForge project slug; type = requiredDependency | optionalDependency | ...). Addons not listed send none.",
   "relations": {
     "GaarBagsForever": [
@@ -135,25 +134,5 @@
         "type": "requiredDependency"
       }
     ]
-  },
-  "bridges": {
-    "GaarBagsForever": "BetterBagsForever",
-    "GaarBarsForever": "BetterBarsForever",
-    "GaarBuffsForever": "BetterBuffsForever",
-    "GaarCastbarsForever": "BetterCastbarsForever",
-    "GaarChatForever": "BetterChatForever",
-    "GaarFishingForever": "BetterFishingForever",
-    "GaarForever": "BetterForever",
-    "GaarFramesForever": "BetterFramesForever",
-    "GaarGpsForever": "BetterGpsForever",
-    "GaarLootForever": "BetterLootForever",
-    "GaarMailForever": "BetterMailForever",
-    "GaarMapsForever": "BetterMapsForever",
-    "GaarMerchantForever": "BetterMerchantForever",
-    "GaarPlatesForever": "BetterPlatesForever",
-    "GaarQuestsForever": "BetterQuestsForever",
-    "GaarTooltipsForever": "BetterTooltipsForever",
-    "GaarWindowsForever": "BetterWindowsForever",
-    "GaarXPForever": "BetterXPForever"
   }
 }

@@ -2,9 +2,7 @@
 
 Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
 
-> Formerly **BetterMapsForever**. The folder is now `GaarMapsForever` as well; the update also ships a tiny `BetterMapsForever` folder, a
-> settings bridge that moves your old settings over on the first login (each character on its own
-> first login). It is safe to delete after logging in once on each character, and later updates drop it. The command is
+> Formerly **BetterMapsForever**. The folder is now `GaarMapsForever` as well; settings from the old Better…Forever names were migrated up to this version (the old settings-bridge folder is no longer shipped and can be deleted). The command is
 > now `/gmf` (`/gaarmapsforever`); the old `/bmf` and `/bettermapsforever` still work.
 > CurseForge: https://www.curseforge.com/wow/addons/gaarmapsforever
 

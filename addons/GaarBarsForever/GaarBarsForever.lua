@@ -89,7 +89,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.6.2"
+local VERSION = "1.6.3"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })

@@ -44,15 +44,11 @@ of the code.
 | `GaarForever` | The hub of the Gaar...Forever family (named `BetterGaarForever` before 3.0), not part of the suite, Forever only, and a required dependency of all nineteen: the shared library (global `GaarForever`), one minimap button whose menu holds every addon's options, and their pages under **Esc > Options > AddOns > Gaar Forever** - an overview plus one page per installed addon, with a short intro, generated from the same options as the menu. Since 3.1 also a chat line per addon after an update saying what changed (`/gf news`), per-character settings for addons on the library's settings (`/gf profile`), since 3.2.1 every addon's settings exported and imported as one string (`/gf export all`, `/gf import`), and an API self-test to copy and send (`/gf selftest`). No feature code of its own | `/gf`, minimap button, Options |
 
 The `Gaar...Forever` addons were formerly **Better...Forever** (renamed in hub 3.2), folders
-included (`addons/GaarForever`, `addons/GaarBagsForever`, ...). For the transition each old
-folder stays in the repo as a **settings bridge** (`addons/BetterForever`, `addons/BetterBagsForever`,
-...: a TOC listing the old saved variables, no code) and goes into the same release zip; the new
-addon lists it under `## OptionalDeps` and copies the old settings over on the first login
-(`GaarForever.Migrate`, see [the hub's README](addons/GaarForever/README.md#coming-from-betterforever)).
-The hub's bridge is the exception (hub 3.2.2): `BetterForever` lists `## Dependencies: GaarForever`,
-so the hub loads first and an old full addon that still depends on `BetterForever` finds the
-library.
-The bridges are safe to delete after one login per character. The old globals
+included (`addons/GaarForever`, `addons/GaarBagsForever`, ...). Settings from the old Better...Forever names were migrated up to hub 3.2.91 by a small
+"settings bridge" folder per addon (a TOC listing the old saved variables, no code) that shipped in
+the same zip; those folders are no longer in the repo or the downloads (3.2.91). The migration code
+(`GaarForever.Migrate`, see [the hub's README](addons/GaarForever/README.md#coming-from-betterforever))
+stays and simply finds nothing. The old globals
 (`BetterForever`, `Better...ForeverAPI`) stay as aliases. Each
 addon's command is now a g-command (`/gf`, `/gbf`, `/gqf`, ...; `/glf` for GaarLootForever, as
 `/gloot` is GaarLooter's); the old `/b...` commands (`/bf`, `/bbf`, `/bqf`, `/bloot`, ...) still work.
@@ -553,16 +549,9 @@ Bump `## Version` in both TOCs and merge first; the tag must match the TOC versi
 - CurseForge relations (required GaarForever, optional extras) come from `relations` in `tools/curseforge-config.json`.
 - Secret `CF_API_KEY` (repo Settings > Secrets > Actions): API token from
   https://wow.curseforge.com/account/api-tokens. Without it the CurseForge step is skipped.
-- The changelog is the tag message (release.sh fills it from the addon's commits; the first
-  Gaar tag of an addon starts after its last `Better...Forever-v*` tag).
-- **Settings bridges** (temporary): `tools/curseforge-config.json` `"bridges"` maps each new
-  folder to its old one (`"GaarBagsForever": "BetterBagsForever"`). While an addon has an entry,
-  its zip holds both folders at the root (`GaarBagsForever/` and the bridge `BetterBagsForever/`),
-  so a CurseForge update replaces the old full addon with its bridge and the settings move over.
-  **After the transition (about two weeks, at most a month) remove the `bridges` entries and the
-  `addons/Better*Forever` bridge folders** (and the `## OptionalDeps: BetterXForever` line in each
-  addon's TOCs, and the hub's `MigrateOldHubDB`); `GaarForever.Migrate` then simply finds nothing
-  to move.
+- The changelog is the tag message (release.sh fills it from the addon's commits).
+- **Settings bridges** (removed in hub 3.2.91): the zips used to carry the old `Better...Forever`
+  folder next to each new one. They are gone; each zip holds only its own `Gaar...Forever/` folder.
 
 ## Support
 

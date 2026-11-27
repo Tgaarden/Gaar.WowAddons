@@ -2,9 +2,7 @@
 
 Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
 
-> Formerly **BetterWindowsForever**. The folder is now `GaarWindowsForever` as well; the update also ships a tiny `BetterWindowsForever` folder, a
-> settings bridge that moves your old settings over on the first login (each character on its own
-> first login). It is safe to delete after logging in once on each character, and later updates drop it. The command is
+> Formerly **BetterWindowsForever**. The folder is now `GaarWindowsForever` as well; settings from the old Better…Forever names were migrated up to this version (the old settings-bridge folder is no longer shipped and can be deleted). The command is
 > now `/gwf` (`/gaarwindowsforever`); the old `/bwf` and `/betterwindowsforever` still work.
 > CurseForge: https://www.curseforge.com/wow/addons/gaarwindowsforever
 

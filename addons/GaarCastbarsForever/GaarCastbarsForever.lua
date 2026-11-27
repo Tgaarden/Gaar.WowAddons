@@ -58,7 +58,7 @@ local _G = _G
 local ADDON_NAME = ... or "GaarCastbarsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.4.1"
+local VERSION = "1.4.2"
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local SPARK = "Interface\\CastingBar\\UI-CastingBar-Spark"

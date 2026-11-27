@@ -19,7 +19,8 @@
     * Zone levels (on by default): the zone's level range, "Level 35-45", coloured like mob difficulty,
       as one line under Blizzard's hover name: the neighbour's range while hovering one, else the shown zone's. /gmf levels on|off.
     * Tracked NPC pins (on by default, TrackedPins.lua): on a zone map, icons for the town NPCs whose types are
-      checked in the minimap tracking menu, learned account-wide as you visit them. /gmf pins on|off|clear.
+      checked in the minimap tracking menu, learned account-wide as you visit them, plus the read-only seed in
+      Data/TrackedSeed.lua. /gmf pins on|off|clear|export.
     * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off, fade <percent>, levels on|off and pins.
     * GaarMapsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
@@ -51,7 +52,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1

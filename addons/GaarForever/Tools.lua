@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.85"] = "notes for GaarMapsForever 1.7.0: a built-in seed of NPC places for the tracked pins (empty for now, filled from our own exports) and /gmf pins export, a copyable window with your learned places",
         ["3.2.84"] = "notes for GaarMapsForever 1.6.0: NPC icons on a zone map for the types checked in the minimap tracking menu (banker, mailbox, flight master, trainers, repair and more), learned as you visit them and shared by all your characters; /gmf pins on|off|clear",
         ["3.2.83"] = "notes for GaarBarsForever 1.6.1: the flyout editor's button in the spellbook is a full-size tab like Missing from bars; while Missing from bars is open only its tab looks selected; spells on your bars through a flyout or a macro no longer get Blizzard's not-on-your-bars glow in the spellbook; the orange frames on spellbook icons (low-rank ring, rotation helper) are hidden by default (/gbars bookframe on|off)",
         ["3.2.82"] = "notes for GaarMapsForever 1.5.3: zones missing from the level table (WoW Forever's new ones) now get their level range from the client when it has one; /gmf status lists the maps that still have none",
@@ -152,6 +153,7 @@ local CHANGES = {
         ["1.10.2"] = "uses the GaarForever shared library",
     },
     GaarMapsForever = {
+        ["1.7.0"] = "Tracked pins: a read-only built-in seed (Data/TrackedSeed.lua, our own data only, empty for now) merged with what you learn - your learned places always win. New /gmf pins export [<mapID> | here]: your learned places as text in a copyable window (Select all, Ctrl+C), in exactly the seed's format, so places walked in the capitals can be added to the seed",
         ["1.6.0"] = "Tracked NPC pins: on a map that shows one zone (never a continent or the world map), icons for the town NPCs whose types are checked in the minimap tracking menu - Auctioneer, Banker, Battlemaster, Class and Profession Trainers, Flight Master, Innkeeper, Mailbox, Repair, Stable Master, Food & Drink, Reagents, Poisons, Ammunition - with the tracking type's own icon; they follow the menu as you tick types on and off. The places are learned when you open an NPC's window (merchant, bank, auction house, flight master, trainer, mailbox, innkeeper, stable master, battlemaster) and saved account-wide, so every character shares them. Hover an icon for the name and categories. /gmf pins on|off, /gmf pins clear (asks first), a menu entry, and a status line in /gmf status",
         ["1.5.3"] = "Zone levels for zones missing from the built-in table (WoW Forever's new zones): the range is read from the client (C_Map.GetMapLevels) when it has one, guarded and cached. /gmf status lists the map ids and names that still show no level, so gaps can be reported",
         ["1.5.2"] = "Zone view: one level line, always in the same spot under Blizzard's hover name, no zone name from us; shows the hovered neighbour's range, else the shown zone's",

@@ -1,6 +1,6 @@
 --[[
   GaarBuffsForever - self buffs (since 1.11.0): your own XP food buff and campfire buff, in a
-  small strip of two rows next to the buff box (left of it, Alt + drag to move). Every class:
+  small strip of up to two rows next to the buff box (left of it, Alt + drag to move). Every class:
   it is about you alone, so it runs even where the class buff check is idle (ns.extras in
   GaarBuffsForever.lua).
 
@@ -15,8 +15,8 @@
               greyed out, tooltip "Requires Cooking (Basic Campfire)".
 
   Each row has its own option (/gbuff self food|fire [on|off]; /gbuff self [on|off] both, also in
-  the menu); both are on by default. The strip shows while at least one row is on and the addon
-  is on (/gbuff on|off).
+  the menu); both are on by default. A row shows only while its buff is missing or greyed out; the strip shows while at
+  least one row is showing and the addon is on (/gbuff on|off). Both buffs up: no strip.
 
   Detection. The exact names and spell / item IDs on WoW Forever are not known, so everything is
   matched by keywords (KEYWORDS below, one table, lower-case Lua patterns) and what is found is
@@ -626,12 +626,14 @@ local function Render()
     for i, e in ipairs(ENTRIES) do
         local r = rows[i]
         r.label = e.label
-        local on = On(e.key)
-        if on then
+        local v = On(e.key) and View(e.kind, now) or nil
+        r.view = v
+        if v then Paint(r, v) end
+        -- A row shows only while its buff is missing or cannot be used (greyed out); a row whose
+        -- buff is active is hidden, so the strip shrinks to the rows that need attention.
+        local show = v ~= nil and v.look ~= "active"
+        if show then
             n = n + 1
-            local v = View(e.kind, now)
-            r.view = v
-            Paint(r, v)
             if not combat then
                 Bind(r, v.attr)
                 r:ClearAllPoints()
@@ -642,14 +644,14 @@ local function Render()
             y = y - ROW_H
         elseif not combat then
             Bind(r, nil)
-            r.view = nil
             r:Hide()
         end
     end
     if not combat then
         bindPending = false
         panel:SetHeight(n * ROW_H + 2 * PAD)
-        panel:Show()
+        -- No row to show (both buffs active): the strip and its backdrop are hidden too.
+        if n > 0 then panel:Show() else panel:Hide() end
     end
 end
 

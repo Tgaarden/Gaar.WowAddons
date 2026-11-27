@@ -526,3 +526,7 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Quest log filter (gear menu)**
 
 <img src="../../docs/screenshots/GaarQuestsForever/7-quest-filter.jpg" alt="Quest log filter (gear menu)" width="600">
+
+**Collapse button in the search box + quest filter**
+
+<img src="../../docs/screenshots/GaarQuestsForever/8-search-collapse-filter.jpg" alt="Collapse button in the search box + quest filter" width="600">

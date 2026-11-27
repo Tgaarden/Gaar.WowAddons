@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.82"] = "notes for GaarMapsForever 1.5.3: zones missing from the level table (WoW Forever's new ones) now get their level range from the client when it has one; /gmf status lists the maps that still have none",
         ["3.2.81"] = "notes for GaarBarsForever 1.6.0: Flyouts v2 - each flyout is its own object with a name, an icon and its own macro (GF <name>) that carries it on your bars; a flyout editor (/gbars flyouts, or the button next to Missing from bars in the spellbook); the button's key again while its flyout is open casts entry 1 (/gbars flyout samekey on|off); 1.5 flyouts are converted once",
         ["3.2.80"] = "notes for GaarBarsForever 1.5.2: right-clicking a button with a flyout now really casts the flyout's first entry without opening it (in and out of combat, also after the main bar pages); a /gbars status line says on how many buttons it is set",
         ["3.2.79"] = "notes for GaarBarsForever 1.5.1: spells and macros inside a flyout count as on your bars in the Missing from bars tab (same rank rules); right-click a button with a flyout casts its first entry without opening it (works in combat)",
@@ -149,6 +150,7 @@ local CHANGES = {
         ["1.10.2"] = "uses the GaarForever shared library",
     },
     GaarMapsForever = {
+        ["1.5.3"] = "Zone levels for zones missing from the built-in table (WoW Forever's new zones): the range is read from the client (C_Map.GetMapLevels) when it has one, guarded and cached. /gmf status lists the map ids and names that still show no level, so gaps can be reported",
         ["1.5.2"] = "Zone view: one level line, always in the same spot under Blizzard's hover name, no zone name from us; shows the hovered neighbour's range, else the shown zone's",
         ["1.5.1"] = "Zone view: the zone name and level title moved down so Blizzard's hover label for a neighbouring zone no longer draws on top of it",
         ["1.5.0"] = "Zone level range on the world map, Level 35-45, coloured like mob difficulty: a title in zone view and under the hover name on the continent map; classic zone table; /gmf levels on|off, menu entry, /gmf status shows the matched range",

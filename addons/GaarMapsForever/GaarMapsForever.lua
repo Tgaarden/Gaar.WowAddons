@@ -21,7 +21,10 @@
     * Tracked NPC pins (on by default, TrackedPins.lua): on a zone map, icons for the town NPCs whose types are
       checked in the minimap tracking menu, learned account-wide as you visit them, plus the read-only seed in
       Data/TrackedSeed.lua. /gmf pins on|off|clear|export.
-    * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off, fade <percent>, levels on|off and pins.
+    * Quest turn-in pins (on by default, TurnInPins.lua, 1.8.0): on a continent or the world map, Blizzard's
+      yellow "?" at the turn-in point of every quest in the log that is ready to turn in (zone maps are left to
+      Blizzard, which draws them there itself). /gmf turnins on|off.
+    * /gmf for help, lock, unlock, reset, status, scale <50-150>, fade on|off, fade <percent>, levels on|off, pins and turnins.
     * GaarMapsForeverAPI, a small global table for GaarForever's hub menu (version,
       StatusLine, MenuEntries, AddMenuEntries, SetMinimapHidden). The addon runs exactly the same
       without the hub; the API only exposes the settings the slash command already changes.
@@ -52,7 +55,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.7.0"
+local VERSION = "1.8.0"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -69,11 +72,13 @@ local DEFAULTS = {
     zoneMapScale = 1,
     zoneLevels = true,
     trackedPins = true,
+    turnInPins = true,
 }
 
 -- Every key GaarMapsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, scale = true, position = true, fade = true, fadeAlpha = true,
-    zoneMapPoint = true, zoneMapScale = true, zoneLevels = true, trackedPins = true }
+    zoneMapPoint = true, zoneMapScale = true, zoneLevels = true, trackedPins = true,
+    turnInPins = true }
 
 local db                -- GaarMapsForeverDB, bound at ADDON_LOADED (never at file scope)
 local map               -- WorldMapFrame once found
@@ -1186,7 +1191,8 @@ function ZL.Range(id, name, viewType)
             local ok, info = pcall(C_Map.GetMapInfo, id)
             name = ok and type(info) == "table" and SafeString(info.name) or nil
         end
-        r = name and data.byName[name]
+        r = name and (data.byName[name]
+            or (data.byKey and data.NameKey and data.byKey[data.NameKey(name)]))
         if r then return r[1], r[2], "name" end
     end
     local c = ZL.apiCache[id]
@@ -1367,6 +1373,7 @@ local function PrintHelp()
     Print("/gmf portrait - state of the portrait right-click button (hover it first)")
     Print("/gmf levels on | /gmf levels off - show the zone's level range, Level 35" .. EN_DASH .. "45, on the world map (now: " .. OnOff(db and db.zoneLevels) .. ")")
     if ns and ns.trackedPins then for _, l in ipairs(ns.trackedPins.HELP) do Print(l) end end
+    if ns and ns.turnInPins then for _, l in ipairs(ns.turnInPins.HELP) do Print(l) end end
     Print("/gmf status - what this client offers and the current settings")
 end
 
@@ -1391,6 +1398,7 @@ local function PrintStatus()
         Print("zone levels, maps without level data (" .. #gaps .. "): " .. (#gaps > 0 and table.concat(gaps, ", ") or "none yet (hover zones on the map first)"))
     end
     if ns and ns.trackedPins then for _, l in ipairs(ns.trackedPins.StatusLines()) do Print(l) end end
+    if ns and ns.turnInPins then Print(ns.turnInPins.StatusLine()) end
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))
@@ -1425,6 +1433,8 @@ local function OnSlash(msg)
         ZL.SetEnabled(msg == "levels on")
     elseif (msg == "pins" or msg:match("^pins ")) and ns and ns.trackedPins then
         ns.trackedPins.Slash(msg:match("^pins%s*(.*)$"))
+    elseif (msg == "turnins" or msg:match("^turnins ")) and ns and ns.turnInPins then
+        ns.turnInPins.Slash(msg:match("^turnins%s*(.*)$"))
     elseif msg == "portrait" then
         PortraitStatus()
     elseif scaleArg then
@@ -1494,6 +1504,8 @@ local function MenuEntries()
           func = function() ZL.SetEnabled(not db.zoneLevels) end },
         { text = "NPC icons from minimap tracking", checkbox = true, checked = function() return db.trackedPins end,
           func = function() if ns and ns.trackedPins then ns.trackedPins.SetEnabled(not db.trackedPins) end end },
+        { text = "Quest turn-ins (?) on continent & world maps", checkbox = true, checked = function() return db.turnInPins end,
+          func = function() if ns and ns.turnInPins then ns.turnInPins.SetEnabled(not db.turnInPins) end end },
         { divider = true },
         { text = "Zone map (Shift+M) scale", submenu = zones },
         { text = "Reset zone map", func = ZoneReset },
@@ -1545,6 +1557,7 @@ local function BindSavedVariables()
     if type(db.fade) ~= "boolean" then db.fade = true end
     if type(db.zoneLevels) ~= "boolean" then db.zoneLevels = true end
     if type(db.trackedPins) ~= "boolean" then db.trackedPins = true end
+    if type(db.turnInPins) ~= "boolean" then db.turnInPins = true end
     db.scale = Clamp(Num(tonumber(db.scale)) or 1, MIN_SCALE, MAX_SCALE)
     db.fadeAlpha = Clamp(Num(tonumber(db.fadeAlpha)) or DEFAULT_FADE_ALPHA, MIN_FADE, MAX_FADE)
     local pos = db.position
@@ -1571,16 +1584,19 @@ events:SetScript("OnEvent", function(_, event, arg1)
             ZL.Init()
             HookZone() -- immediately, if Blizzard_BattlefieldMap is already loaded
             if ns and ns.trackedPins then ns.trackedPins.Bind(db, { Print = Print, GetMap = GetMap }) end
+            if ns and ns.turnInPins then ns.turnInPins.Bind(db, { Print = Print, GetMap = GetMap }) end
         elseif db and not hooked then
             -- In case the map arrives with a Blizzard addon loaded after us.
             HookBlizzard()
         end
         if db and not ZL.hooked and arg1 == "Blizzard_WorldMap" then ZL.Init() end
         if db and arg1 == "Blizzard_WorldMap" and ns and ns.trackedPins then ns.trackedPins.HookMap() end
+        if db and arg1 == "Blizzard_WorldMap" and ns and ns.turnInPins then ns.turnInPins.HookMap() end
         if db and arg1 == "Blizzard_BattlefieldMap" then HookZone() end
     elseif event == "PLAYER_LOGIN" then
         if db then HookBlizzard() HookZone() ZL.Init() end
         if db and ns and ns.trackedPins then ns.trackedPins.HookMap() end
+        if db and ns and ns.turnInPins then ns.turnInPins.HookMap() end
         if AddOnLoaded("GaarMap") then
             Print("GaarMap is loaded too and also scales and fades the world map; use one of the two.")
         end

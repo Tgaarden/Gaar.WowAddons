@@ -25,4 +25,25 @@ eq("continent in world view none", ZL.Range(9002, "Cont", 1), nil)
 eq("unknown id none", ZL.Range(5, "?", 3), nil)
 eq("gap listed", ZL.gaps[9001] ~= nil, true)
 eq("no GetMapLevels ok", (function() G.C_Map.GetMapLevels = nil; return ZL.Range(777, "n", 3) end)(), nil)
+-- The real data file: WoW Forever zones (1.8.0) by id, Shen'dralas by name; a hovered name with another
+-- apostrophe or case still matches (byKey).
+local dfh = assert(io.open("addons/GaarMapsForever/Data/ZoneLevels.lua")); local dsrc = dfh:read("*a"); dfh:close()
+local realNs = {}
+assert(loadstring(dsrc, "ZoneLevels"))("GaarMapsForever", realNs)
+local zl = realNs.zoneLevels
+eq("riverglades by id", zl.byId[2548] and (zl.byId[2548][1] .. "-" .. zl.byId[2548][2]), "36-44")
+eq("hyjal by id", zl.byId[2482] and (zl.byId[2482][1] .. "-" .. zl.byId[2482][2]), "55-60")
+eq("shen'dralas by name", zl.byName["Shen'dralas"] and (zl.byName["Shen'dralas"][1] .. "-" .. zl.byName["Shen'dralas"][2]), "40-45")
+eq("count", zl.count, 43)
+calls = 0
+local f2 = assert(loadstring(code, "zl2")); setfenv(f2, G)
+G.C_Map.GetMapLevels = function() calls = calls + 1; return 1, 60 end
+infos[3001] = { name = "Shen\226\128\153dralas", mapType = 3 } -- the name the client shows, curly apostrophe
+local ZL2 = f2(realNs)
+lo, hi, s = ZL2.Range(2548, "Riverglades", 2); eq("riverglades hovered on the continent", lo .. "-" .. hi .. s, "36-44id")
+lo, hi, s = ZL2.Range(2482, nil, 3); eq("hyjal", lo .. "-" .. hi .. s, "55-60id")
+lo, hi, s = ZL2.Range(3001, "Shen'dralas", 2); eq("shen'dralas hovered by name", lo .. "-" .. hi .. s, "40-45name")
+lo, hi, s = ZL2.Range(3001, "SHEN\226\128\153DRALAS", 2); eq("shen'dralas other apostrophe", lo .. "-" .. hi .. s, "40-45name")
+lo, hi, s = ZL2.Range(3001, nil, 3); eq("shen'dralas name from GetMapInfo", lo .. "-" .. hi .. s, "40-45name")
+eq("name match before the API", calls, 0)
 if fails == 0 then print("maps_levels_fallback_test: ok") else os.exit(1) end

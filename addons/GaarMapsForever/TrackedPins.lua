@@ -623,6 +623,7 @@ local function Canvas(map)
     local sc = map.ScrollContainer
     if type(sc) == "table" and type(sc.Child) == "table" then return sc.Child end
 end
+TP.Canvas = Canvas -- shared with TurnInPins.lua
 
 local cache = { map = nil, rev = -1, entries = nil }
 local function Entries(mapID)

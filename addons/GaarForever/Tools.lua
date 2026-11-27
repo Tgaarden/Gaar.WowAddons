@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.90"] = "Release with CurseForge required-dependency on GaarForever and suite links in every description.",
         ["3.2.89"] = "notes for GaarQuestsForever 1.15.2: more space between the +/− button and the quest count.",
         ["3.2.88"] = "notes for GaarQuestsForever 1.15.1: the collapse/expand-all +/- button now sits inside the quest log search box at its right end (left of the clear X while typing), no longer overlapping the quest count",
         ["3.2.87"] = "notes for GaarQuestsForever 1.15.0: quest filter in the quest log's gear menu and the tracker menu - only completed or only uncompleted quests, hide dungeon & raid quests; applies to the quest log and the tracker (/gqf filter)",

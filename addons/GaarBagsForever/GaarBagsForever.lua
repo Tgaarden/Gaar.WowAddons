@@ -66,7 +66,7 @@
 
 local _G = _G
 local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.4"
+local VERSION = "1.13.5"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.

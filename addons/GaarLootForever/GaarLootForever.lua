@@ -59,7 +59,7 @@
 ]]
 
 local _G = _G
-local VERSION = "1.4.0"
+local VERSION = "1.4.1"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever

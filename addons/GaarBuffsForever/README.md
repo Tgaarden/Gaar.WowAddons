@@ -95,8 +95,10 @@ Right-click the empty background of the buff box (not the spell rows) to open th
 ## Self buffs (every class)
 
 New in 1.11, in `SelfBuffs.lua`. Two rows in a small strip, by default just left of the buff box
-(Alt + drag moves it, `/gbuff self reset` puts it back). A row shows only while its buff is missing
-or greyed out: with both buffs up the strip is hidden, with one up it shrinks to the other row. It is about you alone, so it works on
+(Alt + drag moves it, `/gbuff self reset` puts it back). A row shows only while its buff is missing,
+greyed out or expiring soon: with both buffs up the strip is hidden, with one up it shrinks to the other row.
+Expiring soon uses the class buffs' window (`/gbuff expire`, default 2 minutes, 0 = off): the row
+shows its time left in brackets, `(1:45)`, and its tooltip says `Expires in 1:45.` It is about you alone, so it works on
 every class, warriors, rogues, hunters and warlocks too.
 
 | Row | Buff on | Buff missing | Can't click |

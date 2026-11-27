@@ -283,7 +283,7 @@ eq("xp row item follows", xpRow.attrs.item, "Small Feast")
 S.auras = {
     { spellId = 1126, name = "Mark of the Wild", icon = 1, expirationTime = S.now + 1800, auraInstanceID = 11, tip = { "Increases armor by 105." } },
     { spellId = 90001, name = "Well Fed", icon = 136000, expirationTime = S.now + 900, auraInstanceID = 12, tip = { "Experience gained increased by 10%." } },
-    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 60, auraInstanceID = 13, tip = { "Spirit increased." } },
+    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 600, auraInstanceID = 13, tip = { "Spirit increased." } },
 }
 Fire("UNIT_AURA", "player")
 Tick()
@@ -350,7 +350,7 @@ S.auraError = false
 S.auras = secretAuras
 Fire("UNIT_AURA", "player")
 Tick()
-S.now = S.now + 400
+S.now = S.now + 700
 pcall(Tick, 0)
 ok("expired while frozen = missing", fireRow.view.look == "missing")
 eq("still no protected calls in combat", #S.violations, 0)
@@ -392,7 +392,7 @@ ok("strip back", panel.shown == true)
 S.combat = false
 S.auras = {
     { spellId = 90001, name = "Well Fed", icon = 136000, expirationTime = S.now + 900, auraInstanceID = 21, tip = { "Experience gained increased by 10%." } },
-    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 60, auraInstanceID = 22, tip = { "Spirit increased." } },
+    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 600, auraInstanceID = 22, tip = { "Spirit increased." } },
 }
 Fire("UNIT_AURA", "player")
 Tick()
@@ -413,6 +413,28 @@ Tick()
 ok("none active: xp row shown", xpRow.shown == true)
 ok("none active: campfire row shown", fireRow.shown == true)
 eq("none active: strip is two rows high", panel.h, 2 * 18 + 12)
+
+-- 6c. Expiring soon: the class buffs' window (/gbuff expire, default 2 min) -----------------
+S.auras = {
+    { spellId = 90001, name = "Well Fed", icon = 136000, expirationTime = S.now + 91, auraInstanceID = 31, tip = { "Experience gained increased by 10%." } },
+    { spellId = 90002, name = "Campfire", icon = 135805, expirationTime = S.now + 600, auraInstanceID = 32, tip = { "Spirit increased." } },
+}
+Fire("UNIT_AURA", "player")
+Tick()
+eq("expiring: xp row look", xpRow.view.look, "expiring")
+eq("expiring: xp row shows time left", xpRow.view.text, "1:30")
+ok("expiring: xp row shown", xpRow.shown == true)
+ok("expiring: label keeps the grey time", xpRow.text.text:find("|cffaaaaaa(1:30)|r", 1, true) ~= nil)
+ok("expiring: tooltip says when", xpRow.view.tip[2] and xpRow.view.tip[2][1] == "Expires in 1:30.")
+eq("expiring: campfire still active", fireRow.view.look, "active")
+ok("expiring: campfire row hidden", fireRow.shown == false)
+eq("expiring: one row high", panel.h, 18 + 12)
+S.auras[1].expirationTime = S.now + 600  -- no longer expiring
+Fire("UNIT_AURA", "player")
+Tick()
+eq("not expiring: xp row active", xpRow.view.look, "active")
+ok("not expiring: xp row hidden", xpRow.shown == false)
+ok("not expiring: strip hidden", panel.shown == false)
 
 -- 7. Status, help, menu ---------------------------------------------------------------------
 printed = {}

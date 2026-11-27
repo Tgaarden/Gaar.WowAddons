@@ -15,8 +15,9 @@
               greyed out, tooltip "Requires Cooking (Basic Campfire)".
 
   Each row has its own option (/gbuff self food|fire [on|off]; /gbuff self [on|off] both, also in
-  the menu); both are on by default. A row shows only while its buff is missing or greyed out; the strip shows while at
-  least one row is showing and the addon is on (/gbuff on|off). Both buffs up: no strip.
+  the menu); both are on by default. A row shows only while its buff is missing, greyed out or expiring soon (the class buffs' window,
+  /gbuff expire; the time left is in brackets). The strip shows while at least one row is showing and
+  the addon is on (/gbuff on|off). Both buffs up: no strip.
 
   Detection. The exact names and spell / item IDs on WoW Forever are not known, so everything is
   matched by keywords (KEYWORDS below, one table, lower-case Lua patterns) and what is found is
@@ -491,9 +492,14 @@ local function View(kind, now)
         v.icon = (b and b.icon) or (fireSpell and fireSpell.icon) or ICON_FIRE
     end
     if b then
-        v.look = "active"
-        v.text = b.exp and ns.Clock and ns.Clock(b.exp - now) or "on"
-        table.insert(v.tip, 1, { (b.name or "?") .. (b.exp and (": " .. (ns.Clock and ns.Clock(b.exp - now) or "")) .. " left" or ""), 0.3, 0.85, 0.3 })
+        -- Expiring soon: the same window as the class buffs (/gbuff expire), read from ns.Expiring.
+        local left = b.exp and (b.exp - now) or nil
+        local clock = left and ns.Clock and ns.Clock(left) or nil
+        local expiring = left ~= nil and ns.Expiring ~= nil and ns.Expiring(left) == true
+        v.look = expiring and "expiring" or "active"
+        v.text = clock or "on"
+        table.insert(v.tip, 1, { (b.name or "?") .. (clock and (": " .. clock .. " left") or ""), 0.3, 0.85, 0.3 })
+        if expiring then table.insert(v.tip, 2, { "Expires in " .. clock .. ".", 1, 0.82, 0 }) end
     elseif v.attr then
         v.look, v.text = "missing", "missing"
     else
@@ -593,10 +599,15 @@ local function Bind(r, attr)
 end
 
 local function Paint(r, v)
-    local c = v.look == "active" and GREEN or v.look == "missing" and RED or GREY
+    local c = (v.look == "active" or v.look == "expiring") and GREEN or v.look == "missing" and RED or GREY
     r.border:SetVertexColor(c[1], c[2], c[3], 1)
     r.icon:SetTexture(v.icon)
     if type(r.icon.SetDesaturated) == "function" then r.icon:SetDesaturated(v.look == "off") end
+    -- Expiring: the time left in grey brackets, as the class buff rows show it ("(1:45)").
+    if v.look == "expiring" then
+        r.text:SetText(r.label .. "  |cffaaaaaa(" .. v.text .. ")|r")
+        return
+    end
     local hex = v.look == "active" and "ffffff" or v.look == "missing" and "ff5555" or "888888"
     r.text:SetText(r.label .. "  |cff" .. hex .. v.text .. "|r")
 end

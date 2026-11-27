@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.96"] = "notes for GaarBuffsForever 1.11.2: self-buff rows show only while missing or expiring soon (same window as the class buffs, /gbuff expire); both buffs up hides the strip",
         ["3.2.95"] = "notes for GaarBuffsForever 1.11.1: detects WoW Forever's 'Camp Benefits' campfire buff.",
         ["3.2.94"] = "notes for GaarBuffsForever 1.11.0: self buffs on every class - a small strip with your XP food buff and campfire buff and their time left, red when missing; click eats an XP food from your bags or casts Basic Campfire (/gbuff self); detected by keyword, learned IDs in /gbuff status",
         ["3.2.93"] = "notes for GaarGroupForever 1.6.0: threat bars at the bottom of the group bar - one bar per party member with their threat % on your target (or your target's target), highest first, in class colour, aggro marked (/ggf threat on|off)",
@@ -230,6 +231,7 @@ local CHANGES = {
         ["1.2.2"] = "uses the GaarForever shared library",
     },
     GaarBuffsForever = {
+        ["1.11.2"] = "Self-buff strip: a row shows only while its buff is missing or expiring soon (time left in brackets, same window as /gbuff expire); both buffs up hides the strip.",
         ["1.11.1"] = "Detects WoW Forever's 'Camp Benefits' campfire buff (campfire keywords: camp benefit, camp bonus).",
         ["1.11.0"] = "Self buffs, every class: a strip next to the buff box shows your XP food buff and campfire buff with time left (red when missing); click eats an XP food from your bags (largest stack) or casts Basic Campfire, greyed out with no food / without Cooking. Found by keyword; learned IDs in /gbuff status. /gbuff self [on|off], /gbuff self food|fire [on|off]",
         ["1.10.0"] = "Test mode entry in the menu (was Test box); it sits just before Reset position",

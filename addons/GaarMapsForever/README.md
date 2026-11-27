@@ -47,6 +47,11 @@ does nothing else. It needs GaarForever, the family hub, and no other addon or l
   and put back whenever the map is shown. `/gmf lock` locks it as well. Blizzard's opacity option (right-click the tab) is left
   alone, and it does not fade while you move. Skipped in combat and applied once combat ends.
 - **Zone levels** (1.5.0, `/gmf levels on|off`, on by default). The zone's level range, `Level 35–45`, coloured like mob difficulty (the hub's `LevelDifficultyColor`, midpoint of the range against your level). It is one line, always in the same spot directly under the name Blizzard's own hover label shows (no name text from us). On a continent map it shows the hovered zone's range. In zone view (since 1.5.2) it shows the range of the neighbouring zone you hover, and the range of the zone the map shows when you do not hover a neighbour. Ranges come from `Data/ZoneLevels.lua` (the 40 classic Eastern Kingdoms and Kalimdor zones, by uiMapID, with an English-name fallback), `C_Map.GetMapLevels` (guarded, cached) for any zone not in the table, so WoW Forever's new zones get a range when the client has one. `/gmf status` lists the map ids that still have no level data. Cities, instances and zones without a range show nothing. `/gmf status` shows the current map id and the matched range.
+- **Tracked NPC pins** (1.6.0, `/gmf pins on|off`, on by default). On a map that shows a single zone (map type Zone, Dungeon or Micro; never a continent or the world map, wherever you stand) the addon draws icons for the town NPCs whose types are **checked in the minimap tracking menu**: Auctioneer, Banker, Battlemaster, Class Trainer, Profession Trainers, Flight Master, Innkeeper, Mailbox, Repair, Stable Master, Food & Drink, Reagents, Poisons, Ammunition. Tick or untick a type there and the icons follow (`MINIMAP_UPDATE_TRACKING`). Each icon is the tracking type's own texture; hover it for the name and categories.
+  - **Learned as you go.** The addon cannot read the client's NPC list, so it learns: when you open an NPC's window it stores your own position (you stand next to the NPC) on your current zone map. Merchant (`MERCHANT_SHOW`: vendor, Repair if the merchant repairs, Food & Drink / Reagents / Ammunition / Poisons when at least 40% of the goods are of that kind), bank (`BANKFRAME_OPENED`), auction house (`AUCTION_HOUSE_SHOW`), flight master (`TAXIMAP_OPENED`), trainer (`TRAINER_SHOW`, class or profession), mailbox (`MAIL_SHOW`), innkeeper (`CONFIRM_BINDER`, or a gossip with "Make this inn your home"), stable master (`PET_STABLE_SHOW`), battlemaster (`BATTLEFIELDS_SHOW`), and the 12.x engine's `PLAYER_INTERACTION_MANAGER_FRAME_SHOW` for the same windows. Stored with the NPC's name and id (from its GUID, when that is not a secret value). One entry per NPC per map; a mailbox (no name) is the same mailbox within about 1% of the map.
+  - **Shared by all characters**: the places live in their own account-wide saved variable, `GaarMapsForeverNPCDB` (`maps[uiMapID]` = list of `{ x, y, name, id, c = { banker = true, ... }, n, t }`). `/gmf pins clear` forgets them (it asks you to type `/gmf pins clear yes`).
+  - **Bundled data (planned).** A read-only classic NPC database can be added later and is merged per map at draw time; a learned entry always wins over a bundled row for the same NPC or place. Nothing bundled is written to your saved variables.
+  - Pins are frames of our own on the map canvas; no Blizzard pin or function is touched. `/gmf status` (and `/gmf pins`) shows `tracked pins: on, N learned (per category)`, which tracking types the client lists and which have no category.
 - **Maximized map.** Left to Blizzard: no handle, no grip, 100% scale. Going back to the windowed
   map puts the saved position and scale back.
 
@@ -65,6 +70,9 @@ At 100% and the default position the addon does not touch the map at all.
 | `/gmf fade on`, `/gmf fade off` | Fade the map while you move, or not |
 | `/gmf fade <10-100>` | Opacity while moving, in percent (default 35) |
 | `/gmf levels on`, `/gmf levels off` | Show the zone's level range on the map, or not |
+| `/gmf pins on`, `/gmf pins off` | NPC icons for the minimap's checked tracking types on a zone map, or not |
+| `/gmf pins clear` | Forget the learned NPC places (confirm with `/gmf pins clear yes`) |
+| `/gmf pins` | Tracked pins status: learned counts, the tracking types the client lists |
 | `/gmf status` | Which frames and functions this client has, whether the map is open and maximized, and the current settings |
 
 ## With GaarForever (required)
@@ -73,7 +81,7 @@ Since 1.1.1 this addon lists `GaarForever` (the GaarForever folder) under `## De
 
 [GaarForever](../GaarForever/README.md) is the family hub: one minimap button whose
 menu has a **Maps** submenu with **Lock position & size**, **Reset position & size**, **Scale**
-(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), **Zone level range on the map**, **Zone map (Shift+M) scale** (75, 100, 125, 150, 200%) and **Reset zone map**, the same
+(75, 90, 100, 110, 125%), **Fade while moving** and **Fade opacity** (25, 35, 50, 75%), **Zone level range on the map**, **NPC icons from minimap tracking**, **Zone map (Shift+M) scale** (75, 100, 125, 150, 200%) and **Reset zone map**, the same
 settings as `/gmf lock|unlock`, `/gmf reset`, `/gmf scale`, `/gmf fade on|off` and `/gmf fade
 <percent>` (both go through the same functions). This addon has no minimap button or menu of its
 own, so nothing here changes with or without the hub.

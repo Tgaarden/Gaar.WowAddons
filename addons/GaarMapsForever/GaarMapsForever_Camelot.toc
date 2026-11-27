@@ -1,16 +1,17 @@
 ## Interface: 16001
 ## Title: GaarMapsForever
-## Notes: Move, scale and fade the world map (Map & Quest Log), and move and scale the Shift+M zone map, on WoW Forever: drag, resize from the corner grip. /gmf
+## Notes: Move, scale and fade the world map (Map & Quest Log), and move and scale the Shift+M zone map, on WoW Forever: drag, resize from the corner grip; NPC icons for your minimap tracking types. /gmf
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.5.3
+## Version: 1.6.0
 ## X-Curse-Project-ID: 1790375
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\INV_Misc_Map_01
 ## Dependencies: GaarForever
 ## OptionalDeps: BetterMapsForever
-## SavedVariables: GaarMapsForeverDB
+## SavedVariables: GaarMapsForeverDB, GaarMapsForeverNPCDB
 
 Data/ZoneLevels.lua
 GaarMapsForever.lua
+TrackedPins.lua

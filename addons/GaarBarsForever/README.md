@@ -306,3 +306,7 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Flyout editor**
 
 <img src="../../docs/screenshots/GaarBarsForever/11-flyout-editor.jpg" alt="Flyout editor" width="600">
+
+**Flyout macro on a bar button, opened**
+
+<img src="../../docs/screenshots/GaarBarsForever/12-flyout-macro.jpg" alt="Flyout macro on a bar button, opened" width="120">

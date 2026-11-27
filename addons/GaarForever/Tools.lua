@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.87"] = "notes for GaarQuestsForever 1.15.0: quest filter in the quest log's gear menu and the tracker menu - only completed or only uncompleted quests, hide dungeon & raid quests; applies to the quest log and the tracker (/gqf filter)",
         ["3.2.86"] = "notes for GaarMapsForever 1.8.0: a yellow ? on the continent and world maps for every quest ready to turn in, at its turn-in point (/gmf turnins on|off); level ranges for Riverglades, Shen'dralas and Mount Hyjal",
         ["3.2.85"] = "notes for GaarMapsForever 1.7.0: a built-in seed of NPC places for the tracked pins (empty for now, filled from our own exports) and /gmf pins export, a copyable window with your learned places",
         ["3.2.84"] = "notes for GaarMapsForever 1.6.0: NPC icons on a zone map for the types checked in the minimap tracking menu (banker, mailbox, flight master, trainers, repair and more), learned as you visit them and shared by all your characters; /gmf pins on|off|clear",
@@ -147,6 +148,7 @@ local CHANGES = {
         ["1.9.2"] = "shared helpers from the GaarForever library",
     },
     GaarQuestsForever = {
+        ["1.15.0"] = "Quest filter: the quest log's gear menu (next to Show Quest Objectives) and the tracker header's right-click menu (Quest log filter) get Show all quests / Only completed / Only uncompleted and Hide dungeon & raid quests. It applies to the quest log list (no gaps, empty zone headers hidden, the count reads Quests: 37/40 (12 shown)) and the tracker's Quests section; map pins are untouched. With auto-watch on, filtered quests are not watched; with it off your watch list is never changed. Hide dungeon & raid quests pauses inside an instance while the dungeon filter is on. /gqf filter all|completed|uncompleted, /gqf filter dungeons on|off",
         ["1.14.0"] = "Collapse-all button in the quest log: a +/- button between the search box and the quests count collapses or expands every zone header (/gqf collapse); the tracker's Quests header shows the quest count (/gqf questcount)",
         ["1.13.0"] = "New sort mode: /gqf sort zone groups quests by quest-log zone, your current zone first, the others A-Z, no zone last; level order inside each zone; re-sorts when you change zone",
         ["1.11.0"] = "Renamed to GaarQuestsForever (new folders; settings move over automatically on first login; new /gqf commands, old ones still work)",

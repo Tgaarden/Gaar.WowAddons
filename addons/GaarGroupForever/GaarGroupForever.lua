@@ -25,14 +25,15 @@
   of the bar, and are only shown, hidden, moved or changed out of combat (Roles.lua). No event the
   client keeps from addons is registered (M.RegisterEvent refuses the combat log). ADDON_ACTION_BLOCKED /
   ADDON_ACTION_FORBIDDEN naming this addon are recorded for /ggf status. No Blizzard
-  frame is touched. Every client API is checked with type(...) == "function" first and called in
+  frame is touched, except the group finder role filter (LfgFilter.lua), which only fades player cards
+  (alpha + mouse) after Blizzard's own update and never changes its list, layout or selection. Every client API is checked with type(...) == "function" first and called in
   pcall, and a secret value is never compared: it is treated as no value.
 ]]
 
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.6.0"
+local VERSION = "1.7.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever

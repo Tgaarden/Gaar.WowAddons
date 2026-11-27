@@ -89,6 +89,28 @@ aggro (is tanking) gets a gold tint and the main-tank shield icon. The header na
 - **Option** `threat` (on by default): right-click menu / hub **Threat bars (group, attackable
   target)**, or `/ggf threat on|off|toggle`.
 
+## Group finder role filter (1.7.0)
+
+When you have a listing of your own in the group finder (the **Your Listing** row in the Browse tab),
+the players under the **Players** header can be filtered by role.
+
+- **Toggles**: three small role icons (Tank, Healer, DPS, Blizzard's group finder role icons) at the
+  right end of the Players header, just left of its **−**. Click one to hide or show that role; an
+  off role is greyed out. Each icon has a tooltip. All three are on by default.
+- **Matching**: a player is shown while **any** of the roles they list is on, so a Tank/Healer stays
+  while Healer is on. Players who list no role are always shown. All three on = the list is not
+  touched at all.
+- **Last role**: the last role that is on cannot be switched off (the list is never emptied by
+  mistake); `/ggf lfg all` switches all three on again.
+- **Count**: `N hidden` next to the icons (also players scrolled out of view).
+- **Scope**: only solo players under the Players header, only while you have a listing. Your own row
+  and the **Groups** list are never filtered.
+- **Saved** account-wide in `GaarGroupForeverDB` (`lfgTank`, `lfgHealer`, `lfgDps`).
+- **How**: a hidden card is faded out (alpha 0) and stops taking the mouse; it is not removed, so it
+  leaves an empty slot in the list. Blizzard's list, layout and selection are never changed, which
+  keeps **Send Message** and **Group Invite** working. The card you have selected is never hidden.
+  A role the game keeps secret is never compared: that player is shown.
+
 ## Commands
 
 `/ggf` or `/gaargroupforever`:
@@ -107,7 +129,8 @@ aggro (is tanking) gets a gold tint and the main-tank shield icon. The header na
 | `/ggf marks on\|off\|collapse\|expand\|clear` | the raid-marker row; `clear` removes the marks it can reach |
 | `/ggf log` / `log clear` | the last 20 dungeon runs / empty the log |
 | `/ggf threat on\|off\|toggle` | the threat bars at the bottom; `/ggf threat` alone prints their status |
-| `/ggf status` | settings, group state, which countdown path is used, the threat bars' state (plain or secret values), and the last 5 actions the game blocked for this addon this session (if any) |
+| `/ggf lfg tank\|healer\|dps [on\|off]` / `lfg all` | the group finder role filter (no on/off = toggle); `/ggf lfg` alone prints its state |
+| `/ggf status` | settings, group state, which countdown path is used, the threat bars' state (plain or secret values), the group finder role filter (viewer frame found, players filtered), and the last 5 actions the game blocked for this addon this session (if any) |
 
 ## With GaarForever (required)
 
@@ -162,7 +185,9 @@ ends. Only players running this addon see the CC marker.
 
 ## How it is built
 
-Plain (non-secure) buttons; none of the calls used is protected, and no Blizzard frame is touched.
+Plain (non-secure) buttons; none of the calls used is protected, and no Blizzard frame is touched, except
+that the role filter fades player cards in the group finder list (`SetAlpha` / `EnableMouse` after
+`hooksecurefunc("LFGBrowseSearchEntry_Update")`, nothing else).
 Every handler runs in `pcall`, every client API is checked with `type(...) == "function"` first, and
 a secret value is never compared: it is treated as no value. The modes are a table (`Modes`) with a
 hook per mode (`ModeHooks`); the role modules (`Roles.lua`, `Tank.lua`, `Healer.lua`, `Dps.lua`) use it, plus the

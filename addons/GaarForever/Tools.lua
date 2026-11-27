@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.97"] = "notes for GaarGroupForever 1.7.0: role filter for the players under your group finder listing - Tank / Healer / DPS toggles on the Players header, a player stays while any of their roles is on, 'N hidden' count (/ggf lfg)",
         ["3.2.96"] = "notes for GaarBuffsForever 1.11.2: self-buff rows show only while missing or expiring soon (same window as the class buffs, /gbuff expire); both buffs up hides the strip",
         ["3.2.95"] = "notes for GaarBuffsForever 1.11.1: detects WoW Forever's 'Camp Benefits' campfire buff.",
         ["3.2.94"] = "notes for GaarBuffsForever 1.11.0: self buffs on every class - a small strip with your XP food buff and campfire buff and their time left, red when missing; click eats an XP food from your bags or casts Basic Campfire (/gbuff self); detected by keyword, learned IDs in /gbuff status",
@@ -244,6 +245,7 @@ local CHANGES = {
         ["1.3.0"] = "Shaman support (imbue, Lightning Shield, reagents, dispel)",
     },
     GaarGroupForever = {
+        ["1.7.0"] = "Group finder role filter: Tank, Healer and DPS toggles at the right end of the Players header under your own listing (left of the -). A player is shown while any of their roles is on; players listing no role are always shown; the last role cannot be switched off. 'N hidden' next to the icons. Hidden cards are faded out (not removed), so Group Invite and Send Message keep working. Saved; /ggf lfg tank|healer|dps [on|off], /ggf lfg all; /ggf status shows the viewer and how many are filtered",
         ["1.6.0"] = "Threat bars at the bottom of the bar, in a party: one bar per member (you included) with the threat % on your target, or on your target's target when you target a friend (the tank), highest first, in class colour, name and %, the member with aggro marked gold with the tank shield. Hidden (and the bar shrinks) solo or with no attackable mob. When the game hides threat in combat the bars still show, unsorted. Option Threat bars, /ggf threat on|off|toggle",
         ["1.4.0"] = "instance info: all vanilla 5-man dungeons with recommended levels vs yours and the party's, boss list ticked as bosses die, notable loot for your class (hover a boss; /ggf info [name] for any dungeon); Info button and Show instance info option",
         ["1.3.0"] = "role modules: Tank (pull marker, lost aggro, healer mana before pull, loose mobs), Healer (Drink/OOM, dispel alert, tank frame, dead/out of range, PvP flag), DPS (assist tank, wrong target, aggro, CC markers, interrupt alert); options in the menu, /ggf tank|healer|dps",

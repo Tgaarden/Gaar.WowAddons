@@ -298,3 +298,11 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Flyout 2**
 
 <img src="../../docs/screenshots/GaarBarsForever/9-flyout-2.jpg" alt="Flyout 2" width="600">
+
+**Spellbook ranks and flyout editor tabs**
+
+<img src="../../docs/screenshots/GaarBarsForever/10-book-tabs.jpg" alt="Spellbook ranks and flyout editor tabs" width="600">
+
+**Flyout editor**
+
+<img src="../../docs/screenshots/GaarBarsForever/11-flyout-editor.jpg" alt="Flyout editor" width="600">

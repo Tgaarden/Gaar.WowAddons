@@ -25,7 +25,8 @@ local BF = { IsSecret = issecret, Num = Num, Str = Str, Bool = Bool,
     OnOff = function(v) return v and "on" or "off" end }
 
 local frames, registered = {}, {}
-local function NewFrame(_, _, parent)
+local NewFrame
+function NewFrame(_, _, parent)
     local f = { shown = false, parent = parent, scripts = {}, points = {} }
     function f:SetScript(k, fn) self.scripts[k] = fn end
     function f:RegisterEvent(e)
@@ -45,7 +46,11 @@ local function NewFrame(_, _, parent)
     function f:ClearAllPoints() self.points = {} end
     function f:SetPoint(_, _, _, x, y) self.x, self.y = x, y end
     frames[#frames + 1] = f
-    return f
+    -- anything else a window calls (fonts, scroll frames, backdrops): a no-op that hands back a stub
+    return setmetatable(f, { __index = function(_, k)
+        if k == "text" or k == "data" or k == "size" or k == "x" or k == "y" or k == "tex" then return nil end
+        return function() return NewFrame() end
+    end })
 end
 
 local now = 100
@@ -237,6 +242,40 @@ tracking[3].active = true
 Fire("MINIMAP_UPDATE_TRACKING")
 TP.Draw()
 eq("mailbox appears after tracking change", TP.drawn.count, 5)
+
+-- ---- export: seed-file format, round-trips through the seed loader ----------------------------
+store.maps[1429][1].name = 'Quote "Q" \\ back'
+local text, places, maps = TP.ExportText(store, nil, "test header")
+eq("export places", places, 8)
+eq("export maps", maps, 1)
+eq("export header", text:match("^%-%- test header\n{") ~= nil, true)
+local back = assert(loadstring("return " .. text))()
+eq("export keyed by map", #back[1429], 8)
+local seen = 0
+for _, row in ipairs(back[1429]) do
+    local r = TP.NormalizeRow(row)
+    for _, e in ipairs(store.maps[1429]) do
+        if e.x == r.x and e.y == r.y and e.id == r.id and e.name == r.name then
+            local same = true
+            for k in pairs(e.c) do if not r.c[k] then same = false end end
+            for k in pairs(r.c) do if not e.c[k] then same = false end end
+            if same then seen = seen + 1 end
+        end
+    end
+end
+eq("every exported row loads back unchanged", seen, 8)
+eq("name escaping survives", back[1429][1] ~= nil and text:find('Quote \\"Q\\" \\\\ back', 1, true) ~= nil, true)
+eq("mailbox row has no id or name", text:find('{ x = 0.2, y = 0.2, c = "mailbox" }', 1, true) ~= nil, true)
+-- the export used as the seed: everything dedupes against the learned places
+local m2 = TP.Merge(store.maps[1429], { { name = "built-in seed", data = back } }, 1429)
+eq("seed of own export adds nothing", #m2, 8)
+-- learned forgotten: the seed alone gives the same places
+eq("seed alone", #TP.Merge(nil, { { name = "built-in seed", data = back } }, 1429), 8)
+eq("filter other map", select(2, TP.ExportText(store, 9999)), 0)
+eq("filter this map", select(2, TP.ExportText(store, 1429)), 8)
+TP.Slash("export")
+local win = frames[#frames]
+eq("export window text", printed[#printed]:find("8 places on 1 maps", 1, true) ~= nil, true)
 
 -- ---- status and clear -------------------------------------------------------------------------
 local line = TP.StatusLine()

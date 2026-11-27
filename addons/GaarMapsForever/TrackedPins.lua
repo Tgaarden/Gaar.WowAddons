@@ -33,8 +33,10 @@
       x, y are 0-1, rounded to 4 decimals. One entry per NPC id per map; without an id, the same name
       within 3 % of the map, and for objects (mailbox) a shared category within 1.2 %. A repeat visit
       averages the position (weight capped at 10), adds categories and counts n.
-    * Bundled data (later, read-only): TP.AddSource(name, data) or ns.trackedPinsBundled before load,
-      data = { [uiMapID] = { { id =, x =, y =, name =, c = "repair vendor" | { "repair" } | { repair = true } },
+    * Built-in seed (1.7.0, read-only, our own data): Data/TrackedSeed.lua sets ns.trackedPinsBundled, added as
+      the source "built-in seed" at load (TP.AddSource(name, data) adds others). Its rows come only from
+      /gmf pins export (below), never from third-party databases or hand-typed coordinates.
+      Format: data = { [uiMapID] = { { id =, x =, y =, name =, c = "repair vendor" | { "repair" } | { repair = true } },
       ... } } (also positional { id, x, y, c, name }; x, y may be 0-1 or 0-100). Merged per map at draw
       time, never written: a bundled row that matches a learned one (same id, same name nearby, or a
       shared category nearby) is dropped and only adds its categories to the learned pin. Learned wins.
@@ -44,6 +46,9 @@
       through to the map where the client lets a frame take hover without clicks.
     * /gmf pins (status), /gmf pins on|off, /gmf pins clear (then /gmf pins clear yes) forgets the
       learned places.
+    * /gmf pins export [<uiMapID> | here] (1.7.0): the learned places (all maps, one map, or the map the world
+      map shows / you stand on) as a Lua table literal in exactly the seed file's format, in a copyable
+      window of our own (Ctrl+A, Ctrl+C), to be pasted into Data/TrackedSeed.lua.
 ]]
 
 local _G = _G
@@ -722,7 +727,7 @@ function TP.Bind(settingsDb, c)
     if type(settings.trackedPins) ~= "boolean" then settings.trackedPins = true end
     _G.GaarMapsForeverNPCDB = TP.Sanitize(_G.GaarMapsForeverNPCDB)
     store = _G.GaarMapsForeverNPCDB
-    if type(ns.trackedPinsBundled) == "table" then TP.AddSource("bundled database", ns.trackedPinsBundled) end
+    if type(ns.trackedPinsBundled) == "table" then TP.AddSource("built-in seed", ns.trackedPinsBundled) end
     for e in pairs(TP.HANDLERS) do TP.registered[e] = pcall(events.RegisterEvent, events, e) or nil end
     TP.registered.MINIMAP_UPDATE_TRACKING = pcall(events.RegisterEvent, events, "MINIMAP_UPDATE_TRACKING") or nil
     TP.HookMap()
@@ -787,7 +792,177 @@ end
 TP.HELP = {
     "/gmf pins on | /gmf pins off - NPC icons on a zone map for the types checked in the minimap tracking menu, learned as you visit them",
     "/gmf pins clear - forget the learned NPC places (asks to confirm)",
+    "/gmf pins export [<mapID> | here] - the learned NPC places as text to copy (all maps, one map, or the current one)",
 }
+
+-- ---------------------------------------------------------------------------
+-- Export: the learned places as a Lua table literal in Data/TrackedSeed.lua's format
+-- ---------------------------------------------------------------------------
+
+local function Coord(v) return string.format("%.4f", v):gsub("0+$", ""):gsub("%.$", ".0") end
+
+local function CatString(c)
+    local out = {}
+    for _, cat in ipairs(TP.CATEGORIES) do if c[cat.key] then out[#out + 1] = cat.key end end
+    return table.concat(out, " ")
+end
+
+local function MapName(mapID)
+    local info = Call(API("C_Map", "GetMapInfo"), mapID)
+    local name = type(info) == "table" and Str(info.name)
+    return name and name:gsub("[\r\n]", " ") or nil
+end
+
+-- Text of the export for the store `st`: every map, or only `onlyMap`. Returns text, places, maps.
+-- Pure apart from the map names (tested: it loads back through TP.NormalizeRow unchanged).
+function TP.ExportText(st, onlyMap, header)
+    local ids = {}
+    for mapID, list in pairs(type(st) == "table" and type(st.maps) == "table" and st.maps or {}) do
+        if type(mapID) == "number" and type(list) == "table" and #list > 0 and (not onlyMap or mapID == onlyMap) then
+            ids[#ids + 1] = mapID
+        end
+    end
+    table.sort(ids)
+    local lines, places = {}, 0
+    if header then lines[#lines + 1] = "-- " .. header end
+    lines[#lines + 1] = "{"
+    for _, mapID in ipairs(ids) do
+        local name = MapName(mapID)
+        lines[#lines + 1] = "    [" .. mapID .. "] = {" .. (name and (" -- " .. name) or "")
+        local rows = {}
+        for _, e in ipairs(st.maps[mapID]) do
+            local c = CatString(e.c or {})
+            if c ~= "" and Num(e.x) and Num(e.y) then rows[#rows + 1] = { e = e, c = c } end
+        end
+        table.sort(rows, function(a, b)
+            if a.c ~= b.c then return a.c < b.c end
+            if a.e.y ~= b.e.y then return a.e.y < b.e.y end
+            return a.e.x < b.e.x
+        end)
+        for _, r in ipairs(rows) do
+            local e, parts = r.e, {}
+            if Num(e.id) then parts[#parts + 1] = "id = " .. string.format("%d", e.id) end
+            parts[#parts + 1] = "x = " .. Coord(e.x)
+            parts[#parts + 1] = "y = " .. Coord(e.y)
+            if Str(e.name) then parts[#parts + 1] = "name = " .. string.format("%q", e.name):gsub("\\\n", "\\n") end
+            parts[#parts + 1] = "c = \"" .. r.c .. "\""
+            lines[#lines + 1] = "        { " .. table.concat(parts, ", ") .. " },"
+            places = places + 1
+        end
+        lines[#lines + 1] = "    },"
+    end
+    lines[#lines + 1] = "}"
+    return table.concat(lines, "\n"), places, #ids
+end
+
+-- The map the export means by "here": the one the open world map shows, else the player's zone.
+local function CurrentMap()
+    local map = core and core.GetMap and core.GetMap()
+    if map and map:IsShown() then
+        local id = Num(Call(map.GetMapID, map))
+        if id then return id end
+    end
+    return Num(Call(API("C_Map", "GetBestMapForUnit"), "player"))
+end
+
+local exportWin
+local function ExportWindow()
+    if exportWin then return exportWin end
+    local f
+    local ok, fr = pcall(CreateFrame, "Frame", "GaarMapsForeverExportWindow", _G.UIParent, "BackdropTemplate")
+    if ok and fr then f = fr else f = CreateFrame("Frame", "GaarMapsForeverExportWindow", _G.UIParent) end
+    f:SetSize(620, 420)
+    f:SetPoint("CENTER")
+    f:SetFrameStrata("DIALOG")
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    if type(f.SetBackdrop) == "function" then
+        local FLAT = "Interface\\Buttons\\WHITE8x8"
+        f:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1, insets = { left = 1, right = 1, top = 1, bottom = 1 } })
+        f:SetBackdropColor(0.07, 0.08, 0.10, 0.97)
+        f:SetBackdropBorderColor(0.35, 0.37, 0.42, 1)
+    else
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints(f)
+        bg:SetColorTexture(0.07, 0.08, 0.10, 0.97)
+    end
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOPLEFT", 12, -10)
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.hint:SetPoint("BOTTOMLEFT", 12, 16)
+    f.hint:SetText("Ctrl+A, Ctrl+C to copy. Paste it to Claude for Data/TrackedSeed.lua.")
+    local okC, close = pcall(CreateFrame, "Button", nil, f, "UIPanelCloseButton")
+    if okC and close then
+        close:SetPoint("TOPRIGHT", -2, -2)
+        close:SetScript("OnClick", function() f:Hide() end)
+    end
+    local okS, scroll = pcall(CreateFrame, "ScrollFrame", "GaarMapsForeverExportScroll", f, "UIPanelScrollFrameTemplate")
+    if not okS or not scroll then scroll = CreateFrame("ScrollFrame", "GaarMapsForeverExportScroll", f) end
+    scroll:SetPoint("TOPLEFT", 12, -32)
+    scroll:SetPoint("BOTTOMRIGHT", -32, 42)
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject(_G.ChatFontNormal or _G.GameFontHighlightSmall)
+    edit:SetWidth(570)
+    if type(edit.SetMaxLetters) == "function" then edit:SetMaxLetters(0) end
+    edit:SetScript("OnEscapePressed", function() f:Hide() end)
+    -- Read-only: typing puts the text back (selection and copy still work).
+    edit:SetScript("OnTextChanged", function(self, userInput)
+        if userInput and self:GetText() ~= f.text then
+            self:SetText(f.text or "")
+            self:HighlightText()
+        end
+    end)
+    scroll:SetScrollChild(edit)
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
+    f.edit = edit
+    local okB, sel = pcall(CreateFrame, "Button", nil, f, "UIPanelButtonTemplate")
+    if okB and sel then
+        sel:SetSize(110, 22)
+        sel:SetPoint("BOTTOMRIGHT", -12, 10)
+        sel:SetText("Select all")
+        sel:SetScript("OnClick", function() edit:SetFocus() edit:HighlightText() end)
+    end
+    f:Hide()
+    exportWin = f
+    return f
+end
+
+function TP.Export(arg)
+    if not store then return end
+    local onlyMap
+    if arg == "here" or arg == "map" or arg == "current" then
+        onlyMap = CurrentMap()
+        if not onlyMap then Print("export: no current map.") return end
+    elseif arg and arg ~= "" then
+        onlyMap = tonumber(arg)
+        if not onlyMap then Print("usage: /gmf pins export [<uiMapID> | here]") return end
+    end
+    local when = Str(Call(_G.date, "%Y-%m-%d")) or "?"
+    local scope = onlyMap and ("map " .. onlyMap .. (MapName(onlyMap) and (" " .. MapName(onlyMap)) or "")) or "all maps"
+    local text, places, maps = TP.ExportText(store, onlyMap,
+        "GaarMapsForever tracked pins export " .. when .. ", " .. scope)
+    if places == 0 then
+        Print("export: nothing learned " .. (onlyMap and ("on map " .. onlyMap) or "yet") .. ".")
+        return
+    end
+    local ok, f = pcall(ExportWindow)
+    if not ok or not f then Print("export: the window could not be made (" .. tostring(f) .. ").") return end
+    f.text = text
+    f.title:SetText(string.format("Tracked pins export: %d place%s on %d map%s (%s)", places, places == 1 and "" or "s",
+        maps, maps == 1 and "" or "s", scope))
+    f.edit:SetText(text)
+    f:Show()
+    f.edit:SetFocus()
+    f.edit:HighlightText()
+    Print(string.format("export: %d places on %d maps in the window - Ctrl+A, Ctrl+C to copy.", places, maps))
+end
 
 function TP.Slash(arg)
     arg = arg or ""
@@ -797,6 +972,8 @@ function TP.Slash(arg)
         TP.Clear(false)
     elseif arg == "clear yes" then
         TP.Clear(true)
+    elseif arg == "export" or arg:match("^export ") then
+        TP.Export(arg:match("^export%s*(.-)%s*$"))
     else
         for _, l in ipairs(TP.StatusLines()) do Print(l) end
         for _, l in ipairs(TP.HELP) do Print(l) end

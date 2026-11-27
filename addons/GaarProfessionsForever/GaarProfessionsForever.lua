@@ -46,7 +46,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarProfessionsForever"
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever

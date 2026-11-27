@@ -39,7 +39,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarMerchantForever"
 local DOT = " \194\183 "
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local BATCH = 3               -- items sold per step
 local STEP = 0.2              -- seconds between steps

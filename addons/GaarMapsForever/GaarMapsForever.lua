@@ -49,7 +49,7 @@ local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarMapsForever"
 local DOT = " \194\183 "
 
-local VERSION = "1.5.0"
+local VERSION = "1.5.3"
 
 local MIN_SCALE, MAX_SCALE = 0.5, 1.5
 local MIN_FADE, MAX_FADE = 0.1, 1
@@ -1166,8 +1166,11 @@ local function SafeString(v)
 end
 
 -- Range of a uiMapID: { min, max, source } or nil. The static table first (id, then name), then
--- C_Map.GetMapLevels only when it answers with sane classic numbers for a zone map.
-function ZL.Range(id, name)
+-- C_Map.GetMapLevels (cached) for zones the table lacks, such as WoW Forever's new ones. Every call is
+-- guarded; nil, 0 and non-numbers give no line. viewType is the shown map's type: inside a continent
+-- view a hovered child area of type 2 or 3 may use the API, elsewhere only type 3 (never a continent).
+ZL.apiCache, ZL.gaps = {}, {}
+function ZL.Range(id, name, viewType)
     id = Num(id)
     if not id then return nil end
     local data = type(ns) == "table" and ns.zoneLevels
@@ -1175,22 +1178,30 @@ function ZL.Range(id, name)
         local r = data.byId[id]
         if r then return r[1], r[2], "id" end
         name = SafeString(name)
-        if not name then
+        if not name and C_Map and C_Map.GetMapInfo then
             local ok, info = pcall(C_Map.GetMapInfo, id)
             name = ok and type(info) == "table" and SafeString(info.name) or nil
         end
         r = name and data.byName[name]
         if r then return r[1], r[2], "name" end
     end
-    if C_Map and C_Map.GetMapLevels then
-        local ok, info = pcall(C_Map.GetMapInfo, id)
-        local mt = ok and type(info) == "table" and Num(info.mapType)
-        if mt == 3 then
+    local c = ZL.apiCache[id]
+    if c == nil then
+        c = false
+        local mt
+        if C_Map and C_Map.GetMapInfo then
+            local ok, info = pcall(C_Map.GetMapInfo, id)
+            mt = ok and type(info) == "table" and Num(info.mapType) or nil
+        end
+        if C_Map and C_Map.GetMapLevels and (mt == 3 or (mt == 2 and viewType == 2)) then
             local ok2, lo, hi = pcall(C_Map.GetMapLevels, id)
             lo, hi = ok2 and Num(lo), ok2 and Num(hi)
-            if lo and hi and lo > 0 and hi <= 60 and lo <= hi then return lo, hi, "api" end
+            if lo and hi and lo > 0 and hi <= 80 and lo <= hi then c = { lo, hi } end
         end
+        ZL.apiCache[id] = c
+        if not c then ZL.gaps[id] = (SafeString(name) or "?") .. " (type " .. tostring(mt) .. ")" end
     end
+    if c then return c[1], c[2], "api" end
 end
 
 function ZL.Colored(lo, hi)
@@ -1292,7 +1303,7 @@ function ZL.Update()
     else
         return ZL.HideAll()
     end
-    if shownId then lo, hi, src = ZL.Range(shownId, shownName) end
+    if shownId then lo, hi, src = ZL.Range(shownId, shownName, mapType) end
     if not lo then
         ZL.hoverFS:Hide()
         ZL.matched = shownId and (shownId .. " (no range)") or nil
@@ -1368,6 +1379,12 @@ local function PrintStatus()
     end
     PortraitStatus()
     Print("zone levels: " .. OnOff(db and db.zoneLevels) .. " (one line under the hover name; zone view: hovered neighbour, else this map; line top " .. tostring(ZL.lineTop or (ZL_LINE_TOP .. " fallback")) .. "), map id " .. tostring(ZL.mapID or "?") .. ", match: " .. tostring(ZL.matched or "none") .. ", zones in table: " .. tostring(ns and ns.zoneLevels and ns.zoneLevels.count or 0))
+    do
+        local gaps = {}
+        for id, what in pairs(ZL.gaps) do gaps[#gaps + 1] = id .. " " .. what end
+        table.sort(gaps)
+        Print("zone levels, maps without level data (" .. #gaps .. "): " .. (#gaps > 0 and table.concat(gaps, ", ") or "none yet (hover zones on the map first)"))
+    end
     Print("locked: " .. ((db and db.locked) and "yes" or "no"))
     Print(string.format("scale: %d%%", Percent(db and db.scale or 1)) .. "   position: " .. PositionText())
     Print("fade while moving: " .. OnOff(db and db.fade) .. string.format(" (%d%% opacity)", Percent(db and db.fadeAlpha or DEFAULT_FADE_ALPHA)))

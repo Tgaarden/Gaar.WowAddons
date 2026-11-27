@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: GaarBuffsForever
-## Notes: A buff check on WoW Forever for druids, paladins, shamans, priests and mages: a box at the top centre lists who lacks your buff (Mark of the Wild and Thorns; blessings by class, no aura, Righteous Fury when tanking; weapon imbue and Lightning Shield; Power Word: Fortitude; Arcane Intellect on classes with mana) and low reagents. Click a name to buff it. Hidden in combat. Druids, shamans, priests, paladins and mages also get a dispel panel by class (druid curses and poisons; shaman poisons and diseases; priest magic and diseases; paladin Cleanse/Purify; mage curses), with one click button per member in combat. /gbuff
+## Notes: A buff check on WoW Forever for druids, paladins, shamans, priests and mages: a box at the top centre lists who lacks your buff (Mark of the Wild and Thorns; blessings by class, no aura, Righteous Fury when tanking; weapon imbue and Lightning Shield; Power Word: Fortitude; Arcane Intellect on classes with mana) and low reagents. Click a name to buff it. Hidden in combat. Druids, shamans, priests, paladins and mages also get a dispel panel by class (druid curses and poisons; shaman poisons and diseases; priest magic and diseases; paladin Cleanse/Purify; mage curses), with one click button per member in combat. Every class: your XP food and campfire buffs with time left, click to eat or cast Basic Campfire. /gbuff
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.10.2
+## Version: 1.11.0
 ## X-Curse-Project-ID: 1808603
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\Spell_Nature_Regeneration
@@ -19,3 +19,4 @@ Paladin.lua
 Shaman.lua
 PriestMage.lua
 Dispel.lua
+SelfBuffs.lua

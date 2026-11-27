@@ -26,6 +26,11 @@ gets Cure Poison on left-click too. A spell the client can name but you have not
 (Abolish Poison on a low-level druid) no longer counts as known. And druids get an optional
 **leave form to dispel** (`/gbuff dispel form`, per character, off by default).
 
+New in 1.11: **self buffs, on every class**. A small strip next to the buff box shows your
+**XP food buff** and your **campfire buff** with their time left, and warns in red when one is
+missing. Click the XP food row to eat an XP food from your bags; click the campfire row to cast
+Basic Campfire. See [Self buffs](#self-buffs-every-class) below.
+
 - **Druid**: **Mark of the Wild** (Gift of the Wild counts) on you and the group, **Thorns** on you
   and the tank, **Gift of the Wild and Rebirth reagents**, and a **dispel panel** for curses and
   poisons (a list out of combat, one click button per member in combat).
@@ -54,6 +59,7 @@ Right-click the empty background of the buff box (not the spell rows) to open th
   rogue, hunter, warlock) the addon stays idle: no scans, no box, no panel. `/gbuff status` says
   `not a druid, mage, paladin, priest or shaman: the addon is idle on this character.` A
   warlock's Felhunter (Devour Magic) is left out on purpose: it is the pet's spell, not yours.
+  The one exception is the **self-buff strip** (XP food and campfire), which works on every class.
 - **The tank** is, in this order:
   1. every member `UnitGroupRolesAssigned(unit)` calls `"TANK"`;
   2. else, in a raid, every main tank (`GetPartyAssignment("MAINTANK", unit)`);
@@ -85,6 +91,48 @@ Right-click the empty background of the buff box (not the spell rows) to open th
 - **Low reagents** (on by default): counted in the bags only (`C_Item.GetItemCount`, else
   `GetItemCount`, bank not included), updated on `BAG_UPDATE_DELAYED`. A spell you do not know is
   skipped entirely. The line is not clickable.
+
+## Self buffs (every class)
+
+New in 1.11, in `SelfBuffs.lua`. Two rows in a small strip, by default just left of the buff box
+(Alt + drag moves it, `/gbuff self reset` puts it back). It is about you alone, so it works on
+every class, warriors, rogues, hunters and warlocks too.
+
+| Row | Buff on | Buff missing | Can't click |
+|---|---|---|---|
+| **XP food** | green border, the buff's icon and time left (`XP food  14:32`) | red border, `missing` in red | grey icon, `no food`, tooltip **No XP food in bags** |
+| **Campfire** | green border, the buff's icon and time left | red border, `missing` in red | grey icon, `no Cooking`, tooltip **Requires Cooking (Basic Campfire)** |
+
+- **Click the XP food row** to eat an XP food from your bags (a secure button, `type` `item`, the
+  food's name). With several, the one you have most of. It still works while the buff is on, to
+  top it up. The tooltip says which food and how many you have.
+- **Click the campfire row** to cast Basic Campfire (`type` `spell`), only when you know it.
+- **Detection by keyword.** The exact names and IDs on WoW Forever are not known, so the addon
+  reads your buffs' tooltips and your bag items' tooltips (out of combat) and matches words. All
+  the words are in one table, `KEYWORDS` at the top of `SelfBuffs.lua`:
+  - campfire buff: `campfire`, `camp fire`, `cozy fire`, `bonfire`, `near a fire`, ... in the
+    name or tooltip, or the word `fire` in the buff's name (not Inner Fire, Fire Shield, Fire
+    Resistance, ...). Classic Cozy Fire (spell 7353) is known up front.
+  - XP food buff (when it is not the campfire): the tooltip mentions `experience` or `XP`, and
+    looks like food (`well fed`, `food`, `eat`) or a gain (`bonus`, `increase`, `gain`, a `%`),
+    or has the Well Fed icon.
+  - XP food in the bags: the item's tooltip mentions `experience` or `XP` and has a food line
+    (`Use:`, `eating`, `well fed`, `seated`). Rescanned when the bags change, at most once a
+    second.
+  - Basic Campfire: spell 818 (classic), else by name.
+- **Learned IDs.** Every buff spell ID, XP food item ID and the Basic Campfire spell ID that is
+  found is saved account-wide and listed in `/gbuff status` (`learned XP food buff IDs:`,
+  `learned campfire buff IDs:`, `campfire spell:`, `learned XP food item IDs:`); the first time one
+  is found, chat says so. A learned buff ID is matched without reading its tooltip, also in
+  combat. `/gbuff self forget` clears them after a wrong match.
+- **In combat** the game hides your buffs. A buff is still matched by a learned spell ID when the
+  ID can be read; otherwise the rows freeze: what was there before the fight stays, the time
+  still counts down, and a buff that runs out shows `missing`. The buttons and the strip only
+  change out of combat; what changes in combat (an option, the food you ate) is applied when
+  combat ends.
+- **Options:** `/gbuff self [on|off]` (both rows), `/gbuff self food [on|off]`,
+  `/gbuff self fire [on|off]`, and two checkboxes in the menu (`Self buff: XP food`,
+  `Self buff: campfire`). Both are on by default; `/gbuff off` hides the strip too.
 
 ## Druid
 
@@ -439,8 +487,12 @@ The position is saved account-wide in `GaarBuffsForeverDB`, as an offset from th
 | `/gbuff tank` (or `tank set`) | Your current target, a group member, becomes the tank set by hand |
 | `/gbuff tank clear` | Clear the tank set by hand |
 | `/gbuff unlock`, `/gbuff lock`, `/gbuff reset` | Move the box, stop moving it, put it back at the top centre |
+| `/gbuff self [on\|off]` | The self-buff strip, both rows: your XP food buff and campfire buff (every class) |
+| `/gbuff self food [on\|off]`, `/gbuff self fire [on\|off]` | Each row of the self-buff strip |
+| `/gbuff self reset` | Put the self-buff strip back next to the box (Alt + drag moves it) |
+| `/gbuff self forget` | Clear the learned XP food / campfire IDs (after a wrong match) |
 | `/gbuff test` | Show the box with test rows for your class (they cast nothing), and for a class with a dispel panel the panel with sample rows and a sample strip in your class's colours; again to hide them |
-| `/gbuff status` | Version, the class module (Druid, Paladin, Shaman, Priest, Mage, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A shaman also gets the imbues known, the imbue choice and what a click casts, both hands' weapon and imbue state, Lightning Shield, Reincarnation, the totem elements known and Water Breathing / Walking. Every class with a dispel panel also gets it (state, spells per mouse button, the kinds it removes now, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer) |
+| `/gbuff status` | Version, the class module (Druid, Paladin, Shaman, Priest, Mage, or none: idle), the options, the resolved spells, the reagents with count and threshold, the group, the tank and where it came from, the last check, the box (shown, lock, position, how combat hides it), which aura, role and main-tank APIs this client has, and the last error. A paladin also gets the assignment table (`*` = changed), the auras known, the active one and where it was read, the last-used aura, Righteous Fury and the tanking toggle. A shaman also gets the imbues known, the imbue choice and what a click casts, both hands' weapon and imbue state, Lightning Shield, Reincarnation, the totem elements known and Water Breathing / Walking. Every class with a dispel panel also gets it (state, spells per mouse button, the kinds it removes now, strip layout, filter and APIs, which in-combat detection answered in the last fight and how its paints ended: shown / hidden / secret / unknown, and why earlier ways gave no answer). Every class gets the self-buff lines: both options, the XP food and campfire buffs found (spell ID, time left), the XP food picked from the bags (item ID, count), whether Basic Campfire is known, and the learned IDs |
 | **Druid** | |
 | `/gbuff motw [on\|off]` | The Mark of the Wild check (no argument toggles) |
 | `/gbuff thorns [on\|off]` | Warn when you lack Thorns |
@@ -575,8 +627,10 @@ addon's private namespace (`local _, ns = ...`), so the modules add no globals.
 `Dispel.lua` is the dispel panel of a druid, a shaman, a priest, a paladin and a mage: it adds its
 options, commands, status lines and menu entries to those five modules and keeps its own
 (unnamed) frames and events. One `CLASS_CONFIG` table says, per class, which spell each click
-casts and which kinds each spell removes. Both TOCs list all six, the shared file first and
-`Dispel.lua` last.
+casts and which kinds each spell removes. `SelfBuffs.lua` is the XP food and campfire strip: it
+registers in `ns.extras`, which the shared file asks for options, commands, help, status and
+menu entries on every class (a class module is not needed). Both TOCs list all seven, the shared
+file first, then the modules, `Dispel.lua` and `SelfBuffs.lua` last.
 
 ## How it stays out of the way
 

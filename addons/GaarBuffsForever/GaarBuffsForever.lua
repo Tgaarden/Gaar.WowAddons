@@ -5,7 +5,7 @@
   also gets a dispel panel.
 
   This file is the shared part; the class-specific parts are modules in their own files, loaded
-  after this one (both TOCs list all six):
+  after this one (both TOCs list all seven):
 
     Druid.lua    Mark of the Wild / Gift of the Wild, Thorns on you and the tank, and the Gift of
                  the Wild and Rebirth reagents.
@@ -25,13 +25,18 @@
                  Abolish/Cure Disease; paladin: either click Cleanse, else Purify; mage: either
                  click Remove Lesser Curse). It hooks into the druid, paladin, shaman, priest
                  and mage modules and keeps its own frames and events; see that file.
+    SelfBuffs.lua  Your own XP food buff and campfire buff, with time left, in a small strip next
+                 to the box: click eats an XP food from your bags or casts Basic Campfire. Every
+                 class; detected by keywords (no IDs known), learned IDs kept in /gbuff status.
 
   A module registers itself in the addon namespace (ns.modules[classFile]) and gets everything
   else from here:
 
     * Only for a class with a module (Druid, Paladin, Shaman, Priest, Mage). Any other class
       (Warrior, Rogue, Hunter, Warlock) leaves the addon idle: no scans, no box; /gbuff status
-      says so.
+      says so. The one exception is SelfBuffs.lua (since 1.11.0): the XP food and campfire
+      strip is about you alone and works on every class (an "extra", ns.extras: its options,
+      slash command, help, status and menu entries are asked whatever the class).
     * The tank is, in order: every member UnitGroupRolesAssigned() calls "TANK"; else, in a raid,
       every main tank (GetPartyAssignment("MAINTANK", unit)); else the tank you set by hand
       (/gbuff tank, your current target, per character); else there is no tank. You count too.
@@ -100,7 +105,7 @@ ADDON_NAME = ADDON_NAME or "GaarBuffsForever"
 ns = ns or {}
 local DOT = " \194\183 "
 
-local VERSION = "1.10.2"
+local VERSION = "1.11.0"
 
 -- The shared library (GaarForever's Lib.lua, loaded first through ## Dependencies).
 local BF = _G.GaarForever
@@ -133,6 +138,9 @@ local LABELS = {
 }
 
 ns.modules = ns.modules or {}  -- classFile -> module, filled by Druid.lua, Paladin.lua, Shaman.lua, PriestMage.lua
+-- Class-independent features (SelfBuffs.lua): { options, savedKeys, Bind, Slash, Help, Status,
+-- Menu }, all optional. They work on every class, so they are asked even where no module is.
+ns.extras = ns.extras or {}
 local MODULE_ORDER = { "DRUID", "PALADIN", "SHAMAN", "PRIEST", "MAGE" }
 
 -- The level each rank is trained at (spell ID -> level), for the lower rank a low-level member
@@ -1209,7 +1217,7 @@ end
 
 -- The intro GaarForever shows at the top of this addon's Options page, and the first line of
 -- the help.
-local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/gbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /gbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle."
+local INTRO = "For druids, paladins, shamans, priests and mages: a box at the top centre lists who in your group lacks your buffs (a shaman: a weapon without an imbue, Lightning Shield; a priest: Power Word: Fortitude; a mage: Arcane Intellect, only on classes with mana), whose buff runs out within 2 minutes (/gbuff expire), and warns when reagents run low. Click a name to buff that member (a low-level member gets the highest rank that lands on them); right-click casts the group version (Gift of the Wild, the Greater Blessing, Prayer of Fortitude or Arcane Brilliance). Druids, shamans, priests, paladins and mages get a dispel panel, picked by class, with a click button per member in combat; in combat the game itself draws the dispellable debuff's icon on it (once you know the dispel spell). Nice to know: /gbuff tank sets your target as the tank; the box is hidden in combat; on warriors, rogues, hunters and warlocks the addon stays idle, except for the self-buff strip: every class gets a small strip with your XP food buff and campfire buff and their time left, click to eat an XP food from your bags or cast Basic Campfire (/gbuff self)."
 
 local function PrintHelp()
     Print("Right-click the empty background of the buff box (not the spell rows): this addon's menu (the same options as the hub menu).")
@@ -1235,6 +1243,9 @@ local function PrintHelp()
     end
     Print("/gbuff reagents [on|off] - warn on low reagents" .. (#parts > 0 and ("; " .. table.concat(parts, ", ")) or ""))
     Print("/gbuff unlock | lock | reset - move the box (Alt + drag works when locked), or put it back at the top centre")
+    for _, x in ipairs(ns.extras) do
+        for _, line in ipairs(x.Help and x.Help() or {}) do Print(line) end
+    end
     Print("/gbuff test - show the box with test rows; /gbuff status - the current state")
 end
 
@@ -1287,6 +1298,10 @@ local function PrintStatus()
         .. "   main tank " .. YesNo(type(_G.GetPartyAssignment) == "function"))
     if module and module.StatusExtra then
         for _, l in ipairs(module.StatusExtra()) do Print(l) end
+    end
+    for _, x in ipairs(ns.extras) do
+        local okX, lines = pcall(function() return x.Status and x.Status() or {} end)
+        for _, l in ipairs(okX and lines or { "status failed: " .. tostring(lines) }) do Print(l) end
     end
     Print("last error: " .. (lastError or "none"))
 end
@@ -1352,6 +1367,9 @@ local function OnSlash(msg)
     elseif cmd == "status" then
         PrintStatus()
     else
+        for _, x in ipairs(ns.extras) do
+            if x.Slash and x.Slash(cmd, arg) then return end
+        end
         -- The class commands: yours first, then the other modules' (their settings are
         -- account-wide, so a druid can set a paladin's options and the other way round).
         for _, m in ipairs(Modules()) do
@@ -1432,6 +1450,10 @@ local function MenuEntries()
     if m and m.Menu then
         for _, e in ipairs(m.Menu()) do list[#list + 1] = e end
     end
+    for _, x in ipairs(ns.extras) do
+        for _, o in ipairs(x.options or {}) do list[#list + 1] = CheckEntry(o.key, o.label) end
+        for _, e in ipairs(x.Menu and x.Menu() or {}) do list[#list + 1] = e end
+    end
     list[#list + 1] = { divider = true }
     list[#list + 1] = { text = "Set tank: current target", func = SetTank }
     if tank then
@@ -1495,6 +1517,12 @@ local function BindSavedVariables()
             for k in pairs(m.savedKeys or {}) do SAVED_KEYS[k] = true end
         end
     end
+    for _, x in ipairs(ns.extras) do
+        for _, o in ipairs(x.options or {}) do
+            SAVED_KEYS[o.key], DEFAULTS[o.key], LABELS[o.key] = true, o.default ~= false, o.label
+        end
+        for k in pairs(x.savedKeys or {}) do SAVED_KEYS[k] = true end
+    end
 
     BF.Migrate("GaarBuffsForeverDB", "BetterBuffsForeverDB") -- the old folder's settings, once (see Lib.lua)
     if type(GaarBuffsForeverDB) ~= "table" then GaarBuffsForeverDB = {} end
@@ -1542,6 +1570,9 @@ local function BindSavedVariables()
     for _, c in ipairs(MODULE_ORDER) do
         local m = ns.modules[c]
         if m and m.Bind then m.Bind(db, charDb) end
+    end
+    for _, x in ipairs(ns.extras) do
+        if x.Bind then x.Bind(db, charDb) end
     end
 end
 

@@ -1,5 +1,7 @@
 # GaarProfessionsForever
 
+Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
+
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001) that adds two
 helpers to the profession window. It needs GaarForever, the family hub, and no other addon or
 library, and it is not part of the Gaar suite.

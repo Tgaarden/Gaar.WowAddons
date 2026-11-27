@@ -1,5 +1,7 @@
 # GaarFramesForever
 
+Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
+
 > Formerly **BetterFramesForever**. The folder is now `GaarFramesForever` as well; the update also ships a tiny `BetterFramesForever` folder, a
 > settings bridge that moves your old settings over on the first login (each character on its own
 > first login). It is safe to delete after logging in once on each character, and later updates drop it. The command is

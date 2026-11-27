@@ -1,5 +1,7 @@
 # GaarTooltipsForever
 
+Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
+
 > Formerly **BetterTooltipsForever**. The folder is now `GaarTooltipsForever` as well; the update also ships a tiny `BetterTooltipsForever` folder, a
 > settings bridge that moves your old settings over on the first login (each character on its own
 > first login). It is safe to delete after logging in once on each character, and later updates drop it. The command is

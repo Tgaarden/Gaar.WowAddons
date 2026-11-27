@@ -1,5 +1,7 @@
 # GaarGroupForever
 
+Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
+
 A small standalone addon for the WoW Forever client (`_forever_`, interface 16001). A movable bar that
 is shown only while you are in a party (hidden solo and in a raid): pick your group role and, as
 party leader, start a ready check, a role check or a pull countdown. It needs GaarForever, the family

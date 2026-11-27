@@ -31,7 +31,7 @@
     * Quest filter (1.15, Filters.lua, default off): only completed / only uncompleted quests,
       and/or hide quests tagged Dungeon or Raid, in the quest log list and in this section. Here
       filtered quests are hidden exactly like the ones past the limit (and do not count towards
-      it); with auto-watch on they are also left out of its ranking. "Hide dungeon & raid quests"
+      it); with auto-watch on they are also left out of its ranking. The dungeon & raid choice
       pauses while the dungeon filter applies. See the top of Filters.lua.
 
   How, and why it is taint-safe (the Quests section carries quest item buttons, and the click
@@ -132,7 +132,7 @@ local DEFAULTS = {
     collapseAllButton = true,
     trackerQuestCount = true,
     questFilter = "all",          -- quest filter (1.15, Filters.lua): all | completed | uncompleted
-    hideInstanceQuests = false,   -- quest filter: hide quests tagged Dungeon or Raid
+    instanceFilter = "all",       -- quest filter (1.16): all | only | none (dungeon & raid quests)
 }
 local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 
@@ -140,7 +140,8 @@ local BACKDROP_DEFAULTS = { enabled = true, alpha = 0.5 }
 local SAVED_KEYS = { enabled = true, max = true, completed = true, minimap = true, backdrop = true,
     hideInCombat = true, distanceProbe = true, sort = true, autoWatch = true, dungeonFilter = true,
     dungeonRestore = true, autoAccept = true, collapseAllButton = true,
-    trackerQuestCount = true, questFilter = true, hideInstanceQuests = true }
+    trackerQuestCount = true, questFilter = true, instanceFilter = true,
+    hideInstanceQuests = true --[[ pre-1.16, read once to migrate to instanceFilter ]] }
 
 -- How long events are collected before the layout is re-evaluated.
 local THROTTLE = 0.3
@@ -3424,7 +3425,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.15.4"
+local VERSION = "1.16.0"
 A.version = VERSION
 
 local function ApiEntries()
@@ -3471,7 +3472,11 @@ local function BindSavedVariables()
     if type(db.collapseAllButton) ~= "boolean" then db.collapseAllButton = DEFAULTS.collapseAllButton end
     if type(db.trackerQuestCount) ~= "boolean" then db.trackerQuestCount = DEFAULTS.trackerQuestCount end
     if db.questFilter ~= "completed" and db.questFilter ~= "uncompleted" then db.questFilter = DEFAULTS.questFilter end
-    if type(db.hideInstanceQuests) ~= "boolean" then db.hideInstanceQuests = DEFAULTS.hideInstanceQuests end
+    if db.instanceFilter ~= "all" and db.instanceFilter ~= "only" and db.instanceFilter ~= "none" then
+        -- 1.16: the old checkbox becomes the 3-way choice, once (the old key is only read here)
+        db.instanceFilter = (db.hideInstanceQuests == true) and "none" or "all"
+    end
+    db.hideInstanceQuests = nil
     Dungeon.CleanRestore()
     MinimapDB()
     BackdropDB()
@@ -3534,7 +3539,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         -- Fires on every sub-zone change: only worth a pass when the order depends on the zone.
         if db and db.sort == "zone" then Schedule() end
     else
-        -- Entering or leaving an instance pauses or resumes "Hide dungeon & raid quests".
+        -- Entering or leaving an instance pauses or resumes the dungeon & raid quest choice.
         if db and A.ns.filters and event == "ZONE_CHANGED_NEW_AREA" then pcall(A.ns.filters.OnZoneChanged) end
         Schedule()
     end

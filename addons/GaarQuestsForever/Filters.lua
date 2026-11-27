@@ -1,13 +1,15 @@
 --[[
-  GaarQuestsForever - quest filter (1.15)
+  GaarQuestsForever - quest filter (1.16)
 
   Two settings, saved in GaarQuestsForeverDB like every other option:
 
     * questFilter: "all" (default), "completed" (only quests ready to turn in:
       C_QuestLog.ReadyForTurnIn, else C_QuestLog.IsComplete) or "uncompleted" (the others).
-    * hideInstanceQuests: hide quests tagged Dungeon or Raid (C_QuestLog.GetQuestTagInfo, else the
-      classic GetQuestTagInfo; tag IDs Dungeon 81, Heroic 85, Raid 62/88/89 or the tag names). Group
-      and Elite quests are not hidden. The tag reader is the one the dungeon filter uses.
+    * instanceFilter: "all" (default), "only" (only quests tagged Dungeon or Raid) or "none" (hide
+      them) - C_QuestLog.GetQuestTagInfo, else the classic GetQuestTagInfo; tag IDs Dungeon 81,
+      Heroic 85, Raid 62/88/89 or the tag names. Group and Elite quests count as neither. The tag
+      reader is the one the dungeon filter uses. Combines with questFilter. (Before 1.16 this was
+      the checkbox hideInstanceQuests, migrated once in the core's BindSavedVariables.)
 
   Where they apply: the quest log list (QuestMapFrame's QuestScrollFrame) and the Quests section
   of the objective tracker. Never the map pins.
@@ -18,8 +20,8 @@
   change the same two saved keys, so they always agree.
 
   The dungeon filter (/gqf dungeon) and this one: the dungeon filter watches only the current
-  instance's quests while you are inside a dungeon or raid. So that the two never fight, "Hide
-  dungeon & raid quests" pauses (in the log and the tracker) while the dungeon filter is on and
+  instance's quests while you are inside a dungeon or raid. So that the two never fight, the instance
+  filter pauses (in the log and the tracker) while the dungeon filter is on and
   you are inside a dungeon or raid. The status filter always applies.
 
   How, and why it is taint-safe:
@@ -57,7 +59,8 @@ local F = {
     menuState = "not registered yet",
     STATUS = { all = "Show all quests", completed = "Only completed", uncompleted = "Only uncompleted" },
     ORDER = { "all", "completed", "uncompleted" },
-    HIDE_TEXT = "Hide dungeon & raid quests",
+    INSTANCE = { all = "All quests (any type)", only = "Only dungeon & raid quests", none = "No dungeon & raid quests" },
+    INSTANCE_ORDER = { "all", "only", "none" },
     MENU_TAG = "MENU_QUEST_MAP_FRAME_SETTINGS",
     SUFFIX_COLOR = "|cffff9933",
 }
@@ -112,13 +115,15 @@ function F.Status()
     return (s == "completed" or s == "uncompleted") and s or "all"
 end
 
-function F.HideInstance()
+-- "all" | "only" | "none".
+function F.Instance()
     local db = DB()
-    return db ~= nil and db.hideInstanceQuests == true
+    local v = db and db.instanceFilter
+    return (v == "only" or v == "none") and v or "all"
 end
 
 function F.Active()
-    return F.Status() ~= "all" or F.HideInstance()
+    return F.Status() ~= "all" or F.Instance() ~= "all"
 end
 
 -- Ready to turn in.
@@ -137,7 +142,7 @@ function F.IsInstanceQuest(questID)
     return ok and v == true
 end
 
--- "Hide dungeon & raid quests" pauses while the dungeon filter applies (inside a dungeon or raid).
+-- The dungeon & raid choice pauses while the dungeon filter applies (inside a dungeon or raid).
 function F.InstancePaused()
     local c = Core()
     if not (c and type(c.DungeonFilterApplies) == "function") then return false end
@@ -149,15 +154,16 @@ end
 -- nil when nothing is filtered right now.
 function F.Tester()
     local status = F.Status()
-    local hideInst = F.HideInstance() and not F.InstancePaused()
-    if status == "all" and not hideInst then return nil end
+    local inst = F.Instance()
+    if inst ~= "all" and F.InstancePaused() then inst = "all" end
+    if status == "all" and inst == "all" then return nil end
     return function(questID, complete)
         if Num(questID) == nil then return false end
         if status ~= "all" then
             if not complete then complete = F.IsReady(questID) end
             if (status == "completed") ~= (complete == true) then return true end
         end
-        if hideInst and F.IsInstanceQuest(questID) then return true end
+        if inst ~= "all" and (inst == "only") ~= F.IsInstanceQuest(questID) then return true end
         return false
     end
 end
@@ -412,7 +418,7 @@ end
 
 -- Only the dungeon & raid part depends on where you are.
 function F.OnZoneChanged()
-    if F.HideInstance() then F.Refresh() end
+    if F.Instance() ~= "all" then F.Refresh() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -422,8 +428,9 @@ end
 function F.Describe()
     local parts = {}
     if F.Status() ~= "all" then parts[#parts + 1] = F.STATUS[F.Status()]:lower() end
-    if F.HideInstance() then
-        parts[#parts + 1] = "dungeon & raid quests hidden" .. (F.InstancePaused() and " (paused: dungeon filter in this instance)" or "")
+    if F.Instance() ~= "all" then
+        parts[#parts + 1] = (F.Instance() == "only" and "only dungeon & raid quests" or "dungeon & raid quests hidden")
+            .. (F.InstancePaused() and " (paused: dungeon filter in this instance)" or "")
     end
     if #parts == 0 then return "off (all quests shown)" end
     return table.concat(parts, ", ")
@@ -438,12 +445,12 @@ function F.SetStatus(mode)
     F.Refresh()
 end
 
-function F.SetHideInstance(on)
+function F.SetInstance(mode)
     local db = DB()
-    if not db then return end
-    db.hideInstanceQuests = on and true or false
+    if not db or not F.INSTANCE[mode] then return end
+    db.instanceFilter = mode
     Print("quest filter: " .. F.Describe() .. "."
-        .. (on and " Inside a dungeon or raid with the dungeon filter on, this pauses so that instance's quests stay visible." or ""))
+        .. (mode ~= "all" and " Inside a dungeon or raid with the dungeon filter on, this pauses so that instance's quests stay visible." or ""))
     F.Refresh()
 end
 
@@ -456,8 +463,10 @@ function F.MenuEntries()
             checked = function() return F.Status() == k end, func = function() F.SetStatus(k) end }
     end
     list[#list + 1] = { divider = true }
-    list[#list + 1] = { text = F.HIDE_TEXT, checkbox = true,
-        checked = function() return F.HideInstance() end, func = function() F.SetHideInstance(not F.HideInstance()) end }
+    for _, k in ipairs(F.INSTANCE_ORDER) do
+        list[#list + 1] = { text = F.INSTANCE[k], radio = true,
+            checked = function() return F.Instance() == k end, func = function() F.SetInstance(k) end }
+    end
     return list
 end
 
@@ -489,7 +498,7 @@ end
 
 function F.Usage()
     Print("/gqf filter all | completed | uncompleted - which quests the quest log and the tracker show (now: " .. F.Status() .. ")")
-    Print("/gqf filter dungeons on | off - hide quests tagged Dungeon or Raid (now: " .. (F.HideInstance() and "on" or "off") .. ")")
+    Print("/gqf filter dungeons all | only | none - all quests, only Dungeon/Raid quests, or none of them (now: " .. F.Instance() .. "; on = none, off = all)")
 end
 
 function F.Slash(rest)
@@ -505,10 +514,10 @@ function F.Slash(rest)
         F.SetStatus("completed")
     else
         local onOff = rest:match("^dungeons? (%a+)$") or rest:match("^instances? (%a+)$") or rest:match("^raids? (%a+)$")
-        if onOff == "on" then
-            F.SetHideInstance(true)
-        elseif onOff == "off" then
-            F.SetHideInstance(false)
+        local alias = { on = "none", off = "all" }
+        local mode = onOff and (alias[onOff] or onOff)
+        if mode and F.INSTANCE[mode] then
+            F.SetInstance(mode)
         else
             F.Usage()
         end
@@ -533,6 +542,6 @@ function F.StateWord()
     if not F.Active() then return nil end
     local parts = {}
     if F.Status() ~= "all" then parts[#parts + 1] = F.Status() end
-    if F.HideInstance() then parts[#parts + 1] = "no dungeons" end
+    if F.Instance() ~= "all" then parts[#parts + 1] = F.Instance() == "only" and "only dungeons" or "no dungeons" end
     return "filter: " .. table.concat(parts, "+")
 end

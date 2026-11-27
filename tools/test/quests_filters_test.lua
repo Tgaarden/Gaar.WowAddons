@@ -110,7 +110,25 @@ G.GaarQuestsForeverDB = { questFilter = "bogus", hideInstanceQuests = "yes" }
 T.Bind()
 local db = G.GaarQuestsForeverDB
 eq("default status", db.questFilter, "all")
-eq("default hide", db.hideInstanceQuests, false)
+eq("default instance filter", db.instanceFilter, "all")
+eq("old key dropped", db.hideInstanceQuests, nil)
+-- Migration from the old checkbox, once.
+G.GaarQuestsForeverDB = { hideInstanceQuests = true }
+T.Bind()
+eq("migrate true -> none", G.GaarQuestsForeverDB.instanceFilter, "none")
+eq("migrate drops old key", G.GaarQuestsForeverDB.hideInstanceQuests, nil)
+G.GaarQuestsForeverDB = { hideInstanceQuests = false }
+T.Bind()
+eq("migrate false -> all", G.GaarQuestsForeverDB.instanceFilter, "all")
+G.GaarQuestsForeverDB = { instanceFilter = "only", hideInstanceQuests = true }
+T.Bind()
+eq("existing value wins over old key", G.GaarQuestsForeverDB.instanceFilter, "only")
+G.GaarQuestsForeverDB = { instanceFilter = "bogus" }
+T.Bind()
+eq("junk -> all", G.GaarQuestsForeverDB.instanceFilter, "all")
+G.GaarQuestsForeverDB = { questFilter = "bogus", hideInstanceQuests = "yes" }
+T.Bind()
+db = G.GaarQuestsForeverDB
 db.enabled, db.max = true, 10
 
 -- Tests.
@@ -123,12 +141,39 @@ db.questFilter = "completed"
 h = F.Tester()
 eq("completed hides open", h(2), true)
 eq("completed keeps complete", h(1), false)
-db.questFilter = "all"; db.hideInstanceQuests = true
+db.questFilter = "all"; db.instanceFilter = "none"
 h = F.Tester()
 eq("dungeon tag hidden", h(3), true)
 eq("raid tag hidden", h(6), true)
 eq("group tag kept", h(5), false)
 eq("untagged kept", h(2), false)
+
+-- "only": just the dungeon/raid-tagged quests.
+db.instanceFilter = "only"
+h = F.Tester()
+eq("only: dungeon kept", h(3), false)
+eq("only: raid kept", h(6), false)
+eq("only: group hidden", h(5), true)
+eq("only: untagged hidden", h(2), true)
+-- All 3x3 combinations: quest 1 complete untagged, 2 open untagged, 3 open dungeon, 6 raid.
+local function ready(id) return F.IsReady(id) end
+for _, st in ipairs({ "all", "completed", "uncompleted" }) do
+    for _, inst in ipairs({ "all", "only", "none" }) do
+        db.questFilter, db.instanceFilter = st, inst
+        local hh = F.Tester()
+        for _, id in ipairs({ 1, 2, 3, 5, 6 }) do
+            local isInst = F.IsInstanceQuest(id)
+            local want = true
+            if st == "completed" and not ready(id) then want = false end
+            if st == "uncompleted" and ready(id) then want = false end
+            if inst == "only" and not isInst then want = false end
+            if inst == "none" and isInst then want = false end
+            local got = hh == nil and true or not hh(id)
+            eq(("combo %s/%s q%d shown"):format(st, inst, id), got, want)
+        end
+    end
+end
+db.questFilter, db.instanceFilter = "all", "none"
 
 -- Paused inside a dungeon while the dungeon filter is on (and only then).
 G.IsInInstance = function() return true, "party" end
@@ -136,12 +181,15 @@ G.GetInstanceInfo = function() return "The Deadmines" end
 eq("in instance, dungeon filter off: active", F.Tester() ~= nil, true)
 db.dungeonFilter = true
 eq("in instance, dungeon filter on: paused", F.Tester(), nil)
+db.instanceFilter = "only"
+eq("in instance, dungeon filter on: only paused too", F.Tester(), nil)
+db.instanceFilter = "none"
 G.IsInInstance = function() return false end
 eq("outside: active again", F.Tester() ~= nil, true)
 db.dungeonFilter = false
 
 -- Auto-watch narrowing.
-db.hideInstanceQuests = false; db.questFilter = "uncompleted"
+db.instanceFilter = "all"; db.questFilter = "uncompleted"
 local narrowed = F.Narrow({ { id = 1, complete = true }, { id = 2 }, { id = 3 } })
 eq("narrow count", #narrowed, 2)
 eq("narrow first", narrowed[1].id, 2)
@@ -196,7 +244,7 @@ eq("gear menu tag", type(menus.MENU_QUEST_MAP_FRAME_SETTINGS), "function")
 local root = { CreateDivider = function(self) self.divider = true end, CreateTitle = function(self, t) self.title = t end }
 menus.MENU_QUEST_MAP_FRAME_SETTINGS(nil, root)
 eq("gear menu divider", root.divider, true)
-eq("gear menu entries", root.entries and #root.entries, 5)
+eq("gear menu entries", root.entries and #root.entries, 7)
 eq("gear menu radio", root.entries and root.entries[2].text, "Only completed")
 
 -- Filter off: Blizzard's list untouched.
@@ -255,14 +303,27 @@ eq("count back", G.QuestLogQuestCount.text, "Quests: 6/40")
 
 -- Hide dungeon & raid quests via the slash command.
 T.OnSlash("filter dungeons on")
-eq("slash dungeons on", db.hideInstanceQuests, true)
+eq("slash dungeons on = none", db.instanceFilter, "none")
 eq("q3 hidden by tag", rows[5].shown, false)
 eq("Deadmines header hidden by tag", rows[4].shown, false)
 eq("q5 (group) kept", rows[8].shown, true)
 eq("q6 (raid) hidden", rows[10].shown, false)
 T.OnSlash("filter dungeons off")
-eq("slash dungeons off", db.hideInstanceQuests, false)
+eq("slash dungeons off = all", db.instanceFilter, "all")
 eq("q3 back", rows[5].shown, true)
+T.OnSlash("filter dungeons only")
+eq("slash dungeons only", db.instanceFilter, "only")
+eq("only: q3 kept", rows[5].shown, true)
+eq("only: q5 (group) hidden", rows[8].shown, false)
+T.OnSlash("filter dungeons none")
+eq("slash dungeons none", db.instanceFilter, "none")
+T.OnSlash("filter dungeons all")
+eq("slash dungeons all", db.instanceFilter, "all")
+local nb = #printed
+T.OnSlash("filter dungeons bogus")
+eq("slash bogus keeps value", db.instanceFilter, "all")
+T.OnSlash("filter")
+eq("filter status shows instance value", (table.concat(printed, "\n", nb + 1)):find("now: all", 1, true) ~= nil, true)
 T.OnSlash("filter completed")
 eq("slash completed", db.questFilter, "completed")
 T.OnSlash("filter all")
@@ -286,13 +347,20 @@ local sub
 for _, e in ipairs(T.OptionEntries()) do if e.text == "Quest log filter" then sub = e.submenu end end
 eq("submenu present", sub ~= nil, true)
 if sub then
-    eq("submenu size", #sub, 5)
+    eq("submenu size", #sub, 7)
     sub[3].func()
     eq("submenu sets status", db.questFilter, "uncompleted")
     eq("submenu radio checked", sub[3].checked(), true)
+    eq("submenu divider", sub[4].divider, true)
+    eq("submenu labels", sub[5].text .. "|" .. sub[6].text .. "|" .. sub[7].text,
+        "All quests (any type)|Only dungeon & raid quests|No dungeon & raid quests")
+    sub[7].func()
+    eq("submenu sets none", db.instanceFilter, "none")
+    eq("submenu none checked", sub[7].checked(), true)
+    sub[6].func()
+    eq("submenu sets only", db.instanceFilter, "only")
     sub[5].func()
-    eq("submenu sets hide", db.hideInstanceQuests, true)
-    sub[5].func()
+    eq("submenu sets all", db.instanceFilter, "all")
     sub[1].func()
 end
 

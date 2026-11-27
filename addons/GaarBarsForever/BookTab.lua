@@ -14,8 +14,14 @@
     b) sit on a bar only at a lower rank than the highest rank known ("Bar has Rank 2 · Rank 3
        known").
 
-  Right of our tab, on the same row, sits a small button of ours that opens the flyout editor
-  (FlyoutEditor.lua, the same as /gbars flyouts); it shows while the flyouts feature is on.
+  Right of our tab, on the same row, sits a second tab of ours, built exactly like it (same size,
+  frame art and highlight; a gear icon), that opens the flyout editor (FlyoutEditor.lua, the same
+  as /gbars flyouts); it shows while the flyouts feature is on.
+
+  While our panel is open only our tab looks selected: a stand-in of ours covers Blizzard's
+  selected category tab (a clipped copy of the book's background under a tab of ours in the plain
+  look with that tab's icon), the way What's Training? covers the tab its page replaces. It goes
+  away with our panel, so Blizzard's tabs look exactly as before once one of them is used.
   Spells and macros inside flyouts whose macro is on a bar count as on the bars
   (B.FlyoutBarEntries, Flyouts.lua).
 
@@ -36,10 +42,11 @@
       frame are only read; the hooks are hooksecurefunc (SpellBookFrame:SetTab, the tab system's
       SetTab / SetTabShown, SetMinimized) and HookScript (OnShow / OnHide of the book, the search
       box's focus). No layout method of Blizzard's is called and our tab is not part of its tab
-      row. Blizzard's selected tab is never changed: our tab shows itself selected and our panel
-      covers the page; any Blizzard tab click (SetTab), a click on the still-selected Blizzard
-      tab (a plain, invisible catcher button of ours over it, since that tab is disabled),
-      focusing the search box or closing the book closes our panel.
+      row. Blizzard's selected tab is never changed, and none of its textures is touched: our
+      tab shows itself selected, our panel covers the page and our stand-in covers the selected
+      Blizzard tab (only frames of ours, none protected, so it is placed and hidden in combat as
+      well). Any Blizzard tab click (SetTab), a click on the stand-in (Blizzard's tab under it is
+      disabled while selected), focusing the search box or closing the book closes our panel.
     * Each entry's icon is a SecureActionButtonTemplate button (type1 = "spell", spell = id),
       from a pool sized to one page. The panel holding them is attached to the spellbook only
       while it is open (SetParent out of combat) and parked on UIParent otherwise, so the book
@@ -90,6 +97,7 @@ local TAB_ICON_W, TAB_ICON_H = 34, 33
 -- Bottom-left corner of the book, on the row of Blizzard's page arrows (BOTTOMRIGHT -75, 40),
 -- left of the first page's grid (x 85).
 local TAB_X, TAB_Y = 28, 40
+local TAB_GAP = 4 -- between our tab and the flyout editor's button
 
 local MISSING_RGB = { 0.55, 0.10, 0.05 }
 local LOW_RGB = { 0.70, 0.30, 0.00 }
@@ -100,7 +108,7 @@ local BT = {}
 NS.BookTab = BT
 
 local S = {
-    sb = nil, tab = nil, catcher = nil, panel = nil,
+    sb = nil, tab = nil, standIn = nil, panel = nil,
     open = false, anchored = false, anchorTo = "not built",
     pendingClose = false, pendingRender = false,
     dirty = true, list = nil, missing = 0, low = 0,
@@ -355,6 +363,7 @@ local function Compute()
         end
     end
     S.list, S.missing, S.low, S.dirty = out, missing, low, false
+    S.barIds, S.barByName = barIds, barByName
     if UpdateBadge then UpdateBadge() end
     return out
 end
@@ -444,8 +453,8 @@ local function NativeTabArt(ts)
     return art
 end
 
-local function SetTabSelected(sel)
-    local t = S.tab
+-- A tab of ours (MakeIconTab) in the selected or the plain look.
+local function SetTabLook(t, sel)
     if not t then return end
     t.selected = sel and true or false
     if t.style == "forever" then
@@ -460,6 +469,8 @@ local function SetTabSelected(sel)
         t.Active:SetShown(sel)
     end
 end
+
+local function SetTabSelected(sel) SetTabLook(S.tab, sel) end
 
 UpdateBadge = function()
     local t = S.tab
@@ -514,12 +525,25 @@ local function TabClick()
     end
 end
 
-local function BuildTab(sb)
-    local art = NativeTabArt(TabSystem(sb))
-    local t = CreateFrame("Button", nil, sb)
+-- Our copy of one of the book's own textures (same atlas, same rect, same shown state).
+local function MirrorTexture(our, blizz)
+    our:ClearAllPoints()
+    if type(blizz) ~= "table" or type(blizz.GetAtlas) ~= "function" then our:Hide() return end
+    local atlas = CallOf(blizz, "GetAtlas")
+    if type(atlas) ~= "string" or not Atlas(our, atlas, false) then our:Hide() return end
+    our:SetAllPoints(blizz)
+    our:SetShown(CallOf(blizz, "IsShown") and true or false)
+end
+
+-- One icon tab in the look of Forever's category tabs (`art` from NativeTabArt), or an icon in
+-- an action button frame where the client has no such art. Our tab, the flyout editor's button
+-- next to it and the stand-in over Blizzard's selected tab are all built here, so they match:
+-- same size, same frame art, same hover highlight.
+local function MakeIconTab(parent, art, iconPath)
+    local t = CreateFrame("Button", nil, parent)
     t:RegisterForClicks("LeftButtonUp")
     t.Icon = t:CreateTexture(nil, "ARTWORK")
-    t.Icon:SetTexture(TAB_ICON)
+    if iconPath then t.Icon:SetTexture(iconPath) end
     if art.normal then
         -- Forever's icon tab, as its own tabs (and What's Training?'s) are built.
         t.style = "forever"
@@ -561,6 +585,90 @@ local function BuildTab(sb)
         hl:ClearAllPoints()
         hl:SetAllPoints(t.Icon)
     end
+    SetTabLook(t, false)
+    return t
+end
+
+local function HideTooltip() if _G.GameTooltip then _G.GameTooltip:Hide() end end
+
+-- Our stand-in over Blizzard's selected category tab while our panel is open, so that only our
+-- tab looks selected (What's Training? does the same over the tab its page replaces). Blizzard's
+-- tab is never touched: a frame of ours on top of it clips a copy of the book's own background
+-- to the tab's rect (covering its selected glow), and over that sits a tab of ours in the plain
+-- look wearing that tab's icon. Blizzard's tab is disabled while selected, so its own click would
+-- not fire; a click on the stand-in closes our panel instead.
+local function BuildStandIn(sb, art)
+    local h = CreateFrame("Frame", nil, sb)
+    h:Hide()
+    local cv = CreateFrame("Frame", nil, h)
+    cv:SetAllPoints(h)
+    cv:SetClipsChildren(true)
+    local bg = CreateFrame("Frame", nil, cv)
+    bg:SetAllPoints(cv)
+    bg:SetClipsChildren(true)
+    bg.mirrors = {}
+    for _, k in ipairs({ "BookBGHalved", "BookBGLeft", "BookBGRight" }) do
+        bg.mirrors[k] = bg:CreateTexture(nil, "BACKGROUND", nil, 1)
+    end
+    h.cover, h.bg = cv, bg
+    local f = MakeIconTab(h, art, nil)
+    f:SetAllPoints(h)
+    f:SetScript("OnClick", TabClick)
+    f:SetScript("OnEnter", function(self)
+        local tt = _G.GameTooltip
+        if not tt then return end
+        tt:SetOwner(self, "ANCHOR_RIGHT")
+        local name = h.name
+        tt:SetText(type(name) == "string" and name ~= "" and name or TAB_TOOLTIP)
+        tt:AddLine("Click to go back to your spells.", 0.7, 0.7, 0.7)
+        tt:Show()
+    end)
+    f:SetScript("OnLeave", HideTooltip)
+    h.face = f
+    S.standIn = h
+end
+
+-- Our stand-in's icon: the same texture or atlas as Blizzard's tab icon, on the same rect.
+local function CopyIcon(our, native)
+    if type(native) ~= "table" then return end
+    local atlas = CallOf(native, "GetAtlas")
+    if not (type(atlas) == "string" and atlas ~= "" and Atlas(our, atlas, false)) then
+        local tex = CallOf(native, "GetTexture")
+        if Secret(tex) or (type(tex) ~= "number" and type(tex) ~= "string") then return end
+        pcall(our.SetTexture, our, tex)
+        local c = { pcall(native.GetTexCoord, native) }
+        if c[1] and #c == 9 then pcall(our.SetTexCoord, our, unpack(c, 2, 9)) end
+    end
+    our:ClearAllPoints()
+    our:SetAllPoints(native)
+end
+
+-- Puts the stand-in over Blizzard's selected tab while our panel is open, else hides it. Only our
+-- own frames move (none is protected), so this is fine in combat as well.
+local function PlaceStandIn()
+    local h = S.standIn
+    if not h then return end
+    local ts = S.open and TabSystem(S.sb) or nil
+    local t = ts and SelectedTab(ts) or nil
+    if not t then h:Hide() return end
+    h:ClearAllPoints()
+    h:SetAllPoints(t)
+    local lvl = Num(CallOf(t, "GetFrameLevel")) or 0
+    h:SetFrameLevel(lvl + 5)
+    h.cover:SetFrameLevel(lvl + 6)
+    h.bg:SetFrameLevel(lvl + 6)
+    h.face:SetFrameLevel(lvl + 8)
+    for k, tex in pairs(h.bg.mirrors) do MirrorTexture(tex, FieldOf(S.sb, k)) end
+    CopyIcon(h.face.Icon, FieldOf(t, "Icon"))
+    local name = CallOf(t, "GetText")
+    if Secret(name) or type(name) ~= "string" then name = FieldOf(t, "tooltipText") end
+    h.name = type(name) == "string" and not Secret(name) and name or nil
+    h:Show()
+end
+
+local function BuildTab(sb)
+    local art = NativeTabArt(TabSystem(sb))
+    local t = MakeIconTab(sb, art, TAB_ICON)
     t.Arrow = t:CreateTexture(nil, "OVERLAY", nil, 2)
     t.Arrow:SetSize(14, 14)
     t.Arrow:SetPoint("BOTTOMRIGHT", t.Icon, "BOTTOMRIGHT", 2, -2)
@@ -572,27 +680,16 @@ local function BuildTab(sb)
     t.Count:Hide()
     t:SetScript("OnClick", TabClick)
     t:SetScript("OnEnter", function(self) Safe("tooltip", TabTooltip, self) end)
-    t:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    t:SetScript("OnLeave", HideTooltip)
     S.tab = t
-    -- The flyout editor's button: a small icon right of our tab (a child of it, so it shows and
-    -- hides with it), on the page arrows' row, left of the grid.
-    local fb = CreateFrame("Button", nil, t)
-    fb:SetSize(26, 26)
-    fb:SetPoint("LEFT", t, "RIGHT", 6, 0)
-    fb:RegisterForClicks("LeftButtonUp")
-    fb.Icon = fb:CreateTexture(nil, "ARTWORK")
-    fb.Icon:SetTexture("Interface\\Icons\\INV_Misc_Gear_01")
-    fb.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    fb.Icon:SetAllPoints(fb)
-    fb.Border = fb:CreateTexture(nil, "ARTWORK", nil, 1)
-    fb.Border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-    fb.Border:SetSize(48, 48)
-    fb.Border:SetPoint("CENTER", 0, -1)
+    -- The flyout editor's button: a tab exactly like ours (same size, frame art and highlight)
+    -- right of it on the same row, a child of it so it shows and hides with it. Never selected.
+    local fb = MakeIconTab(t, art, "Interface\\Icons\\INV_Misc_Gear_01")
+    fb:SetPoint("LEFT", t, "RIGHT", TAB_GAP, 0)
     fb.Arrow = fb:CreateTexture(nil, "OVERLAY", nil, 2)
     fb.Arrow:SetSize(14, 7)
-    fb.Arrow:SetPoint("TOP", fb, "TOP", 0, -1)
+    fb.Arrow:SetPoint("TOP", fb.Icon, "TOP", 0, -1)
     if not Atlas(fb.Arrow, "UI-HUD-ActionBar-Flyout", false) then fb.Arrow:Hide() end
-    fb:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     fb:SetScript("OnClick", function()
         if type(B.OpenFlyoutEditor) == "function" then Safe("flyout editor", B.OpenFlyoutEditor) end
     end)
@@ -604,31 +701,12 @@ local function BuildTab(sb)
         tt:AddLine("Make and edit your flyouts (/gbars flyouts).", 0.7, 0.7, 0.7)
         tt:Show()
     end)
-    fb:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    fb:SetScript("OnLeave", HideTooltip)
     S.flyBtn = fb
     BT.FlyoutButtonShown()
     SetTabSelected(false)
     AnchorTab()
-    -- A plain button of ours over the Blizzard tab that still looks selected while our panel is
-    -- open (that tab is disabled, so its own OnClick would not fire): a click closes our panel.
-    -- No textures: it only takes that click.
-    local c = CreateFrame("Button", nil, sb)
-    c:Hide()
-    c:RegisterForClicks("LeftButtonUp")
-    c:SetScript("OnClick", TabClick)
-    S.catcher = c
-end
-
-local function PlaceCatcher()
-    local c = S.catcher
-    if not c then return end
-    local t = S.open and TabSystem(S.sb) and SelectedTab(TabSystem(S.sb)) or nil
-    if not t then c:Hide() return end
-    c:ClearAllPoints()
-    c:SetAllPoints(t)
-    local lvl = Num(CallOf(t, "GetFrameLevel")) or 0
-    c:SetFrameLevel(lvl + 5)
-    c:Show()
+    BuildStandIn(sb, art)
 end
 
 -- ---------------------------------------------------------------------------
@@ -637,15 +715,6 @@ end
 
 local function CanChange()
     return not InCombat() or not (S.panel and S.panel:IsProtected())
-end
-
-local function MirrorTexture(our, blizz)
-    our:ClearAllPoints()
-    if type(blizz) ~= "table" or type(blizz.GetAtlas) ~= "function" then our:Hide() return end
-    local atlas = CallOf(blizz, "GetAtlas")
-    if type(atlas) ~= "string" or not Atlas(our, atlas, false) then our:Hide() return end
-    our:SetAllPoints(blizz)
-    our:SetShown(CallOf(blizz, "IsShown") and true or false)
 end
 
 -- The page-corner flipbook: only its first frame (2 rows x 4 columns), as it rests.
@@ -1034,6 +1103,147 @@ local function Render()
     p.next:SetEnabled(S.page < S.pages)
 end
 
+-- ---------------------------------------------------------------------------
+-- Blizzard's marks on its own spellbook items
+--
+-- Two textures on each of Blizzard's item buttons (Blizzard_SpellBookItem.xml) are hidden from
+-- here, nothing else of theirs:
+--   * Button.ActionBarHighlight (atlas spellbook-item-unassigned-glow, a pulsing gold frame, the
+--     tooltip's "not on your action bars"): Blizzard decides it with C_ActionBar.
+--     FindSpellActionButtons, which cannot see into our flyouts. Hidden while our own scan
+--     (BarScan: slots, macros and the flyouts on the bars, any rank) finds the spell on the bars,
+--     so it agrees with our Missing list. Shown again while Blizzard's pulse still runs once the
+--     scan no longer finds it.
+--   * Button.AssistedCombatIconCover (atlas UI-HUD-RotationHelper-SpellbookGlow, an orange frame):
+--     the rotation helper's spells. Hidden unless /gbars bookframe is on.
+-- Taint: only Hide / Show on those two textures (C-side state, no Lua field of Blizzard's is
+-- written) and reads. hooksecurefunc on each item frame's UpdateActionBarAnim and
+-- UpdateAssistedCombatState (the ends of Blizzard's own update paths), found through the paged
+-- frame's DisplayViewsForCurrentPage (also hooksecurefunc), which acquires every item. Blizzard's
+-- animation is never played or stopped by us. The item frames are not protected; hiding a texture
+-- is allowed in combat anyway.
+-- ---------------------------------------------------------------------------
+
+local IM = {
+    glowHid = setmetatable({}, { __mode = "k" }),  -- ActionBarHighlight textures hidden by us
+    coverHid = setmetatable({}, { __mode = "k" }), -- AssistedCombatIconCover textures hidden by us
+    hooked = setmetatable({}, { __mode = "k" }),   -- item frames hooked
+    glows = 0, covers = 0,
+}
+
+local function MasterOn()
+    local db = type(B.DB) == "function" and B.DB() or nil
+    return type(db) == "table" and db.enabled ~= false
+end
+
+-- Rotation helper frame hidden (the default) while the addon is on and bookframe is off.
+local function HideBookFrame()
+    return MasterOn() and not (type(B.On) == "function" and B.On("bookFrame") == true)
+end
+
+-- Blizzard's "not on your action bars" glow is corrected while either feature that knows about
+-- flyouts and macros is on.
+local function FixGlow()
+    return type(B.On) == "function" and (B.On(FEATURE) == true or B.On("flyouts") == true)
+end
+
+-- True when our scan finds the spell on the bars (any rank, flyouts and macros included).
+local function OnBarsByScan(id)
+    id = Num(id)
+    if not id then return false end
+    if not S.barIds then
+        if InCombat() then return false end
+        S.barIds, S.barByName = BarScan()
+    end
+    if S.barIds[id] then return true end
+    local name = SpellName(id)
+    return name ~= nil and S.barByName[name] ~= nil
+end
+
+local function ItemSpellID(el)
+    local info = FieldOf(el, "spellBookItemInfo")
+    if type(info) ~= "table" or Secret(info) then return nil end
+    local E = _G.Enum
+    local spellType = E and E.SpellBookItemType and E.SpellBookItemType.Spell
+    if spellType ~= nil and FieldOf(info, "itemType") ~= spellType then return nil end
+    return Num(FieldOf(info, "actionID")) or Num(FieldOf(info, "spellID"))
+end
+
+-- Blizzard's glow: visible only while its pulse plays (VisibleWhilePlayingAnimGroupTemplate).
+local function MarkGlow(el, btn)
+    local hl = FieldOf(btn, "ActionBarHighlight")
+    if type(hl) ~= "table" or type(hl.Hide) ~= "function" then return end
+    local anim = FieldOf(hl, "Anim")
+    if CallOf(anim, "IsPlaying") ~= true then IM.glowHid[hl] = nil return end
+    local hide = FixGlow() and OnBarsByScan(ItemSpellID(el))
+    if hide then
+        if CallOf(hl, "IsShown") then hl:Hide() end
+        IM.glowHid[hl] = true
+    elseif IM.glowHid[hl] then
+        hl:Show()
+        IM.glowHid[hl] = nil
+    end
+end
+
+-- Blizzard's rotation helper frame. `fresh`: called right after Blizzard set it, so its shown
+-- state is Blizzard's answer; otherwise Blizzard's answer is "shown" when we hid it.
+local function MarkCover(btn, fresh)
+    local cv = FieldOf(btn, "AssistedCombatIconCover")
+    if type(cv) ~= "table" or type(cv.Hide) ~= "function" then return end
+    local want = CallOf(cv, "IsShown") == true or (not fresh and IM.coverHid[cv] == true)
+    if want and HideBookFrame() then
+        cv:Hide()
+        IM.coverHid[cv] = true
+    else
+        if want and not CallOf(cv, "IsShown") then cv:Show() end
+        IM.coverHid[cv] = nil
+    end
+end
+
+local function OnItemAnim(el)
+    local btn = FieldOf(el, "Button")
+    if type(btn) == "table" then Safe("glow", MarkGlow, el, btn) end
+end
+
+local function OnItemCover(el)
+    local btn = FieldOf(el, "Button")
+    if type(btn) == "table" then Safe("rotation frame", MarkCover, btn, true) end
+end
+
+-- Every item frame on the current page(s): hook it once, then bring both marks up to date.
+local function SweepItems()
+    local pf = S.sb and FieldOf(S.sb, "PagedSpellsFrame")
+    local frames = type(pf) == "table" and FieldOf(pf, "frames") or nil
+    if type(frames) ~= "table" or Secret(frames) then return end
+    local glows, covers = 0, 0
+    for _, el in ipairs(frames) do
+        local btn = type(el) == "table" and FieldOf(el, "Button") or nil
+        if type(btn) == "table" then
+            if not IM.hooked[el] and type(_G.hooksecurefunc) == "function" then
+                IM.hooked[el] = true
+                if type(el.UpdateActionBarAnim) == "function" then
+                    pcall(_G.hooksecurefunc, el, "UpdateActionBarAnim", OnItemAnim)
+                end
+                if type(el.UpdateAssistedCombatState) == "function" then
+                    pcall(_G.hooksecurefunc, el, "UpdateAssistedCombatState", OnItemCover)
+                end
+            end
+            MarkGlow(el, btn)
+            MarkCover(btn, false)
+            local hl, cv = FieldOf(btn, "ActionBarHighlight"), FieldOf(btn, "AssistedCombatIconCover")
+            if hl and IM.glowHid[hl] then glows = glows + 1 end
+            if cv and IM.coverHid[cv] then covers = covers + 1 end
+        end
+    end
+    IM.glows, IM.covers = glows, covers
+end
+
+function BT.MarksLine()
+    return string.format("spellbook marks: rotation helper frame %s (%d hidden now) \194\183 "
+        .. "Blizzard's not-on-bars glow hidden on %d spell(s) on the bars through flyouts or macros",
+        HideBookFrame() and "hidden (/gbars bookframe on shows it)" or "shown", IM.covers, IM.glows)
+end
+
 local function SafeRender() Safe("render", Render) end
 
 -- Throttled refresh while the book is shown; events only mark the list dirty. With our panel
@@ -1045,8 +1255,13 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     since = since + (Num(elapsed) or 0)
     if since < THROTTLE then return end
     since = 0
-    if not S.dirty or InCombat() or not On() then return end
-    if S.open then SafeRender() else Safe("count", Compute) end
+    if not S.dirty or InCombat() then return end
+    if On() then
+        if S.open then SafeRender() else Safe("count", Compute) end
+    else
+        S.barIds, S.barByName, S.dirty = nil, nil, false
+    end
+    Safe("marks", SweepItems) -- after the rescan, so flyout changes reach Blizzard's glow too
 end)
 
 -- ---------------------------------------------------------------------------
@@ -1093,7 +1308,7 @@ function BT.Open()
     S.panel:Show()
     Layout() -- after Show, so the panel's rect is resolved for ViewRects
     SetTabSelected(true)
-    PlaceCatcher()
+    PlaceStandIn()
     Render()
     since = 0
     driver:Show()
@@ -1109,7 +1324,7 @@ function BT.Close()
     end
     S.open, S.pendingClose = false, false
     SetTabSelected(false)
-    if S.catcher then S.catcher:Hide() end
+    if S.standIn then S.standIn:Hide() end
 end
 
 function BT.Page(dir)
@@ -1126,6 +1341,8 @@ end
 function BT.Apply()
     if not S.tab then return end
     BT.FlyoutButtonShown()
+    S.barIds, S.barByName = nil, nil
+    Safe("marks", SweepItems)
     if On() then
         S.tab:Show()
         AnchorTab()
@@ -1137,6 +1354,7 @@ function BT.Apply()
 end
 
 -- Flyouts changed (Flyouts.lua): the list has to be recomputed.
+-- Also brings Blizzard's not-on-bars glow up to date (the driver sweeps the items after it).
 function B.MissingDirty() S.dirty = true end
 
 function BT.StatusLine()
@@ -1184,16 +1402,22 @@ local function HookBook(sb)
         Safe("minimize", function()
             if S.open then
                 if CanChange() then Attach(); Layout(); Render() else S.pendingRender = true end
+                PlaceStandIn()
             end
         end)
     end)
     local ts = TabSystem(sb)
     if ts then
         HookOnce(ts, "SetTab", OnBlizzardTab)
-        -- Only our catcher follows the tab row; our tab no longer sits in or next to it.
+        -- Only our stand-in follows the tab row; our tab no longer sits in or next to it.
         HookOnce(ts, "SetTabShown", function()
-            if S.open then Safe("catcher", PlaceCatcher) end
+            if S.open then Safe("stand-in", PlaceStandIn) end
         end)
+    end
+    -- Every item frame Blizzard shows is acquired here: hook new ones, fix both marks.
+    local pf = FieldOf(sb, "PagedSpellsFrame")
+    if type(pf) == "table" then
+        HookOnce(pf, "DisplayViewsForCurrentPage", function() Safe("marks", SweepItems) end)
     end
     local search = FieldOf(sb, "SearchBox")
     if type(search) == "table" and type(search.HookScript) == "function" then

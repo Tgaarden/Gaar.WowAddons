@@ -26,7 +26,12 @@
     * bookMissingTab (on): a square icon tab of our own in the spellbook's bottom-left corner
       ("Missing from bars", Forever's tab look, a count badge) with one list of the known, castable, non-passive spells that are on no action bar,
       or whose bar copy is a lower rank than the one you know. Same look as Blizzard's pages;
-      drag an entry to a bar, click it to cast. BookTab.lua, see there.
+      drag an entry to a bar, click it to cast. BookTab.lua, see there. Blizzard's own pulsing
+      "not on your action bars" glow on a book icon is hidden for spells our scan finds on the bars
+      through a flyout or a macro, so the book agrees with that list.
+    * bookFrame (off): the orange frames on spellbook icons that are not about missing spells -
+      our low-rank ring on the book's entries (lowRankWarn; the ring on the action buttons stays)
+      and Blizzard's rotation helper frame (AssistedCombatIconCover). Off hides both.
     * flyouts (on): flyouts of up to 12 spells, items or macros, each carried on the bars by a
       macro of its own ("GF <name>"); drop on the "+" a button shows while the cursor holds one to
       make or grow one, or edit them in the editor (/gbars flyouts, FlyoutEditor.lua). Click or
@@ -84,7 +89,7 @@ ADDON_NAME = ADDON_NAME or "GaarBarsForever"
 NS = type(NS) == "table" and NS or {} -- shared with BookTab.lua (the spellbook tab)
 local DOT = " \194\183 "
 
-local VERSION = "1.6.0"
+local VERSION = "1.6.1"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarBarsForever", { title = "GaarBarsForever", version = VERSION })
@@ -115,6 +120,8 @@ local FEATURES = {
       label = "Orange ring on low-rank spells (spellbook open)" },
     { key = "bookMissingTab", cmd = "missing", default = true,
       label = "Spellbook tab: spells missing from your bars" },
+    { key = "bookFrame", cmd = "bookframe", default = false,
+      label = "Spellbook: orange frames on spell icons (low-rank ring, rotation helper)" },
     { key = "flyouts", cmd = "flyout", default = true,
       label = "Flyouts on action buttons (drop on the +)" },
 }
@@ -1152,7 +1159,9 @@ end
 
 -- Recomputes the book's rings. `force` rescans the bars and spellbook ranks too.
 local function RefreshBook(force)
-    if not (spellbookOpen and On("lowRankWarn")) then
+    -- The ring on the book's own entries is one of the "book frames" (off by default); the ring on
+    -- the action buttons stays with lowRankWarn alone.
+    if not (spellbookOpen and On("lowRankWarn") and On("bookFrame")) then
         HideBookRings()
         return
     end
@@ -1427,6 +1436,10 @@ local function PrintStatus()
         Print(ok and tostring(line) or ("missing tab: status failed: " .. tostring(line)))
     else
         Print("missing tab: BookTab.lua not loaded")
+    end
+    if BT and type(BT.MarksLine) == "function" then
+        local ok, line = pcall(BT.MarksLine)
+        Print(ok and tostring(line) or ("spellbook marks: status failed: " .. tostring(line)))
     end
     local FO = NS.Flyouts
     if FO and type(FO.StatusLine) == "function" then

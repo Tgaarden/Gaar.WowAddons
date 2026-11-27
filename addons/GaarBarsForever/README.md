@@ -23,8 +23,9 @@ carried on your bars by a macro of its own, that open from the button and cast w
 | `hotkeyShort` | on | Short hotkey labels: `Mouse Button 4` -> `M4`, `Middle Mouse` -> `M3`, `Num Pad 1` -> `N1`, `Mouse Wheel Up/Down` -> `WU`/`WD`, `Shift-` -> `s`, `Ctrl-` -> `c`, `Alt-` -> `a` (`Ctrl-Shift-4` -> `cs4`). Blizzard's own short forms (`s-`, `MwU`, ...) are shortened the same way |
 | `macroText` | on | Macro names on the buttons. Off hides them (the text is made transparent, never hidden) |
 | `outOfRangeHotkey` | off | Out of range tints only the hotkey text red, not the icon. While on, it overrides `rangeColor` for the icon |
-| `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. The same ring sits on the spellbook entry of the highest rank you know when a bar holds a lower rank of it (Claw Rank 3 in the book gets it when Claw Rank 1 is on the bar), so you see what to drag up; classic `SpellButton1..12` and the paged `PlayerSpellsFrame` are both handled, and the book rings follow page and tab changes. Rings disappear when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
-| `bookMissingTab` | on | A square icon tab of its own in the spellbook's bottom-left corner, level with the page arrows, in the look of Forever's category icon tabs (a book with a green arrow, the number of entries on it, a glow while open; click it again to go back); tooltip **Missing from bars**. It opens one list, over the spell pages and in the same look (icon frame, name, `Rank 3`, the same grid and paging), of every known, castable, non-passive spell that is on no action bar (**Not on your bars**) or only at a lower rank than the one you know (**Bar has Rank 2 · Rank 3 known**). Hover for the spell tooltip, drag a spell onto a bar, click it to cast. Clicking any Blizzard tab, What's Training?'s **?** tab, the search box or closing the book closes the list; opening the list closes What's Training?'s page. The list never covers the category tab row. Empty: *All your spells are on your bars at their highest rank.* Auto Attack, Auto Shot and Shoot are left out. Opening it is refused in combat; an open list stays as it is in combat and updates afterwards |
+| `lowRankWarn` | on | While the spellbook is open, an action button whose spell is not the highest rank you know (Claw Rank 1 on the bar, Rank 3 known) gets a pulsing orange ring. The same ring sits on the spellbook entry of the highest rank you know when a bar holds a lower rank of it (Claw Rank 3 in the book gets it when Claw Rank 1 is on the bar), so you see what to drag up (since 1.6.1 only with `bookFrame` on, see below); classic `SpellButton1..12` and the paged `PlayerSpellsFrame` are both handled, and the book rings follow page and tab changes. Rings disappear when the spellbook closes. Rank comes from the spell's `Rank N` subtext, compared with the spellbook. Not re-checked in combat |
+| `bookMissingTab` | on | A square icon tab of its own in the spellbook's bottom-left corner, level with the page arrows, in the look of Forever's category icon tabs (a book with a green arrow, the number of entries on it, a glow while open; click it again to go back); tooltip **Missing from bars**. It opens one list, over the spell pages and in the same look (icon frame, name, `Rank 3`, the same grid and paging), of every known, castable, non-passive spell that is on no action bar (**Not on your bars**) or only at a lower rank than the one you know (**Bar has Rank 2 · Rank 3 known**). Hover for the spell tooltip, drag a spell onto a bar, click it to cast. Clicking any Blizzard tab, What's Training?'s **?** tab, the search box or closing the book closes the list; opening the list closes What's Training?'s page. The list never covers the category tab row. Empty: *All your spells are on your bars at their highest rank.* Auto Attack, Auto Shot and Shoot are left out. Opening it is refused in combat; an open list stays as it is in combat and updates afterwards. While the list is open only this tab looks selected: Blizzard's selected category tab is covered by a stand-in of ours (the book's own background, clipped to that tab, under a copy of the tab in its plain look with its icon; click it to go back), the way What's Training? does it; picking any Blizzard tab removes it. Blizzard's own pulsing *not on your action bars* glow on a spellbook icon is hidden for a spell the addon finds on your bars through a flyout or a macro (Blizzard's check cannot see into those), so the book and this list agree |
+| `bookFrame` | off | The orange frames on spellbook icons that are not about missing spells: the low-rank ring on the book's own entries (from `lowRankWarn`; the ring on the bar buttons stays) and Blizzard's rotation helper frame (`AssistedCombatIconCover`, the spells of the assisted combat rotation). Off hides both in the spellbook; `/gbars bookframe on` shows them |
 | `flyouts` | on | Flyouts on any action button, see [Flyouts](#flyouts) below. `/gbars flyout on\|off`; `/gbars flyouts` (the editor); `/gbars flyout dir up\|down\|left\|right` (default up); `/gbars flyout samekey on\|off` (default on) |
 
 - **Order.** Out of range wins over no mana. When neither applies, the icon gets its normal
@@ -58,8 +59,8 @@ spell.
   The macro is found by its name, and by the macro index -> flyout map kept in
   `GaarBarsForeverCharDB.flyoutMacros`, which is re-resolved by name whenever the macros change
   (they are re-indexed when one is created, renamed or deleted).
-- **The flyout editor** (`/gbars flyouts`, or the small gear button right of the *Missing from
-  bars* tab in the spellbook's bottom-left corner): a Gaar window with your flyouts on the left
+- **The flyout editor** (`/gbars flyouts`, or the gear tab right of the *Missing from bars* tab in
+  the spellbook's bottom-left corner, the same size and look as that tab): a Gaar window with your flyouts on the left
   (icon and name, **New**, **Delete** - which asks first and deletes the macro too) and, for the
   selected one, its **name** (renames the macro), its **icon** (an icon picker of the game's macro
   icons, or *Use entry 1's icon*), its **entries** (icon, name, rank; move up, move down, remove;
@@ -180,11 +181,12 @@ one checked first:
 | `/gbars rangehotkey on\|off` (or `outOfRangeHotkey`) | Out of range: red hotkey instead of red icon |
 | `/gbars rank on\|off` (or `lowRankWarn`) | Orange ring on low-rank spells while the spellbook is open |
 | `/gbars missing on\|off` (or `bookMissingTab`) | The spellbook tab of spells missing from your bars |
+| `/gbars bookframe on\|off` (or `bookFrame`) | The orange frames on spellbook icons: the low-rank ring in the book and Blizzard's rotation helper frame (default off: hidden) |
 | `/gbars flyout on\|off` (or `flyouts`) | Flyouts on action buttons |
 | `/gbars flyouts` | Open (or close) the flyout editor |
 | `/gbars flyout dir up\|down\|left\|right` | Which way flyouts open (all of them; default up) |
 | `/gbars flyout samekey on\|off` | The button's key again while its flyout is open: casts entry 1 (on, default) or closes it (off) |
-| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the flyouts (saved, on bars and the slots holding their macros, buttons with an overlay and how many of them are shown now, direction, what the same key does, the 1.5 conversion's result, whether the main bar's paging matches, and on how many shown overlays right-click casts entry 1) and the last error caught |
+| `/gbars status` | Version, the switches, the buttons handled (action, stance, pet), the hooks found and the ones this client lacks, the secret answers counted, which secret-safe setters and cooldown APIs exist, `countdownForCooldowns`, the client countdown formatter, the missing tab (spells not on a bar, spells on a bar at a lower rank, whether the tab is anchored, the last error), the spellbook marks (whether the rotation helper frame is hidden, and on how many icons each of Blizzard's two marks is hidden now), the flyouts (saved, on bars and the slots holding their macros, buttons with an overlay and how many of them are shown now, direction, what the same key does, the 1.5 conversion's result, whether the main bar's paging matches, and on how many shown overlays right-click casts entry 1) and the last error caught |
 
 A feature command with no `on`/`off` toggles it. `/gaarbarsforever` works as well as `/gbars`.
 
@@ -231,6 +233,12 @@ The hub talks to this addon only through `GaarBarsForeverAPI`:
   own `SecureActionButtonTemplate` buttons (`type1 = "spell"`), so clicking casts. They are given
   their spell, shown, hidden and moved only out of combat, and their panel sits in the spellbook
   only while the tab is open, so the book carries no secure frames of ours otherwise.
+  The stand-in over Blizzard's selected tab is frames of ours only (none protected), anchored to
+  that tab; nothing of the tab is set. On Blizzard's own spellbook items exactly two textures are
+  hidden and shown again (`Button.ActionBarHighlight`, `Button.AssistedCombatIconCover`), from
+  `hooksecurefunc` on each item's `UpdateActionBarAnim` / `UpdateAssistedCombatState` and on the
+  paged frame's `DisplayViewsForCurrentPage`; Blizzard's animation is never played or stopped by
+  the addon and no field of theirs is written.
 
 ## Names it relies on
 

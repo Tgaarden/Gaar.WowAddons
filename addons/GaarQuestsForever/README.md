@@ -79,8 +79,8 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
   the other quests of the Quests section are un-watched. If no quest matches, nothing changes (the
   normal order and auto-watch). Outside instances it does nothing. See
   [Dungeon filter](#dungeon-filter).
-- **Quest filter (1.15, default off).** Show only the quests that are ready to turn in, or only
-  the ones that are not, and/or hide quests tagged Dungeon or Raid - in the quest log list *and*
+- **Quest filter (1.15, 1.16 added the dungeon & raid choice; default off).** Show only the quests that are ready to turn in, or only
+  the ones that are not, and/or show or hide quests tagged Dungeon or Raid - in the quest log list *and*
   the tracker's Quests section (never on the map). Set it in the quest log's own gear menu (next to
   Blizzard's "Show Quest Objectives"), in the **Quest log filter** submenu of the tracker header's
   right-click menu, or with `/gqf filter`. While a filter is on, the quest log's count reads
@@ -140,7 +140,7 @@ so that the lowest ones fill the tracker's height. It needs GaarForever, the fam
 | `/gqf questcount` | Toggle the quest count ("Quests 38/40") on the tracker's Quests header (1.14, default on) |
 | `/gqf dungeon on`, `/gqf dungeon off` | Dungeon filter: inside a dungeon or raid, watch only that instance's quests (default off) |
 | `/gqf filter all`, `completed`, `uncompleted` | Quest filter (1.15): show all quests (default), only those ready to turn in, or only the others - in the quest log and the tracker |
-| `/gqf filter dungeons on`, `/gqf filter dungeons off` | Quest filter: hide quests tagged Dungeon or Raid (default off) |
+| `/gqf filter dungeons all`, `only`, `none` | Quest filter (1.16): all quests (default), only quests tagged Dungeon or Raid, or none of them. `on` = `none`, `off` = `all` |
 | `/gqf filter` | The quest filter's current setting and these two commands |
 | `/gqf on`, `/gqf off` | Switch on or off. Off puts the section back exactly as Blizzard laid it out |
 | `/gqf bg on`, `/gqf bg off` | Show or hide the backdrop behind the tracker (default on) |
@@ -162,7 +162,7 @@ collapse button) and hooks nothing on Blizzard's frames. It also works in combat
 
 Left- or right-click opens a menu with the same settings: **Enabled** (checkbox), **Auto-watch
 quests that fit** (checkbox), **Dungeon filter** (checkbox), **Quest log filter** (Show all
-quests, Only completed, Only uncompleted, Hide dungeon & raid quests), **Max quests
+quests, Only completed, Only uncompleted; All quests (any type), Only dungeon & raid quests, No dungeon & raid quests), **Max quests
 shown** (3, 5, 8, 10, 12, 15, 20, 25, All), **Sort by** (Level, Distance, Zone), **Completed quests** (Top, By level, Bottom),
 **Backdrop** (checkbox), **Backdrop opacity** (20, 35, 50, 65, 80 %), **Hide in combat**
 (checkbox) and **Hide minimap button** (`/gqf minimap` brings it back). Changes apply at once. Drag the button
@@ -175,7 +175,7 @@ code is a copy of GaarVanguard's, so this addon still has no dependencies; its d
 shape.
 
 Settings are saved in `GaarQuestsForeverDB` (`enabled`, `max`, `completed`, `sort`, `hideInCombat`, `autoWatch`,
-`questFilter` (`all`, `completed`, `uncompleted`), `hideInstanceQuests`,
+`questFilter` (`all`, `completed`, `uncompleted`), `instanceFilter` (`all`, `only`, `none`),
 `backdrop = { enabled, alpha }` (alpha 0-1), `minimap = { hide, angle }`), read at `ADDON_LOADED`, never at file scope.
 
 ## With GaarForever (required)
@@ -321,13 +321,16 @@ Every client function is checked before use; a missing or secret value counts as
 ## Quest filter
 
 Two settings (1.15, both off by default), saved in `GaarQuestsForeverDB` as `questFilter` and
-`hideInstanceQuests`. The quest log's gear menu, the tracker header's **Quest log filter**
+`instanceFilter` (1.16; replaces the old `hideInstanceQuests` checkbox - `true` becomes `none`, anything else `all`, once on load). The quest log's gear menu, the tracker header's **Quest log filter**
 submenu, GaarForever's menu and `/gqf filter` all change the same two values, so they always
 agree.
 
 - **Show all quests / Only completed / Only uncompleted** (one choice). "Completed" means ready
   to turn in (`C_QuestLog.ReadyForTurnIn`, else `C_QuestLog.IsComplete`).
-- **Hide dungeon & raid quests** (checkbox). Only quests tagged Dungeon or Raid (also the Heroic
+- **All quests (any type) / Only dungeon & raid quests / No dungeon & raid quests** (a second
+  choice under a divider; combines with the one above, e.g. Only completed + Only dungeon & raid
+  shows completed dungeon/raid quests). Inside a dungeon or raid with the dungeon filter on, this
+  one pauses (for Only and No alike). Only quests tagged Dungeon or Raid (also the Heroic
   and Raid 10/25 tags), read with `C_QuestLog.GetQuestTagInfo` (else the classic
   `GetQuestTagInfo`) - the same guarded reader the dungeon filter uses. Group and Elite quests stay.
 
@@ -349,8 +352,8 @@ Where it applies:
 How it relates to the older settings:
 
 - **Dungeon filter** (`/gqf dungeon`) is a different thing: inside a dungeon or raid it *watches
-  only that instance's quests*. "Hide dungeon & raid quests" is for the open world. So that they
-  never fight, "Hide dungeon & raid quests" pauses (in the log and the tracker) while the dungeon
+  only that instance's quests*. The dungeon & raid choice is for the open world. So that they
+  never fight, it pauses (in the log and the tracker) while the dungeon
   filter is on and you are inside a dungeon or raid, and comes back when you leave.
 - **Completed quests** (Top / By level / Bottom) only decides *where* ready quests go in the
   tracker's order. It is unchanged; with "Only completed" or "Only uncompleted" every shown quest

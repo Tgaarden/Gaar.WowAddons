@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.92"] = "notes for GaarQuestsForever 1.16.0: the quest filter's dungeon & raid checkbox is now a 3-way choice - all quests, only dungeon & raid quests, or no dungeon & raid quests (/gqf filter dungeons all|only|none); your old setting carries over",
         ["3.2.91"] = "Removed the old Better...Forever settings-bridge folders from the download (rename migration period over).",
         ["3.2.90"] = "Release with CurseForge required-dependency on GaarForever and suite links in every description.",
         ["3.2.89"] = "notes for GaarQuestsForever 1.15.2: more space between the +/− button and the quest count.",
@@ -152,6 +153,7 @@ local CHANGES = {
         ["1.9.2"] = "shared helpers from the GaarForever library",
     },
     GaarQuestsForever = {
+        ["1.16.0"] = "Quest filter: the Hide dungeon & raid quests checkbox is now a 3-way choice under a divider - All quests (any type), Only dungeon & raid quests, No dungeon & raid quests - in the gear menu, the tracker menu and the hub. Combines with Only completed / uncompleted. /gqf filter dungeons all|only|none (on = none, off = all). Your old setting carries over.",
         ["1.15.0"] = "Quest filter: the quest log's gear menu (next to Show Quest Objectives) and the tracker header's right-click menu (Quest log filter) get Show all quests / Only completed / Only uncompleted and Hide dungeon & raid quests. It applies to the quest log list (no gaps, empty zone headers hidden, the count reads Quests: 37/40 (12 shown)) and the tracker's Quests section; map pins are untouched. With auto-watch on, filtered quests are not watched; with it off your watch list is never changed. Hide dungeon & raid quests pauses inside an instance while the dungeon filter is on. /gqf filter all|completed|uncompleted, /gqf filter dungeons on|off",
         ["1.14.0"] = "Collapse-all button in the quest log: a +/- button between the search box and the quests count collapses or expands every zone header (/gqf collapse); the tracker's Quests header shows the quest count (/gqf questcount)",
         ["1.13.0"] = "New sort mode: /gqf sort zone groups quests by quest-log zone, your current zone first, the others A-Z, no zone last; level order inside each zone; re-sorts when you change zone",

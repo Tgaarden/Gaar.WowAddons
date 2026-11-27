@@ -151,6 +151,25 @@ end
 
 local function DB() return ns.DB and ns.DB() end
 
+-- Right-click dismissal (since 1.11.3), per character: GaarBuffsForeverCharDB.selfBuffDismissed[kind].
+-- Kept until that buff is gained again (ScanAuras sees it go from not active to active).
+local function Dismissed(kind)
+    local c = ns.CharDB and ns.CharDB()
+    return type(c) == "table" and type(c.selfBuffDismissed) == "table" and c.selfBuffDismissed[kind] == true
+end
+
+local function SetDismissed(kind, v)
+    local c = ns.CharDB and ns.CharDB()
+    if type(c) ~= "table" then return end
+    if v then
+        if type(c.selfBuffDismissed) ~= "table" then c.selfBuffDismissed = {} end
+        c.selfBuffDismissed[kind] = true
+    elseif type(c.selfBuffDismissed) == "table" then
+        c.selfBuffDismissed[kind] = nil
+        if next(c.selfBuffDismissed) == nil then c.selfBuffDismissed = nil end
+    end
+end
+
 local function Active()
     local db = DB()
     if not db or not On("enabled") then return false end
@@ -324,6 +343,8 @@ local function ScanAuras()
     state.frozen = not sure
     for _, kind in ipairs({ "xp", "fire" }) do
         if found[kind] then
+            -- Newly gained (not active before, and a first scan was already done): re-arm the row.
+            if not state[kind] and state.scanned then SetDismissed(kind, nil) end
             state[kind] = found[kind]
         elseif sure then
             state[kind] = nil
@@ -506,6 +527,7 @@ local function View(kind, now)
         v.look = "off"
         v.text = kind == "xp" and "no food" or "no Cooking"
     end
+    v.tip[#v.tip + 1] = { "Right-click: dismiss until next buff", 0.8, 0.8, 0.8 }
     if state.frozen then
         v.tip[#v.tip + 1] = { InCombat() and "In combat: the game hides your buffs, so this is the state from before the fight."
             or "Some buffs could not be read; shown as last seen.", 0.8, 0.8, 0.8 }
@@ -522,6 +544,7 @@ local function RowTooltip(self)
     tip:Show()
 end
 
+local Render
 local function NewRow(i)
     local r = CreateFrame("Button", nil, panel, "SecureActionButtonTemplate")
     r:SetHeight(ROW_H)
@@ -541,6 +564,16 @@ local function NewRow(i)
     if hl then hl:SetVertexColor(1, 1, 1, 0.12) end
     r:HookScript("OnEnter", function(self) pcall(RowTooltip, self) end)
     r:HookScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    -- Right-click dismisses the row (the secure click does nothing on button 2, see Bind).
+    r:HookScript("OnClick", function(self, button)
+        if button ~= "RightButton" then return end
+        local ok, err = pcall(function()
+            SetDismissed(ENTRIES[i].kind, true)
+            if _G.GameTooltip then _G.GameTooltip:Hide() end
+            Render()   -- out of combat the row hides now; in combat Render only repaints and PLAYER_REGEN_ENABLED hides it
+        end)
+        if not ok then Fail("dismiss", err) end
+    end)
     rows[i] = r
     return r
 end
@@ -592,6 +625,7 @@ local function Bind(r, attr)
     r:SetAttribute("type", nil)
     r:SetAttribute("item", nil)
     r:SetAttribute("spell", nil)
+    r:SetAttribute("type2", "")   -- right-click must not use the item / cast the spell
     if attr then
         r:SetAttribute(attr.key, attr.value)
         r:SetAttribute("type", attr.type)
@@ -618,7 +652,7 @@ local function Signature()
 end
 
 -- Draws the rows. Out of combat also lays the strip out, binds the buttons and shows / hides it.
-local function Render()
+function Render()
     if not panel then return end
     local now = Now()
     lastText = now
@@ -642,7 +676,7 @@ local function Render()
         if v then Paint(r, v) end
         -- A row shows only while its buff is missing or cannot be used (greyed out); a row whose
         -- buff is active is hidden, so the strip shrinks to the rows that need attention.
-        local show = v ~= nil and v.look ~= "active"
+        local show = v ~= nil and v.look ~= "active" and not Dismissed(e.kind)
         if show then
             n = n + 1
             if not combat then
@@ -702,6 +736,11 @@ local function Slash(cmd, arg)
             ApplyPosition()
             Print("self-buff strip back next to the buff box.")
         end
+    elseif what == "rearm" then
+        SetDismissed("xp", nil)
+        SetDismissed("fire", nil)
+        Print("self buffs: right-click dismissals cleared.")
+        if not InCombat() then Render() end
     elseif what == "forget" then
         Forget()
     else
@@ -714,7 +753,7 @@ local function Slash(cmd, arg)
             end
         end
         if not done then
-            Print("/gbuff self [on|off], /gbuff self food [on|off], /gbuff self fire [on|off], /gbuff self reset, /gbuff self forget")
+            Print("/gbuff self [on|off], /gbuff self food [on|off], /gbuff self fire [on|off], /gbuff self reset, /gbuff self rearm, /gbuff self forget")
         end
     end
     return true
@@ -723,7 +762,7 @@ end
 local function Help()
     return {
         "/gbuff self [on|off] - your XP food and campfire buffs with time left, in a strip next to the box (every class); click eats an XP food from your bags or casts Basic Campfire",
-        "/gbuff self food | fire [on|off] - each row; /gbuff self reset - put the strip back (Alt + drag moves it); /gbuff self forget - clear the learned IDs",
+        "/gbuff self food | fire [on|off] - each row; /gbuff self reset - put the strip back (Alt + drag moves it); /gbuff self forget - clear the learned IDs; right-click a row dismisses it until you gain that buff again (/gbuff self rearm brings dismissed rows back)",
     }
 end
 
@@ -739,6 +778,7 @@ local function Status()
         "self buffs: XP food " .. ns.OnOff(On("selfFood")) .. "   campfire " .. ns.OnOff(On("selfFire"))
             .. "   strip: " .. (Active() and ((panel and panel:IsShown()) and "shown" or "hidden") or "off")
             .. (state.frozen and "   (frozen: " .. (InCombat() and "combat" or (stats.unreadable .. " unreadable aura(s)")) .. ")" or "")
+            .. ((Dismissed("xp") or Dismissed("fire")) and ("   dismissed: " .. (Dismissed("xp") and "XP food " or "") .. (Dismissed("fire") and "campfire" or "") .. " (/gbuff self rearm)") or "")
             .. ((bindPending and InCombat()) and "   (buttons change after combat)" or ""),
         "  XP food buff: " .. BuffText(state.xp, now) .. "   campfire buff: " .. BuffText(state.fire, now)
             .. "   aura tooltip: " .. stats.tooltip,

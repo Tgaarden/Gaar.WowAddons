@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.98"] = "notes for GaarBuffsForever 1.11.3: right-click a self-buff row (XP food / campfire) to dismiss it until you gain that buff again; kept per character, /gbuff self rearm brings dismissed rows back",
         ["3.2.97"] = "notes for GaarGroupForever 1.7.0: role filter for the players under your group finder listing - Tank / Healer / DPS toggles on the Players header, a player stays while any of their roles is on, 'N hidden' count (/ggf lfg)",
         ["3.2.96"] = "notes for GaarBuffsForever 1.11.2: self-buff rows show only while missing or expiring soon (same window as the class buffs, /gbuff expire); both buffs up hides the strip",
         ["3.2.95"] = "notes for GaarBuffsForever 1.11.1: detects WoW Forever's 'Camp Benefits' campfire buff.",

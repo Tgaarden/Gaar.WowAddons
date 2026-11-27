@@ -1,7 +1,7 @@
 --[[
   GaarBarsForever - FlyoutEditor.lua: the flyout editor (Flyouts v2), a Gaar window of our own.
 
-  Opened with /gbars flyouts, or the small button right of the "Missing from bars" tab in the
+  Opened with /gbars flyouts, or the gear tab right of the "Missing from bars" tab in the
   spellbook (BookTab.lua). The look follows the family's windows (GaarForever's text window and
   minimap menu): a flat dark backdrop with a 1 px grey border, GameFontNormal title, Blizzard's
   close / panel button templates on frames of our own, Escape closes it (UISpecialFrames).

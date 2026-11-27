@@ -2338,7 +2338,7 @@ function CollapseAll.Place()
         btn:SetPoint("RIGHT", clear, "LEFT", 0, 0)
         CollapseAll.state = "inside the search box, left of the clear button"
     else
-        btn:SetPoint("RIGHT", box, "RIGHT", -4, 0)
+        btn:SetPoint("RIGHT", box, "RIGHT", -10, 0)
         CollapseAll.state = "inside the search box, right end"
     end
 end
@@ -3424,7 +3424,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.15.1"
+local VERSION = "1.15.2"
 A.version = VERSION
 
 local function ApiEntries()

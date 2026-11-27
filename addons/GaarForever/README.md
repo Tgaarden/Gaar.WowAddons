@@ -1,9 +1,9 @@
 # GaarForever
 
 > Formerly **BetterForever** (the Better...Forever family is now Gaar...Forever, 3.2). The
-> folders are renamed too (`GaarForever`, `GaarBagsForever`, ...); each update also ships the old
-> folder as a tiny settings bridge, so your settings move over on the first login (see
-> [Coming from Better...Forever](#coming-from-betterforever)). The commands are now `/gf`
+> folders are renamed too (`GaarForever`, `GaarBagsForever`, ...); settings from the old
+> Better...Forever names were migrated up to this version (see
+> [Coming from Better...Forever](#coming-from-betterforever)); the old settings-bridge folders are no longer shipped (3.2.91). The commands are now `/gf`
 > (`/gaarforever`) and the g-commands of each addon; the old `/bf`, `/betterforever`, `/bgf` and
 > every addon's old `/b...` command still work. CurseForge: https://www.curseforge.com/wow/addons/gaarforever
 
@@ -82,7 +82,7 @@ it. Any of the addons can be missing: its menu entry then says so and it gets no
 ### Coming from Better...Forever
 
 Until 3.2 the folders were `BetterForever`, `BetterBagsForever`, ... The client reads saved
-variables by folder name, so every update (for a while) carries two folders: the addon under its
+variables by folder name, so every update from 3.2 until 3.2.90 carried two folders: the addon under its
 new name, and its old name as a **settings bridge** - a TOC titled `Gaar...Forever (settings
 bridge)` that lists the old saved variables and runs no code. The new addon lists its bridge under
 `## OptionalDeps`, so the old settings are loaded first, and at its own `ADDON_LOADED`, before its
@@ -108,8 +108,8 @@ to the new names too, so the update is announced once.
   its `Better...ForeverAPI` alias but reads only the bridge's frozen copy of its settings (an old
   BetterMerchantForever sees the item locks as they were when the new GaarBagsForever moved
   them).
-- After logging in once on each character, the `Better...Forever` folders can be deleted; a later
-  update removes them. Without the bridge the addon simply starts with defaults.
+- Since 3.2.91 the bridge folders are no longer in the download (the migration period is over);
+  the `Better...Forever` folders can be deleted. The migration code stays and simply finds nothing.
 - Key bindings carry over: the fishing **Cast / Reel** binding keeps its command
   (`CLICK BetterFishingForeverKeyButton:LeftButton`). The hub's minimap button keeps its place
   (it is in the hub's settings).
@@ -488,9 +488,8 @@ One addon at a time, behaviour unchanged, `tools/check.sh` clean after each:
   (**Esc > Options > AddOns > Gaar Forever**), chat prefixes, tooltips, menus, the what's-new
   lines and help text.
 - **New folders**: `GaarForever`, `GaarBagsForever`, ... with TOCs, `## Dependencies: GaarForever`,
-  saved variables (`GaarXForeverDB`, `GaarXForeverCharDB`), globals and frame names to match. Each
-  release also ships the old folder as a settings bridge; settings move over automatically on the
-  first login (see [Coming from Better...Forever](#coming-from-betterforever)). The old globals
+  saved variables (`GaarXForeverDB`, `GaarXForeverCharDB`), globals and frame names to match. Settings
+  were moved over automatically on the first login (the old folder was shipped as a settings bridge until 3.2.90) (see [Coming from Better...Forever](#coming-from-betterforever)). The old globals
   (`BetterForever`, `BetterForeverAPI`, `BetterXForeverAPI`) stay as aliases; the fishing key
   binding keeps its command.
 - **New commands**: `/gf` (`/gaarforever`) for the hub and a g-command per addon (`/gbf`, `/gqf`,

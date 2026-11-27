@@ -2,9 +2,7 @@
 
 Part of the **Gaar…Forever** suite — [see all addons](https://www.curseforge.com/wow/addons/gaarforever).
 
-> Formerly **BetterBagsForever**. The folder is now `GaarBagsForever` as well; the update also ships a tiny `BetterBagsForever` folder, a
-> settings bridge that moves your old settings over on the first login (each character on its own
-> first login). It is safe to delete after logging in once on each character, and later updates drop it. The command is
+> Formerly **BetterBagsForever**. The folder is now `GaarBagsForever` as well; settings from the old Better…Forever names were migrated up to this version (the old settings-bridge folder is no longer shipped and can be deleted). The command is
 > now `/gbf` (`/gaarbagsforever`); the old `/bbf` and `/betterbagsforever` still work.
 > CurseForge: https://www.curseforge.com/wow/addons/gaarbagsforever
 
@@ -93,9 +91,8 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
   Since 1.13.2 the hover no longer hangs on one frame layout: every frame inside the money frame
   is hooked (coin buttons a level deeper, a money frame without a global name), and a light poll
   (every 0.1 s, out of combat) shows the gold when the mouse is over the money frame even if no
-  frame there takes the mouse. Characters recorded before the Better -> Gaar rename live in
-  `BetterBagsForeverDB`; install the `BetterBagsForever` bridge folder once and they are merged
-  in (also into a `GaarBagsForeverDB` that already has data), once.
+  frame there takes the mouse. Characters recorded before the Better -> Gaar rename were migrated from
+  `BetterBagsForeverDB` up to this version (the old bridge folder is no longer shipped).
 - **What is counted, and when it is read.** Only the character you are logged in as is ever read,
   so a character shows up once it has logged in with 1.7. Each character's record is kept
   account-wide, per realm, and only the current realm is ever shown (both factions).

@@ -3424,7 +3424,7 @@ end
 -- The "Hide minimap button" entry of this addon's own menu is not part of the API's entries.
 -- ---------------------------------------------------------------------------
 
-local VERSION = "1.15.3"
+local VERSION = "1.15.4"
 A.version = VERSION
 
 local function ApiEntries()

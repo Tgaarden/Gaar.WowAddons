@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       addon:
-        description: "Addon folder name, e.g. GaarBuffsForever (its settings bridge from tools/curseforge-config.json goes along)"
+        description: "Addon folder name, e.g. GaarBuffsForever"
         required: true
       version:
         description: "Version to (re)publish; uses tag <addon>-v<version> if it exists, else main. Default = TOC version on main"
@@ -59,18 +59,6 @@ jobs:
             fi
           fi
           git archive "$ref" "addons/$addon" | tar -x -C src
-          # Settings bridge (tools/curseforge-config.json "bridges"): the old folder name, zipped
-          # next to the addon during the transition from Better...Forever to Gaar...Forever.
-          bridge="$(jq -r --arg n "$addon" '.bridges[$n] // empty' tools/curseforge-config.json)"
-          if [ -n "$bridge" ]; then
-            case "$bridge" in *[!A-Za-z0-9_]*) echo "::error::bad bridge name"; exit 1;; esac
-            if git cat-file -e "$ref:addons/$bridge" 2>/dev/null; then
-              git archive "$ref" "addons/$bridge" | tar -x -C src
-            else
-              echo "::warning::bridge $bridge is not in $ref; zipping $addon alone"
-              bridge=""
-            fi
-          fi
           toc="src/addons/$addon/$addon.toc"
           [ -f "$toc" ] || { echo "::error::$toc not found"; exit 1; }
           version="$(sed -n 's/^## Version: *//p' "$toc" | head -1 | tr -d '\r ')"
@@ -83,16 +71,14 @@ jobs:
           echo "addon=$addon" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "bridge=$bridge" >> "$GITHUB_OUTPUT"
 
       - name: Build zip
         run: |
           set -euo pipefail
-          a="${{ steps.meta.outputs.addon }}"; b="${{ steps.meta.outputs.bridge }}"
+          a="${{ steps.meta.outputs.addon }}"
           mkdir -p staging
           cp -R "src/addons/$a" "staging/$a"
-          if [ -n "$b" ]; then cp -R "src/addons/$b" "staging/$b"; fi
-          (cd staging && zip -r "../$a-${{ steps.meta.outputs.version }}.zip" "$a" ${b:+"$b"} -x '*/.*')
+          (cd staging && zip -r "../$a-${{ steps.meta.outputs.version }}.zip" "$a" -x '*/.*')
           unzip -l "$a-${{ steps.meta.outputs.version }}.zip"
 
       - name: Changelog

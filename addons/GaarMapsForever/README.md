@@ -189,3 +189,15 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 <img src="../../docs/screenshots/GaarMapsForever/7-zone-levels.jpg" alt="Zone levels: hover a zone on the continent map" width="600">
 
 Hover a zone on the continent map: its level range, coloured by your level.
+
+**Tracked NPC pins**
+
+<img src="../../docs/screenshots/GaarMapsForever/8-tracked-npc-pins.jpg" alt="NPC icons from minimap tracking (learned as you play)" width="600">
+
+NPC icons from minimap tracking (learned as you play).
+
+**Turn-in on the continent map**
+
+<img src="../../docs/screenshots/GaarMapsForever/9-turnin-continent.jpg" alt="Quests ready to turn in on the continent map" width="240">
+
+Quests ready to turn in on the continent map.

@@ -3,6 +3,10 @@
 -- uses (the same ids as GaarGpsForever's data). ns.zoneLevels.byName is the same table by English zone
 -- name, a fallback for a client whose ids differ. Cities, instances and TBC+ zones are left out on
 -- purpose: no entry means no line. The ranges are the standard classic zone ranges.
+-- WoW Forever's own zones (1.8.0) use the ranges Thomas gave: Riverglades (2548) and Mount Hyjal (2482,
+-- the id GaarGpsForever's flight paths use) by id, Shen'dralas by name only (its uiMapID is not known
+-- yet). ns.zoneLevels.byKey is byName keyed by NameKey (lower case, letters and digits only), so a
+-- hovered name with another apostrophe or case still matches.
 local _, ns = ...
 ns = type(ns) == "table" and ns or {}
 
@@ -27,11 +31,23 @@ local ZONES = {
     { 1447, "Azshara", 45, 55 },           { 1448, "Felwood", 48, 55 },
     { 1449, "Un'Goro Crater", 48, 55 },    { 1450, "Moonglade", 55, 60 },
     { 1451, "Silithus", 55, 60 },          { 1452, "Winterspring", 53, 60 },
+    -- WoW Forever zones
+    { 2548, "Riverglades", 36, 44 },       { 2482, "Mount Hyjal", 55, 60 },
+    { nil, "Shen'dralas", 40, 45 },        -- id unknown: matched by name
 }
 
-local byId, byName = {}, {}
-for _, z in ipairs(ZONES) do
-    byId[z[1]] = { z[3], z[4] }
-    byName[z[2]] = byId[z[1]]
+-- "Shen’dralas" / "shen'dralas" -> "shendralas"; nil for anything that is not a non-empty string.
+local function NameKey(s)
+    if type(s) ~= "string" then return nil end
+    s = s:lower():gsub("[^%w]", "")
+    return s ~= "" and s or nil
 end
-ns.zoneLevels = { byId = byId, byName = byName, count = #ZONES }
+
+local byId, byName, byKey = {}, {}, {}
+for _, z in ipairs(ZONES) do
+    local r = { z[3], z[4] }
+    if z[1] then byId[z[1]] = r end
+    byName[z[2]] = r
+    byKey[NameKey(z[2])] = r
+end
+ns.zoneLevels = { byId = byId, byName = byName, byKey = byKey, NameKey = NameKey, count = #ZONES }

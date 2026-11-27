@@ -521,3 +521,7 @@ If you enjoy this addon, you can [buy me a coffee](https://buymeacoffee.com/tgaa
 **Tracker count**
 
 <img src="../../docs/screenshots/GaarQuestsForever/6-tracker-count.jpg" alt="Tracker count" width="600">
+
+**Quest log filter (gear menu)**
+
+<img src="../../docs/screenshots/GaarQuestsForever/7-quest-filter.jpg" alt="Quest log filter (gear menu)" width="600">

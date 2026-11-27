@@ -32,7 +32,7 @@
 local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarGroupForever"
-local VERSION = "1.5.6"
+local VERSION = "1.6.0"
 local DOT = " \194\183 "
 
 local BF = _G.GaarForever
@@ -60,6 +60,7 @@ local M = {
     MenuParts = {},  -- function() return { menu entries } end
     Slash = {},      -- Slash[cmd] = function(arg)
     HelpParts = {},  -- function() return { help lines } end
+    StatusParts = {}, -- function() return { /ggf status lines } end
 }
 
 -- The modes, in button order. role: what UnitSetRole / UnitGroupRolesAssigned use.
@@ -759,6 +760,10 @@ function M.PrintStatus()
         .. DOT .. "role: " .. (role or "none") .. DOT .. "mode: " .. (M.cdb and M.cdb.mode or "none"))
     M.Print("bar shown: " .. OnOff(M.bar and M.bar:IsShown()) .. DOT .. "countdown: "
         .. (M.NativeCountdown() and "game (C_PartyInfo.DoCountdown)" or "party chat fallback"))
+    for _, part in ipairs(M.StatusParts) do
+        local ok, lines = pcall(part)
+        if ok and type(lines) == "table" then for _, l in ipairs(lines) do M.Print(l) end end
+    end
     if M.lastError then M.Print("last error: " .. M.lastError) end
     if #M.blocked > 0 then
         M.Print("actions the game blocked for this addon this session: " .. #M.blocked .. " (last 5):")
@@ -810,7 +815,7 @@ _G.GaarGroupForeverAPI = {
     MenuEntries = M.MenuEntries,
     AddMenuEntries = function(root) BF.RenderMenu(root, M.MenuEntries(), A.title) end,
     SetMinimapHidden = function() end,
-    _M = M, -- for the other files of this addon (Overview.lua, Checks.lua, Markers.lua, RunLog.lua)
+    _M = M, -- for the other files of this addon (Overview.lua, Checks.lua, Markers.lua, RunLog.lua, Threat.lua)
 }
 
 -- ---------------------------------------------------------------------------

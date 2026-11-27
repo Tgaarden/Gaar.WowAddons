@@ -59,6 +59,36 @@ page, all **on by default**; nothing is ever sent to chat unless you click Annou
   from the combat log. Coming back to the same dungeon within 10 minutes (graveyard run) is the same
   run. The Log button or `/ggf log` shows the last 20; 50 are kept in `GaarGroupForeverCharDB.runs`.
 
+## Threat bars (1.6.0)
+
+At the very bottom of the bar, under every other part: one bar per party member (you included) with
+their threat on one mob, highest first, in class colour, with the name and the %. The member who has
+aggro (is tanking) gets a gold tint and the main-tank shield icon. The header names the mob.
+
+- **Which mob**: your target when you can attack it; otherwise your target's target when you can
+  attack that (target the tank and you see the threat on what the tank is fighting); otherwise none.
+- **When**: only in a party and only while there is such a mob. Otherwise the section is hidden and
+  the bar shrinks, so there is no empty space. In test mode (`/ggf test`) it also shows solo.
+- **Data**: `UnitDetailedThreatSituation(member, mob)` (isTanking, status, scaled %), with
+  `UnitThreatSituation` as the fallback for the status. Updated on `UNIT_THREAT_LIST_UPDATE`,
+  `UNIT_THREAT_SITUATION_UPDATE`, `PLAYER_TARGET_CHANGED`, `UNIT_TARGET` (target) and
+  `GROUP_ROSTER_UPDATE`, plus a 0.3 s tick that runs only while the section is shown. The combat log
+  is not used.
+- **Secret values** (the 12.x engine can hide threat in combat): nothing is compared, sorted or added
+  on a hidden value. A hidden % is handed straight to the client (`StatusBar:SetValue`,
+  `FontString:SetFormattedText`), so the bar and the number still show; if the client refuses, the
+  bar is empty and the text is `?`. While any % is hidden the list is not sorted by %: it is ordered
+  by who has aggro and the threat status when those are readable, else in party order (you, then
+  party1-4). A hidden "is tanking" flag tints the row through `Texture:SetVertexColorFromBoolean`.
+  `/ggf status` (and `/ggf threat`) says which path is in use.
+- **In combat**: the bar is not a protected frame (the secure Assist button and tank frame are not
+  its children), so the section can appear, disappear and resize the bar in combat. Only this last
+  panel is placed then, at the spot the last out-of-combat layout left for it, so nothing above it
+  moves. If that is not possible (no layout yet, the bar is not top-anchored) the change waits for
+  the end of combat.
+- **Option** `threat` (on by default): right-click menu / hub **Threat bars (group, attackable
+  target)**, or `/ggf threat on|off|toggle`.
+
 ## Commands
 
 `/ggf` or `/gaargroupforever`:
@@ -76,7 +106,8 @@ page, all **on by default**; nothing is ever sent to chat unless you click Annou
 | `/ggf check` / `check announce` | the pre-pull report window / post its summary to party chat |
 | `/ggf marks on\|off\|collapse\|expand\|clear` | the raid-marker row; `clear` removes the marks it can reach |
 | `/ggf log` / `log clear` | the last 20 dungeon runs / empty the log |
-| `/ggf status` | settings, group state, which countdown path is used, and the last 5 actions the game blocked for this addon this session (if any) |
+| `/ggf threat on\|off\|toggle` | the threat bars at the bottom; `/ggf threat` alone prints their status |
+| `/ggf status` | settings, group state, which countdown path is used, the threat bars' state (plain or secret values), and the last 5 actions the game blocked for this addon this session (if any) |
 
 ## With GaarForever (required)
 

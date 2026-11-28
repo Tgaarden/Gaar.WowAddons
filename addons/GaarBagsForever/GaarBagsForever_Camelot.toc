@@ -4,14 +4,15 @@
 ## Category: Gaar Forever
 ## Category-enUS: Gaar Forever
 ## Author: Gaar
-## Version: 1.14.1
+## Version: 1.15.0
 ## X-Curse-Project-ID: 1766812
 ## X-Donate: https://buymeacoffee.com/tgaarden
 ## IconTexture: Interface\Icons\INV_Misc_Bag_08
 ## Dependencies: GaarForever
-## OptionalDeps: BetterBagsForever
+## OptionalDeps: BetterBagsForever, Auctionator
 ## SavedVariables: GaarBagsForeverDB
 ## SavedVariablesPerCharacter: GaarBagsForeverCharDB
 
 VendorPrice.lua
+AuctionPrice.lua
 GaarBagsForever.lua

@@ -12,6 +12,10 @@
       {
         "slug": "gaarforever",
         "type": "requiredDependency"
+      },
+      {
+        "slug": "auctionator",
+        "type": "optionalDependency"
       }
     ],
     "GaarBarsForever": [

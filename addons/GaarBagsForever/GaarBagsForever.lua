@@ -65,8 +65,10 @@
 ]]
 
 local _G = _G
-local ADDON_NAME = ... or "GaarBagsForever"
-local VERSION = "1.13.6"
+local ADDON_NAME, ns = ...
+ADDON_NAME = ADDON_NAME or "GaarBagsForever"
+if type(ns) ~= "table" then ns = {} end
+local VERSION = "1.14.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -87,11 +89,13 @@ local DEFAULTS = {
     showCounts = true,
     autoSort = true,
     mailGlow = true,
+    vendorPrice = true,
 }
 
 -- Every key GaarBagsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
-                     showCounts = true, inventory = true, autoSort = true, mailGlow = true }
+                     showCounts = true, inventory = true, autoSort = true, mailGlow = true,
+                     vendorPrice = true }
 
 local db                -- GaarBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -2088,6 +2092,18 @@ local function SetCounts(on)
     Print("item counts in tooltip: " .. OnOff(db.showCounts))
 end
 
+function ns.VendorOn()
+    return db ~= nil and db.vendorPrice ~= false
+end
+
+function ns.SetVendor(on)
+    if not db then return end
+    if on == nil then on = not ns.VendorOn() end
+    db.vendorPrice = on and true or false
+    Print("vendor price on bag items: " .. OnOff(db.vendorPrice))
+    if ns.Vendor then pcall(ns.Vendor.QueueRefresh) end
+end
+
 local function SetAutoSort(on)
     if not db then return end
     if on == nil then on = not db.autoSort end
@@ -2716,8 +2732,14 @@ local function BuildItemLock()
         if not charDB then return end
         -- Nothing locked and nothing drawn yet: only make sure every button follows Alt-click.
         local idle = LockCount() == 0 and not lockVisuals
+        local vendor = ns.Vendor
         for _, button in ipairs(LockButtons()) do
             pcall(idle and HookLockButton or UpdateLockButton, button)
+            if vendor then
+                local bag, slot
+                if IsOnScreen(button) then bag, slot = LockButtonSlot(button) end
+                pcall(vendor.Update, button, bag, slot)
+            end
         end
         if not idle then pcall(UpdateJunkGuard) end
         -- The mail section (since 1.11) follows every refresh: a bag opening, items moving, a lock
@@ -2911,6 +2933,7 @@ local function BuildItemLock()
     Lock.UnlockAll = UnlockAll
     Lock.HookFrames = HookLockFrames
     Lock.Refresh = QueueLockRefresh
+    if ns.Vendor then ns.Vendor.QueueRefresh = QueueLockRefresh end
     Lock.SetMerchantOpen = SetMerchantOpen
     Lock.QueueSoldCheck = QueueSoldCheck
     Lock.UpdateMerchantGuard = UpdateMerchantGuard
@@ -3945,6 +3968,7 @@ local function PrintHelp()
     Print("Clean Up button (left of the search box): left-click = Blizzard's own clean-up, the same as Forever's own button; right-click = toggle Reverse.")
     Print("/gbf reverse - toggle Reverse; /gbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
     Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
+    Print("/gbf vendor on | off - vendor sell price (one item, largest coin) on bag item buttons (now: " .. OnOff(ns.VendorOn()) .. ")")
     Print("/gbf stop - stop a running reversal")
     Print("/gbf counts on | off - item counts of this account's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
     Print("/gbf gold - gold of this account's characters (also: hover the gold in the bag window), and what the gold hover found and did last")
@@ -4018,6 +4042,10 @@ local function OnSlash(msg)
         SetCounts(nil)
     elseif msg == "counts on" or msg == "counts off" then
         SetCounts(msg == "counts on")
+    elseif msg == "vendor" then
+        ns.SetVendor(nil)
+    elseif msg == "vendor on" or msg == "vendor off" then
+        ns.SetVendor(msg == "vendor on")
     elseif msg == "gold" then
         PrintGold()
     elseif msg == "forget" or msg:find("^forget ") then
@@ -4058,6 +4086,7 @@ local function StatusLine()
     return "Reverse " .. OnOff(ReverseOn()) .. " \194\183 " .. (db.locked and "locked" or "unlocked")
         .. " \194\183 " .. (db.position and "moved" or "default position")
         .. " \194\183 counts " .. OnOff(CountsOn())
+        .. " \194\183 vendor price " .. OnOff(ns.VendorOn())
         .. " \194\183 auto-sort " .. OnOff(db.autoSort)
 end
 
@@ -4077,6 +4106,8 @@ local function MenuEntries()
           func = function() SetNativeHidden(not db.hideNativeButton) end },
         { text = "Item counts in tooltip", checkbox = true, checked = CountsOn,
           func = function() SetCounts(not CountsOn()) end },
+        { text = "Vendor price on bag items", checkbox = true, checked = ns.VendorOn,
+          func = function() ns.SetVendor(not ns.VendorOn()) end },
         { text = "Cyan ring on items attached to mail", checkbox = true, checked = Mail.GlowOn,
           func = function() Mail.SetGlow(not Mail.GlowOn()) end },
     }
@@ -4114,6 +4145,7 @@ local function BindSavedVariables()
     if type(db.reverse) ~= "boolean" then db.reverse = false end
     if type(db.showCounts) ~= "boolean" then db.showCounts = true end
     if type(db.autoSort) ~= "boolean" then db.autoSort = true end
+    if type(db.vendorPrice) ~= "boolean" then db.vendorPrice = true end
     if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     -- Characters recorded before the rename, when the bridge folder is installed (since 1.13.2).
@@ -4144,6 +4176,7 @@ local function BindCharacterVariables()
 end
 
 local events = CreateFrame("Frame")
+if ns.Vendor then ns.Vendor.IsOn = ns.VendorOn end
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")

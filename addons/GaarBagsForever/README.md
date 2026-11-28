@@ -100,6 +100,12 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
   nothing. The display refreshes when Auctionator's data updates and when the auction house closes. Turn it
   off with `/gbf ah off` or the **Auction price on bag items (Auctionator)** checkbox in the bags menu.
   Lives in `AuctionPrice.lua`.
+- **Bags window scale (since 1.16).** The right-click portrait menu has a **Bags window scale** submenu
+  (70% to 150% in steps of 10) and the GaarForever hub settings a slider for it; `/gbf scale <50-200>`
+  sets any percentage. The window's top-left corner stays where it is, and the scale is saved in
+  `GaarBagsForeverDB.bagScale`. It is applied outside combat only (in combat it waits for combat to
+  end). Only the Combined Backpack is scaled; `/gbf reset` resets the position, not the scale. Lives in
+  `BagScale.lua`.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm
   and the total. `/gbf gold` prints the same to chat, then the other realms' characters and what
@@ -219,6 +225,7 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
 |---|---|
 | `/gbf` | Help |
 | `/gbf reset` | Back to Blizzard's default position |
+| `/gbf scale <50-200>` | Scale of the bags window in percent |
 | `/gbf lock`, `/gbf unlock` | Stop or allow moving. Locking also gives clicks on the title back to the bag menu |
 | `/gbf native hide`, `/gbf native show` | Hide or show Blizzard's own clean-up button (shown by default) |
 | `/gbf reverse`, `/gbf reverse on`, `/gbf reverse off` | Toggle or set Reverse (same as right-clicking the button) |

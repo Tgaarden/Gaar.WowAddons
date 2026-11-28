@@ -92,6 +92,14 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
   stack total is added (by GaarTooltipsForever when it is loaded with its vendor price on, otherwise by
   Bags itself, never twice). Turn it off with `/gbf vendor off` or the
   **Vendor price on bag items** checkbox in the bags menu. Lives in `VendorPrice.lua`.
+- **Auction price on the item buttons (since 1.15, on by default).** The top-right corner of every item
+  button shows the lowest buyout per item (largest coin only, same format and colours as the vendor
+  price), read from the **Auctionator** addon's public API. It is grey when Auctionator has not seen the
+  item in the auction house for more than 3 days, and nothing is shown for items without a price or for
+  soulbound items. **Auctionator is an optional dependency**: without it the feature silently shows
+  nothing. The display refreshes when Auctionator's data updates and when the auction house closes. Turn it
+  off with `/gbf ah off` or the **Auction price on bag items (Auctionator)** checkbox in the bags menu.
+  Lives in `AuctionPrice.lua`.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm
   and the total. `/gbf gold` prints the same to chat, then the other realms' characters and what

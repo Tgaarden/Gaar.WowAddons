@@ -68,7 +68,7 @@ local _G = _G
 local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarBagsForever"
 if type(ns) ~= "table" then ns = {} end
-local VERSION = "1.14.1"
+local VERSION = "1.15.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -90,12 +90,13 @@ local DEFAULTS = {
     autoSort = true,
     mailGlow = true,
     vendorPrice = true,
+    auctionPrice = true,
 }
 
 -- Every key GaarBagsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
                      showCounts = true, inventory = true, autoSort = true, mailGlow = true,
-                     vendorPrice = true }
+                     vendorPrice = true, auctionPrice = true }
 
 local db                -- GaarBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -2104,6 +2105,19 @@ function ns.SetVendor(on)
     if ns.Vendor then pcall(ns.Vendor.QueueRefresh) end
 end
 
+function ns.AuctionOn()
+    return db ~= nil and db.auctionPrice ~= false
+end
+
+function ns.SetAuction(on)
+    if not db then return end
+    if on == nil then on = not ns.AuctionOn() end
+    db.auctionPrice = on and true or false
+    Print("auction price on bag items: " .. OnOff(db.auctionPrice)
+        .. (ns.Auction and not ns.Auction.Available() and " (Auctionator not detected)" or ""))
+    if ns.Auction then pcall(ns.Auction.QueueRefresh) end
+end
+
 local function SetAutoSort(on)
     if not db then return end
     if on == nil then on = not db.autoSort end
@@ -2739,6 +2753,7 @@ local function BuildItemLock()
                 local bag, slot
                 if IsOnScreen(button) then bag, slot = LockButtonSlot(button) end
                 pcall(vendor.Update, button, bag, slot)
+                if ns.Auction then pcall(ns.Auction.Update, button, bag, slot) end
             end
         end
         if not idle then pcall(UpdateJunkGuard) end
@@ -2934,6 +2949,7 @@ local function BuildItemLock()
     Lock.HookFrames = HookLockFrames
     Lock.Refresh = QueueLockRefresh
     if ns.Vendor then ns.Vendor.QueueRefresh = QueueLockRefresh end
+    if ns.Auction then ns.Auction.QueueRefresh = QueueLockRefresh end
     Lock.SetMerchantOpen = SetMerchantOpen
     Lock.QueueSoldCheck = QueueSoldCheck
     Lock.UpdateMerchantGuard = UpdateMerchantGuard
@@ -3969,6 +3985,7 @@ local function PrintHelp()
     Print("/gbf reverse - toggle Reverse; /gbf reverse on | off to set it (now: " .. OnOff(ReverseOn()) .. "). With Reverse on, the whole Combined Backpack order is mirrored after Blizzard's clean-up.")
     Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
     Print("/gbf vendor on | off - vendor sell price (one item, largest coin) on bag item buttons (now: " .. OnOff(ns.VendorOn()) .. ")")
+    Print("/gbf ah on | off - auction price (Auctionator, lowest buyout per item, grey when older than 3 days) on bag item buttons, top-right (now: " .. OnOff(ns.AuctionOn()) .. ")")
     Print("/gbf stop - stop a running reversal")
     Print("/gbf counts on | off - item counts of this account's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
     Print("/gbf gold - gold of this account's characters (also: hover the gold in the bag window), and what the gold hover found and did last")
@@ -4046,6 +4063,10 @@ local function OnSlash(msg)
         ns.SetVendor(nil)
     elseif msg == "vendor on" or msg == "vendor off" then
         ns.SetVendor(msg == "vendor on")
+    elseif msg == "ah" then
+        ns.SetAuction(nil)
+    elseif msg == "ah on" or msg == "ah off" then
+        ns.SetAuction(msg == "ah on")
     elseif msg == "gold" then
         PrintGold()
     elseif msg == "forget" or msg:find("^forget ") then
@@ -4087,6 +4108,8 @@ local function StatusLine()
         .. " \194\183 " .. (db.position and "moved" or "default position")
         .. " \194\183 counts " .. OnOff(CountsOn())
         .. " \194\183 vendor price " .. OnOff(ns.VendorOn())
+        .. " \194\183 auction price " .. OnOff(ns.AuctionOn())
+        .. (ns.Auction and ns.Auction.Available() and " (Auctionator found)" or " (Auctionator not found)")
         .. " \194\183 auto-sort " .. OnOff(db.autoSort)
 end
 
@@ -4108,6 +4131,8 @@ local function MenuEntries()
           func = function() SetCounts(not CountsOn()) end },
         { text = "Vendor price on bag items", checkbox = true, checked = ns.VendorOn,
           func = function() ns.SetVendor(not ns.VendorOn()) end },
+        { text = "Auction price on bag items (Auctionator)", checkbox = true, checked = ns.AuctionOn,
+          func = function() ns.SetAuction(not ns.AuctionOn()) end },
         { text = "Cyan ring on items attached to mail", checkbox = true, checked = Mail.GlowOn,
           func = function() Mail.SetGlow(not Mail.GlowOn()) end },
     }
@@ -4146,6 +4171,7 @@ local function BindSavedVariables()
     if type(db.showCounts) ~= "boolean" then db.showCounts = true end
     if type(db.autoSort) ~= "boolean" then db.autoSort = true end
     if type(db.vendorPrice) ~= "boolean" then db.vendorPrice = true end
+    if type(db.auctionPrice) ~= "boolean" then db.auctionPrice = true end
     if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     -- Characters recorded before the rename, when the bridge folder is installed (since 1.13.2).
@@ -4177,6 +4203,7 @@ end
 
 local events = CreateFrame("Frame")
 if ns.Vendor then ns.Vendor.IsOn = ns.VendorOn end
+if ns.Auction then ns.Auction.IsOn = ns.AuctionOn end
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")

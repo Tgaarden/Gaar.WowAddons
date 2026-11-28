@@ -37,7 +37,7 @@ local _G = _G
 local ADDON_NAME = ...
 ADDON_NAME = ADDON_NAME or "GaarTooltipsForever"
 local DOT = " \194\183 "
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 
 local BF = _G.GaarForever
 local A = BF.NewAddon("GaarTooltipsForever", { title = "GaarTooltipsForever", version = VERSION })
@@ -246,9 +246,17 @@ local function ShowsSellPrice(tt, data)
 end
 
 local function DoVendorPrice(tt, data, link, itemId, info)
-    if not Enabled("vendorPrice") or not info or ShowsSellPrice(tt, data) then return end
+    if not Enabled("vendorPrice") or not info then return end
     local sell = info.sell
     if sell == nil then return end
+    if ShowsSellPrice(tt, data) then
+        -- The game already shows the one-item sell price; we only add the stack total.
+        local n = tt == _G.GameTooltip and sell > 0 and itemId and HoveredCount(itemId) or nil
+        if n and n > 1 and not HasLineWith(tt, "Sell price (") then
+            AddDouble(tt, "Sell price (" .. n .. "):", Coin(sell * n), 1, 1, 1)
+        end
+        return
+    end
     if sell <= 0 then
         AddLine(tt, "No sell price", 0.6, 0.6, 0.6)
         return

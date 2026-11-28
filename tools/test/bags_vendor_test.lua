@@ -51,4 +51,32 @@ V.Update(b1, 0, 1); eq(b1.fs.shown, false, "off hides")
 V.IsOn = function() return true end
 V.Update(b1, nil, nil); eq(b1.fs.shown, false, "off-screen button hides")
 
+-- Tooltip stack total: re-load with a TooltipDataProcessor and a hovered stack.
+local posted
+_G.Enum = { TooltipDataType = { Item = 1 } }
+_G.TooltipDataProcessor = { AddTooltipPostCall = function(_, fn) posted = fn end }
+local ns2 = {}
+assert(loadfile("addons/GaarBagsForever/VendorPrice.lua"))("GaarBagsForever", ns2)
+local function Tip() local t = { lines = {} }
+    t.GetName = function() return "GameTooltip" end
+    t.NumLines = function() return #t.lines end
+    t.AddDoubleLine = function(_, l, r) t.lines[#t.lines + 1] = l; _G["GameTooltipTextLeft" .. #t.lines] = { GetText = function() return l end } end
+    return t end
+local tip = Tip(); _G.GameTooltip = tip
+local focus = { GetID = function() return 1 end, GetBagID = function() return 0 end }
+_G.GetMouseFoci = function() return { focus } end
+slots[1] = { itemID = 10, hyperlink = "item:10", stackCount = 5 }
+posted(tip, { id = 10 })
+eq(tip.lines[1], "Sell price (5):", "stack total added")
+posted(tip, { id = 10 })
+eq(#tip.lines, 1, "never twice")
+local t2 = Tip(); _G.GameTooltip = t2; slots[1].stackCount = 1
+posted(t2, { id = 10 }); eq(#t2.lines, 0, "single item: no line")
+slots[1].stackCount = 5
+_G.C_AddOns = { IsAddOnLoaded = function() return true end }
+_G.GaarTooltipsForeverDB = { enabled = true, vendorPrice = true }
+local t3 = Tip(); _G.GameTooltip = t3; posted(t3, { id = 10 }); eq(#t3.lines, 0, "Tooltips covers it")
+_G.GaarTooltipsForeverDB.vendorPrice = false
+local t4 = Tip(); _G.GameTooltip = t4; posted(t4, { id = 10 }); eq(#t4.lines, 1, "Tooltips option off: Bags adds")
+
 if fails == 0 then print("bags_vendor_test: ok") else os.exit(1) end

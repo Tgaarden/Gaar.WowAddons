@@ -1,8 +1,8 @@
 -- GaarBagsForever: vendor sell price on every bag item button (since 1.14.0).
 --
--- A small coin amount in the bottom-left corner of each item button that has a sell value: the
+-- A small coin amount in the top-left corner of each item button that has a sell value: the
 -- price of ONE item (not the stack), the largest coin only, floored - "1g", "35s", "8c" - in the
--- coin's colour. Items without a sell price (or not cached yet) show nothing.
+-- coin's colour (top-right is kept free for a later auction price). Items without a sell price (or not cached yet) show nothing.
 --
 -- Lives in its own file because GaarBagsForever.lua is close to Lua's limit of 200 locals. The
 -- main file calls ns.Vendor.Update(button, bag, slot) from its existing button refresh (the one
@@ -82,10 +82,13 @@ local function GetFontString(button)
     local ok, made = pcall(button.CreateFontString, button, nil, "OVERLAY", "NumberFontNormalSmall")
     if not ok or not made then return nil end
     fs = made
-    -- OVERLAY 7: above the icon and the padlock (6), level with the stack count at the other corner.
+    -- OVERLAY 7: above the icon. Top-left, short and left-aligned: the padlock sits bottom-left and
+    -- the top-right is reserved for an auction price, so stay left of the button's middle.
     if type(fs.SetDrawLayer) == "function" then fs:SetDrawLayer("OVERLAY", 7) end
-    fs:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 2)
+    fs:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
     fs:SetJustifyH("LEFT")
+    if type(fs.SetWidth) == "function" then fs:SetWidth(20) end
+    if type(fs.SetWordWrap) == "function" then fs:SetWordWrap(false) end
     fs:Hide()
     fontStrings[button] = fs
     return fs
@@ -135,4 +138,96 @@ if frame then
         end
         if after then after(0.2, run) else run() end
     end)
+end
+
+-- Stack total line in the item tooltip: "Sell price (N):" <coins>. The game's tooltip only shows the
+-- price of one item; GaarTooltipsForever adds this same line when it is loaded with its vendor price
+-- option on, so we add it only otherwise, and never when a "Sell price (" line is already there.
+local TOTAL_LABEL = "Sell price ("
+
+local function TooltipsForeverCovers()
+    local api = type(_G.C_AddOns) == "table" and _G.C_AddOns.IsAddOnLoaded or _G.IsAddOnLoaded
+    if type(api) ~= "function" then return false end
+    local ok, loaded = pcall(api, "GaarTooltipsForever")
+    if not ok or not loaded then return false end
+    local db = _G.GaarTooltipsForeverDB
+    return type(db) == "table" and db.enabled == true and db.vendorPrice == true
+end
+
+local function HasTotalLine(tooltip)
+    local name = type(tooltip.GetName) == "function" and tooltip:GetName()
+    local n = type(tooltip.NumLines) == "function" and PlainNumber(tooltip:NumLines())
+    if not name or not n then return false end
+    for i = 1, n do
+        local fs = _G[name .. "TextLeft" .. i]
+        local t = fs and type(fs.GetText) == "function" and Plain(fs:GetText())
+        if type(t) == "string" and t:find(TOTAL_LABEL, 1, true) then return true end
+    end
+    return false
+end
+
+-- Bag/slot of the item button under the cursor.
+local function HoveredSlot()
+    local focus
+    if type(_G.GetMouseFoci) == "function" then
+        local ok, t = pcall(_G.GetMouseFoci)
+        if ok and type(t) == "table" then focus = t[1] end
+    elseif type(_G.GetMouseFocus) == "function" then
+        local ok, f = pcall(_G.GetMouseFocus)
+        if ok then focus = f end
+    end
+    if type(focus) ~= "table" or type(focus.GetID) ~= "function" then return nil end
+    local ok, slot = pcall(focus.GetID, focus)
+    slot = ok and PlainNumber(slot) or nil
+    local bag
+    if type(focus.GetBagID) == "function" then
+        local ok2, b = pcall(focus.GetBagID, focus)
+        bag = ok2 and PlainNumber(b) or nil
+    elseif type(focus.GetParent) == "function" then
+        local ok2, p = pcall(focus.GetParent, focus)
+        if ok2 and type(p) == "table" and type(p.GetID) == "function" then
+            local ok3, b = pcall(p.GetID, p)
+            bag = ok3 and PlainNumber(b) or nil
+        end
+    end
+    if bag == nil or slot == nil then return nil end
+    return bag, slot
+end
+
+local function Coin(copper)
+    local C = _G.C_CurrencyInfo
+    local fn = type(C) == "table" and C.GetCoinTextureString or _G.GetCoinTextureString
+    if type(fn) == "function" then
+        local ok, s = pcall(fn, copper)
+        if ok and type(s) == "string" then return s end
+    end
+    return string.format("%dg %ds %dc", math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100)
+end
+
+function Vendor.AddTotalLine(tooltip, data)
+    if not Vendor.IsOn() or tooltip ~= _G.GameTooltip or type(data) ~= "table" then return end
+    local id = PlainNumber(data.id)
+    if not id or TooltipsForeverCovers() then return end
+    local bag, slot = HoveredSlot()
+    local c = type(_G.C_Container) == "table" and _G.C_Container.GetContainerItemInfo
+    if not bag or type(c) ~= "function" then return end
+    local ok, info = pcall(c, bag, slot)
+    if not ok or type(info) ~= "table" or PlainNumber(info.itemID) ~= id then return end
+    local count = PlainNumber(info.stackCount)
+    if not count or count <= 1 then return end
+    local price = SellPrice(id, Plain(info.hyperlink))
+    if not price or price <= 0 or HasTotalLine(tooltip) then return end
+    if type(tooltip.AddDoubleLine) ~= "function" then return end
+    tooltip:AddDoubleLine(TOTAL_LABEL .. count .. "):", Coin(price * count), 1, 1, 1, 1, 1, 1)
+    if type(tooltip.IsShown) == "function" and tooltip:IsShown() and type(tooltip.Show) == "function" then
+        tooltip:Show()
+    end
+end
+
+do
+    local tdp, enum = _G.TooltipDataProcessor, _G.Enum
+    local item = type(enum) == "table" and type(enum.TooltipDataType) == "table" and enum.TooltipDataType.Item
+    if type(tdp) == "table" and type(tdp.AddTooltipPostCall) == "function" and item ~= nil then
+        tdp.AddTooltipPostCall(item, function(tooltip, data) pcall(Vendor.AddTotalLine, tooltip, data) end)
+    end
 end

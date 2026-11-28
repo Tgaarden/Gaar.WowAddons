@@ -85,11 +85,12 @@ Right-click the Combined Backpack's round bag portrait (top-left) to open this a
   item, or when the one character has it in more than one place. Turn it off with `/gbf counts off`
   or the **Item counts in tooltip** checkbox in the GaarForever hub.
 - **Vendor price on the item buttons (since 1.14, on by default).** Every bag, bank and Combined
-  Backpack item with a sell value shows the price of ONE item in the bottom-left corner of its
+  Backpack item with a sell value shows the price of ONE item in the top-left corner of its
   button: the largest coin only, rounded down, in the coin's colour (`1g`, `35s`, `8c`). Items
   without a sell price show nothing; an item that is not cached yet gets its price as soon as the
-  client delivers it. No tooltip line is added: the game's own tooltip (and GaarTooltipsForever)
-  already show the sell price and the stack total. Turn it off with `/gbf vendor off` or the
+  client delivers it. The game's tooltip shows the price of one item; hover a stack and a `Sell price (N):` line with the
+  stack total is added (by GaarTooltipsForever when it is loaded with its vendor price on, otherwise by
+  Bags itself, never twice). Turn it off with `/gbf vendor off` or the
   **Vendor price on bag items** checkbox in the bags menu. Lives in `VendorPrice.lua`.
 - **Gold across characters (since 1.7).** Hover the gold amount in the bag window (the Combined
   Backpack, or the backpack when the bags are separate) for every character's gold on this realm

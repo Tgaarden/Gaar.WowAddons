@@ -68,7 +68,7 @@ local _G = _G
 local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarBagsForever"
 if type(ns) ~= "table" then ns = {} end
-local VERSION = "1.15.0"
+local VERSION = "1.16.0"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.
@@ -91,12 +91,13 @@ local DEFAULTS = {
     mailGlow = true,
     vendorPrice = true,
     auctionPrice = true,
+    bagScale = 1,
 }
 
 -- Every key GaarBagsForeverDB may hold; anything else is cleared on load.
 local SAVED_KEYS = { locked = true, hideNativeButton = true, position = true, reverse = true,
                      showCounts = true, inventory = true, autoSort = true, mailGlow = true,
-                     vendorPrice = true, auctionPrice = true }
+                     vendorPrice = true, auctionPrice = true, bagScale = true }
 
 local db                -- GaarBagsForeverDB, bound at ADDON_LOADED (never at file scope)
 local bagFrame          -- ContainerFrameCombinedBags once found
@@ -3854,6 +3855,7 @@ local function OnBlizzardAnchored()
 end
 
 local function OnBagFrameShown()
+    ns.ApplyBagScale()
     ApplyPosition()
     LayoutSearchRow()
     HookMoneyFrames()
@@ -3930,6 +3932,14 @@ local function HookBlizzard()
         hooksecurefunc(bagFrame, "UpdateSearchBox", LayoutSearchRow)
     end
 
+    -- Blizzard re-scales the bags to fit the screen: follow it and put our scale back (out of combat).
+    hooksecurefunc(bagFrame, "SetScale", function()
+        if ns.BagScale and not ns.BagScale.applying and ns.BagScale.scaled then
+            if type(_G.C_Timer) == "table" and _G.C_Timer.After then _G.C_Timer.After(0, ns.ApplyBagScale)
+            else ns.ApplyBagScale() end
+        end
+    end)
+    ns.ApplyBagScale()
     CreateDragHandle()
     CreateCleanupButton()
     HookMoneyFrames()
@@ -3948,6 +3958,35 @@ local function ResetPosition()
     ApplyPosition()
     Print(pendingApply and "position reset; it moves back once combat ends."
         or "position reset to Blizzard's default.")
+end
+
+-- Scale of the bags window (since 1.16). The frame's top-left corner stays where it is: the saved
+-- position is in UIParent units, so it is saved before the scale changes and put back after.
+function ns.ApplyBagScale()
+    if not bagFrame or not db or not ns.BagScale then return end
+    local want = ns.BagScale.Sanitize(db.bagScale)
+    if not ns.BagScale.Needs(bagFrame, want) then return end
+    if Blocked(bagFrame) then
+        ns.BagScale.pending = true
+        return
+    end
+    ns.BagScale.pending = false
+    if db.position and not moving then SavePosition() end
+    ns.BagScale.Apply(bagFrame, want)
+    ApplyPosition()
+end
+
+function ns.SetBagScale(value)
+    if not db or not ns.BagScale then return end
+    local scale = ns.BagScale.FromPercent(value)
+    if not scale then
+        Print(string.format("scale must be between %d and %d.", ns.BagScale.MIN * 100, ns.BagScale.MAX * 100))
+        return
+    end
+    db.bagScale = scale
+    ns.ApplyBagScale()
+    Print(ns.BagScale.pending and string.format("bag scale set to %d%%; it applies once combat ends.", ns.BagScale.ToPercent(scale))
+        or string.format("bag scale set to %d%%.", ns.BagScale.ToPercent(scale)))
 end
 
 local function SetLocked(on)
@@ -3986,6 +4025,7 @@ local function PrintHelp()
     Print("/gbf autosort on | off - clean up the bags automatically when they open (now: " .. OnOff(db and db.autoSort) .. ")")
     Print("/gbf vendor on | off - vendor sell price (one item, largest coin) on bag item buttons (now: " .. OnOff(ns.VendorOn()) .. ")")
     Print("/gbf ah on | off - auction price (Auctionator, lowest buyout per item, grey when older than 3 days) on bag item buttons, top-right (now: " .. OnOff(ns.AuctionOn()) .. ")")
+    Print("/gbf scale <50-200> - scale of the bags window in percent (now: " .. (ns.BagScale and ns.BagScale.ToPercent(db and db.bagScale) or 100) .. "%)")
     Print("/gbf stop - stop a running reversal")
     Print("/gbf counts on | off - item counts of this account's characters in item tooltips (now: " .. OnOff(CountsOn()) .. ")")
     Print("/gbf gold - gold of this account's characters (also: hover the gold in the bag window), and what the gold hover found and did last")
@@ -4063,6 +4103,8 @@ local function OnSlash(msg)
         ns.SetVendor(nil)
     elseif msg == "vendor on" or msg == "vendor off" then
         ns.SetVendor(msg == "vendor on")
+    elseif msg:match("^scale%s") then
+        ns.SetBagScale(msg:match("^scale%s+(.-)$"))
     elseif msg == "ah" then
         ns.SetAuction(nil)
     elseif msg == "ah on" or msg == "ah off" then
@@ -4108,6 +4150,7 @@ local function StatusLine()
         .. " \194\183 " .. (db.position and "moved" or "default position")
         .. " \194\183 counts " .. OnOff(CountsOn())
         .. " \194\183 vendor price " .. OnOff(ns.VendorOn())
+        .. " \194\183 scale " .. (ns.BagScale and ns.BagScale.ToPercent(db.bagScale) or 100) .. "%"
         .. " \194\183 auction price " .. OnOff(ns.AuctionOn())
         .. (ns.Auction and ns.Auction.Available() and " (Auctionator found)" or " (Auctionator not found)")
         .. " \194\183 auto-sort " .. OnOff(db.autoSort)
@@ -4129,6 +4172,10 @@ local function MenuEntries()
           func = function() SetNativeHidden(not db.hideNativeButton) end },
         { text = "Item counts in tooltip", checkbox = true, checked = CountsOn,
           func = function() SetCounts(not CountsOn()) end },
+        { text = "Bags window scale", slider = true, min = 70, max = 150, step = 10,
+          value = function() return ns.BagScale and ns.BagScale.ToPercent(db.bagScale) or 100 end,
+          set = function(v) ns.SetBagScale(v) end,
+          format = function(v) return v .. "%" end },
         { text = "Vendor price on bag items", checkbox = true, checked = ns.VendorOn,
           func = function() ns.SetVendor(not ns.VendorOn()) end },
         { text = "Auction price on bag items (Auctionator)", checkbox = true, checked = ns.AuctionOn,
@@ -4172,6 +4219,7 @@ local function BindSavedVariables()
     if type(db.autoSort) ~= "boolean" then db.autoSort = true end
     if type(db.vendorPrice) ~= "boolean" then db.vendorPrice = true end
     if type(db.auctionPrice) ~= "boolean" then db.auctionPrice = true end
+    db.bagScale = ns.BagScale and ns.BagScale.Sanitize(db.bagScale) or 1
     if type(db.mailGlow) ~= "boolean" then db.mailGlow = true end
     if db.inventory ~= nil and type(db.inventory) ~= "table" then db.inventory = nil end
     -- Characters recorded before the rename, when the bridge folder is installed (since 1.13.2).
@@ -4325,6 +4373,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
             ApplyPosition()
             LayoutSearchRow()
         end
+        ns.ApplyBagScale()
     end
 end)
 

@@ -48,6 +48,7 @@ local function Print(msg) if hub then hub.Print(msg) end end
 
 local CHANGES = {
     GaarForever = {
+        ["3.2.102"] = "notes for GaarBagsForever 1.16.0: scale for the bags window (70-150% in the bags menu and the hub settings, /gbf scale 50-200)",
         ["3.2.101"] = "notes for GaarBagsForever 1.15.0: auction price (lowest buyout per item, from the optional Auctionator addon) in the top-right of every bag item button; /gbf ah on|off or the checkbox in the bags menu",
         ["3.2.100"] = "notes for GaarBagsForever 1.14.1 and GaarTooltipsForever 1.1.5: vendor price moved to the top-left of the item button; hovering a stack now shows a Sell price (N) stack total line",
         ["3.2.99"] = "notes for GaarBagsForever 1.14.0: vendor sell price (one item, largest coin: 1g / 35s / 8c) in the corner of every bag item button; /gbf vendor on|off or the checkbox in the bags menu",

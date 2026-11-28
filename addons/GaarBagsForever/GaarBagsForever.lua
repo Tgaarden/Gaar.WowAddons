@@ -68,7 +68,7 @@ local _G = _G
 local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "GaarBagsForever"
 if type(ns) ~= "table" then ns = {} end
-local VERSION = "1.14.0"
+local VERSION = "1.14.1"
 
 -- How far the search box moves right to make room for the clean-up button: the button's width
 -- plus a gap that clears the search box's own left border art.

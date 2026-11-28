@@ -15,7 +15,7 @@ Item tooltips (GameTooltip and ItemRefTooltip; the Blizzard compare tooltips are
 
 | Feature | Default | What it adds |
 |---|---|---|
-| `vendorPrice` | on | Vendor sell price per item and for the stack (count read from the hovered bag slot), or "No sell price". Skipped when the client already shows a sell price line. |
+| `vendorPrice` | on | Vendor sell price per item and for the stack (count read from the hovered bag slot), or "No sell price". When the client already shows its own sell price line, only a `Sell price (N):` stack total is added for a hovered stack. |
 | `itemId` | off | Item ID, and spell ID on spell tooltips. |
 | `itemLevel` | on | Item level of equippable items (not added when the tooltip already has it). |
 | `compare` | on | "vs equipped:" with the top 5 differing stats against the item in the matching slot, green for better, red for worse. Uses `C_Item.GetItemStats`. |
